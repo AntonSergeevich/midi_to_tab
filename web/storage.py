@@ -22,7 +22,11 @@ CREATE TABLE IF NOT EXISTS users (
     created_at   REAL NOT NULL,
     free_used    INTEGER NOT NULL DEFAULT 0,
     paid_until   REAL,
-    email        TEXT
+    email        TEXT,
+    is_admin     INTEGER NOT NULL DEFAULT 0,
+    unlimited    INTEGER NOT NULL DEFAULT 0,
+    note         TEXT,
+    credits      INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS jobs (
@@ -46,6 +50,7 @@ CREATE TABLE IF NOT EXISTS payments (
     amount       REAL NOT NULL,
     status       TEXT NOT NULL,
     provider_id  TEXT,
+    plan         TEXT NOT NULL DEFAULT 'month',
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
@@ -60,6 +65,10 @@ class User:
     free_used: int
     paid_until: float | None
     email: str | None = None
+    is_admin: bool = False
+    unlimited: bool = False      # безлимит: друзья, тестировщики, сам владелец
+    note: str = ""               # кто это -- видно только в админке
+    credits: int = 0             # оплаченные поштучно треки
 
     @property
     def subscribed(self) -> bool:
@@ -89,6 +98,29 @@ class Storage:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn) -> None:
+        """
+        Дописать колонки, появившиеся позже.
+
+        База у работающего сервиса уже содержит пользователей, и пересоздать
+        её нельзя -- поэтому недостающие колонки добавляются по месту.
+        """
+        payment_columns = {row["name"] for row in conn.execute("PRAGMA table_info(payments)")}
+        if "plan" not in payment_columns:
+            conn.execute("ALTER TABLE payments ADD COLUMN plan TEXT NOT NULL DEFAULT 'month'")
+
+        existing = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+        for column, definition in (
+            ("is_admin", "INTEGER NOT NULL DEFAULT 0"),
+            ("unlimited", "INTEGER NOT NULL DEFAULT 0"),
+            ("note", "TEXT"),
+            ("credits", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if column not in existing:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
 
     @contextmanager
     def _connect(self):
@@ -127,13 +159,78 @@ class Storage:
             free_used=row["free_used"],
             paid_until=row["paid_until"],
             email=row["email"],
+            is_admin=bool(row["is_admin"]),
+            unlimited=bool(row["unlimited"]),
+            note=row["note"] or "",
+            credits=row["credits"] or 0,
         )
+
+    def add_credits(self, user_id: str, count: int) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE users SET credits = credits + ? WHERE id = ?", (count, user_id)
+            )
+
+    def spend_credit(self, user_id: str) -> None:
+        """Списать один оплаченный трек, не уходя ниже нуля."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE users SET credits = MAX(0, credits - 1) WHERE id = ?", (user_id,)
+            )
 
     def spend_free(self, user_id: str) -> None:
         with self._connect() as conn:
             conn.execute(
                 "UPDATE users SET free_used = free_used + 1 WHERE id = ?", (user_id,)
             )
+
+    def set_flags(
+        self,
+        user_id: str,
+        *,
+        unlimited: bool | None = None,
+        is_admin: bool | None = None,
+        note: str | None = None,
+    ) -> None:
+        """Пометки, которые ставит владелец сервиса руками."""
+        fields: dict = {}
+        if unlimited is not None:
+            fields["unlimited"] = int(unlimited)
+        if is_admin is not None:
+            fields["is_admin"] = int(is_admin)
+        if note is not None:
+            fields["note"] = note
+        if not fields:
+            return
+        assignments = ", ".join(f"{k} = ?" for k in fields)
+        with self._connect() as conn:
+            conn.execute(
+                f"UPDATE users SET {assignments} WHERE id = ?", (*fields.values(), user_id)
+            )
+
+    def all_users(self, limit: int = 500) -> list[User]:
+        """Все пользователи -- для админки, свежие сверху."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM users ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [u for u in (self.user(r["id"]) for r in rows) if u]
+
+    def stats(self) -> dict:
+        """Сводка по сервису."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT"
+                " (SELECT COUNT(*) FROM users) AS users,"
+                " (SELECT COUNT(*) FROM users WHERE unlimited = 1) AS unlimited,"
+                " (SELECT COUNT(*) FROM users WHERE paid_until > ?) AS paid,"
+                " (SELECT COUNT(*) FROM jobs) AS jobs,"
+                " (SELECT COUNT(*) FROM jobs WHERE status = 'error') AS failed,"
+                " (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'succeeded')"
+                "   AS revenue",
+                (time.time(),),
+            ).fetchone()
+        return dict(row)
 
     def extend_subscription(self, user_id: str, until: float) -> None:
         with self._connect() as conn:
@@ -226,13 +323,16 @@ class Storage:
 
     # ---------------------------------------------------------------- платежи
 
-    def create_payment(self, user_id: str, amount: float, provider_id: str | None) -> str:
+    def create_payment(
+        self, user_id: str, amount: float, provider_id: str | None, plan: str = "month"
+    ) -> str:
         payment_id = uuid.uuid4().hex
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO payments (id, user_id, created_at, amount, status, provider_id)"
-                " VALUES (?, ?, ?, ?, 'pending', ?)",
-                (payment_id, user_id, time.time(), amount, provider_id),
+                "INSERT INTO payments"
+                " (id, user_id, created_at, amount, status, provider_id, plan)"
+                " VALUES (?, ?, ?, ?, 'pending', ?, ?)",
+                (payment_id, user_id, time.time(), amount, provider_id, plan),
             )
         return payment_id
 

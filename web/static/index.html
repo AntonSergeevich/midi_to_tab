@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#15161c">
 <title>НАСЛУХ — подбор песен на слух</title>
+<meta name="description" content="Загрузите песню — получите аккорды, партии инструментов, табы и MIDI.">
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css">
 </head>
@@ -12,56 +13,103 @@
 <div class="wrap">
   <header class="top">
     <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>НАСЛУХ</span></a>
-    <div style="display:flex;gap:14px;align-items:center"><a href="/library">Мои треки</a><span id="access" class="badge">загрузка…</span></div>
+    <div style="display:flex;gap:14px;align-items:center">
+      <a href="/library">Мои треки</a>
+      <span id="access" class="badge">загрузка…</span>
+    </div>
   </header>
 
-  <div class="card">
-    <h2>Загрузите песню</h2>
-    <div class="drop" id="drop">
-      <b>Перетащите файл сюда</b>
-      <small>или нажмите, чтобы выбрать · mp3, wav, flac, ogg, m4a или готовый MIDI</small>
-      <input type="file" id="file" hidden accept=".mp3,.wav,.flac,.ogg,.m4a,.aiff,.aif,.mid,.midi">
-    </div>
-    <p id="picked" class="muted" style="margin:12px 0 0"></p>
-  </div>
-
-  <div class="card">
-    <h2>Настройки</h2>
-    <div class="grid">
-      <label class="field"><span>Строй</span><select id="tuning"></select></label>
-      <label class="field"><span>Каподастр</span><input type="number" id="capo" value="0" min="0" max="12"></label>
-      <label class="field"><span>Темп (0 — определить самому)</span><input type="number" id="tempo" value="0" min="0" max="300"></label>
-      <label class="field"><span>Квантизация</span><select id="grid"></select></label>
-      <label class="field"><span>Модель разделения</span><select id="model"></select></label>
-      <label class="field"><span>Максимум голосов (0 — без ограничения)</span><input type="number" id="poly" value="0" min="0" max="8"></label>
-      <label class="field"><span>Реже менять аккорды, сек</span><input type="number" id="minchord" value="0.9" min="0.2" max="8" step="0.1"></label>
-    </div>
-    <div style="display:flex;gap:22px;flex-wrap:wrap;margin-top:16px">
-      <label class="check"><input type="checkbox" id="sep" checked> Разделить трек на партии</label>
-      <label class="check"><input type="checkbox" id="ghosts" checked> Убирать призрачные обертоны</label>
-    </div>
-    <p class="muted" style="margin:14px 0 0">
-      Темп определяется автоматически. Аккорды размечаются сразу для всего
-      трека, а табы создаются потом — по кнопке под нужной партией.
+  <!-- Что это такое: одно предложение и три шага -->
+  <section class="hero" id="hero">
+    <h1>Подберём песню за вас</h1>
+    <p class="lead">
+      Загрузите трек — услышим аккорды, разложим на партии инструментов
+      и соберём табы с MIDI. Играйте под бегущую ленту, как под суфлёр.
     </p>
-    <p id="caps" class="muted" style="margin:8px 0 0"></p>
+    <div class="steps">
+      <div class="step"><b>1</b><span>Аккорды всей песни<br><i>за секунды</i></span></div>
+      <div class="step"><b>2</b><span>Партии по отдельности<br><i>гитара, бас, вокал</i></span></div>
+      <div class="step"><b>3</b><span>Табы и MIDI<br><i>для нужной партии</i></span></div>
+    </div>
+  </section>
+
+  <!-- Шаг 1: только зона загрузки, ничего лишнего -->
+  <div class="drop" id="drop">
+    <b>Перетащите песню сюда</b>
+    <small>или нажмите, чтобы выбрать · mp3, wav, flac, ogg, m4a или готовый MIDI</small>
+    <input type="file" id="file" hidden
+           accept=".mp3,.wav,.flac,.ogg,.m4a,.aiff,.aif,.mid,.midi">
   </div>
 
-  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
-    <button class="primary" id="go" disabled>Сделать табы</button>
-    <span id="msg" class="muted"></span>
-  </div>
+  <!-- Шаг 2: появляется только после выбора файла -->
+  <section class="reveal" id="chosen">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:180px">
+          <div id="fileName" style="font-weight:600"></div>
+          <div id="fileMeta" class="muted"></div>
+        </div>
+        <button id="reset">Другой файл</button>
+      </div>
 
-  <div class="card" id="progress" style="display:none;margin-top:18px">
-    <h2>Обработка</h2>
-    <p id="stage" class="muted" style="margin:0 0 12px">Ставлю в очередь…</p>
-    <div class="bar"><i></i></div>
-  </div>
+      <div id="modeBox" style="margin-top:18px">
+        <div class="muted" style="margin-bottom:10px">Что сделать с треком?</div>
+        <div class="choices">
+          <button class="choice" id="modeParts" data-sep="1">
+            <b>Разделить на партии</b>
+            <small>гитара, бас, барабаны, вокал отдельно — потом табы для нужной</small>
+          </button>
+          <button class="choice" id="modeChords" data-sep="0">
+            <b>Только аккорды</b>
+            <small>быстро: аккорды всей песни без разделения</small>
+          </button>
+        </div>
+      </div>
 
-  <div class="card" id="history" style="display:none;margin-top:18px">
-    <h2>Прошлые разборы</h2>
-    <div id="jobs"></div>
-  </div>
+      <details class="tune" id="tune">
+        <summary>Настройки <span class="muted">— обычно менять не нужно</span></summary>
+        <div class="grid" style="margin-top:14px">
+          <label class="field"><span>Строй</span><select id="tuning"></select></label>
+          <label class="field"><span>Каподастр</span>
+            <input type="number" id="capo" value="0" min="0" max="12"></label>
+          <label class="field"><span>Темп, 0 — определить самому</span>
+            <input type="number" id="tempo" value="0" min="0" max="300"></label>
+          <label class="field"><span>Реже менять аккорды, сек</span>
+            <input type="number" id="minchord" value="0.9" min="0.2" max="8" step="0.1"></label>
+          <label class="field"><span>Квантизация</span><select id="grid"></select></label>
+          <label class="field"><span>Максимум голосов, 0 — без предела</span>
+            <input type="number" id="poly" value="0" min="0" max="8"></label>
+        </div>
+        <label class="check" style="margin-top:12px">
+          <input type="checkbox" id="ghosts" checked> Убирать призрачные обертоны</label>
+      </details>
+
+      <p id="msg" class="muted" style="margin:14px 0 0"></p>
+    </div>
+  </section>
+
+  <!-- Шаг 3: ход работы -->
+  <section class="reveal" id="progress">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="spinner"></div>
+        <div>
+          <div id="stage" style="font-weight:600">Ставлю в очередь…</div>
+          <div class="muted" id="hint">Можно не ждать — трек останется в «Моих треках».</div>
+        </div>
+      </div>
+      <div class="bar" style="margin-top:14px"><i></i></div>
+    </div>
+  </section>
+
+  <section class="reveal" id="history">
+    <div class="card">
+      <h2>Последние треки</h2>
+      <div id="jobs"></div>
+    </div>
+  </section>
+
+  <p id="caps" class="muted" style="margin-top:18px"></p>
 </div>
 <script src="/static/upload.js"></script>
 </body>

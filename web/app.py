@@ -35,6 +35,10 @@ from .storage import Storage
 DATA_DIR = os.environ.get("MIDI2TAB_DATA", "data")
 SECRET = os.environ.get("MIDI2TAB_SECRET", "")
 MAX_UPLOAD_MB = int(os.environ.get("MIDI2TAB_MAX_MB", "60"))
+# Ключ владельца. Первый, кто войдёт с ним, получает права администратора
+# и безлимит. Без ключа админка недоступна вообще -- это безопаснее, чем
+# пароль по умолчанию, который забывают сменить.
+ADMIN_KEY = os.environ.get("MIDI2TAB_ADMIN_KEY", "")
 ALLOWED = (".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aiff", ".aif", ".mid", ".midi")
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -130,6 +134,92 @@ def index() -> HTMLResponse:
     return HTMLResponse((STATIC_DIR / "index.html").read_text(encoding="utf-8"))
 
 
+def require_admin(request: Request):
+    """Пускать в админку только помеченных администраторами."""
+    user = current_user(request)
+    if not user.is_admin:
+        raise HTTPException(403, "Нужны права администратора")
+    return user
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_page() -> HTMLResponse:
+    return HTMLResponse((STATIC_DIR / "admin.html").read_text(encoding="utf-8"))
+
+
+@app.post("/api/admin/login")
+def api_admin_login(request: Request, key: str = Form(...)):
+    """
+    Войти как владелец по ключу из переменной окружения.
+
+    Ключ сравнивается посимвольно-постоянным сравнением, чтобы по времени
+    ответа нельзя было подбирать его по одному знаку.
+    """
+    import secrets
+
+    if not ADMIN_KEY:
+        raise HTTPException(503, "Админка выключена: не задан MIDI2TAB_ADMIN_KEY")
+    if not secrets.compare_digest(key, ADMIN_KEY):
+        raise HTTPException(403, "Неверный ключ")
+
+    user = current_user(request)
+    storage.set_flags(user.id, is_admin=True, unlimited=True, note=user.note or "владелец")
+    response = JSONResponse({"ok": True})
+    attach_cookie(response, user.id)
+    return response
+
+
+@app.get("/api/admin/users")
+def api_admin_users(request: Request):
+    require_admin(request)
+    users = storage.all_users()
+    return {
+        "stats": storage.stats(),
+        "users": [
+            {
+                "id": u.id,
+                "short": u.id[:8],
+                "at": u.created_at,
+                "freeUsed": u.free_used,
+                "paidUntil": u.paid_until,
+                "subscribed": u.subscribed,
+                "unlimited": u.unlimited,
+                "isAdmin": u.is_admin,
+                "note": u.note,
+                "tracks": len(storage.root_jobs(u.id, 500)),
+            }
+            for u in users
+        ],
+    }
+
+
+@app.post("/api/admin/user/{user_id}")
+def api_admin_set(
+    user_id: str,
+    request: Request,
+    unlimited: bool | None = Form(None),
+    is_admin: bool | None = Form(None),
+    note: str | None = Form(None),
+    grant_days: int = Form(0),
+):
+    """Пометки и ручное продление подписки."""
+    me = require_admin(request)
+    target = storage.user(user_id)
+    if not target:
+        raise HTTPException(404, "Пользователь не найден")
+    # Снять с себя права можно только при наличии другого администратора,
+    # иначе в админку больше никто не войдёт.
+    if target.id == me.id and is_admin is False:
+        others = [u for u in storage.all_users() if u.is_admin and u.id != me.id]
+        if not others:
+            raise HTTPException(400, "Нельзя снять права с последнего администратора")
+
+    storage.set_flags(user_id, unlimited=unlimited, is_admin=is_admin, note=note)
+    if grant_days:
+        billing.grant_subscription(storage, user_id, days=grant_days)
+    return {"ok": True, "user": user_id}
+
+
 @app.get("/library", response_class=HTMLResponse)
 def library_page() -> HTMLResponse:
     return HTMLResponse((STATIC_DIR / "library.html").read_text(encoding="utf-8"))
@@ -155,6 +245,8 @@ def api_me(request: Request):
     payload["tunings"] = list(TUNINGS)
     payload["grids"] = list(GRIDS)
     payload["models"] = list(separate.MODELS)
+    payload["isAdmin"] = user.is_admin
+    payload["unlimited"] = user.unlimited
     payload["lyricsReady"] = lyrics_mod.available()[0]
     payload["lyricsModels"] = list(lyrics_mod.MODELS)
     payload["jobs"] = [
@@ -348,20 +440,24 @@ def api_file(job_id: str, kind: str):
 # ------------------------------------------------------------------ оплата
 
 @app.post("/api/subscribe")
-def api_subscribe(request: Request):
+def api_subscribe(request: Request, plan: str = Form("month")):
+    """Создать платёж: подписка на месяц или один трек."""
+    if plan not in billing.PLANS:
+        raise HTTPException(400, "Неизвестный тариф")
     user = current_user(request)
     gateway = billing.provider()
     if not gateway.configured():
         raise HTTPException(
             503,
             "Приём оплаты пока не подключён. Нужны реквизиты магазина "
-            "(YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY).",
+            "в переменных окружения, см. web/README.md.",
         )
+    spec = billing.PLANS[plan]
     base = str(request.base_url).rstrip("/")
-    created = gateway.create_payment(user.id, billing.PRICE_RUB, f"{base}/?paid=1")
-    storage.create_payment(user.id, billing.PRICE_RUB, created.get("id"))
+    created = gateway.create_payment(user.id, spec["price"], f"{base}/?paid=1")
+    storage.create_payment(user.id, spec["price"], created.get("id"), plan=plan)
     url = (created.get("confirmation") or {}).get("confirmation_url")
-    return {"paymentUrl": url, "paymentId": created.get("id")}
+    return {"paymentUrl": url, "paymentId": created.get("id"), "plan": plan}
 
 
 @app.post("/api/webhook/yookassa")
@@ -377,7 +473,7 @@ async def api_webhook(request: Request):
         raise HTTPException(404, "Платёж не найден")
     storage.set_payment_status(record["id"], status)
     if status == "succeeded":
-        billing.grant_subscription(storage, record["user_id"])
+        billing.apply_plan(storage, record["user_id"], record.get("plan") or "month")
     return {"ok": True}
 
 

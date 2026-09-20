@@ -206,3 +206,159 @@ def test_power_chord_without_third_is_named_five():
     """Без терции аккорд не мажор и не минор -- это квинт-аккорд."""
     spans = detect(chord_notes([45, 52, 57], 0))
     assert spans[0].name == "A5"
+
+
+# ------------------------------------------------------------------ админка
+
+
+def test_unlimited_beats_all_limits(store):
+    """Безлимит выдаётся вручную и обязан бить любые счётчики."""
+    from web import billing
+
+    user = store.ensure_user(None)
+    for _ in range(billing.FREE_SONGS):
+        billing.consume(store, user)
+        user = store.user(user.id)
+    assert not billing.check_access(user).allowed
+
+    store.set_flags(user.id, unlimited=True)
+    user = store.user(user.id)
+    access = billing.check_access(user)
+    assert access.allowed
+    assert "Безлимит" in access.reason
+
+
+def test_unlimited_does_not_spend_free(store):
+    from web import billing
+
+    user = store.ensure_user(None)
+    store.set_flags(user.id, unlimited=True)
+    user = store.user(user.id)
+    billing.consume(store, user)
+    assert store.user(user.id).free_used == 0
+
+
+def test_admin_flags_and_note(store):
+    user = store.ensure_user(None)
+    store.set_flags(user.id, is_admin=True, note="тестировщик")
+    fresh = store.user(user.id)
+    assert fresh.is_admin and fresh.note == "тестировщик"
+
+
+def test_migration_keeps_existing_users(tmp_path):
+    """
+    Регрессия: колонки добавлены позже, а база у работающего сервиса
+    уже содержит пользователей -- пересоздавать её нельзя.
+    """
+    import sqlite3
+
+    from web.storage import Storage
+
+    path = str(tmp_path / "old.db")
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        "CREATE TABLE users (id TEXT PRIMARY KEY, created_at REAL NOT NULL,"
+        " free_used INTEGER NOT NULL DEFAULT 0, paid_until REAL, email TEXT);"
+        "CREATE TABLE jobs (id TEXT PRIMARY KEY, user_id TEXT, created_at REAL,"
+        " filename TEXT, status TEXT, stage TEXT DEFAULT '', error TEXT,"
+        " settings TEXT DEFAULT '{}', result TEXT, counted INTEGER DEFAULT 0);"
+        "CREATE TABLE payments (id TEXT PRIMARY KEY, user_id TEXT, created_at REAL,"
+        " amount REAL, status TEXT, provider_id TEXT);"
+    )
+    conn.execute("INSERT INTO users VALUES ('keep', 1000.0, 2, NULL, NULL)")
+    conn.commit()
+    conn.close()
+
+    store = Storage(path)
+    user = store.user("keep")
+    assert user is not None
+    assert user.free_used == 2          # данные уцелели
+    assert user.unlimited is False      # новая колонка появилась
+
+
+def test_stats_counts_everything(store):
+    from web import billing
+
+    owner = store.ensure_user(None)
+    store.set_flags(owner.id, unlimited=True, is_admin=True)
+    other = store.ensure_user("second")
+    billing.grant_subscription(store, other.id)
+    store.create_job(owner.id, "a.mp3", {})
+
+    stats = store.stats()
+    assert stats["users"] == 2
+    assert stats["unlimited"] == 1
+    assert stats["paid"] == 1
+    assert stats["jobs"] == 1
+
+
+def test_payment_provider_selection(monkeypatch):
+    from web import billing
+
+    monkeypatch.setenv("PAYMENT_PROVIDER", "getplatinum")
+    assert billing.provider().name == "getplatinum"
+    monkeypatch.setenv("PAYMENT_PROVIDER", "yookassa")
+    assert billing.provider().name == "yookassa"
+
+
+def test_getplatinum_normalises_success_statuses():
+    from web import billing
+
+    gateway = billing.GetPlatinumProvider()
+    for raw in ("paid", "success", "succeeded", "completed"):
+        assert gateway.verify_webhook({"payment_id": "x", "status": raw})[1] == "succeeded"
+    assert gateway.verify_webhook({"payment_id": "x", "status": "canceled"})[1] == "canceled"
+    assert gateway.verify_webhook({}) is None
+
+
+# -------------------------------------------------------------- два тарифа
+
+
+def test_single_track_purchase(store):
+    """Разовая покупка даёт ровно один трек."""
+    from web import billing
+
+    user = store.ensure_user(None)
+    for _ in range(billing.FREE_SONGS):
+        billing.consume(store, user)
+        user = store.user(user.id)
+    assert not billing.check_access(user).allowed
+
+    billing.apply_plan(store, user.id, "single")
+    user = store.user(user.id)
+    assert billing.check_access(user).allowed
+    billing.consume(store, user)
+    user = store.user(user.id)
+    assert not billing.check_access(user).allowed
+
+
+def test_free_songs_spent_before_paid_credits(store):
+    """Купленный трек не должен сгорать раньше бесплатного."""
+    from web import billing
+
+    user = store.ensure_user(None)
+    billing.apply_plan(store, user.id, "single")
+    user = store.user(user.id)
+
+    billing.consume(store, user)
+    user = store.user(user.id)
+    assert user.credits == 1           # потратили пробную, не купленную
+    assert user.free_used == 1
+
+
+def test_subscription_plan_grants_days_not_credits(store):
+    from web import billing
+
+    user = store.ensure_user(None)
+    billing.apply_plan(store, user.id, "month")
+    user = store.user(user.id)
+    assert user.subscribed
+    assert user.credits == 0
+
+
+def test_payment_remembers_plan(store):
+    user = store.ensure_user(None)
+    store.create_payment(user.id, 19.0, "prov-1", plan="single")
+    record = store.payment_by_provider("prov-1")
+    assert record["plan"] == "single"
+    assert record["amount"] == 19.0

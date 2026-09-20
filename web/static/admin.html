@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>НАСЛУХ — управление</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>НАСЛУХ</span></a>
+    <span class="badge">управление</span>
+  </header>
+
+  <div class="card" id="login">
+    <h2>Вход для владельца</h2>
+    <p class="muted" style="margin:0 0 12px">
+      Ключ задаётся переменной окружения <code>MIDI2TAB_ADMIN_KEY</code> на сервере.
+    </p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <input type="password" id="key" placeholder="Ключ администратора" style="flex:1;min-width:220px">
+      <button class="primary" id="enter">Войти</button>
+    </div>
+    <p id="loginMsg" class="muted" style="margin:10px 0 0"></p>
+  </div>
+
+  <div id="panel" style="display:none">
+    <div class="grid" id="stats" style="margin-bottom:18px"></div>
+
+    <div class="card">
+      <h2>Пользователи</h2>
+      <p class="muted" style="margin:0 0 12px">
+        Галочка «безлимит» снимает все ограничения — для друзей, тестировщиков и себя.
+      </p>
+      <input type="text" id="search" placeholder="Поиск по номеру или заметке" style="margin-bottom:12px">
+      <div id="users"></div>
+    </div>
+  </div>
+</div>
+<script src="/static/admin.js"></script>
+</body>
+</html>
