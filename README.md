@@ -87,6 +87,13 @@ python -m pip install -r requirements-audio.txt
 python -m pip install --no-deps basic-pitch
 ```
 
+**pip покажет два красных предупреждения — это нормально:** что
+`tensorflow` не установлен (он и не нужен) и что `resampy 0.4.3` новее
+требуемого (`resampy` нужен `basic-pitch` только для озвучки MIDI обратно
+в аудио, наш конвейер эту функцию не вызывает). Связка
+librosa 1.0.0 + resampy 0.4.3 + numpy 2.5.3 на Python 3.12/3.13 проверена
+полным прогоном аудио → MIDI → табы.
+
 **Ключ `--no-deps` обязателен.** В метаданных `basic-pitch` жёстко прописан
 `tensorflow<2.15.1`, сборок которого нет под Python 3.11+ на Windows, —
 обычная установка падает с `No matching distribution found for tensorflow`.

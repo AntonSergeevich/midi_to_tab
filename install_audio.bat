@@ -3,6 +3,9 @@ chcp 65001 >nul
 REM Установка распознавания аудио (стем -> MIDI).
 REM Запускать из папки проекта, в активированном venv, ПОСЛЕ requirements.txt
 
+echo Внимание: pip покажет красные строки про tensorflow и resampy.
+echo Это ожидаемо и ни на что не влияет - подробности в requirements-audio.txt.
+echo.
 echo === Зависимости распознавания ===
 python -m pip install -r requirements-audio.txt
 if errorlevel 1 goto fail

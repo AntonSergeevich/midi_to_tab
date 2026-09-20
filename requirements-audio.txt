@@ -14,3 +14,12 @@ resampy>=0.4
 scipy>=1.10
 scikit-learn>=1.3
 soundfile>=0.12
+
+# ОЖИДАЕМЫЕ предупреждения pip, на которые НЕ надо реагировать:
+#   "basic-pitch requires tensorflow<2.15.1 ... which is not installed"
+#       -- так и задумано: на ONNX-бэкенде tensorflow не используется;
+#   "basic-pitch requires resampy<0.4.3, but you have resampy 0.4.3"
+#       -- resampy нужен basic-pitch только для озвучки MIDI обратно в
+#          аудио (sonify), наш конвейер эту функцию не вызывает.
+# Связка librosa 1.0.0 + resampy 0.4.3 + numpy 2.5.3 на Python 3.12/3.13
+# проверена на полном прогоне: аудио -> MIDI -> табы.
