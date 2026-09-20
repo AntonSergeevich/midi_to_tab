@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15161c">
+<title>Вход — NASLUX</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="wrap" style="max-width:520px">
+  <header class="top">
+    <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
+    <a href="/">← на главную</a>
+  </header>
+
+  <!-- Уже вошли -->
+  <div class="card" id="profile" style="display:none">
+    <h2>Ваш аккаунт</h2>
+    <p style="margin:0 0 6px"><b id="who"></b></p>
+    <p class="muted" id="plan" style="margin:0 0 16px"></p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <a href="/library"><button class="primary">Мои треки</button></a>
+      <button id="logout">Выйти</button>
+    </div>
+  </div>
+
+  <!-- Вход и регистрация -->
+  <div id="forms">
+    <div class="tabs">
+      <button class="tab active" data-tab="login">Вход</button>
+      <button class="tab" data-tab="register">Регистрация</button>
+    </div>
+
+    <div class="card pane" id="pane-login">
+      <label class="field"><span>Почта</span>
+        <input type="email" id="loginEmail" autocomplete="email" placeholder="you@mail.ru"></label>
+      <label class="field" style="margin-top:12px"><span>Пароль</span>
+        <input type="password" id="loginPassword" autocomplete="current-password"></label>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap">
+        <button class="primary" id="doLogin">Войти</button>
+        <a href="#" id="showForgot" class="muted">Забыли пароль?</a>
+      </div>
+      <p id="loginMsg" class="muted" style="margin:12px 0 0"></p>
+    </div>
+
+    <div class="card pane" id="pane-register" style="display:none">
+      <p class="muted" style="margin:0 0 14px">
+        Треки, разобранные до регистрации, останутся при вас.
+      </p>
+      <label class="field"><span>Почта</span>
+        <input type="email" id="regEmail" autocomplete="email" placeholder="you@mail.ru"></label>
+      <label class="field" style="margin-top:12px"><span>Пароль — не короче 8 символов</span>
+        <input type="password" id="regPassword" autocomplete="new-password"></label>
+      <button class="primary" id="doRegister" style="margin-top:16px">Создать аккаунт</button>
+      <p id="regMsg" class="muted" style="margin:12px 0 0"></p>
+    </div>
+
+    <div class="card pane" id="pane-forgot" style="display:none">
+      <h2>Восстановление пароля</h2>
+      <p class="muted" style="margin:0 0 14px">
+        Пришлём ссылку для смены пароля. Она действует час.
+      </p>
+      <label class="field"><span>Почта</span>
+        <input type="email" id="forgotEmail" autocomplete="email"></label>
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button class="primary" id="doForgot">Прислать ссылку</button>
+        <button id="backToLogin">Назад</button>
+      </div>
+      <p id="forgotMsg" class="muted" style="margin:12px 0 0"></p>
+    </div>
+
+    <div class="card pane" id="pane-reset" style="display:none">
+      <h2>Новый пароль</h2>
+      <label class="field"><span>Пароль — не короче 8 символов</span>
+        <input type="password" id="newPassword" autocomplete="new-password"></label>
+      <button class="primary" id="doReset" style="margin-top:16px">Сохранить</button>
+      <p id="resetMsg" class="muted" style="margin:12px 0 0"></p>
+    </div>
+  </div>
+
+  <div class="card" id="support">
+    <h2>Написать нам</h2>
+    <label class="field"><span>Тема</span><select id="topic"></select></label>
+    <p class="muted" id="topicNote" style="margin:8px 0 0"></p>
+    <label class="field" style="margin-top:12px"><span>Сообщение</span>
+      <textarea id="body" rows="5" placeholder="Опишите, что случилось"></textarea></label>
+    <label class="field" id="emailField" style="margin-top:12px;display:none">
+      <span>Почта для ответа</span><input type="email" id="supportEmail"></label>
+    <button class="primary" id="sendTicket" style="margin-top:14px">Отправить</button>
+    <p id="ticketMsg" class="muted" style="margin:12px 0 0"></p>
+  </div>
+
+  <div class="card" id="history" style="display:none">
+    <h2>Мои обращения</h2>
+    <div id="tickets"></div>
+  </div>
+
+  <footer class="legal">
+    <a href="/privacy">Политика конфиденциальности</a>
+    <a href="/offer">Оферта</a>
+    <span>© NASLUX</span>
+  </footer>
+</div>
+<script src="/static/account.js"></script>
+<script src="/static/consent.js"></script>
+</body>
+</html>

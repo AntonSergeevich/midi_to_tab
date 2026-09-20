@@ -68,10 +68,15 @@ grep MIDI2TAB_ADMIN_KEY /opt/nasluh/nasluh.env
 ставятся отдельно — когда убедитесь, что памяти хватает:
 
 ```bash
-/opt/nasluh/venv/bin/pip install -r /opt/nasluh/app/requirements-separation.txt
-/opt/nasluh/venv/bin/pip install faster-whisper
+bash /opt/nasluh/app/deploy/install_separation.sh
+/opt/nasluh/venv/bin/pip install --no-cache-dir faster-whisper
 systemctl restart nasluh
 ```
+
+**Не ставьте demucs напрямую через pip.** На Linux он тянет torch со всем
+набором CUDA — около двух гигабайт драйверов для видеокарты, которой на
+сервере нет. Диск на 40 ГБ это переполняет. Скрипт выше ставит сборку
+для процессора (примерно 200 МБ) и заранее проверяет свободное место.
 
 Веса моделей скачиваются при первом обращении: Demucs около 300 МБ,
 Whisper small около 480 МБ. Первый разбор поэтому будет заметно дольше.

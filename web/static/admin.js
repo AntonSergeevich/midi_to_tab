@@ -36,6 +36,7 @@ async function loadUsers() {
     ['Треков обработано', s.jobs],
     ['Сбоев', s.failed],
     ['Получено, ₽', Math.round(s.revenue)],
+    ['Обращений ждёт', s.open_tickets],
   ].map(([label, value]) => `
     <div class="card" style="margin:0;padding:14px">
       <div class="muted" style="font-size:12px">${label}</div>
@@ -44,6 +45,75 @@ async function loadUsers() {
 
   all = data.users;
   render();
+  await loadTickets();
+}
+
+const escapeHtml = (text) => {
+  const div = document.createElement('div');
+  div.textContent = text || '';
+  return div.innerHTML;
+};
+
+async function loadTickets() {
+  const { tickets } = await (await fetch('/api/admin/tickets')).json();
+  if (!tickets.length) {
+    $('tickets').innerHTML = '<p class="muted">Обращений нет.</p>';
+    return;
+  }
+  const colour = { late: 'var(--red)', soon: 'var(--accent)', ok: 'var(--muted)' };
+  $('tickets').innerHTML = tickets.map((t) => `
+    <div class="part" style="display:block" data-ticket="${t.id}">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <b>${t.topicTitle}</b>
+        <span style="color:${colour[t.urgency.level]};font-size:13px">
+          ${t.urgency.overdue
+            ? `просрочено на ${Math.abs(t.urgency.daysLeft).toFixed(0)} дн`
+            : `осталось ${t.urgency.daysLeft.toFixed(0)} дн`}
+        </span>
+      </div>
+      <div class="muted" style="font-size:12px;margin:4px 0">
+        ${t.email || t.userId} · ${new Date(t.at * 1000).toLocaleString('ru-RU')}
+        · ${t.status === 'new' ? 'новое' : 'отвечено'}
+      </div>
+      <div style="margin:8px 0">${escapeHtml(t.body)}</div>
+      ${t.answer
+        ? `<div style="border-left:2px solid var(--accent);padding-left:10px">
+             <div style="color:var(--accent);font-size:13px">Ваш ответ</div>
+             <div>${escapeHtml(t.answer)}</div></div>`
+        : `<textarea rows="3" data-answer placeholder="Ответ"></textarea>
+           <div style="display:flex;gap:10px;align-items:center;margin-top:8px">
+             <button class="primary" data-send>Ответить</button>
+             <label class="check"><input type="checkbox" data-notify checked>
+               отправить на почту</label>
+             <span class="muted" data-result></span>
+           </div>`}
+    </div>`).join('');
+
+  document.querySelectorAll('[data-ticket]').forEach((row) => {
+    const send = row.querySelector('[data-send]');
+    if (!send) return;
+    send.onclick = async () => {
+      const answer = row.querySelector('[data-answer]').value.trim();
+      const result = row.querySelector('[data-result]');
+      if (answer.length < 2) { result.textContent = 'пустой ответ'; return; }
+      send.disabled = true;
+      const form = new FormData();
+      form.append('answer', answer);
+      form.append('notify', row.querySelector('[data-notify]').checked);
+      const response = await fetch(`/api/admin/ticket/${row.dataset.ticket}`,
+        { method: 'POST', body: form });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        result.innerHTML = `<span class="bad">${data.detail || 'ошибка'}</span>`;
+        send.disabled = false;
+        return;
+      }
+      result.innerHTML = data.emailed
+        ? '<span class="ok">отправлено на почту</span>'
+        : '<span class="ok">сохранено</span>';
+      setTimeout(loadTickets, 900);
+    };
+  });
 }
 
 $('search').oninput = render;

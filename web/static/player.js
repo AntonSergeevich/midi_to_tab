@@ -324,9 +324,14 @@ function bindControls() {
 // --------------------------------------------------------------------- кадр
 
 function tick() {
+  // При уходе со страницы кадр может успеть выполниться, когда элементов
+  // уже нет: тогда в консоль сыплются ошибки на ровном месте.
+  const ribbon = $('ribbon');
+  if (!ribbon) return;
+
   const now = clock ? clock.time : 0;
   // Одна и та же вертикаль и один и тот же сдвиг для обеих лент
-  const centre = $('ribbon').clientWidth / 2;
+  const centre = ribbon.clientWidth / 2;
   const shift = centre - now * PX_PER_SEC;
   $('nowLine').style.left = `${centre}px`;
   $('ribTrack').style.transform = `translateX(${shift}px)`;

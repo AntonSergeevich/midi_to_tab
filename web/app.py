@@ -28,7 +28,7 @@ from midi2tab import audiochords, audioin, lyrics as lyrics_mod, separate
 from midi2tab.timing import GRIDS
 from midi2tab.tuning import TUNINGS
 
-from . import billing
+from . import auth, billing, mailer, support
 from .jobs import JobRunner
 from .storage import Storage
 
@@ -102,6 +102,7 @@ if not SECRET:
     SECRET = os.urandom(32).hex()
     print("ВНИМАНИЕ: MIDI2TAB_SECRET не задан, использован временный ключ.")
 signer = URLSafeSerializer(SECRET, salt="uid")
+login_limiter = auth.AttemptLimiter()
 
 
 # ------------------------------------------------------------- пользователь
@@ -220,6 +221,265 @@ def api_admin_set(
     return {"ok": True, "user": user_id}
 
 
+@app.get("/account", response_class=HTMLResponse)
+def account_page() -> HTMLResponse:
+    return HTMLResponse((STATIC_DIR / "account.html").read_text(encoding="utf-8"))
+
+
+# ----------------------------------------------------------- учётные записи
+
+
+@app.post("/api/auth/register")
+def api_register(request: Request, email: str = Form(...), password: str = Form(...)):
+    """
+    Завести учётную запись.
+
+    Привязывается к текущей анонимной записи, а не создаёт новую: человек
+    мог уже разобрать треки до регистрации, и терять их нельзя.
+    """
+    try:
+        address = auth.normalise_email(email)
+        password_hash = auth.hash_password(password)
+    except auth.AuthError as exc:
+        raise HTTPException(400, str(exc))
+
+    if storage.user_by_email(address):
+        raise HTTPException(409, "Такая почта уже зарегистрирована. Войдите.")
+
+    user = current_user(request)
+    if user.registered:
+        raise HTTPException(400, "Вы уже вошли. Сначала выйдите.")
+
+    try:
+        storage.register(user.id, address, password_hash)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+    response = JSONResponse({"ok": True, "email": address})
+    attach_cookie(response, user.id)
+    return response
+
+
+@app.post("/api/auth/login")
+def api_login(request: Request, email: str = Form(...), password: str = Form(...)):
+    try:
+        address = auth.normalise_email(email)
+    except auth.AuthError as exc:
+        raise HTTPException(400, str(exc))
+
+    # Ограничение по почте, а не по адресу клиента: адрес легко меняется,
+    # а перебор ведут именно против конкретной учётной записи.
+    if login_limiter.blocked(address):
+        raise HTTPException(
+            429, "Слишком много попыток. Подождите 15 минут или восстановите пароль."
+        )
+
+    account = storage.user_by_email(address)
+    ok = auth.verify_password(password, account.password_hash if account else None)
+    if not account or not ok:
+        login_limiter.note_failure(address)
+        left = login_limiter.left(address)
+        hint = f" Осталось попыток: {left}." if left <= 3 else ""
+        raise HTTPException(401, f"Неверная почта или пароль.{hint}")
+
+    login_limiter.reset(address)
+
+    # Треки, разобранные до входа, переносим в аккаунт
+    visitor = current_user(request)
+    moved = 0
+    if visitor.id != account.id and not visitor.registered:
+        moved = storage.move_jobs(visitor.id, account.id)
+        storage.delete_user_if_empty(visitor.id)
+
+    response = JSONResponse({"ok": True, "email": address, "moved": moved})
+    attach_cookie(response, account.id)
+    return response
+
+
+@app.post("/api/auth/logout")
+def api_logout():
+    """Выйти: кука сбрасывается, следующий заход будет анонимным."""
+    response = JSONResponse({"ok": True})
+    response.delete_cookie("uid")
+    return response
+
+
+@app.post("/api/auth/forgot")
+def api_forgot(request: Request, email: str = Form(...)):
+    """
+    Выслать ссылку восстановления.
+
+    Ответ одинаков независимо от того, есть такая почта или нет: иначе
+    форма превращается в способ узнать, кто зарегистрирован.
+    """
+    same_answer = {
+        "ok": True,
+        "message": "Если такая почта зарегистрирована, письмо со ссылкой отправлено.",
+    }
+    try:
+        address = auth.normalise_email(email)
+    except auth.AuthError as exc:
+        raise HTTPException(400, str(exc))
+
+    ready, why = mailer.available()
+    if not ready:
+        raise HTTPException(503, why)
+
+    account = storage.user_by_email(address)
+    if not account:
+        return same_answer
+
+    token, token_hash = auth.make_reset_token()
+    storage.create_reset(account.id, token_hash, auth.token_expiry())
+    base = str(request.base_url).rstrip("/")
+    try:
+        mailer.send_reset(address, f"{base}/account?reset={token}")
+    except Exception as exc:
+        print(f"[forgot] не удалось отправить письмо: {exc}")
+        raise HTTPException(503, "Не удалось отправить письмо. Попробуйте позже.")
+    return same_answer
+
+
+@app.post("/api/auth/reset")
+def api_reset(token: str = Form(...), password: str = Form(...)):
+    try:
+        password_hash = auth.hash_password(password)
+    except auth.AuthError as exc:
+        raise HTTPException(400, str(exc))
+
+    user_id = storage.consume_reset(auth.hash_token(token))
+    if not user_id:
+        raise HTTPException(400, "Ссылка устарела или уже использована.")
+
+    storage.set_password(user_id, password_hash)
+    storage.purge_resets(user_id)   # остальные коды больше не действуют
+
+    response = JSONResponse({"ok": True})
+    attach_cookie(response, user_id)
+    return response
+
+
+# ------------------------------------------------------------- обращения
+
+
+@app.post("/api/support")
+def api_support(
+    request: Request,
+    topic: str = Form(support.DEFAULT_TOPIC),
+    body: str = Form(...),
+    email: str = Form(""),
+):
+    """Отправить обращение. Ответ придёт в личный кабинет и на почту."""
+    user = current_user(request)
+    try:
+        key, text = support.validate(topic, body)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+    address = user.email
+    if not address and email.strip():
+        try:
+            address = auth.normalise_email(email)
+        except auth.AuthError as exc:
+            raise HTTPException(400, str(exc))
+    if not address:
+        raise HTTPException(
+            400, "Укажите почту для ответа или войдите в аккаунт."
+        )
+
+    ticket_id = storage.create_ticket(user.id, address, key, text)
+    spec = support.TOPICS[key]
+    response = JSONResponse(
+        {"ok": True, "id": ticket_id, "days": spec["days"], "note": spec["note"]}
+    )
+    attach_cookie(response, user.id)
+    return response
+
+
+@app.get("/api/support")
+def api_my_tickets(request: Request):
+    """Свои обращения и ответы на них."""
+    user = current_user(request)
+    items = []
+    for row in storage.user_tickets(user.id):
+        items.append(
+            {
+                "id": row["id"],
+                "at": row["created_at"],
+                "topic": support.topic_title(row["topic"]),
+                "body": row["body"],
+                "status": row["status"],
+                "answer": row["answer"],
+                "answeredAt": row["answered_at"],
+            }
+        )
+    response = JSONResponse({"tickets": items, "topics": support.TOPICS})
+    attach_cookie(response, user.id)
+    return response
+
+
+@app.get("/api/admin/tickets")
+def api_admin_tickets(request: Request, status: str = ""):
+    require_admin(request)
+    items = []
+    for row in storage.tickets(status or None):
+        level = support.urgency(row["created_at"], row["topic"], row["answered_at"])
+        items.append(
+            {
+                "id": row["id"],
+                "at": row["created_at"],
+                "email": row["email"],
+                "userId": row["user_id"][:8],
+                "topic": row["topic"],
+                "topicTitle": support.topic_title(row["topic"]),
+                "body": row["body"],
+                "status": row["status"],
+                "answer": row["answer"],
+                "answeredAt": row["answered_at"],
+                "urgency": level.as_dict(),
+            }
+        )
+    return {"tickets": items}
+
+
+@app.post("/api/admin/ticket/{ticket_id}")
+def api_admin_answer(
+    ticket_id: str,
+    request: Request,
+    answer: str = Form(...),
+    status: str = Form("answered"),
+    notify: bool = Form(True),
+):
+    """Ответить на обращение. При возможности письмо уходит на почту."""
+    require_admin(request)
+    ticket = storage.ticket(ticket_id)
+    if not ticket:
+        raise HTTPException(404, "Обращение не найдено")
+    text = (answer or "").strip()
+    if len(text) < 2:
+        raise HTTPException(400, "Пустой ответ")
+
+    storage.answer_ticket(ticket_id, text, status)
+
+    sent = False
+    problem = ""
+    if notify and ticket["email"] and mailer.available()[0]:
+        try:
+            mailer.send(
+                ticket["email"],
+                "NASLUX — ответ на ваше обращение",
+                f"Здравствуйте!\n\nВы писали нам:\n\n{ticket['body']}\n\n"
+                f"Наш ответ:\n\n{text}\n\n"
+                "Ответить можно в личном кабинете: /account\n",
+            )
+            sent = True
+        except Exception as exc:
+            problem = str(exc)
+            print(f"[ticket {ticket_id}] письмо не ушло: {exc}")
+
+    return {"ok": True, "emailed": sent, "problem": problem}
+
+
 @app.get("/privacy", response_class=HTMLResponse)
 def privacy_page() -> HTMLResponse:
     return HTMLResponse((STATIC_DIR / "privacy.html").read_text(encoding="utf-8"))
@@ -255,6 +515,9 @@ def api_me(request: Request):
     payload["tunings"] = list(TUNINGS)
     payload["grids"] = list(GRIDS)
     payload["models"] = list(separate.MODELS)
+    payload["email"] = user.email
+    payload["registered"] = user.registered
+    payload["mailReady"] = mailer.available()[0]
     payload["isAdmin"] = user.is_admin
     payload["unlimited"] = user.unlimited
     payload["lyricsReady"] = lyrics_mod.available()[0]
@@ -422,6 +685,39 @@ def api_make_tabs(job_id: str, stem_key: str, request: Request):
     )
     runner.submit_tabs(child.id, job_id, stem_key)
     return {"jobId": child.id}
+
+
+@app.delete("/api/job/{job_id}")
+def api_delete_job(job_id: str, request: Request):
+    """
+    Удалить трек вместе с файлами.
+
+    Файлы удаляются с диска, а не только строки из базы: иначе место
+    занято, а человек уверен, что убрал за собой.
+    """
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job:
+        raise HTTPException(404, "Трек не найден")
+    if job.user_id != user.id and not user.is_admin:
+        raise HTTPException(403, "Это не ваш трек")
+
+    removed = storage.delete_job(job_id)
+    freed = 0
+    for identifier in removed:
+        for folder in (
+            os.path.join(DATA_DIR, "uploads", identifier),
+            os.path.join(DATA_DIR, "results", identifier),
+        ):
+            if os.path.isdir(folder):
+                for root, _dirs, files in os.walk(folder):
+                    for name in files:
+                        try:
+                            freed += os.path.getsize(os.path.join(root, name))
+                        except OSError:
+                            pass
+                shutil.rmtree(folder, ignore_errors=True)
+    return {"ok": True, "deleted": len(removed), "freedBytes": freed}
 
 
 @app.get("/api/file/{job_id}/part/{stem_key}")

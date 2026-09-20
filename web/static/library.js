@@ -10,7 +10,11 @@ const FILE_NAMES = { gp5: 'Guitar Pro', txt: 'Табы .txt', mid: 'MIDI' };
 async function load() {
   const me = await (await fetch('/api/me')).json();
   const badge = $('access');
-  if (me.subscribed) {
+  $('account').textContent = me.registered ? me.email : 'Вход';
+  if (me.unlimited) {
+    badge.textContent = 'Безлимит';
+    badge.className = 'badge pro';
+  } else if (me.subscribed) {
     badge.textContent = 'Подписка активна';
     badge.className = 'badge pro';
   } else {
@@ -18,14 +22,38 @@ async function load() {
   }
 
   const { tracks } = await (await fetch('/api/library')).json();
-  if (!tracks.length) {
-    $('empty').style.display = '';
-    return;
-  }
 
+  // Список очищаем ДО проверки на пустоту: иначе после удаления
+  // последнего трека его карточка остаётся висеть на экране, и человек
+  // уверен, что удаление не сработало.
   $('list').innerHTML = tracks.map(card).join('');
+  $('empty').style.display = tracks.length ? 'none' : '';
+  if (!tracks.length) return;
   document.querySelectorAll('[data-open]').forEach((el) => {
-    el.onclick = () => (location.href = `/player/${el.dataset.open}`);
+    el.onclick = (event) => {
+      if (event.target.closest('[data-del]')) return;   // клик по «удалить»
+      location.href = `/player/${el.dataset.open}`;
+    };
+  });
+  document.querySelectorAll('[data-del]').forEach((button) => {
+    button.onclick = async (event) => {
+      event.stopPropagation();
+      const id = button.dataset.del;
+      const name = button.dataset.name;
+      // Удаление необратимо и уносит файлы с диска -- спрашиваем прямо
+      if (!confirm(`Удалить «${name}» вместе с табами и MIDI?\n\nОтменить это нельзя.`)) return;
+      button.disabled = true;
+      button.textContent = 'удаляю…';
+      const response = await fetch(`/api/job/${id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        alert(error.detail || 'Не удалось удалить');
+        button.disabled = false;
+        button.textContent = 'Удалить';
+        return;
+      }
+      await load();
+    };
   });
 }
 
@@ -53,9 +81,13 @@ function card(track) {
 
   return `
     <div class="card" style="cursor:pointer" data-open="${track.id}">
-      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center">
         <div style="font-weight:600;font-size:16px">${track.name}</div>
-        <div class="muted">${when(track.at)}</div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <span class="muted">${when(track.at)}</span>
+          <button class="del" data-del="${track.id}"
+                  data-name="${track.name.replace(/"/g, '&quot;')}">Удалить</button>
+        </div>
       </div>
       <div class="muted" style="margin:6px 0 10px">${facts.join(' · ') || '—'}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">

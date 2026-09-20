@@ -29,6 +29,8 @@ async function loadMe() {
   fill($('grid'), me.grids);
   $('grid').value = me.grids.find((g) => g.includes('1/16')) || me.grids[0];
 
+  const account = $('account');
+  if (account) account.textContent = me.registered ? me.email : 'Вход';
   const badge = $('access');
   if (me.unlimited) {
     badge.textContent = me.isAdmin ? 'Владелец · безлимит' : 'Безлимитный доступ';

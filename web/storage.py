@@ -54,7 +54,33 @@ CREATE TABLE IF NOT EXISTS payments (
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS resets (
+    token_hash   TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL,
+    created_at   REAL NOT NULL,
+    expires_at   REAL NOT NULL,
+    used_at      REAL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS tickets (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL,
+    created_at   REAL NOT NULL,
+    email        TEXT,
+    topic        TEXT NOT NULL,
+    body         TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'new',
+    answer       TEXT,
+    answered_at  REAL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS tickets_status ON tickets(status, created_at);
 CREATE INDEX IF NOT EXISTS jobs_user ON jobs(user_id, created_at);
+-- Почта уникальна на уровне базы: две учётные записи с одним адресом
+-- сделали бы восстановление пароля неоднозначным.
+CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users(email) WHERE email IS NOT NULL;
 """
 
 
@@ -69,6 +95,13 @@ class User:
     unlimited: bool = False      # безлимит: друзья, тестировщики, сам владелец
     note: str = ""               # кто это -- видно только в админке
     credits: int = 0             # оплаченные поштучно треки
+    password_hash: str | None = None
+    registered_at: float | None = None
+
+    @property
+    def registered(self) -> bool:
+        """Завёл ли человек учётную запись или остаётся анонимным."""
+        return bool(self.email and self.password_hash)
 
     @property
     def subscribed(self) -> bool:
@@ -118,6 +151,8 @@ class Storage:
             ("unlimited", "INTEGER NOT NULL DEFAULT 0"),
             ("note", "TEXT"),
             ("credits", "INTEGER NOT NULL DEFAULT 0"),
+            ("password_hash", "TEXT"),
+            ("registered_at", "REAL"),
         ):
             if column not in existing:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
@@ -163,6 +198,8 @@ class Storage:
             unlimited=bool(row["unlimited"]),
             note=row["note"] or "",
             credits=row["credits"] or 0,
+            password_hash=row["password_hash"],
+            registered_at=row["registered_at"],
         )
 
     def add_credits(self, user_id: str, count: int) -> None:
@@ -177,6 +214,161 @@ class Storage:
             conn.execute(
                 "UPDATE users SET credits = MAX(0, credits - 1) WHERE id = ?", (user_id,)
             )
+
+    # ------------------------------------------------------ учётные записи
+
+    def user_by_email(self, email: str) -> User | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM users WHERE email = ?", (email,)
+            ).fetchone()
+        return self.user(row["id"]) if row else None
+
+    def register(self, user_id: str, email: str, password_hash: str) -> None:
+        """
+        Привязать почту и пароль к существующей записи.
+
+        Именно к существующей, а не к новой: человек уже мог разобрать
+        треки анонимно, и при регистрации они должны остаться при нём.
+        """
+        with self._connect() as conn:
+            try:
+                conn.execute(
+                    "UPDATE users SET email = ?, password_hash = ?, registered_at = ?"
+                    " WHERE id = ?",
+                    (email, password_hash, time.time(), user_id),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("Такая почта уже зарегистрирована.") from exc
+
+    def set_password(self, user_id: str, password_hash: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE users SET password_hash = ? WHERE id = ?",
+                (password_hash, user_id),
+            )
+
+    def move_jobs(self, from_user: str, to_user: str) -> int:
+        """
+        Перенести треки с анонимной записи на учётную.
+
+        Нужно, когда человек разобрал что-то анонимно, а потом вошёл в
+        уже существующий аккаунт: терять разобранное нельзя.
+        """
+        if from_user == to_user:
+            return 0
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE jobs SET user_id = ? WHERE user_id = ?", (to_user, from_user)
+            )
+            return cursor.rowcount
+
+    def delete_user_if_empty(self, user_id: str) -> None:
+        """Убрать анонимную запись, с которой всё перенесли."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM jobs WHERE user_id = ?", (user_id,)
+            ).fetchone()
+            if row["n"] == 0:
+                conn.execute(
+                    "DELETE FROM users WHERE id = ? AND email IS NULL", (user_id,)
+                )
+
+    # ------------------------------------------------------ восстановление
+
+    def create_reset(self, user_id: str, token_hash: str, expires_at: float) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO resets"
+                " (token_hash, user_id, created_at, expires_at, used_at)"
+                " VALUES (?, ?, ?, ?, NULL)",
+                (token_hash, user_id, time.time(), expires_at),
+            )
+
+    def consume_reset(self, token_hash: str) -> str | None:
+        """
+        Проверить и погасить код восстановления.
+
+        Погашение и проверка в одной операции: иначе одним кодом можно
+        было бы сменить пароль дважды.
+        """
+        now = time.time()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT user_id FROM resets"
+                " WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?",
+                (token_hash, now),
+            ).fetchone()
+            if not row:
+                return None
+            conn.execute(
+                "UPDATE resets SET used_at = ? WHERE token_hash = ?", (now, token_hash)
+            )
+            return row["user_id"]
+
+    def purge_resets(self, user_id: str) -> None:
+        """Погасить все прежние коды -- например, после смены пароля."""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM resets WHERE user_id = ?", (user_id,))
+
+    # -------------------------------------------------------- обращения
+
+    def create_ticket(self, user_id: str, email: str | None, topic: str, body: str) -> str:
+        ticket_id = uuid.uuid4().hex
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO tickets (id, user_id, created_at, email, topic, body)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (ticket_id, user_id, time.time(), email, topic, body),
+            )
+        return ticket_id
+
+    def tickets(self, status: str | None = None, limit: int = 200) -> list[dict]:
+        query = "SELECT * FROM tickets"
+        params: tuple = ()
+        if status:
+            query += " WHERE status = ?"
+            params = (status,)
+        # Новые сверху: по ним и идёт отсчёт срока ответа
+        query += " ORDER BY created_at DESC LIMIT ?"
+        with self._connect() as conn:
+            rows = conn.execute(query, (*params, limit)).fetchall()
+        return [dict(row) for row in rows]
+
+    def ticket(self, ticket_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM tickets WHERE id = ?", (ticket_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def user_tickets(self, user_id: str) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM tickets WHERE user_id = ? ORDER BY created_at DESC",
+                (user_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def answer_ticket(self, ticket_id: str, answer: str, status: str = "answered") -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE tickets SET answer = ?, status = ?, answered_at = ? WHERE id = ?",
+                (answer, status, time.time(), ticket_id),
+            )
+
+    # ----------------------------------------------------------- удаление
+
+    def delete_job(self, job_id: str) -> list[str]:
+        """
+        Удалить задание и порождённые им. Возвращает список всех id --
+        по ним вызывающий удалит файлы с диска.
+        """
+        children = [child.id for child in self.child_jobs(job_id)]
+        ids = [job_id, *children]
+        with self._connect() as conn:
+            conn.executemany("DELETE FROM jobs WHERE id = ?", [(i,) for i in ids])
+        return ids
 
     def spend_free(self, user_id: str) -> None:
         with self._connect() as conn:
@@ -227,7 +419,8 @@ class Storage:
                 " (SELECT COUNT(*) FROM jobs) AS jobs,"
                 " (SELECT COUNT(*) FROM jobs WHERE status = 'error') AS failed,"
                 " (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'succeeded')"
-                "   AS revenue",
+                "   AS revenue,"
+                " (SELECT COUNT(*) FROM tickets WHERE status = 'new') AS open_tickets",
                 (time.time(),),
             ).fetchone()
         return dict(row)
