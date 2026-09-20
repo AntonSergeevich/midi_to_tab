@@ -6,4 +6,5 @@ Type=oneshot
 User=nasluh
 Group=nasluh
 EnvironmentFile=/opt/nasluh/nasluh.env
+Environment=HOME=/opt/nasluh/data
 ExecStart=/opt/nasluh/venv/bin/python /opt/nasluh/app/deploy/cleanup.py

@@ -10,6 +10,16 @@ Group=nasluh
 WorkingDirectory=/opt/nasluh/app
 EnvironmentFile=/opt/nasluh/nasluh.env
 
+# Ниже ProtectSystem=strict делает всю файловую систему доступной только
+# для чтения, кроме папки данных. Библиотекам это ломает кэши, которые
+# они по умолчанию пишут рядом со своими модулями: numba внутри librosa
+# падает с "cannot cache function: no locator available". Поэтому все
+# кэши явно перенаправляются в папку данных.
+Environment=HOME=/opt/nasluh/data
+Environment=XDG_CACHE_HOME=/opt/nasluh/data/cache
+Environment=NUMBA_CACHE_DIR=/opt/nasluh/data/cache/numba
+Environment=MPLCONFIGDIR=/opt/nasluh/data/cache/matplotlib
+
 # Один рабочий процесс намеренно. Разбор идёт в пуле потоков внутри
 # процесса, и каждый лишний процесс множит и пул, и память под PyTorch.
 # На сервере с 4 ГБ два процесса кладут машину по памяти, а не ускоряют.

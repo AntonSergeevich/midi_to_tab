@@ -38,7 +38,9 @@ say "Пользователь и папки"
 # Сервис работает не от root: если его взломают, чужой получит доступ
 # только к его собственным файлам.
 id -u nasluh >/dev/null 2>&1 || useradd --system --home /opt/nasluh --shell /usr/sbin/nologin nasluh
-mkdir -p "$APP_DIR" "$DATA"/{uploads,results,models}
+# cache -- для numba и прочих библиотек: под ProtectSystem=strict больше
+# писать некуда, а без этого распознавание падает на попытке кэширования.
+mkdir -p "$APP_DIR" "$DATA"/{uploads,results,models,cache}
 
 say "Код"
 if [ -d "$APP_DIR/.git" ]; then
