@@ -11,7 +11,17 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 datas = []
 binaries = []
-hiddenimports = ["guitarpro", "pretty_midi"]
+hiddenimports = ["guitarpro", "pretty_midi", "pygame", "pygame.midi"]
+
+# Разделение дорожек -- только если demucs установлен (тянет PyTorch,
+# поэтому .exe с ним получается очень большим; без него сборка лёгкая)
+try:
+    import demucs  # noqa: F401
+
+    datas += collect_data_files("demucs")
+    hiddenimports += ["demucs", "demucs.separate", "torch", "torchaudio"]
+except ImportError:
+    pass
 
 # Модель распознавания и её окружение -- только если basic-pitch установлен
 try:

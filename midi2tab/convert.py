@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import arrange, asciiout, audioin, gp5out, midiin
+from . import arrange, asciiout, audioin, cleanup, gp5out, midiin
 from .timing import DEFAULT_GRID, GRIDS
 from .tuning import DEFAULT_TUNING, TUNINGS, Fretboard, pitch_name
 
@@ -42,6 +42,8 @@ class Settings:
     frame_threshold: float = 0.3
     min_note_ms: float = 90.0
     limit_to_range: bool = True
+    remove_ghosts: bool = True      # убирать призрачные обертоны
+    max_polyphony: int = 0          # 0 -- без ограничения
 
     def fretboard(self) -> Fretboard:
         return Fretboard(
@@ -64,6 +66,9 @@ class Result:
     tab_text: str = ""
     report: arrange.ArrangeReport | None = None
     summary: list[str] = field(default_factory=list)
+    # нужны для прослушивания и повторной выгрузки без пересчёта
+    placements: list = field(default_factory=list)
+    tempo: int = 120
 
 
 def _noop(_message: str) -> None:
@@ -125,6 +130,21 @@ def convert(settings: Settings, progress=None) -> Result:
     if not notes:
         raise ValueError("В выбранных дорожках нет нот.")
 
+    # Чистка имеет смысл только для распознанного аудио: в готовом MIDI
+    # ноты записаны человеком, и "лишних обертонов" там нет по определению.
+    if audioin.is_audio(src) and (settings.remove_ghosts or settings.max_polyphony):
+        say("Чищу распознанное...")
+        notes, clean_report = cleanup.clean(
+            notes,
+            cleanup.CleanupSettings(
+                remove_ghosts=settings.remove_ghosts,
+                max_polyphony=settings.max_polyphony,
+            ),
+        )
+        result.summary.extend(clean_report.messages)
+        if not notes:
+            raise ValueError("После чистки не осталось нот -- ослабьте фильтры.")
+
     # 3. Раскладка по грифу
     say("Раскладываю по грифу...")
     placements, report = arrange.arrange(
@@ -181,6 +201,8 @@ def convert(settings: Settings, progress=None) -> Result:
         except OSError:
             pass
 
+    result.placements = placements
+    result.tempo = tempo
     result.summary.extend(report.messages)
     result.summary.append(
         f"Готово: {len(plan)} тактов, верхний лад {report.max_fret_used}, темп {tempo}"

@@ -254,3 +254,87 @@ def test_user_tempo_reaches_audio_transcription():
 
     source = inspect.getsource(convert_module.convert)
     assert "tempo=float(settings.tempo)" in source
+
+
+# ------------------------------------------------------- чистка распознанного
+
+
+def test_quiet_harmonics_are_removed_loud_octaves_kept():
+    """
+    Обертон и настоящая октава различаются по громкости.
+
+    Тихое ми октавой выше сыгранного ми -- призрак модели.
+    Громкое соль октавой выше сыгранного соль -- настоящая нота.
+    """
+    from midi2tab import cleanup
+
+    notes = [
+        NoteEvent(0, 24, 52, 100),   # E3 сыграно
+        NoteEvent(2, 20, 64, 45),    # E4 призрак (+12, вдвое тише)
+        NoteEvent(3, 18, 71, 30),    # B4 призрак (+19, тише)
+        NoteEvent(24, 24, 55, 95),   # G3 сыграно
+        NoteEvent(24, 24, 67, 90),   # G4 настоящая октава, громкая
+    ]
+    cleaned, report = cleanup.clean(notes)
+    pitches = [n.pitch for n in cleaned]
+    assert report.removed_ghosts == 2
+    assert pitches == [52, 55, 67]
+
+
+def test_cleanup_can_be_switched_off():
+    from midi2tab import cleanup
+
+    notes = [NoteEvent(0, 24, 52, 100), NoteEvent(1, 20, 64, 30)]
+    cleaned, report = cleanup.clean(
+        notes, cleanup.CleanupSettings(remove_ghosts=False, merge_repeats=False)
+    )
+    assert len(cleaned) == 2
+    assert report.removed_ghosts == 0
+
+
+def test_polyphony_limit_keeps_loudest():
+    from midi2tab import cleanup
+
+    notes = [NoteEvent(0, 24, p, v) for p, v in ((40, 30), (47, 110), (52, 100))]
+    cleaned, report = cleanup.clean(
+        notes, cleanup.CleanupSettings(remove_ghosts=False, max_polyphony=2)
+    )
+    assert report.removed_excess == 1
+    assert sorted(n.pitch for n in cleaned) == [47, 52]
+
+
+# ------------------------------------------------------------- прослушивание
+
+
+def test_playback_pitches_match_original_notes():
+    """Обратный пересчёт струна+лад в высоту обязан совпасть с исходником."""
+    from midi2tab import playback
+
+    pitches = [48, 52, 55, 60]
+    notes = _sequence(pitches)
+    placements, _ = arrange.arrange(notes, board(), auto_transpose=False)
+    events = playback.build_events(placements, board(), 120)
+    assert len(events) == len(pitches) * 2          # на каждую ноту вкл и выкл
+    assert sorted({e.pitch for e in events}) == pitches
+
+
+def test_playback_export_uses_chosen_instrument(tmp_path):
+    import pretty_midi
+
+    from midi2tab import playback
+
+    notes = _sequence([48, 52])
+    placements, _ = arrange.arrange(notes, board(), auto_transpose=False)
+    out = str(tmp_path / "p.mid")
+    playback.write_midi(placements, board(), out, 120, "Овердрайв")
+    back = pretty_midi.PrettyMIDI(out)
+    assert back.instruments[0].program == playback.INSTRUMENTS["Овердрайв"]
+    assert len(back.instruments[0].notes) == 2
+
+
+def test_playback_degrades_without_backend():
+    """Без MIDI-выхода приложение обязано объяснить причину, а не молчать."""
+    from midi2tab import playback
+
+    ok, why = playback.available()
+    assert ok or "pip install" in why
