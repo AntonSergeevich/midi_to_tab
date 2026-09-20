@@ -241,3 +241,16 @@ def test_unsupported_text_falls_back_to_latin(tmp_path):
 def test_transliterate_handles_russian():
     assert gp5out.transliterate("Пожары") == "Pozhary"
     assert gp5out.transliterate("Guitar 1") == "Guitar 1"
+
+
+def test_user_tempo_reaches_audio_transcription():
+    """
+    Темп должен уходить в распознавание, а не только в готовый файл:
+    по нему аудио размечается на доли, и от него зависит квантизация.
+    """
+    import inspect
+
+    from midi2tab import convert as convert_module
+
+    source = inspect.getsource(convert_module.convert)
+    assert "tempo=float(settings.tempo)" in source

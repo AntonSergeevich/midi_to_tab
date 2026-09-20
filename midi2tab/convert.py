@@ -87,17 +87,28 @@ def convert(settings: Settings, progress=None) -> Result:
     midi_path = src
     if audioin.is_audio(src):
         say("Распознаю ноты из аудио...")
+        # Темп важно задать ДО распознавания: по нему MIDI размечается на
+        # доли, и от него зависит, куда лягут ноты при квантизации.
+        # Если темп не указан, берётся 120 -- и сетка разойдётся с записью.
         cfg = audioin.TranscribeSettings(
             onset_threshold=settings.onset_threshold,
             frame_threshold=settings.frame_threshold,
             min_note_ms=settings.min_note_ms,
             min_pitch=board.lowest_pitch if settings.limit_to_range else None,
             max_pitch=board.highest_pitch if settings.limit_to_range else None,
+            tempo=float(settings.tempo) if settings.tempo else 120.0,
         )
         midi_path = os.path.join(out_dir, f"{stem}.mid")
         midi_path, note_count = audioin.transcribe(src, midi_path, cfg, progress=say)
         result.midi_path = midi_path
         result.summary.append(f"Из аудио распознано нот: {note_count}")
+        if settings.tempo:
+            result.summary.append(f"Аудио размечено под темп {settings.tempo}")
+        else:
+            result.summary.append(
+                "Темп не указан -- взято 120. Если темп записи другой, "
+                "укажите его на вкладке «Ритм»: от этого зависит квантизация."
+            )
         if settings.limit_to_range:
             result.summary.append(
                 f"Поиск ограничен диапазоном инструмента "
