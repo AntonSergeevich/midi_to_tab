@@ -95,13 +95,40 @@ mkdir -p /var/www/certbot
 # До получения сертификата конфиг с HTTPS не запустится -- сначала
 # поднимаем только HTTP, чтобы certbot смог пройти проверку.
 if [ ! -d "/etc/letsencrypt/live/$DOMAIN" ]; then
+    # Временный конфиг на время, пока нет сертификата. Он полноценный:
+    # по нему работают и до настройки DNS, обращаясь по адресу сервера,
+    # поэтому здесь нужны и предел загрузки, и длинные таймауты.
     cat > /etc/nginx/sites-available/nasluh <<NGX
 server {
-    listen 80;
-    server_name $DOMAIN www.$DOMAIN;
-    location /.well-known/acme-challenge/ { root /var/www/certbot; }
-    location / { proxy_pass http://127.0.0.1:8000; proxy_set_header Host \$host; }
+    listen 80 default_server;   # отвечаем и по адресу сервера, не только по домену
+    server_name $DOMAIN www.$DOMAIN _;
+
     client_max_body_size 80m;
+    client_body_timeout 300s;
+    proxy_connect_timeout 60s;
+    proxy_send_timeout    600s;
+    proxy_read_timeout    600s;
+
+    access_log /var/log/nginx/nasluh.access.log;
+    error_log  /var/log/nginx/nasluh.error.log;
+
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+
+    location /static/ {
+        alias $APP_DIR/web/static/;
+        expires 1h;
+        access_log off;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              \$host;
+        proxy_set_header X-Real-IP         \$remote_addr;
+        proxy_set_header X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_buffering off;
+    }
 }
 NGX
     nginx -t && systemctl reload nginx
@@ -112,13 +139,23 @@ NGX
         echo "Почта не указана (EMAIL=...). Письма о проблемах с сертификатом приходить не будут."
         CERT_MAIL=(--register-unsafely-without-email)
     fi
-    certbot certonly --webroot -w /var/www/certbot -d "$DOMAIN" -d "www.$DOMAIN" \
-        --agree-tos "${CERT_MAIL[@]}" --non-interactive || {
-        echo "Certbot не справился. Проверьте, что домен указывает на этот сервер:"
-        echo "  dig +short $DOMAIN"
-        exit 1
-    }
-    sed "s/naslux\.ru/$DOMAIN/g" "$APP_DIR/deploy/nginx.conf" > /etc/nginx/sites-available/nasluh
+    # Неудача с сертификатом НЕ должна обрывать установку: сайт уже
+    # работает по HTTP, и важнее доделать остальное -- брандмауэр,
+    # автозапуск, уборку. Сертификат берётся отдельной командой, когда
+    # заработает DNS.
+    if certbot certonly --webroot -w /var/www/certbot -d "$DOMAIN" -d "www.$DOMAIN" \
+        --agree-tos "${CERT_MAIL[@]}" --non-interactive; then
+        sed "s/naslux\.ru/$DOMAIN/g" "$APP_DIR/deploy/nginx.conf" > /etc/nginx/sites-available/nasluh
+        HTTPS_READY=1
+    else
+        echo
+        echo "  Сертификат не выдан -- скорее всего, домен ещё не указывает сюда."
+        echo "  Это не мешает работе: сайт доступен по адресу http://${MY_IP:-$DOMAIN}"
+        echo "  Когда DNS заработает (dig +short $DOMAIN вернёт ${MY_IP:-адрес сервера}),"
+        echo "  выполните:  DOMAIN=$DOMAIN bash $APP_DIR/deploy/certbot.sh"
+        echo
+        HTTPS_READY=0
+    fi
 fi
 
 nginx -t && systemctl reload nginx
@@ -132,7 +169,16 @@ systemctl enable --now fail2ban
 say "Готово"
 systemctl --no-pager status nasluh.service | head -5
 echo
-echo "Сайт:    https://$DOMAIN"
-echo "Админка: https://$DOMAIN/admin"
+if [ "${HTTPS_READY:-1}" = "1" ] && [ -d "/etc/letsencrypt/live/$DOMAIN" ]; then
+    echo "Сайт:    https://$DOMAIN"
+    echo "Админка: https://$DOMAIN/admin"
+else
+    echo "Сайт пока по адресу сервера (DNS или сертификат ещё не готовы):"
+    echo "  http://${MY_IP:-проверьте IP}"
+    echo "  http://${MY_IP:-проверьте IP}/admin"
+    echo
+    echo "После настройки DNS получите сертификат:"
+    echo "  DOMAIN=$DOMAIN bash $APP_DIR/deploy/certbot.sh"
+fi
 echo "Ключ:    grep MIDI2TAB_ADMIN_KEY /opt/nasluh/nasluh.env"
 echo "Логи:    journalctl -u nasluh -f"
