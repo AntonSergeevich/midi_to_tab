@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+build/
+dist/
+*.spec.bak
+.pytest_cache/
+.idea/
+.vscode/
+
+# результаты работы приложения
+*.gp5
+*.tab.txt
+out/

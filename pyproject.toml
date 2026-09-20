@@ -1,0 +1,26 @@
+[project]
+name = "midi2tab"
+version = "1.0.0"
+description = "Перевод MIDI и аудио-стемов в гитарные табы (Guitar Pro 5 и текст)"
+requires-python = ">=3.10"
+dependencies = [
+    "pretty-midi>=0.2.10",
+    "PyGuitarPro>=0.10",
+]
+
+[project.optional-dependencies]
+audio = ["basic-pitch[onnx]>=0.4.0"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+midi2tab = "midi2tab.cli:main"
+
+[project.gui-scripts]
+midi2tab-gui = "midi2tab.gui:main"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
