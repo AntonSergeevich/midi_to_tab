@@ -256,8 +256,13 @@ Wavetable Synth», он есть всегда). Тембр выбирается 
 
 ```powershell
 python -m pip install -r requirements-web.txt
-uvicorn web.app:app --host 0.0.0.0 --port 8000
+uvicorn web.app:app --host 127.0.0.1 --port 8000
 ```
+
+Открыть `http://localhost:8000`. Адрес `0.0.0.0` в браузер вводить
+нельзя — это адрес прослушивания для сервера, браузер ответит
+`ERR_ADDRESS_INVALID`. Флаг `--host 0.0.0.0` нужен только чтобы
+подключаться с других устройств.
 
 Подробности, переменные окружения, подписка и приём оплаты — в
 [web/README.md](web/README.md).

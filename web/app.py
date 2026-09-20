@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
@@ -49,9 +51,43 @@ def safe_stem(filename: str) -> str:
     cleaned = "".join(c for c in stem if c.isalnum() or c in " _-()[]").strip()
     return (cleaned or "song")[:60]
 
-app = FastAPI(title="MidiToTab")
+def _running_port() -> str:
+    """
+    Порт, на котором нас запустили.
+
+    Берётся из аргументов uvicorn, иначе из переменной PORT. Печатать
+    число наугад нельзя: неверная подсказка хуже её отсутствия.
+    """
+    argv = sys.argv
+    for i, arg in enumerate(argv):
+        if arg == "--port" and i + 1 < len(argv):
+            return argv[i + 1]
+        if arg.startswith("--port="):
+            return arg.split("=", 1)[1]
+    return os.environ.get("PORT", "8000")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # uvicorn печатает "running on http://0.0.0.0:8000", и это сбивает с
+    # толку: 0.0.0.0 означает "слушать на всех интерфейсах", открыть такой
+    # адрес в браузере нельзя -- он ответит ERR_ADDRESS_INVALID.
+    port = _running_port()
+    print()
+    print("  MidiToTab запущен. Откройте в браузере:")
+    print(f"      http://localhost:{port}")
+    if not os.environ.get("MIDI2TAB_SECRET"):
+        print()
+        print("  Совет: задайте MIDI2TAB_SECRET, иначе при перезапуске")
+        print("  сбросится счётчик бесплатных песен у пользователей.")
+    print()
+    yield
+    runner.shutdown()
+
+
 storage = Storage(os.path.join(DATA_DIR, "app.db"))
 runner = JobRunner(storage, DATA_DIR)
+app = FastAPI(title="MidiToTab", lifespan=lifespan)
 
 if not SECRET:
     # Свой ключ на каждый запуск: куки протухнут при перезапуске, но
@@ -249,6 +285,12 @@ async def api_webhook(request: Request):
     if status == "succeeded":
         billing.grant_subscription(storage, record["user_id"])
     return {"ok": True}
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    """Браузер запрашивает иконку сам; без неё в консоли висит 404."""
+    return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
 
 
 @app.get("/api/health")
