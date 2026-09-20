@@ -190,6 +190,32 @@ class Storage:
                 (*fields.values(), job_id),
             )
 
+    def child_jobs(self, parent_id: str) -> list[Job]:
+        """
+        Задания, порождённые разбором: табы по отдельным партиям.
+
+        Связь хранится в настройках, а не отдельной колонкой -- так схема
+        остаётся простой, а таких связей у задания всегда ровно одна.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM jobs WHERE json_extract(settings, '$.parent') = ?"
+                " ORDER BY created_at",
+                (parent_id,),
+            ).fetchall()
+        return [j for j in (self.job(r["id"]) for r in rows) if j]
+
+    def root_jobs(self, user_id: str, limit: int = 60) -> list[Job]:
+        """Только сами треки, без порождённых ими заданий на табы."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM jobs WHERE user_id = ?"
+                " AND json_extract(settings, '$.parent') IS NULL"
+                " ORDER BY created_at DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+        return [j for j in (self.job(r["id"]) for r in rows) if j]
+
     def user_jobs(self, user_id: str, limit: int = 30) -> list[Job]:
         with self._connect() as conn:
             rows = conn.execute(

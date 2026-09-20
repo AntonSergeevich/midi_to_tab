@@ -2,16 +2,17 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MidiToTab — табы из песни</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15161c">
+<title>НАСЛУХ — подбор песен на слух</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
 <div class="wrap">
   <header class="top">
-    <div class="logo">Midi<span>To</span>Tab</div>
-    <div id="access" class="badge">загрузка…</div>
+    <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>НАСЛУХ</span></a>
+    <div style="display:flex;gap:14px;align-items:center"><a href="/library">Мои треки</a><span id="access" class="badge">загрузка…</span></div>
   </header>
 
   <div class="card">
@@ -29,16 +30,21 @@
     <div class="grid">
       <label class="field"><span>Строй</span><select id="tuning"></select></label>
       <label class="field"><span>Каподастр</span><input type="number" id="capo" value="0" min="0" max="12"></label>
-      <label class="field"><span>Темп (0 — из файла)</span><input type="number" id="tempo" value="0" min="0" max="300"></label>
+      <label class="field"><span>Темп (0 — определить самому)</span><input type="number" id="tempo" value="0" min="0" max="300"></label>
       <label class="field"><span>Квантизация</span><select id="grid"></select></label>
       <label class="field"><span>Модель разделения</span><select id="model"></select></label>
       <label class="field"><span>Максимум голосов (0 — без ограничения)</span><input type="number" id="poly" value="0" min="0" max="8"></label>
+      <label class="field"><span>Реже менять аккорды, сек</span><input type="number" id="minchord" value="0.9" min="0.2" max="8" step="0.1"></label>
     </div>
     <div style="display:flex;gap:22px;flex-wrap:wrap;margin-top:16px">
-      <label class="check"><input type="checkbox" id="sep" checked> Разделить трек и взять гитару</label>
+      <label class="check"><input type="checkbox" id="sep" checked> Разделить трек на партии</label>
       <label class="check"><input type="checkbox" id="ghosts" checked> Убирать призрачные обертоны</label>
     </div>
-    <p id="caps" class="muted" style="margin:14px 0 0"></p>
+    <p class="muted" style="margin:14px 0 0">
+      Темп определяется автоматически. Аккорды размечаются сразу для всего
+      трека, а табы создаются потом — по кнопке под нужной партией.
+    </p>
+    <p id="caps" class="muted" style="margin:8px 0 0"></p>
   </div>
 
   <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">

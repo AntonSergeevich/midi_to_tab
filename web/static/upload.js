@@ -108,6 +108,7 @@ $('go').onclick = async () => {
   form.append('separate_track', $('sep').checked);
   form.append('remove_ghosts', $('ghosts').checked);
   form.append('max_polyphony', $('poly').value);
+  form.append('min_chord', $('minchord').value);
 
   $('go').disabled = true;
   $('progress').style.display = '';

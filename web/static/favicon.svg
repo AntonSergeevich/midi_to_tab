@@ -1,13 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="6" fill="#1d1f27"/>
-  <g stroke="#d99a4e" stroke-width="1.6" stroke-linecap="round">
-    <line x1="7" y1="9" x2="25" y2="9"/>
-    <line x1="7" y1="16" x2="25" y2="16"/>
-    <line x1="7" y1="23" x2="25" y2="23"/>
-  </g>
-  <g fill="#e6e8ee">
-    <circle cx="12" cy="9" r="2.4"/>
-    <circle cx="19" cy="16" r="2.4"/>
-    <circle cx="15" cy="23" r="2.4"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <!-- Значок для малых размеров: меньше деталей, толще штрих.
+       Полная версия знака с четырьмя струнами на 24 px сливается. -->
+  <rect width="96" height="96" rx="20" fill="#1d1f27"/>
+  <line x1="14" y1="30" x2="82" y2="30" stroke="#3a3f4d" stroke-width="3"/>
+  <line x1="14" y1="66" x2="82" y2="66" stroke="#3a3f4d" stroke-width="3"/>
+  <path d="M14 48 Q26 18 38 48 T62 48" fill="none" stroke="#d99a4e"
+        stroke-width="7" stroke-linecap="round"/>
+  <circle cx="74" cy="30" r="9" fill="#d99a4e"/>
+  <circle cx="74" cy="66" r="9" fill="#d99a4e"/>
 </svg>

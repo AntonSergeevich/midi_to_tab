@@ -24,7 +24,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, URLSafeSerializer
 
-from midi2tab import audioin, separate
+from midi2tab import audiochords, audioin, lyrics as lyrics_mod, separate
 from midi2tab.timing import GRIDS
 from midi2tab.tuning import TUNINGS
 
@@ -72,9 +72,12 @@ async def lifespan(_app: FastAPI):
     # uvicorn печатает "running on http://0.0.0.0:8000", и это сбивает с
     # толку: 0.0.0.0 означает "слушать на всех интерфейсах", открыть такой
     # адрес в браузере нельзя -- он ответит ERR_ADDRESS_INVALID.
+    # Прогреваем numba внутри librosa заранее: иначе первый пользователь
+    # ждёт в разы дольше остальных, пока компилируются функции.
+    audiochords.prewarm()
     port = _running_port()
     print()
-    print("  MidiToTab запущен. Откройте в браузере:")
+    print("  НАСЛУХ запущен. Откройте в браузере:")
     print(f"      http://localhost:{port}")
     if not os.environ.get("MIDI2TAB_SECRET"):
         print()
@@ -87,7 +90,7 @@ async def lifespan(_app: FastAPI):
 
 storage = Storage(os.path.join(DATA_DIR, "app.db"))
 runner = JobRunner(storage, DATA_DIR)
-app = FastAPI(title="MidiToTab", lifespan=lifespan)
+app = FastAPI(title="НАСЛУХ", lifespan=lifespan)
 
 if not SECRET:
     # Свой ключ на каждый запуск: куки протухнут при перезапуске, но
@@ -127,6 +130,11 @@ def index() -> HTMLResponse:
     return HTMLResponse((STATIC_DIR / "index.html").read_text(encoding="utf-8"))
 
 
+@app.get("/library", response_class=HTMLResponse)
+def library_page() -> HTMLResponse:
+    return HTMLResponse((STATIC_DIR / "library.html").read_text(encoding="utf-8"))
+
+
 @app.get("/player/{job_id}", response_class=HTMLResponse)
 def player_page(job_id: str) -> HTMLResponse:
     if not storage.job(job_id):
@@ -147,9 +155,11 @@ def api_me(request: Request):
     payload["tunings"] = list(TUNINGS)
     payload["grids"] = list(GRIDS)
     payload["models"] = list(separate.MODELS)
+    payload["lyricsReady"] = lyrics_mod.available()[0]
+    payload["lyricsModels"] = list(lyrics_mod.MODELS)
     payload["jobs"] = [
         {"id": j.id, "name": j.filename, "status": j.status, "at": j.created_at}
-        for j in storage.user_jobs(user.id, 10)
+        for j in storage.root_jobs(user.id, 10)
     ]
     response = JSONResponse(payload)
     attach_cookie(response, user.id)
@@ -163,6 +173,7 @@ async def api_upload(
     tuning: str = Form(""),
     capo: int = Form(0),
     tempo: int = Form(0),
+    min_chord: float = Form(0.9),
     grid: str = Form(""),
     separate_track: bool = Form(False),
     model: str = Form(""),
@@ -184,6 +195,7 @@ async def api_upload(
         "tuning": tuning or None,
         "capo": capo,
         "tempo": tempo,
+        "minChord": min_chord,
         "grid": grid or None,
         "separate": separate_track,
         "model": model or separate.DEFAULT_MODEL,
@@ -214,7 +226,7 @@ async def api_upload(
     # обрывая задание на полпути.
     billing.consume(storage, user)
     storage.update_job(job.id, counted=True)
-    runner.submit(job.id, target)
+    runner.submit_analysis(job.id, target)
 
     response = JSONResponse({"jobId": job.id})
     attach_cookie(response, user.id)
@@ -238,6 +250,88 @@ def api_job(job_id: str):
             key: value for key, value in job.result.items() if key != "paths"
         }
     return payload
+
+
+@app.get("/api/library")
+def api_library(request: Request):
+    """
+    Треки пользователя вместе с тем, что для них уже сделано.
+
+    Смысл кабинета в том, чтобы вернуться к треку и найти всё на месте,
+    а не разбирать его заново.
+    """
+    user = current_user(request)
+    items = []
+    for job in storage.root_jobs(user.id):
+        children = storage.child_jobs(job.id)
+        result = job.result or {}
+        items.append(
+            {
+                "id": job.id,
+                "name": job.filename,
+                "at": job.created_at,
+                "status": job.status,
+                "stage": job.stage,
+                "tempo": result.get("tempo"),
+                "chords": len(result.get("chords") or []),
+                "parts": [p["label"] for p in (result.get("parts") or [])],
+                "hasLyrics": bool(result.get("lyrics")),
+                "made": [
+                    {
+                        "id": child.id,
+                        "stem": (child.settings or {}).get("stem", ""),
+                        "status": child.status,
+                        "files": list(((child.result or {}).get("files") or {}).keys()),
+                    }
+                    for child in children
+                ],
+            }
+        )
+    response = JSONResponse({"tracks": items})
+    attach_cookie(response, user.id)
+    return response
+
+
+@app.post("/api/job/{job_id}/lyrics")
+def api_make_lyrics(job_id: str, request: Request, model: str = Form(lyrics_mod.DEFAULT_MODEL)):
+    """Распознать текст песни по вокальной партии."""
+    job = storage.job(job_id)
+    if not job or job.status != "done" or not job.result:
+        raise HTTPException(404, "Разбор ещё не готов")
+    ok, why = lyrics_mod.available()
+    if not ok:
+        raise HTTPException(503, why)
+    runner.submit_lyrics(job_id, model)
+    return {"ok": True}
+
+
+@app.post("/api/job/{job_id}/tabs/{stem_key}")
+def api_make_tabs(job_id: str, stem_key: str, request: Request):
+    """Создать MIDI и табы для выбранной партии."""
+    parent = storage.job(job_id)
+    if not parent or parent.status != "done" or not parent.result:
+        raise HTTPException(404, "Разбор ещё не готов")
+    if stem_key not in (parent.result.get("paths") or {}).get("parts", {}):
+        raise HTTPException(404, "Такой партии нет")
+
+    user = current_user(request)
+    child = storage.create_job(
+        user.id, f"{parent.filename} — {stem_key}", {"parent": job_id, "stem": stem_key}
+    )
+    runner.submit_tabs(child.id, job_id, stem_key)
+    return {"jobId": child.id}
+
+
+@app.get("/api/file/{job_id}/part/{stem_key}")
+def api_part_file(job_id: str, stem_key: str):
+    """Аудио одной партии -- его слушают в плеере."""
+    job = storage.job(job_id)
+    if not job or not job.result:
+        raise HTTPException(404, "Файл не готов")
+    path = (job.result.get("paths") or {}).get("parts", {}).get(stem_key)
+    if not path or not os.path.isfile(path):
+        raise HTTPException(404, "Партия не найдена")
+    return FileResponse(path, filename=os.path.basename(path))
 
 
 @app.get("/api/file/{job_id}/{kind}")

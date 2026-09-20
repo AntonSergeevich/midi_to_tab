@@ -1,18 +1,16 @@
-// Плеер: дорожка едет под неподвижной линией воспроизведения.
-//
-// Позиция считается от audio.currentTime, а не накоплением в таймере:
-// таймер неизбежно расходится со звуком, а currentTime — это и есть
-// настоящее положение в записи.
+// Плеер: аккордовая лента, метроном по найденным долям, табы по запросу.
 
 const $ = (id) => document.getElementById(id);
-const PX_PER_SEC = 150;      // масштаб дорожки
-const HEAD_X = 180;          // положение линии воспроизведения
-
+const PX_PER_SEC = 128;
 const jobId = location.pathname.split('/').pop();
+
 let data = null;
-let chordEls = [];
+let ribs = [];
 let fretEls = [];
-let clock = null;            // источник времени: аудио или синтезатор
+let tabData = null;
+let clock = null;
+let metro = null;
+let lyricEls = [];
 
 const STRING_LABELS = {
   6: ['e', 'B', 'G', 'D', 'A', 'E'],
@@ -21,70 +19,143 @@ const STRING_LABELS = {
   5: ['G', 'D', 'A', 'E', 'B'],
 };
 
-function mmss(seconds) {
-  if (!isFinite(seconds)) return '0:00';
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
+const mmss = (s) => (!isFinite(s) ? '0:00'
+  : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`);
+
+// ---------------------------------------------------------------- загрузка
 
 async function load() {
   const job = await (await fetch(`/api/job/${jobId}`)).json();
   if (job.status !== 'done') {
     $('title').textContent = 'Разбор ещё не готов';
     $('meta').textContent = job.stage || job.status;
+    setTimeout(load, 1500);
     return;
   }
   data = job.result;
   $('title').textContent = job.name;
-  const p = data.player;
+  const detected = data.tempoDetected ? ' (определён автоматически)' : '';
   $('meta').textContent =
-    `${p.tuning} · темп ${p.tempo} · тактов ${p.measures.length} · аккордов ${p.chords.length}`;
-  $('tabText').textContent = data.tab;
-  $('summary').innerHTML = (data.summary || []).map((s) => `<div>${s}</div>`).join('');
+    `Темп ${data.tempo}${detected} · аккордов ${data.chords.length} · партий ${data.parts.length}`;
 
-  const kinds = { gp5: 'Guitar Pro (.gp5)', txt: 'Текстовые табы (.txt)', mid: 'MIDI (.mid)' };
-  $('files').innerHTML = Object.entries(data.files)
-    .filter(([, has]) => has)
-    .map(([kind]) => `<a href="/api/file/${jobId}/${kind}"><button>${kinds[kind]}</button></a>`)
-    .join('');
+  $('audio').src = data.audio;
+  clock = audioClock($('audio'));
+  metro = metronome(data.beats || [], data.downbeats || []);
 
-  // Браузер не умеет играть .mid, поэтому для MIDI-исходника ноты
-  // синтезируются на месте через Web Audio.
-  if (data.hasAudio) {
-    $('audio').src = data.audio;
-    clock = audioClock($('audio'));
-  } else {
-    clock = synthClock(p);
-    $('meta').textContent += ' · звук синтезирован из нот';
-  }
-  buildLanes(p);
+  buildRibbon();
+  buildParts();
+  buildLyrics();
   bindControls();
   requestAnimationFrame(tick);
 }
 
-function buildLanes(p) {
-  // аккорды
-  const track = $('chordTrack');
+// ------------------------------------------------------------- лента аккордов
+
+function buildRibbon() {
+  const track = $('ribTrack');
   track.innerHTML = '';
-  chordEls = p.chords.map((chord) => {
+  if (!data.chords.length) {
+    $('ribbon').innerHTML =
+      '<p class="muted" style="padding:24px;text-align:center">' +
+      'Аккорды не распознаны. Для MIDI-файлов лента не строится.</p>';
+    ribs = [];
+    return;
+  }
+  ribs = data.chords.map((chord) => {
     const el = document.createElement('div');
-    el.className = 'chord';
-    el.textContent = chord.name;
-    el.style.left = `${chord.start * PX_PER_SEC}px`;
-    el.style.width = `${Math.max(62, (chord.end - chord.start) * PX_PER_SEC - 6)}px`;
+    el.className = 'rib';
+    const shaky = chord.confidence < 0.55;
+    el.innerHTML = `<div>${chord.name}` +
+      (shaky ? '<small class="low-conf">не уверен</small>' : '<small></small>') + '</div>';
+    el.style.left = `${((chord.start + chord.end) / 2) * PX_PER_SEC}px`;
     track.appendChild(el);
     return { el, chord };
   });
-  track.style.width = `${(p.duration + 4) * PX_PER_SEC}px`;
+  track.style.width = `${(data.chords[data.chords.length - 1].end + 8) * PX_PER_SEC}px`;
+}
 
-  // линии струн и подписи
+// ------------------------------------------------------------------ партии
+
+function buildParts() {
+  $('parts').innerHTML = '';
+  data.parts.forEach((part) => {
+    const row = document.createElement('div');
+    row.className = 'part';
+    row.innerHTML = `
+      <span class="name">${part.label}</span>
+      <button data-act="listen">Слушать</button>
+      <span class="spacer"></span>
+      <span class="muted" data-role="status"></span>
+      <button class="primary" data-act="tabs">Создать MIDI и табы</button>`;
+    $('parts').appendChild(row);
+
+    row.querySelector('[data-act="listen"]').onclick = () => {
+      document.querySelectorAll('.part').forEach((p) => p.classList.remove('active'));
+      row.classList.add('active');
+      const wasPlaying = !clock.paused;
+      clock.pause();
+      $('audio').src = part.audio;
+      if (wasPlaying) clock.play();
+    };
+
+    const button = row.querySelector('[data-act="tabs"]');
+    const status = row.querySelector('[data-role="status"]');
+    button.onclick = async () => {
+      button.disabled = true;
+      status.textContent = 'ставлю в очередь…';
+      const response = await fetch(`/api/job/${jobId}/tabs/${part.key}`, { method: 'POST' });
+      if (!response.ok) {
+        status.innerHTML = `<span class="bad">${(await response.json()).detail}</span>`;
+        button.disabled = false;
+        return;
+      }
+      watchTabs((await response.json()).jobId, status, button, part.label);
+    };
+  });
+}
+
+function watchTabs(childId, status, button, label) {
+  const timer = setInterval(async () => {
+    const job = await (await fetch(`/api/job/${childId}`)).json();
+    status.textContent = job.stage || job.status;
+    if (job.status === 'done') {
+      clearInterval(timer);
+      status.innerHTML = '<span class="ok">готово</span>';
+      button.disabled = false;
+      showTabs(job.result, childId, label);
+    } else if (job.status === 'error') {
+      clearInterval(timer);
+      status.innerHTML = `<span class="bad">${job.error}</span>`;
+      button.disabled = false;
+    }
+  }, 1200);
+}
+
+function showTabs(result, childId, label) {
+  tabData = result.tab;
+  $('tabHint').style.display = 'none';
+  $('tabCard').style.display = '';
+  $('tabCard').querySelector('h2').textContent = ` Табулатура — ${label} `;
+  $('tabText').textContent = result.tabText;
+  $('tabSummary').innerHTML = (result.summary || []).map((s) => `<div>${s}</div>`).join('');
+  const kinds = { gp5: 'Guitar Pro (.gp5)', txt: 'Текстовые табы (.txt)', mid: 'MIDI (.mid)' };
+  $('tabFiles').innerHTML = Object.entries(result.files)
+    .filter(([, has]) => has)
+    .map(([k]) => `<a href="/api/file/${childId}/${k}"><button>${kinds[k]}</button></a>`)
+    .join('');
+  buildTabLane();
+  document.querySelector('.stage').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function buildTabLane() {
+  const count = tabData.strings;
   const laneHeight = $('tabLane').clientHeight || 190;
-  const count = p.strings;
   const step = laneHeight / (count + 1);
+  const labels = STRING_LABELS[count] || Array(count).fill('•');
+
   const lines = $('stringLines');
   lines.innerHTML = '';
-  const labels = STRING_LABELS[count] || Array(count).fill('•');
+  $('tabLane').querySelectorAll('.slabel').forEach((e) => e.remove());
   for (let row = 0; row < count; row++) {
     const y = step * (row + 1);
     const line = document.createElement('i');
@@ -97,37 +168,79 @@ function buildLanes(p) {
     $('tabLane').appendChild(label);
   }
 
-  // лады и тактовые черты
   const tab = $('tabTrack');
   tab.innerHTML = '';
   fretEls = [];
-  p.columns.forEach((column) => {
+  tabData.columns.forEach((column) => {
     column.notes.forEach((note) => {
-      const row = count - 1 - note.string;   // сверху самая высокая струна
       const el = document.createElement('div');
       el.className = 'fret';
       el.textContent = note.fret;
       el.style.left = `${column.t * PX_PER_SEC}px`;
-      el.style.top = `${step * (row + 1)}px`;
+      el.style.top = `${step * (count - note.string)}px`;
       tab.appendChild(el);
       fretEls.push({ el, start: column.t, end: column.end });
     });
   });
-  p.measures.forEach((measure) => {
+  tabData.measures.forEach((measure) => {
     const bar = document.createElement('div');
     bar.className = 'barline';
     bar.style.left = `${measure.start * PX_PER_SEC}px`;
     tab.appendChild(bar);
-    const num = document.createElement('div');
-    num.className = 'barnum';
-    num.style.left = `${measure.start * PX_PER_SEC + 4}px`;
-    num.textContent = measure.number;
-    tab.appendChild(num);
   });
-  tab.style.width = track.style.width;
+  tab.style.width = `${(tabData.duration + 6) * PX_PER_SEC}px`;
 }
 
-// --- два источника времени с одинаковым интерфейсом ---------------------
+// ------------------------------------------------------------- текст песни
+
+function buildLyrics() {
+  if (data.lyrics) {
+    renderLyrics(data.lyrics, data.lyricsSource);
+    return;
+  }
+  $('makeLyrics').onclick = async () => {
+    $('makeLyrics').disabled = true;
+    $('lyricsStatus').textContent = 'ставлю в очередь…';
+    const response = await fetch(`/api/job/${jobId}/lyrics`, { method: 'POST' });
+    if (!response.ok) {
+      $('lyricsStatus').innerHTML =
+        `<span class="bad">${(await response.json()).detail}</span>`;
+      $('makeLyrics').disabled = false;
+      return;
+    }
+    const timer = setInterval(async () => {
+      const job = await (await fetch(`/api/job/${jobId}`)).json();
+      $('lyricsStatus').textContent = job.stage || '';
+      if (job.result && job.result.lyrics) {
+        clearInterval(timer);
+        renderLyrics(job.result.lyrics, job.result.lyricsSource);
+      } else if ((job.stage || '').startsWith('Текст не распознан')) {
+        clearInterval(timer);
+        $('makeLyrics').disabled = false;
+      }
+    }, 2000);
+  };
+}
+
+function renderLyrics(lyrics, source) {
+  $('lyricsBox').style.display = 'none';
+  const box = $('lyricsLines');
+  box.style.display = '';
+  box.innerHTML =
+    `<p class="muted" style="margin:0 0 10px">Язык: ${lyrics.language || '—'}` +
+    (source ? ` · источник: ${source}` : '') + '</p>';
+  lyricEls = lyrics.lines.map((line) => {
+    const el = document.createElement('div');
+    el.textContent = line.text;
+    el.style.cssText =
+      'padding:5px 0;color:var(--muted);cursor:pointer;transition:color .15s,font-size .15s';
+    el.onclick = () => { clock.time = line.start; };
+    box.appendChild(el);
+    return { el, line };
+  });
+}
+
+// ------------------------------------------------------------------ время
 
 function audioClock(audio) {
   return {
@@ -142,96 +255,46 @@ function audioClock(audio) {
   };
 }
 
-function synthClock(player) {
-  // Щипок струны: две расстроенные пилы через полосовой фильтр и
-  // экспоненциальное затухание. Без сэмплов и без загрузок.
+// Метроном щёлкает по НАЙДЕННЫМ долям, а не по среднему темпу:
+// живая игра всегда чуть плывёт, и отсчёт от BPM разъезжается с записью.
+function metronome(beats, downbeats) {
   let ctx = null;
-  let startedAt = 0;      // время ctx в момент запуска
-  let offset = 0;         // позиция в песне на момент запуска
-  let playing = false;
-  let rate = 1;
-  let timer = null;
-  let listener = () => {};
-  const duration = player.duration + 0.5;
+  let on = false;
+  let index = 0;
+  const strong = new Set(downbeats.map((b) => b.toFixed(2)));
 
-  const freq = (pitch) => 440 * Math.pow(2, (pitch - 69) / 12);
-
-  function pluck(when, pitch, seconds, velocity) {
+  function click(strongBeat) {
+    if (!ctx) return;
+    const when = ctx.currentTime + 0.01;
+    const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    const level = 0.09 * (0.35 + 0.65 * (velocity || 90) / 127);
-    gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.exponentialRampToValueAtTime(level, when + 0.006);
-    gain.gain.exponentialRampToValueAtTime(0.0001, when + Math.max(0.25, seconds));
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(3600, when);
-    filter.frequency.exponentialRampToValueAtTime(900, when + Math.max(0.25, seconds));
-    gain.connect(filter).connect(ctx.destination);
-    [0, 0.6].forEach((detune) => {
-      const osc = ctx.createOscillator();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(freq(pitch), when);
-      osc.detune.setValueAtTime(detune * 8, when);
-      osc.connect(gain);
-      osc.start(when);
-      osc.stop(when + Math.max(0.3, seconds) + 0.05);
-    });
-  }
-
-  function schedule() {
-    // планируем на 1.5 секунды вперёд, чтобы не держать тысячи узлов сразу
-    const horizon = 1.5;
-    const now = position();
-    for (const column of player.columns) {
-      if (column._done) continue;
-      if (column.t < now - 0.05) { column._done = true; continue; }
-      if (column.t > now + horizon) break;
-      const when = startedAt + (column.t - offset) / rate;
-      column.notes.forEach((n) =>
-        pluck(when, n.pitch, (column.end - column.t) / rate, n.vel));
-      column._done = true;
-    }
-  }
-
-  function position() {
-    if (!playing) return offset;
-    return offset + (ctx.currentTime - startedAt) * rate;
+    osc.frequency.value = strongBeat ? 1600 : 1000;
+    gain.gain.setValueAtTime(strongBeat ? 0.28 : 0.15, when);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.06);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(when);
+    osc.stop(when + 0.08);
   }
 
   return {
-    get time() { return Math.min(position(), duration); },
-    set time(v) {
-      const was = playing;
-      this.pause();
-      offset = Math.max(0, v);
-      player.columns.forEach((c) => { c._done = c.t < offset; });
-      if (was) this.play();
+    get enabled() { return on; },
+    toggle() {
+      on = !on;
+      if (on && !ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx) ctx.resume();
+      return on;
     },
-    get duration() { return duration; },
-    get paused() { return !playing; },
-    play() {
-      if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
-      ctx.resume();
-      startedAt = ctx.currentTime + 0.05;
-      playing = true;
-      timer = setInterval(schedule, 200);
-      schedule();
-      listener();
+    sync(now) {
+      if (!on || !beats.length) return;
+      if (index >= beats.length || beats[index] > now + 0.4) {
+        index = beats.findIndex((b) => b >= now - 0.05);
+        if (index < 0) index = beats.length;
+      }
+      while (index < beats.length && beats[index] <= now + 0.02) {
+        click(strong.has(beats[index].toFixed(2)));
+        index++;
+      }
     },
-    pause() {
-      if (!playing) return;
-      offset = position();
-      playing = false;
-      clearInterval(timer);
-      listener();
-    },
-    setRate(r) {
-      const was = playing;
-      this.pause();
-      rate = r;
-      if (was) this.play();
-    },
-    onState(fn) { listener = fn; },
   };
 }
 
@@ -244,46 +307,55 @@ function bindControls() {
   $('seek').oninput = () => {
     if (clock.duration) clock.time = ($('seek').value / 1000) * clock.duration;
   };
+  $('metro').onclick = () => {
+    const on = metro.toggle();
+    $('metro').classList.toggle('primary', on);
+    $('metro').textContent = on ? '🥁 Метроном вкл' : '🥁 Метроном';
+  };
   document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
     if (e.code === 'Space') { e.preventDefault(); clock.paused ? clock.play() : clock.pause(); }
-    if (e.code === 'ArrowLeft') clock.time = Math.max(0, clock.time - 5);
+    if (e.code === 'ArrowLeft') clock.time = clock.time - 5;
     if (e.code === 'ArrowRight') clock.time = clock.time + 5;
+    if (e.code === 'KeyM') $('metro').click();
   });
 }
 
+// --------------------------------------------------------------------- кадр
+
 function tick() {
   const now = clock ? clock.time : 0;
-  const shift = HEAD_X - now * PX_PER_SEC;
-  $('chordTrack').style.transform = `translateX(${shift}px)`;
-  $('tabTrack').style.transform = `translateX(${shift}px)`;
+  // Одна и та же вертикаль и один и тот же сдвиг для обеих лент
+  const centre = $('ribbon').clientWidth / 2;
+  const shift = centre - now * PX_PER_SEC;
+  $('nowLine').style.left = `${centre}px`;
+  $('ribTrack').style.transform = `translateX(${shift}px)`;
 
-  // текущий аккорд и следующий за ним
-  let current = null;
-  let upcoming = null;
-  for (const item of chordEls) {
-    const active = now >= item.chord.start && now < item.chord.end;
-    item.el.classList.toggle('now', active);
-    item.el.classList.remove('next');
-    if (active) current = item;
-    else if (!upcoming && item.chord.start > now) upcoming = item;
-  }
-  if (upcoming && $('count').checked) upcoming.el.classList.add('next');
+  // Размер подписи зависит от того, насколько она близка к текущему моменту
+  ribs.forEach(({ el, chord }) => {
+    const current = now >= chord.start && now < chord.end;
+    const near = !current && Math.abs((chord.start + chord.end) / 2 - now) < 4;
+    el.classList.toggle('current', current);
+    el.classList.toggle('near', near);
+    el.classList.toggle('past', chord.end <= now);
+  });
 
-  const head = current ? current.chord.name : '—';
-  const ahead = upcoming && $('count').checked
-    ? `  →  ${upcoming.chord.name} через ${(upcoming.chord.start - now).toFixed(1)} с`
-    : '';
-  $('nowChord').textContent = head;
-  $('nowChord').title = ahead;
-  document.title = current ? `${current.chord.name} · MidiToTab` : 'MidiToTab — плеер';
-
-  for (const item of fretEls) {
-    item.el.classList.toggle('now', now >= item.start && now < item.end);
+  if (tabData) {
+    $('tabTrack').style.transform = `translateX(${shift}px)`;
+    fretEls.forEach((f) => f.el.classList.toggle('now', now >= f.start && now < f.end));
   }
 
+  // текущая строка текста крупнее и ярче -- её же можно нажать и перейти
+  lyricEls.forEach(({ el, line }) => {
+    const active = now >= line.start && now < line.end;
+    el.style.color = active ? 'var(--accent)' : 'var(--muted)';
+    el.style.fontSize = active ? '18px' : '15px';
+    el.style.fontWeight = active ? '600' : '400';
+  });
+
+  metro.sync(now);
   $('time').textContent = `${mmss(now)} / ${mmss(clock.duration)}`;
   if (clock.duration) $('seek').value = (now / clock.duration) * 1000;
-
   requestAnimationFrame(tick);
 }
 

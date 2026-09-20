@@ -31,8 +31,16 @@ header.top {
   display: flex; align-items: center; justify-content: space-between;
   gap: 16px; flex-wrap: wrap; margin-bottom: 26px;
 }
-.logo { font-size: 21px; font-weight: 700; letter-spacing: -.2px; }
-.logo span { color: var(--accent); }
+.brand {
+  display: inline-flex; align-items: center; gap: 10px;
+  text-decoration: none; color: var(--text);
+}
+.brand img { display: block; color: var(--text); }
+.brand span { font-size: 20px; font-weight: 700; letter-spacing: 2.5px; }
+@media (max-width: 480px) {
+  .brand img { width: 56px; height: 18px; }
+  .brand span { font-size: 17px; letter-spacing: 1.6px; }
+}
 
 .badge {
   padding: 6px 12px; border-radius: 999px; font-size: 13px;
@@ -100,6 +108,19 @@ button.primary:hover:not(:disabled) { background: var(--accent-hi); }
 .lane { position: relative; height: 96px; overflow: hidden; }
 .lane.tab { height: 190px; border-top: 1px solid var(--border); }
 
+/* Линия воспроизведения общая для аккордов и табов: обе ленты едут
+   синхронно, и глаз держит одну вертикаль, а не ищет две. */
+.stage .now-line {
+  position: absolute; top: 0; bottom: 0; width: 3px; border-radius: 2px;
+  background: var(--accent); opacity: .55; z-index: 6; pointer-events: none;
+}
+
+.tab-hint {
+  position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; text-align: center; padding: 0 20px;
+  color: var(--muted); font-size: 13px; z-index: 2;
+}
+
 .playhead {
   position: absolute; left: 180px; top: 0; bottom: 0; width: 2px;
   background: var(--accent); z-index: 5; pointer-events: none;
@@ -151,3 +172,78 @@ button.primary:hover:not(:disabled) { background: var(--accent-hi); }
 .seek { flex: 1; min-width: 180px; accent-color: var(--accent); }
 
 .big { font-size: 42px; font-weight: 700; color: var(--accent); min-width: 120px; }
+
+/* ---------------- аккордовая лента ---------------- */
+
+/* Аккорды идут сплошной лентой; чем дальше от текущего, тем мельче и
+   бледнее -- взгляд сам цепляется за то, что играть сейчас. */
+.ribbon {
+  position: relative; height: 150px; overflow: hidden;
+  background: linear-gradient(180deg, var(--panel) 0%, var(--panel-hi) 100%);
+}
+.ribbon::before, .ribbon::after {
+  content: ''; position: absolute; top: 0; bottom: 0; width: 90px; z-index: 3;
+  pointer-events: none;
+}
+.ribbon::before { left: 0; background: linear-gradient(90deg, var(--panel), transparent); }
+.ribbon::after { right: 0; background: linear-gradient(270deg, var(--panel), transparent); }
+
+
+
+.rib {
+  position: absolute; top: 50%; display: flex; align-items: center;
+  justify-content: center; font-weight: 700; white-space: nowrap;
+  transform: translate(-50%, -50%); transition: none;
+  color: var(--muted); opacity: .45; font-size: 20px;
+}
+.rib.current {
+  color: var(--accent); opacity: 1; font-size: 54px;
+  text-shadow: 0 0 30px rgba(217,154,78,.45);
+}
+.rib.near { color: var(--text); opacity: .85; font-size: 30px; }
+.rib.past { opacity: .28; }
+
+.rib small {
+  display: block; font-size: 11px; font-weight: 400;
+  color: var(--muted); text-align: center; margin-top: 2px;
+}
+.rib.current small { color: var(--accent-hi); font-size: 13px; }
+
+.low-conf { color: var(--red); }
+
+/* ---------------- партии ---------------- */
+
+.part {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 8px; background: var(--panel-hi);
+}
+.part .name { font-weight: 600; min-width: 120px; }
+.part .spacer { flex: 1; }
+.part.active { border-color: var(--accent); }
+
+/* ---------------- мобильная вёрстка ---------------- */
+
+@media (max-width: 720px) {
+  .wrap { padding: 16px 12px 40px; }
+  .card { padding: 14px; }
+  .grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .ribbon { height: 118px; }
+  .rib.current { font-size: 40px; }
+  .rib.near { font-size: 24px; }
+  .rib { font-size: 16px; }
+  .lane.tab { height: 150px; }
+  .controls { gap: 10px; padding: 12px; }
+  .controls .time { min-width: 76px; font-size: 12px; }
+  .seek { order: 10; flex-basis: 100%; }
+  button { padding: 12px 18px; font-size: 15px; }   /* палец, а не курсор */
+  .big { font-size: 32px; min-width: 0; }
+  .part .name { min-width: 90px; font-size: 14px; }
+  header.top { margin-bottom: 16px; }
+  .drop { padding: 26px 12px; }
+}
+
+@media (max-width: 420px) {
+  .grid { grid-template-columns: 1fr; }
+  .rib.current { font-size: 34px; }
+}

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15161c">
+<title>НАСЛУХ — мои треки</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>НАСЛУХ</span></a>
+    <div style="display:flex;gap:14px;align-items:center">
+      <a href="/">+ новый трек</a>
+      <span id="access" class="badge">загрузка…</span>
+    </div>
+  </header>
+
+  <h2 style="margin:0 0 4px;font-size:20px">Мои треки</h2>
+  <p class="muted" style="margin:0 0 18px">
+    Всё, что сделано с треком, остаётся здесь: аккорды, табы, MIDI и текст.
+  </p>
+
+  <div id="list"></div>
+  <div id="empty" class="card" style="display:none;text-align:center">
+    <p class="muted" style="margin:0 0 14px">Пока ни одного трека.</p>
+    <a href="/"><button class="primary">Загрузить первый</button></a>
+  </div>
+</div>
+<script src="/static/library.js"></script>
+</body>
+</html>

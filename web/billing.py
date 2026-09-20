@@ -138,7 +138,7 @@ class YooKassaProvider(PaymentProvider):
                 "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
                 "capture": True,
                 "confirmation": {"type": "redirect", "return_url": return_url},
-                "description": f"Подписка MidiToTab, {PERIOD_DAYS} дней",
+                "description": f"Подписка НАСЛУХ, {PERIOD_DAYS} дней",
                 "metadata": {"user_id": user_id},
             }
         ).encode()
