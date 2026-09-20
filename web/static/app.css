@@ -308,3 +308,48 @@ button.primary:hover:not(:disabled) { background: var(--accent-hi); }
   .steps { flex-direction: column; align-items: stretch; }
   .choices { grid-template-columns: 1fr; }
 }
+
+/* ---------------- согласие на cookie ---------------- */
+
+.cookiebar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 90;
+  background: var(--panel); border-top: 1px solid var(--border);
+  transform: translateY(100%); transition: transform .3s ease;
+  box-shadow: 0 -8px 30px rgba(0,0,0,.35);
+}
+.cookiebar.visible { transform: translateY(0); }
+.cookiebar-in {
+  max-width: 1120px; margin: 0 auto; padding: 16px 20px;
+  display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+}
+.cookiebar b { display: block; margin-bottom: 4px; }
+.cookiebar p { margin: 0; color: var(--muted); font-size: 13px; max-width: 700px; }
+.cookiebar-btns { display: flex; gap: 10px; margin-left: auto; flex-wrap: wrap; }
+
+footer.legal {
+  margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+  display: flex; gap: 18px; flex-wrap: wrap; align-items: center;
+  color: var(--muted); font-size: 13px;
+}
+footer.legal a { color: var(--muted); }
+footer.legal a:hover { color: var(--accent); }
+
+.doc { max-width: 760px; }
+.doc h1 { font-size: 26px; margin: 0 0 6px; }
+.doc h2 { font-size: 17px; color: var(--accent); margin: 26px 0 10px; }
+.doc p, .doc li { color: var(--text); font-size: 15px; }
+.doc ul { padding-left: 20px; }
+.doc .fill {
+  background: rgba(217,154,78,.14); border: 1px dashed var(--accent);
+  border-radius: 4px; padding: 1px 6px; color: var(--accent-hi);
+}
+.doc .note {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px 16px; color: var(--muted); font-size: 14px;
+}
+
+@media (max-width: 720px) {
+  .cookiebar-in { padding: 14px; }
+  .cookiebar-btns { margin-left: 0; width: 100%; }
+  .cookiebar-btns button { flex: 1; }
+}

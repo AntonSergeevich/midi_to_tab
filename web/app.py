@@ -220,6 +220,16 @@ def api_admin_set(
     return {"ok": True, "user": user_id}
 
 
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy_page() -> HTMLResponse:
+    return HTMLResponse((STATIC_DIR / "privacy.html").read_text(encoding="utf-8"))
+
+
+@app.get("/offer", response_class=HTMLResponse)
+def offer_page() -> HTMLResponse:
+    return HTMLResponse((STATIC_DIR / "offer.html").read_text(encoding="utf-8"))
+
+
 @app.get("/library", response_class=HTMLResponse)
 def library_page() -> HTMLResponse:
     return HTMLResponse((STATIC_DIR / "library.html").read_text(encoding="utf-8"))

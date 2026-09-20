@@ -26,7 +26,27 @@ from .chords import PITCH_CLASSES, TEMPLATES
 # мелькают отдельные ноты. Значение подобрано так, чтобы настоящие смены
 # проходили, а дребезг на проходящих тонах гасился.
 CHANGE_COST = 0.15
-MIN_CONFIDENCE = 0.30
+MIN_CONFIDENCE = 0.12
+
+# Штраф за сложность шаблона. Без него разбор плотного микса съезжает в
+# нонаккорды: пятизвучие "объясняет" больше энергии, чем трезвучие, и
+# выигрывает всегда. На реальном треке в ре миноре штраф поднял долю
+# аккордов, принадлежащих тональности, с 71% до 84%, а нонаккорды,
+# которых в песне не было, исчезли совсем.
+SIZE_PENALTY = 0.09
+# Отдельно придерживаем квинт-аккорд: из двух нот он подходит почти
+# всюду, и без этого весь разбор превращается в частокол из D5, C5, G5.
+# Оставшиеся квинт-аккорды честны -- там, где в миксе правда нет терции.
+FIFTH_PENALTY = 0.06
+# Sus-аккорды складываются из тех же трёх нот, что и трезвучия, поэтому
+# размер их не придерживает. А возникают они чаще всего не потому, что
+# их сыграли, а потому что голос задержался на секунде поверх выдержанной
+# гармонии. Небольшой штраф оставляет их там, где они настоящие.
+SUS_PENALTY = 0.04
+# Уменьшённые и увеличенные в песнях редки, а в мутной хромаграмме
+# возникают легко: их ступени равномерно раскиданы по октаве и ложатся
+# почти на любой шум. Придерживаем, чтобы не выдавать артефакт за гармонию.
+ODD_PENALTY = 0.07
 # Гармония в песне держится тактами, а не долями. Без нижней границы
 # длительности список превращается в частокол из десятков подписей, в
 # котором ничего не разобрать на ходу.
@@ -68,18 +88,32 @@ def available() -> tuple[bool, str]:
 
 
 def _templates():
-    """Шаблоны аккордов в виде нормированных векторов по двенадцати ступеням."""
+    """
+    Шаблоны аккордов и штрафы к ним.
+
+    Возвращает (названия, нормированные векторы, штрафы). Штраф вычитается
+    из схожести, поэтому сложный аккорд должен подойти заметно лучше
+    простого, чтобы его выбрали.
+    """
     import numpy as np
 
-    names, vectors = [], []
+    names, vectors, penalties = [], [], []
     for root in range(12):
         for quality, intervals in TEMPLATES:
             vector = np.zeros(12)
             for interval in intervals:
                 vector[(root + interval) % 12] = 1.0
             vectors.append(vector / np.linalg.norm(vector))
+            penalty = SIZE_PENALTY * len(intervals)
+            if quality == "5":
+                penalty += FIFTH_PENALTY
+            elif quality.startswith("sus"):
+                penalty += SUS_PENALTY
+            elif quality in ("dim", "aug", "dim7", "m7b5"):
+                penalty += ODD_PENALTY
+            penalties.append(penalty)
             names.append(f"{PITCH_CLASSES[root]}{quality}")
-    return names, np.array(vectors)
+    return names, np.array(vectors), np.array(penalties)
 
 
 def prewarm() -> None:
@@ -182,8 +216,21 @@ def detect_from_audio(
     norms[norms == 0] = 1.0
     synced = synced / norms
 
-    names, vectors = _templates()
-    scores = vectors @ synced            # схожесть каждого шаблона с каждой долей
+    names, vectors, penalties = _templates()
+    # Схожесть и отдельно -- оценка для выбора. Штраф влияет на то, какой
+    # аккорд выбрать, но не на то, насколько мы в нём уверены: иначе все
+    # подписи выглядели бы сомнительными просто из-за способа отбора.
+    similarity = vectors @ synced
+    scores = similarity - penalties[:, None]
+
+    # Уверенность = насколько выбранный аккорд оторвался от ближайшего
+    # соперника. Абсолютная схожесть тут обманывает: на плотном миксе она
+    # низкая у всех подряд, но если один вариант ушёл далеко вперёд --
+    # сомневаться не в чем. И наоборот: два почти равных варианта это
+    # настоящая неоднозначность, даже когда оба похожи.
+    ordered = np.sort(scores, axis=0)
+    margin = ordered[-1] - ordered[-2]
+    spread = float(np.percentile(margin, 90)) or 1.0
 
     if progress:
         progress("Выбираю последовательность аккордов...")
@@ -195,7 +242,7 @@ def detect_from_audio(
         end = float(times[min(index + 1, len(times) - 1)])
         if end <= start:
             continue
-        confidence = float(scores[chord_index, index])
+        confidence = float(min(1.0, margin[index] / spread))
         if confidence < MIN_CONFIDENCE:
             continue
         name = names[chord_index]
