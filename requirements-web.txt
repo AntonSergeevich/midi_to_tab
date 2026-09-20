@@ -1,0 +1,14 @@
+# Веб-приложение: загрузка песни, обработка, плеер с бегущими аккордами.
+#
+# Запуск после установки:
+#     uvicorn web.app:app --host 0.0.0.0 --port 8000
+
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9     # приём загружаемых файлов
+itsdangerous>=2.1           # подписанная кука пользователя
+
+# Ловушка окружения: resampy младше 0.4.3 обращается к pkg_resources,
+# которого нет в setuptools 81 и новее -- распознавание падает на импорте.
+# Либо resampy>=0.4.3 (как в requirements-audio.txt), либо setuptools<81.
+setuptools<81; python_version < "3.12"

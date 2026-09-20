@@ -1,0 +1,260 @@
+"""
+Веб-приложение: загрузка песни, обработка, плеер с бегущими аккордами.
+
+Запуск:
+    uvicorn web.app:app --host 0.0.0.0 --port 8000
+
+Опознание пользователя -- подписанная кука. Это сознательно простой
+вариант для старта: заводить почту и пароли до первых платящих
+пользователей смысла нет, а подписать куку достаточно, чтобы счётчик
+бесплатных песен нельзя было обнулить правкой в браузере.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+from pathlib import Path
+
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from itsdangerous import BadSignature, URLSafeSerializer
+
+from midi2tab import audioin, separate
+from midi2tab.timing import GRIDS
+from midi2tab.tuning import TUNINGS
+
+from . import billing
+from .jobs import JobRunner
+from .storage import Storage
+
+DATA_DIR = os.environ.get("MIDI2TAB_DATA", "data")
+SECRET = os.environ.get("MIDI2TAB_SECRET", "")
+MAX_UPLOAD_MB = int(os.environ.get("MIDI2TAB_MAX_MB", "60"))
+ALLOWED = (".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aiff", ".aif", ".mid", ".midi")
+
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+def safe_stem(filename: str) -> str:
+    """
+    Имя файла без пути и опасных символов.
+
+    Нужно и для безопасности (в имени может прийти ../), и по делу:
+    от него зависит, как будут называться скачиваемые .gp5 и .txt.
+    """
+    stem = Path(filename or "").stem.strip() or "song"
+    cleaned = "".join(c for c in stem if c.isalnum() or c in " _-()[]").strip()
+    return (cleaned or "song")[:60]
+
+app = FastAPI(title="MidiToTab")
+storage = Storage(os.path.join(DATA_DIR, "app.db"))
+runner = JobRunner(storage, DATA_DIR)
+
+if not SECRET:
+    # Свой ключ на каждый запуск: куки протухнут при перезапуске, но
+    # молча подставлять предсказуемый ключ опаснее.
+    SECRET = os.urandom(32).hex()
+    print("ВНИМАНИЕ: MIDI2TAB_SECRET не задан, использован временный ключ.")
+signer = URLSafeSerializer(SECRET, salt="uid")
+
+
+# ------------------------------------------------------------- пользователь
+
+def current_user(request: Request):
+    raw = request.cookies.get("uid")
+    user_id = None
+    if raw:
+        try:
+            user_id = signer.loads(raw)
+        except BadSignature:
+            user_id = None
+    return storage.ensure_user(user_id)
+
+
+def attach_cookie(response: Response, user_id: str) -> None:
+    response.set_cookie(
+        "uid",
+        signer.dumps(user_id),
+        max_age=365 * 24 * 3600,
+        httponly=True,
+        samesite="lax",
+    )
+
+
+# ------------------------------------------------------------------ страницы
+
+@app.get("/", response_class=HTMLResponse)
+def index() -> HTMLResponse:
+    return HTMLResponse((STATIC_DIR / "index.html").read_text(encoding="utf-8"))
+
+
+@app.get("/player/{job_id}", response_class=HTMLResponse)
+def player_page(job_id: str) -> HTMLResponse:
+    if not storage.job(job_id):
+        raise HTTPException(404, "Задание не найдено")
+    return HTMLResponse((STATIC_DIR / "player.html").read_text(encoding="utf-8"))
+
+
+# --------------------------------------------------------------------- API
+
+@app.get("/api/me")
+def api_me(request: Request):
+    user = current_user(request)
+    access = billing.check_access(user)
+    payload = access.as_dict()
+    payload["paymentReady"] = billing.provider().configured()
+    payload["separationReady"] = separate.available()[0]
+    payload["recognitionReady"] = audioin.available()[0]
+    payload["tunings"] = list(TUNINGS)
+    payload["grids"] = list(GRIDS)
+    payload["models"] = list(separate.MODELS)
+    payload["jobs"] = [
+        {"id": j.id, "name": j.filename, "status": j.status, "at": j.created_at}
+        for j in storage.user_jobs(user.id, 10)
+    ]
+    response = JSONResponse(payload)
+    attach_cookie(response, user.id)
+    return response
+
+
+@app.post("/api/upload")
+async def api_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    tuning: str = Form(""),
+    capo: int = Form(0),
+    tempo: int = Form(0),
+    grid: str = Form(""),
+    separate_track: bool = Form(False),
+    model: str = Form(""),
+    remove_ghosts: bool = Form(True),
+    max_polyphony: int = Form(0),
+):
+    user = current_user(request)
+    access = billing.check_access(user)
+    if not access.allowed:
+        raise HTTPException(402, access.reason)
+
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in ALLOWED:
+        raise HTTPException(
+            400, f"Формат {suffix or 'неизвестный'} не поддерживается. Нужен {', '.join(ALLOWED)}"
+        )
+
+    options = {
+        "tuning": tuning or None,
+        "capo": capo,
+        "tempo": tempo,
+        "grid": grid or None,
+        "separate": separate_track,
+        "model": model or separate.DEFAULT_MODEL,
+        "removeGhosts": remove_ghosts,
+        "maxPolyphony": max_polyphony,
+    }
+    options = {k: v for k, v in options.items() if v is not None}
+
+    job = storage.create_job(user.id, file.filename or "upload", options)
+    upload_dir = os.path.join(DATA_DIR, "uploads", job.id)
+    os.makedirs(upload_dir, exist_ok=True)
+    target = os.path.join(upload_dir, f"{safe_stem(file.filename)}{suffix}")
+
+    size = 0
+    limit = MAX_UPLOAD_MB * 1024 * 1024
+    with open(target, "wb") as out:
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > limit:
+                out.close()
+                shutil.rmtree(upload_dir, ignore_errors=True)
+                storage.update_job(job.id, status="error", error="Файл слишком большой")
+                raise HTTPException(413, f"Файл больше {MAX_UPLOAD_MB} МБ")
+            out.write(chunk)
+
+    # Пробная песня списывается в момент постановки в очередь, а не по
+    # завершении: иначе один и тот же файл можно было бы гонять бесконечно,
+    # обрывая задание на полпути.
+    billing.consume(storage, user)
+    storage.update_job(job.id, counted=True)
+    runner.submit(job.id, target)
+
+    response = JSONResponse({"jobId": job.id})
+    attach_cookie(response, user.id)
+    return response
+
+
+@app.get("/api/job/{job_id}")
+def api_job(job_id: str):
+    job = storage.job(job_id)
+    if not job:
+        raise HTTPException(404, "Задание не найдено")
+    payload = {
+        "id": job.id,
+        "status": job.status,
+        "stage": job.stage,
+        "error": job.error,
+        "name": job.filename,
+    }
+    if job.status == "done" and job.result:
+        payload["result"] = {
+            key: value for key, value in job.result.items() if key != "paths"
+        }
+    return payload
+
+
+@app.get("/api/file/{job_id}/{kind}")
+def api_file(job_id: str, kind: str):
+    job = storage.job(job_id)
+    if not job or not job.result:
+        raise HTTPException(404, "Файл не готов")
+    path = (job.result.get("paths") or {}).get(kind)
+    if not path or not os.path.isfile(path):
+        raise HTTPException(404, "Файл не найден")
+    return FileResponse(path, filename=os.path.basename(path))
+
+
+# ------------------------------------------------------------------ оплата
+
+@app.post("/api/subscribe")
+def api_subscribe(request: Request):
+    user = current_user(request)
+    gateway = billing.provider()
+    if not gateway.configured():
+        raise HTTPException(
+            503,
+            "Приём оплаты пока не подключён. Нужны реквизиты магазина "
+            "(YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY).",
+        )
+    base = str(request.base_url).rstrip("/")
+    created = gateway.create_payment(user.id, billing.PRICE_RUB, f"{base}/?paid=1")
+    storage.create_payment(user.id, billing.PRICE_RUB, created.get("id"))
+    url = (created.get("confirmation") or {}).get("confirmation_url")
+    return {"paymentUrl": url, "paymentId": created.get("id")}
+
+
+@app.post("/api/webhook/yookassa")
+async def api_webhook(request: Request):
+    payload = await request.json()
+    gateway = billing.provider()
+    verified = gateway.verify_webhook(payload)
+    if not verified:
+        raise HTTPException(400, "Неожиданный формат уведомления")
+    provider_id, status = verified
+    record = storage.payment_by_provider(provider_id)
+    if not record:
+        raise HTTPException(404, "Платёж не найден")
+    storage.set_payment_status(record["id"], status)
+    if status == "succeeded":
+        billing.grant_subscription(storage, record["user_id"])
+    return {"ok": True}
+
+
+@app.get("/api/health")
+def api_health():
+    return {"ok": True, "separation": separate.available()[0],
+            "recognition": audioin.available()[0]}
+
+
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

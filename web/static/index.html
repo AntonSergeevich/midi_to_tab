@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MidiToTab — табы из песни</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo">Midi<span>To</span>Tab</div>
+    <div id="access" class="badge">загрузка…</div>
+  </header>
+
+  <div class="card">
+    <h2>Загрузите песню</h2>
+    <div class="drop" id="drop">
+      <b>Перетащите файл сюда</b>
+      <small>или нажмите, чтобы выбрать · mp3, wav, flac, ogg, m4a или готовый MIDI</small>
+      <input type="file" id="file" hidden accept=".mp3,.wav,.flac,.ogg,.m4a,.aiff,.aif,.mid,.midi">
+    </div>
+    <p id="picked" class="muted" style="margin:12px 0 0"></p>
+  </div>
+
+  <div class="card">
+    <h2>Настройки</h2>
+    <div class="grid">
+      <label class="field"><span>Строй</span><select id="tuning"></select></label>
+      <label class="field"><span>Каподастр</span><input type="number" id="capo" value="0" min="0" max="12"></label>
+      <label class="field"><span>Темп (0 — из файла)</span><input type="number" id="tempo" value="0" min="0" max="300"></label>
+      <label class="field"><span>Квантизация</span><select id="grid"></select></label>
+      <label class="field"><span>Модель разделения</span><select id="model"></select></label>
+      <label class="field"><span>Максимум голосов (0 — без ограничения)</span><input type="number" id="poly" value="0" min="0" max="8"></label>
+    </div>
+    <div style="display:flex;gap:22px;flex-wrap:wrap;margin-top:16px">
+      <label class="check"><input type="checkbox" id="sep" checked> Разделить трек и взять гитару</label>
+      <label class="check"><input type="checkbox" id="ghosts" checked> Убирать призрачные обертоны</label>
+    </div>
+    <p id="caps" class="muted" style="margin:14px 0 0"></p>
+  </div>
+
+  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+    <button class="primary" id="go" disabled>Сделать табы</button>
+    <span id="msg" class="muted"></span>
+  </div>
+
+  <div class="card" id="progress" style="display:none;margin-top:18px">
+    <h2>Обработка</h2>
+    <p id="stage" class="muted" style="margin:0 0 12px">Ставлю в очередь…</p>
+    <div class="bar"><i></i></div>
+  </div>
+
+  <div class="card" id="history" style="display:none;margin-top:18px">
+    <h2>Прошлые разборы</h2>
+    <div id="jobs"></div>
+  </div>
+</div>
+<script src="/static/upload.js"></script>
+</body>
+</html>
