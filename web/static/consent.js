@@ -10,7 +10,7 @@
 // песен осталось. Согласия она не требует, но о ней сказано в политике.
 
 (function () {
-  const KEY = 'nasluh_consent';
+  const KEY = 'naslux_consent';
   const saved = () => { try { return localStorage.getItem(KEY); } catch { return null; } };
   const save = (v) => { try { localStorage.setItem(KEY, v); } catch {} };
 

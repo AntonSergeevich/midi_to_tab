@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 152 48" width="152" height="48">
+  <!-- Латинское написание под домен naslux.ru -->
+  <g stroke="currentColor" stroke-width="1" opacity=".28">
+    <line x1="4" y1="10" x2="148" y2="10"/>
+    <line x1="4" y1="22" x2="148" y2="22"/>
+    <line x1="4" y1="34" x2="148" y2="34"/>
+  </g>
+  <path d="M4 22 Q14 2 24 22 T44 22 Q54 6 64 22 T84 22" fill="none"
+        stroke="#d99a4e" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="104" cy="10" r="5" fill="#d99a4e"/>
+  <circle cx="122" cy="34" r="5" fill="#d99a4e"/>
+  <circle cx="140" cy="22" r="5" fill="#d99a4e"/>
+</svg>

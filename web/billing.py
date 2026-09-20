@@ -192,7 +192,7 @@ class GetPlatinumProvider(PaymentProvider):
                 "shop_id": self.shop_id,
                 "amount": round(amount, 2),
                 "currency": "RUB",
-                "description": f"Подписка НАСЛУХ, {PERIOD_DAYS} дней",
+                "description": f"Подписка NASLUX, {PERIOD_DAYS} дней",
                 "order_id": user_id,
                 "return_url": return_url,
             }
@@ -258,7 +258,7 @@ class YooKassaProvider(PaymentProvider):
                 "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
                 "capture": True,
                 "confirmation": {"type": "redirect", "return_url": return_url},
-                "description": f"Подписка НАСЛУХ, {PERIOD_DAYS} дней",
+                "description": f"Подписка NASLUX, {PERIOD_DAYS} дней",
                 "metadata": {"user_id": user_id},
             }
         ).encode()

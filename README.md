@@ -71,6 +71,7 @@ venv\Scripts\activate          # Windows
 # source venv/bin/activate     # macOS / Linux
 
 python -m pip install -r requirements.txt
+python -m pip install -r requirements-desktop.txt   # прослушивание
 ```
 
 Этого достаточно для работы с MIDI: приложение запустится и будет полностью

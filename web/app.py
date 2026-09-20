@@ -81,7 +81,7 @@ async def lifespan(_app: FastAPI):
     audiochords.prewarm()
     port = _running_port()
     print()
-    print("  НАСЛУХ запущен. Откройте в браузере:")
+    print("  NASLUX запущен. Откройте в браузере:")
     print(f"      http://localhost:{port}")
     if not os.environ.get("MIDI2TAB_SECRET"):
         print()
@@ -94,7 +94,7 @@ async def lifespan(_app: FastAPI):
 
 storage = Storage(os.path.join(DATA_DIR, "app.db"))
 runner = JobRunner(storage, DATA_DIR)
-app = FastAPI(title="НАСЛУХ", lifespan=lifespan)
+app = FastAPI(title="NASLUX", lifespan=lifespan)
 
 if not SECRET:
     # Свой ключ на каждый запуск: куки протухнут при перезапуске, но

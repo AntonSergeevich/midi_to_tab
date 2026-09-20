@@ -56,6 +56,10 @@ say "Окружение Python"
 "$VENV/bin/pip" install --quiet -r "$APP_DIR/requirements-audio.txt"
 "$VENV/bin/pip" install --quiet --no-deps basic-pitch
 
+# pygame намеренно не ставится: он нужен только настольному окну для
+# прослушивания, а в вебе звук синтезируется в браузере. Под Python 3.14
+# готовой сборки у него нет, и попытка установки ломала бы развёртывание.
+
 echo "Разделение на партии и распознавание текста ставятся отдельно:"
 echo "  $VENV/bin/pip install -r $APP_DIR/requirements-separation.txt"
 echo "  $VENV/bin/pip install faster-whisper"

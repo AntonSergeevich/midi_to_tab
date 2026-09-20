@@ -362,3 +362,36 @@ def test_payment_remembers_plan(store):
     record = store.payment_by_provider("prov-1")
     assert record["plan"] == "single"
     assert record["amount"] == 19.0
+
+
+# ------------------------------------------------------ независимость сервера
+
+
+def test_web_does_not_need_desktop_playback():
+    """
+    Регрессия: pygame лежал в основных зависимостях и ломал развёртывание.
+
+    На Ubuntu 26.04 с Python 3.14 готовой сборки у него нет, pip пытался
+    собрать из исходников и падал на отсутствии заголовков SDL. Серверу
+    он не нужен вовсе: в вебе звук синтезируется в браузере.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    core = (root / "requirements.txt").read_text(encoding="utf-8").lower()
+    assert "pygame" not in core.replace("requirements-desktop", "")
+
+    # и ни один модуль веб-слоя не должен его тянуть
+    for module in (root / "web").glob("*.py"):
+        text = module.read_text(encoding="utf-8")
+        assert "import pygame" not in text
+        assert "from midi2tab import playback" not in text
+        assert "playback" not in text.replace("# ", "")
+
+
+def test_desktop_requirements_exist():
+    from pathlib import Path
+
+    desktop = Path(__file__).resolve().parent.parent / "requirements-desktop.txt"
+    assert desktop.is_file()
+    assert "pygame" in desktop.read_text(encoding="utf-8").lower()
