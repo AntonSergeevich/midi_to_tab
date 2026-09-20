@@ -195,3 +195,49 @@ def test_seven_string_tuning_reaches_lower():
     seven = Fretboard(TUNINGS["7 струн (BEADGBE)"])
     assert seven.string_count == 7
     assert seven.playable(35)  # B1 -- недоступна на шестиструнке
+
+
+# ----------------------------------------------------------------- кодировки
+
+
+def test_cyrillic_title_survives_round_trip(tmp_path):
+    """
+    Регрессия: кириллица в названии роняла запись
+    ("'charmap' codec can't encode characters"), потому что PyGuitarPro
+    пишет в cp1252. Кодировка обязана подбираться по тексту.
+    """
+    import guitarpro as gp
+
+    notes = _sequence([52, 55, 59])
+    placements, _ = arrange.arrange(notes, board(), auto_transpose=False)
+    out = str(tmp_path / "ru.gp5")
+    gp5out.write_gp5(placements, board(), out, title="Пожары_D_minor125 (Guitar)")
+
+    song = gp.parse(out, encoding="cp1251")
+    assert song.title == "Пожары_D_minor125 (Guitar)"
+
+
+def test_pick_encoding_prefers_latin_then_cyrillic():
+    assert gp5out.pick_encoding(["Fires"]) == "cp1252"
+    assert gp5out.pick_encoding(["Пожары"]) == "cp1251"
+
+
+def test_unsupported_text_falls_back_to_latin(tmp_path):
+    """Символы вне всех 8-битных кодировок не должны ронять запись."""
+    import guitarpro as gp
+
+    notes = _sequence([52, 55])
+    placements, _ = arrange.arrange(notes, board(), auto_transpose=False)
+    out = str(tmp_path / "emoji.gp5")
+    notices = []
+    gp5out.write_gp5(
+        placements, board(), out, title="Пожары 🔥 火", on_note=notices.append
+    )
+    song = gp.parse(out)
+    assert song.title  # файл читается, название не пустое
+    assert notices
+
+
+def test_transliterate_handles_russian():
+    assert gp5out.transliterate("Пожары") == "Pozhary"
+    assert gp5out.transliterate("Guitar 1") == "Guitar 1"

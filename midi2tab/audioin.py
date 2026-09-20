@@ -49,7 +49,11 @@ def available() -> tuple[bool, str]:
     except ImportError:
         return False, (
             "Модуль распознавания аудио не установлен.\n"
-            "Установите его командой:  pip install \"basic-pitch[onnx]\""
+            "Запустите install_audio.bat или выполните две команды:\n"
+            "    pip install -r requirements-audio.txt\n"
+            "    pip install --no-deps basic-pitch\n"
+            "Ключ --no-deps обязателен: в метаданных basic-pitch прописан "
+            "tensorflow, которого нет под Python 3.13, хотя на ONNX он не нужен."
         )
     return True, ""
 

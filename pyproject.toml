@@ -9,7 +9,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-audio = ["basic-pitch[onnx]>=0.4.0"]
+# Внимание: basic-pitch тянет tensorflow, которого нет под Python 3.13.
+# Рабочая установка -- через requirements-audio.txt + pip install --no-deps basic-pitch.
+audio = ["onnxruntime>=1.16", "librosa>=0.10", "mir_eval>=0.6", "resampy>=0.4", "soundfile>=0.12"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]

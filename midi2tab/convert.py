@@ -148,6 +148,7 @@ def convert(settings: Settings, progress=None) -> Result:
             grid=grid,
             allow_triplets=settings.allow_triplets,
             let_ring=settings.let_ring,
+            on_note=result.summary.append,
         )
 
     header = [

@@ -1,0 +1,16 @@
+# Распознавание аудио. Ставить ПОСЛЕ requirements.txt:
+#     pip install -r requirements-audio.txt
+#     pip install --no-deps basic-pitch
+#
+# Второй командой basic-pitch ставится без разрешения зависимостей намеренно:
+# в его метаданных прописан tensorflow<2.15.1, которого нет под Python 3.11+
+# на Windows. В коде все бэкенды обёрнуты в try/except, и на ONNX-модели
+# tensorflow не используется вообще -- поэтому его отсутствие ничего не ломает.
+
+onnxruntime>=1.16
+librosa>=0.10
+mir_eval>=0.6
+resampy>=0.4
+scipy>=1.10
+scikit-learn>=1.3
+soundfile>=0.12

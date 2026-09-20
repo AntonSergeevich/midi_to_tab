@@ -18,6 +18,47 @@ from .arrange import Placement
 from .timing import TPQ, decompose
 from .tuning import Fretboard
 
+# Формат GP5 хранит текст в 8-битной кодировке, а не в юникоде.
+# PyGuitarPro по умолчанию берёт cp1252 -- в неё не влезает кириллица,
+# и запись падает с "'charmap' codec can't encode characters".
+# Поэтому кодировка подбирается по фактическому тексту.
+GP_ENCODINGS = ("cp1252", "cp1251", "cp1250", "cp1254", "iso8859-7", "latin-1")
+
+_TRANSLIT = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo",
+    "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
+    "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+    "ф": "f", "х": "h", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sch",
+    "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+}
+
+
+def transliterate(text: str) -> str:
+    """Кириллица -> латиница. Последняя мера, если текст не лезет ни в одну кодировку."""
+    out = []
+    for ch in text:
+        low = ch.lower()
+        if low in _TRANSLIT:
+            swapped = _TRANSLIT[low]
+            out.append(swapped.upper() if ch.isupper() else swapped)
+        elif ch.isascii():
+            out.append(ch)
+        else:
+            out.append("_")
+    return "".join(out)
+
+
+def pick_encoding(texts: list[str]) -> str | None:
+    """Первая 8-битная кодировка, в которую влезает весь текст."""
+    for encoding in GP_ENCODINGS:
+        try:
+            for text in texts:
+                text.encode(encoding)
+            return encoding
+        except (UnicodeEncodeError, LookupError):
+            continue
+    return None
+
 
 @dataclass
 class Span:
@@ -149,6 +190,7 @@ def write_gp5(
     let_ring: bool = False,
     track_name: str = "Guitar",
     midi_program: int = 25,
+    on_note=None,
 ) -> str:
     """Собрать и сохранить файл Guitar Pro 5."""
     spans = build_spans(placements, grid)
@@ -227,5 +269,27 @@ def write_gp5(
         if not voice.beats:
             _emit_rest(voice, m_end - m_start, allow_triplets)
 
-    gp.write(song, output_path)
+    # Подбор кодировки под фактический текст (название файла бывает кириллицей)
+    texts = [song.title or "", song.artist or "", track.name or ""]
+    encoding = pick_encoding(texts)
+    if encoding is None:
+        song.title = transliterate(song.title or "")
+        song.artist = transliterate(song.artist or "")
+        track.name = transliterate(track.name or "")
+        encoding = "cp1252"
+        if on_note:
+            on_note("Название содержит символы вне 8-битных кодировок -- записано латиницей.")
+    elif encoding != "cp1252" and on_note:
+        on_note(f"Текст записан в кодировке {encoding} (в ней есть нужные символы).")
+
+    try:
+        gp.write(song, output_path, encoding=encoding)
+    except UnicodeEncodeError:
+        # страховка: что-то не учли -- пишем заведомо безопасной латиницей
+        song.title = transliterate(song.title or "")
+        song.artist = transliterate(song.artist or "")
+        track.name = transliterate(track.name or "")
+        gp.write(song, output_path, encoding="cp1252")
+        if on_note:
+            on_note("Название записано латиницей: исходное не поддерживается форматом GP5.")
     return output_path
