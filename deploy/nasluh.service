@@ -1,0 +1,45 @@
+[Unit]
+Description=NASLUH - подбор песен на слух
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=nasluh
+Group=nasluh
+WorkingDirectory=/opt/nasluh/app
+EnvironmentFile=/opt/nasluh/nasluh.env
+
+# Один рабочий процесс намеренно. Разбор идёт в пуле потоков внутри
+# процесса, и каждый лишний процесс множит и пул, и память под PyTorch.
+# На сервере с 4 ГБ два процесса кладут машину по памяти, а не ускоряют.
+ExecStart=/opt/nasluh/venv/bin/uvicorn web.app:app \
+    --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers \
+    --forwarded-allow-ips='127.0.0.1'
+
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+# Предел памяти: если разбор съест всё, systemd убьёт только сервис,
+# а не даст ядру выбирать жертву по всему серверу.
+MemoryMax=3G
+MemoryHigh=2600M
+
+# Ограничения доступа: сервису нужны только свои папки
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/nasluh/data
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nasluh
+
+[Install]
+WantedBy=multi-user.target

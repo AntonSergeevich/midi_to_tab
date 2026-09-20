@@ -1,0 +1,9 @@
+[Unit]
+Description=NASLUH - уборка старых загрузок и партий
+
+[Service]
+Type=oneshot
+User=nasluh
+Group=nasluh
+EnvironmentFile=/opt/nasluh/nasluh.env
+ExecStart=/opt/nasluh/venv/bin/python /opt/nasluh/app/deploy/cleanup.py

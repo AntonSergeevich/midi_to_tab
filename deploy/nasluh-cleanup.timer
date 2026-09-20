@@ -1,0 +1,10 @@
+[Unit]
+Description=Ежедневная уборка старых файлов НАСЛУХ
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target
