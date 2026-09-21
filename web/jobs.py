@@ -32,6 +32,14 @@ from .storage import Storage
 
 MIDI_SUFFIXES = (".mid", ".midi")
 
+# Каким строем раскладывать партию. Бас на гитарный гриф не ложится:
+# его ноты просто не существуют на шести струнах в стандартном строе, и
+# раскладка выдавливала их вверх на октаву, превращая басовую линию в
+# нечто неиграбельное.
+STEM_RANGE: dict[str, dict] = {
+    "bass": {"tuning": "Бас 4 струны (EADG)"},
+}
+
 
 def tab_payload(placements, board, tempo, time_signatures) -> dict:
     """Колонки табулатуры и такты со временем в секундах."""
@@ -527,6 +535,11 @@ class JobRunner:
 
         try:
             options = parent.settings or {}
+            # Диапазон по инструменту отсекает то, чего у него быть не
+            # может: в басовой партии нет нот выше пятого лада первой
+            # струны, а в гитарной -- контроктавы. Без этого Basic Pitch
+            # дорисовывает призрачные обертоны, и они уходят в табы.
+            limits = STEM_RANGE.get(stem_key)
             settings = Settings(
                 input_path=source,
                 output_dir=out_dir,
@@ -538,6 +551,8 @@ class JobRunner:
                 remove_ghosts=bool(options.get("removeGhosts", True)),
                 max_polyphony=int(options.get("maxPolyphony", 0)),
             )
+            if limits:
+                settings.tuning = limits.get("tuning", settings.tuning)
             converted = convert(settings, progress=bar.note)
             board = settings.fretboard()
 

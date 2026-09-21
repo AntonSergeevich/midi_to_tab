@@ -106,6 +106,9 @@ function buildRibbon() {
 
 function buildParts() {
   $('parts').innerHTML = '';
+  // Табы из полного микса бесполезны: Basic Pitch слышит вокал и
+  // барабаны наравне с гитарой, и всё это ложится на один гриф.
+  const canSplit = data.parts.every((p) => p.key === 'full') && !data.isMidi;
   data.parts.forEach((part) => {
     const row = document.createElement('div');
     row.className = 'part';
@@ -115,7 +118,9 @@ function buildParts() {
       <a href="${part.audio}" download><button>Скачать</button></a>
       <span class="spacer"></span>
       <span class="muted" data-role="status"></span>
-      <button class="primary" data-act="tabs">Создать MIDI и табы</button>`;
+      ${part.key === 'full' && !data.isMidi && canSplit
+        ? '<span class="muted">табы — после разделения на партии</span>'
+        : '<button class="primary" data-act="tabs">Создать MIDI и табы</button>'}`;
     $('parts').appendChild(row);
 
     row.querySelector('[data-act="listen"]').onclick = () => {
@@ -129,6 +134,7 @@ function buildParts() {
 
     const button = row.querySelector('[data-act="tabs"]');
     const status = row.querySelector('[data-role="status"]');
+    if (!button) return;
     button.onclick = async () => {
       button.disabled = true;
       status.textContent = 'ставлю в очередь…';

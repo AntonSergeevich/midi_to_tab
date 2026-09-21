@@ -483,3 +483,38 @@ def test_harmonic_mix_survives_a_missing_library(tmp_path, monkeypatch):
 
     monkeypatch.setitem(__import__("sys").modules, "soundfile", None)
     assert separate.harmonic_mix({}, str(tmp_path / "x.wav")) is None
+
+
+def test_tabs_from_a_full_mix_are_refused(tmp_path, monkeypatch):
+    """
+    Табы из полного микса предлагать нечестно.
+
+    Basic Pitch слышит ВСЁ: вокал, барабаны, бас и гитару разом, и всё
+    это раскладывается на один гриф. На реальной песне так вышло 1118
+    нот по всему грифу до семнадцатого лада -- сыграть это нельзя.
+    Пока разделение доступно, надо сначала разделить.
+    """
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    monkeypatch.setattr(app_module.separate, "available", lambda: (True, ""))
+
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        job = app_module.storage.create_job(user.id, "песня.mp3", {})
+        app_module.storage.update_job(
+            job.id, status="done",
+            result={"isMidi": False, "parts": [{"key": "full", "label": "Весь трек"}],
+                    "paths": {"parts": {"full": "/нет/такого.wav"}}},
+        )
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+
+        refused = client.post(f"/api/job/{job.id}/tabs/full")
+        assert refused.status_code == 409
+        assert "Разделите" in refused.json()["detail"] or "разделите" in refused.json()["detail"]

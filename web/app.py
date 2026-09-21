@@ -783,8 +783,23 @@ def api_make_tabs(job_id: str, stem_key: str, request: Request):
     parent = storage.job(job_id)
     if not parent or parent.status != "done" or not parent.result:
         raise HTTPException(404, "Разбор ещё не готов")
-    if stem_key not in (parent.result.get("paths") or {}).get("parts", {}):
+    parts = (parent.result.get("paths") or {}).get("parts", {})
+    if stem_key not in parts:
         raise HTTPException(404, "Такой партии нет")
+
+    # Табы из полного микса -- это мусор, и предлагать их нечестно.
+    # Basic Pitch слышит ВСЁ: вокал, барабаны, бас и гитару разом, и всё
+    # это раскладывается на один гриф. На реальной песне получилось 1118
+    # нот по всему грифу до семнадцатого лада -- сыграть это нельзя.
+    if stem_key == "full" and not parent.result.get("isMidi"):
+        ok, _why = separate.available()
+        if ok:
+            raise HTTPException(
+                409,
+                "Сначала разделите трек на партии: табы из полного микса "
+                "бесполезны — в них попадут и вокал, и барабаны. Кнопка "
+                "«Разделить на партии» под списком.",
+            )
 
     user = current_user(request)
     child = storage.create_job(
