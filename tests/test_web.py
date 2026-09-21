@@ -434,3 +434,52 @@ def test_desktop_requirements_exist():
     desktop = Path(__file__).resolve().parent.parent / "requirements-desktop.txt"
     assert desktop.is_file()
     assert "pygame" in desktop.read_text(encoding="utf-8").lower()
+
+
+# ------------------------------------------------- разделение вторым заходом
+
+
+def test_harmonic_mix_drops_drums_and_vocals(tmp_path):
+    """
+    Дорожка для разбора аккордов собирается без барабанов и голоса.
+
+    Голос -- худший враг разбора гармонии: певец тянет ноту поверх
+    аккорда, и она читается как надстройка, превращая трезвучие в
+    септаккорд. Барабаны размазывают спектр. Когда партии уже посчитаны,
+    убрать и то и другое ничего не стоит.
+    """
+    numpy = pytest.importorskip("numpy")
+    soundfile = pytest.importorskip("soundfile")
+
+    from midi2tab import separate
+
+    rate = 22050
+    time_axis = numpy.linspace(0, 1, rate, endpoint=False)
+    stems = {}
+    for name, freq in (("guitar", 440.0), ("bass", 110.0),
+                       ("drums", 3000.0), ("vocals", 900.0)):
+        path = str(tmp_path / f"{name}.wav")
+        soundfile.write(path, numpy.sin(2 * numpy.pi * freq * time_axis) * 0.5, rate)
+        stems[name] = path
+
+    out = separate.harmonic_mix(stems, str(tmp_path / "harmony.wav"))
+    assert out is not None
+
+    audio, _ = soundfile.read(out)
+    spectrum = numpy.abs(numpy.fft.rfft(audio))
+    freqs = numpy.fft.rfftfreq(len(audio), 1 / rate)
+
+    def energy(freq):
+        return float(spectrum[numpy.argmin(numpy.abs(freqs - freq))])
+
+    # Гитара и бас на месте, барабаны и голос -- нет
+    assert energy(440.0) > energy(3000.0) * 20
+    assert energy(110.0) > energy(900.0) * 20
+
+
+def test_harmonic_mix_survives_a_missing_library(tmp_path, monkeypatch):
+    """Без soundfile разбор обязан продолжиться по полному миксу, а не упасть."""
+    from midi2tab import separate
+
+    monkeypatch.setitem(__import__("sys").modules, "soundfile", None)
+    assert separate.harmonic_mix({}, str(tmp_path / "x.wav")) is None

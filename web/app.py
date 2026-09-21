@@ -730,6 +730,33 @@ def api_make_lyrics(job_id: str, request: Request, model: str = Form(lyrics_mod.
     return {"ok": True}
 
 
+@app.post("/api/job/{job_id}/separate")
+def api_separate_later(job_id: str, request: Request):
+    """
+    Разделить на партии уже разобранный трек.
+
+    Сначала берут аккорды -- это быстро, -- а партии нужны потом, когда
+    дошло до конкретной гитары. Грузить тот же файл заново, теряя
+    сделанные табы, человек не должен: исходник лежит на диске.
+    """
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(404, "Трек не найден")
+    if job.status == "running":
+        raise HTTPException(409, "Этот трек сейчас обрабатывается")
+    if not job.result:
+        raise HTTPException(409, "Разбор ещё не готов")
+    if (job.result.get("paths") or {}).get("parts", {}).keys() - {"full"}:
+        raise HTTPException(409, "Трек уже разделён на партии")
+
+    ok, why = separate.available()
+    if not ok:
+        raise HTTPException(503, why)
+    runner.submit_separation(job_id)
+    return {"ok": True}
+
+
 @app.post("/api/job/{job_id}/tabs/{stem_key}")
 def api_make_tabs(job_id: str, stem_key: str, request: Request):
     """Создать MIDI и табы для выбранной партии."""

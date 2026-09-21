@@ -185,6 +185,9 @@ class JobRunner:
     def submit_analysis(self, job_id: str, source_path: str) -> None:
         self.pool.submit(self._analyze, job_id, source_path)
 
+    def submit_separation(self, job_id: str) -> None:
+        self.pool.submit(self._separate_later, job_id)
+
     def submit_tabs(self, job_id: str, parent_id: str, stem_key: str) -> None:
         self.pool.submit(self._tabs, job_id, parent_id, stem_key)
 
@@ -214,6 +217,7 @@ class JobRunner:
         try:
             parts: list[dict] = []
             chords: list[dict] = []
+            source_note = ""
             beats: list[float] = []
             downbeats: list[float] = []
             tempo = int(options.get("tempo") or 0)
@@ -249,10 +253,27 @@ class JobRunner:
             # 2. Аккорды прямо из звука -- без нейросети и в разы быстрее,
             #    чем через распознавание отдельных нот
             if not is_midi:
+                # Если партии посчитаны, слушаем гармонию без барабанов и
+                # голоса: певец тянет ноту поверх аккорда, и она читается
+                # как надстройка -- трезвучие становится септаккордом.
+                listen_to = source_path
+                source_note = ""
+                if parts and options.get("separate"):
+                    mixed = separate.harmonic_mix(
+                        {p["key"]: p["path"] for p in parts},
+                        os.path.join(out_dir, "harmony.wav"),
+                    )
+                    if mixed:
+                        listen_to = mixed
+                        source_note = "без барабанов и голоса"
+
                 low = 72 if options.get("separate") else 2
-                bar.begin("Слушаю аккорды...", low, 97, "chords")
+                bar.begin(
+                    "Слушаю аккорды" + (f" {source_note}" if source_note else "") + "...",
+                    low, 97, "chords",
+                )
                 analysis = audiochords.detect_from_audio(
-                    source_path,
+                    listen_to,
                     min_duration=float(options.get("minChord", audiochords.MIN_DURATION)),
                     vocabulary=int(options.get("vocabulary", audiochords.DEFAULT_VOCABULARY)),
                     allowed=options.get("allowed") or None,
@@ -278,6 +299,7 @@ class JobRunner:
                 "tempo": tempo or 120,
                 "tempoDetected": bool(not options.get("tempo") and tempo),
                 "chords": chords,
+                "chordSource": source_note,
                 "beats": beats,
                 "downbeats": downbeats,
                 "parts": [
@@ -302,6 +324,104 @@ class JobRunner:
                 job_id, status="error", stage="", progress=0.0, error=str(exc)
             )
             print(f"[analyze {job_id}] {exc}\n{traceback.format_exc()}")
+
+    def _separate_later(self, job_id: str) -> None:
+        """
+        Разделить на партии уже разобранный трек.
+
+        Человек сначала берёт аккорды -- это быстро, -- а партии ему
+        нужны потом, когда дошло до конкретной гитары. Заставлять его
+        грузить тот же файл заново и терять сделанные табы -- нелепо:
+        исходник лежит на диске, разделение просто дописывается к
+        существующему разбору.
+        """
+        job = self.storage.job(job_id)
+        if job is None or not job.result:
+            return
+        source = (job.result.get("paths") or {}).get("source")
+        if not source or not os.path.isfile(source):
+            self.storage.update_job(job_id, error="Исходный файл не найден")
+            return
+
+        ok, why = separate.available()
+        if not ok:
+            self.storage.update_job(job_id, error=why)
+            return
+
+        out_dir = os.path.join(self.data_dir, "results", job_id)
+        os.makedirs(out_dir, exist_ok=True)
+        options = job.settings or {}
+        bar = Progress(self.storage, job_id, audioin.duration_seconds(source))
+        self.storage.update_job(job_id, status="running", progress=1.0, error=None)
+
+        try:
+            quality = options.get("quality") or separate.DEFAULT_QUALITY
+            factor = separate.QUALITY.get(
+                quality, separate.QUALITY[separate.DEFAULT_QUALITY]
+            )[2]
+            bar.begin("Делю трек на партии...", 2, 72, "separate", factor)
+            result = separate.separate(
+                source, os.path.join(out_dir, "stems"),
+                options.get("model", separate.DEFAULT_MODEL),
+                quality=quality, progress=bar.note,
+            )
+            payload = dict(job.result)
+            payload["parts"] = [
+                {"key": key, "label": result.label_for(key),
+                 "audio": f"/api/file/{job_id}/part/{key}"}
+                for key in result.stems
+            ]
+            paths = dict(payload.get("paths") or {})
+            paths["parts"] = dict(result.stems)
+            payload["paths"] = paths
+
+            # Партии есть -- значит, аккорды можно услышать заново и чище.
+            self._chords_from_stems(job_id, payload, out_dir, options, bar)
+
+            bar.stop()
+            self.storage.update_job(
+                job_id, status="done", stage="Готово", progress=100.0,
+                result=payload, error=None,
+            )
+        except Exception as exc:
+            bar.stop()
+            self.storage.update_job(
+                job_id, status="done", stage="Разделить не удалось",
+                progress=100.0, error=str(exc),
+            )
+            print(f"[separate {job_id}] {exc}\n{traceback.format_exc()}")
+
+    def _chords_from_stems(self, job_id, payload, out_dir, options, bar) -> None:
+        """
+        Переслушать аккорды по дорожке без барабанов и голоса.
+
+        Голос -- худший враг разбора гармонии: певец тянет ноту поверх
+        аккорда, и она читается как надстройка, превращая трезвучие в
+        септаккорд. Барабаны размазывают спектр. Когда партии уже
+        посчитаны, убрать и то и другое ничего не стоит.
+        """
+        stems = (payload.get("paths") or {}).get("parts") or {}
+        mix = separate.harmonic_mix(stems, os.path.join(out_dir, "harmony.wav"))
+        if not mix:
+            return
+        bar.begin("Слушаю аккорды без барабанов и голоса...", 72, 97, "chords")
+        analysis = audiochords.detect_from_audio(
+            mix,
+            min_duration=float(options.get("minChord", audiochords.MIN_DURATION)),
+            vocabulary=int(options.get("vocabulary", audiochords.DEFAULT_VOCABULARY)),
+            allowed=options.get("allowed") or None,
+            progress=bar.note,
+        )
+        if not analysis.chords:
+            return
+        payload["chords"] = [
+            {"name": c.name, "start": round(c.start, 3), "end": round(c.end, 3),
+             "confidence": round(c.confidence, 2)}
+            for c in analysis.chords
+        ]
+        payload["beats"] = [round(b, 3) for b in analysis.beats]
+        payload["downbeats"] = [round(b, 3) for b in analysis.downbeats]
+        payload["chordSource"] = "без барабанов и голоса"
 
     def _lyrics(self, job_id: str, model: str) -> None:
         """

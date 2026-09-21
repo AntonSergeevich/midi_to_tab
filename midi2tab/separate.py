@@ -139,6 +139,51 @@ def separate(
     return SeparateResult(stems=stems, model=model_name, out_dir=str(stem_dir))
 
 
+# Что мешает слышать гармонию. Барабаны размазывают спектр, а голос --
+# худший враг разбора аккордов: певец тянет ноту поверх аккорда, и эта
+# нота читается как надстройка. Так трезвучие превращается в maj7, а
+# круг песни -- в свалку из двух десятков подписей.
+NOT_HARMONY = ("drums", "vocals")
+
+
+def harmonic_mix(stems: dict[str, str], out_path: str) -> str | None:
+    """
+    Собрать дорожку без барабанов и голоса -- только гармония.
+
+    Это самый дешёвый способ поднять качество разбора аккордов из всех,
+    что у нас есть: модель отделять ничего не нужно, стемы уже посчитаны.
+    Слушать гармонию в такой дорожке -- совсем не то же самое, что в
+    полном миксе, где её перекрывает всё остальное.
+    """
+    keep = [path for key, path in stems.items() if key not in NOT_HARMONY]
+    if not keep:
+        return None
+    try:
+        import numpy as np
+        import soundfile
+    except ImportError:
+        return None
+
+    try:
+        total = None
+        rate = None
+        for path in keep:
+            audio, sample_rate = soundfile.read(path, always_2d=True)
+            mono = audio.mean(axis=1)
+            if total is None:
+                total, rate = mono, sample_rate
+            elif sample_rate == rate:
+                length = min(len(total), len(mono))
+                total = total[:length] + mono[:length]
+        if total is None:
+            return None
+        peak = float(np.max(np.abs(total))) or 1.0
+        soundfile.write(out_path, (total / peak * 0.9).astype("float32"), rate)
+    except Exception:
+        return None
+    return out_path
+
+
 def polish(path: str, kind: str) -> str:
     """
     Дочистить дорожку по диапазону инструмента.

@@ -39,8 +39,10 @@ async function load() {
   data = job.result;
   $('title').textContent = job.name;
   const detected = data.tempoDetected ? ' (определён автоматически)' : '';
+  const source = data.chordSource ? ` (${data.chordSource})` : '';
   $('meta').textContent =
-    `Темп ${data.tempo}${detected} · аккордов ${data.chords.length} · партий ${data.parts.length}`;
+    `Темп ${data.tempo}${detected} · аккордов ${data.chords.length}${source}` +
+    ` · партий ${data.parts.length}`;
 
   $('audio').src = data.audio;
   clock = audioClock($('audio'));
@@ -48,6 +50,7 @@ async function load() {
 
   buildRibbon();
   buildParts();
+  buildSplit();
   buildMade(job.made || []);
   buildLyrics();
   bindControls();
@@ -118,6 +121,36 @@ function buildParts() {
       watchTabs((await response.json()).jobId, status, button, part.label);
     };
   });
+}
+
+// Разделение вторым заходом: сначала берут аккорды, партии нужны позже.
+function buildSplit() {
+  const split = data.parts.every((p) => p.key === 'full');
+  if (!split || data.isMidi) return;
+  $('splitBox').style.display = '';
+  $('split').onclick = async () => {
+    $('split').disabled = true;
+    $('splitStatus').textContent = 'ставлю в очередь…';
+    const response = await fetch(`/api/job/${jobId}/separate`, { method: 'POST' });
+    if (!response.ok) {
+      $('splitStatus').innerHTML = `<span class="bad">${(await response.json()).detail}</span>`;
+      $('split').disabled = false;
+      return;
+    }
+    const timer = setInterval(async () => {
+      const job = await (await fetch(`/api/job/${jobId}`)).json();
+      $('splitStatus').textContent =
+        `${job.stage || job.status} — ${Math.round(job.progress || 0)}%`;
+      if (job.status === 'done') {
+        clearInterval(timer);
+        location.reload();   // партии, аккорды и файлы -- всё заново
+      } else if (job.status === 'error') {
+        clearInterval(timer);
+        $('splitStatus').innerHTML = `<span class="bad">${job.error}</span>`;
+        $('split').disabled = false;
+      }
+    }, 2000);
+  };
 }
 
 // Табы, сделанные в прошлый заход. Без этого человек возвращался к треку,
