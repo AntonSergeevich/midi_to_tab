@@ -17,7 +17,12 @@
   <div class="card" id="login">
     <h2>Вход для владельца</h2>
     <p class="muted" style="margin:0 0 12px">
-      Ключ задаётся переменной окружения <code>MIDI2TAB_ADMIN_KEY</code> на сервере.
+      Сначала <a href="/account">заведите учётную запись</a> и войдите в неё —
+      права владельца привязываются к ней, а не к браузеру, и не теряются
+      при смене устройства.
+      Ключ задаётся переменной окружения <code>MIDI2TAB_ADMIN_KEY</code> на сервере;
+      если ключ утерян, права выдаются с сервера командой
+      <code>deploy/admin.py админ &lt;почта&gt;</code>.
     </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <input type="password" id="key" placeholder="Ключ администратора" style="flex:1;min-width:220px">

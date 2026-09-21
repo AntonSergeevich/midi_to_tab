@@ -175,10 +175,23 @@ def api_admin_login(request: Request, key: str = Form(...)):
 
     if not ADMIN_KEY:
         raise HTTPException(503, "Админка выключена: не задан MIDI2TAB_ADMIN_KEY")
-    if not secrets.compare_digest(key, ADMIN_KEY):
+    # Сравниваем байты, а не строки: secrets.compare_digest на строках
+    # требует чистого ASCII и падает с TypeError на кириллическом ключе --
+    # вместо входа владелец получал бы пятисотую ошибку.
+    if not secrets.compare_digest(key.encode(), ADMIN_KEY.encode()):
         raise HTTPException(403, "Неверный ключ")
 
     user = current_user(request)
+    # Права выдаются УЧЁТНОЙ ЗАПИСИ, а не куке. Без этого владелец,
+    # зашедший с другого устройства или почистивший куки, оказывался новым
+    # безымянным посетителем -- и выглядело это как "меня выкинуло из
+    # админки, а пароля я не знаю". Теперь права переживают смену браузера.
+    if not user.registered:
+        raise HTTPException(
+            403,
+            "Сначала заведите учётную запись на странице «Вход» — иначе "
+            "права привяжутся к этому браузеру и пропадут вместе с куками.",
+        )
     storage.set_flags(user.id, is_admin=True, unlimited=True, note=user.note or "владелец")
     response = JSONResponse({"ok": True})
     attach_cookie(response, user.id)

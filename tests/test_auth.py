@@ -20,6 +20,28 @@ def store(tmp_path):
     return Storage(str(tmp_path / "auth.db"))
 
 
+@pytest.fixture()
+def client(tmp_path, monkeypatch):
+    """
+    Живое приложение на временной базе.
+
+    Модуль web.app создаёт хранилище на импорте, поэтому папку данных
+    подменяем ДО него и выгружаем из кеша -- иначе тесты писали бы в
+    настоящую базу сервиса.
+    """
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as test_client:
+        yield test_client
+
+
 # ------------------------------------------------------------------ пароли
 
 
@@ -250,3 +272,33 @@ def test_answered_ticket_judged_by_answer_time():
 def test_short_or_huge_tickets_rejected(bad):
     with pytest.raises(ValueError):
         support.validate("problem", bad)
+
+
+def test_admin_rights_need_an_account(client, monkeypatch):
+    """
+    Права владельца привязываются к учётной записи, а не к куке.
+
+    Раньше вход по ключу помечал текущего безымянного посетителя, и
+    владелец, зашедший с телефона или почистивший куки, оказывался новым
+    человеком без прав. Со стороны это выглядело как «меня выкинуло из
+    админки, а пароля я не знаю», и вернуть их можно было только с сервера.
+    """
+    import web.app as app_module
+
+    monkeypatch.setattr(app_module, "ADMIN_KEY", "ключ")
+
+    # Безымянный посетитель прав не получает -- ему объясняют, почему
+    refused = client.post("/api/admin/login", data={"key": "ключ"})
+    assert refused.status_code == 403
+    assert "учётную запись" in refused.json()["detail"]
+
+    client.post("/api/auth/register",
+                data={"email": "vladelec@naslux.ru", "password": "длинный-пароль-9"})
+    assert client.post("/api/admin/login", data={"key": "ключ"}).status_code == 200
+    assert client.get("/api/me").json()["isAdmin"] is True
+
+    # Неверный ключ по-прежнему не пускает. Ключ здесь кириллический
+    # намеренно: secrets.compare_digest на строках требует ASCII и на
+    # таком ключе падал с TypeError -- то есть пятисотой ошибкой вместо
+    # входа, и виноватым выглядел бы правильный ключ.
+    assert client.post("/api/admin/login", data={"key": "не тот"}).status_code == 403
