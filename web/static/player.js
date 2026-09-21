@@ -56,7 +56,6 @@ async function load() {
   buildMade(job.made || []);
   buildLyrics();
   buildGrips();
-  buildSheet();
   bindControls();
   bindDrag();
   requestAnimationFrame(tick);
@@ -77,9 +76,12 @@ function buildRibbon() {
   ribs = data.chords.map((chord) => {
     const el = document.createElement('div');
     el.className = 'rib';
-    const shaky = chord.confidence < 0.55;
-    el.innerHTML = `<div>${chord.name}` +
-      (shaky ? '<small class="low-conf">не уверен</small>' : '<small></small>') + '</div>';
+    // Метки "не уверен" здесь больше нет. На трёх размеченных песнях она
+    // ловила ноль процентов настоящих ошибок, зато висела на каждом
+    // пятом ВЕРНОМ аккорде -- в том числе на очевидном до-мажоре.
+    // Предупреждение, которое не предупреждает, хуже его отсутствия:
+    // человек либо перестаёт ему верить, либо зря сомневается в себе.
+    el.innerHTML = `<div>${chord.name}<small></small></div>`;
     el.style.left = `${((chord.start + chord.end) / 2) * PX_PER_SEC}px`;
     // Нажатие по подписи переносит воспроизведение к ней: так возвращаются
     // к месту, которое не выходит, не целясь в ползунок.
@@ -283,10 +285,22 @@ function buildLyrics() {
     renderLyrics(data.lyrics, data.lyricsSource);
     return;
   }
+  fetch('/api/me').then((r) => r.json()).then((me) => {
+    const fill = (id, values, chosen) => {
+      $(id).innerHTML = values
+        .map((v) => `<option${v === chosen ? ' selected' : ''}>${v}</option>`).join('');
+    };
+    fill('lyricsLang', me.lyricsLanguages || ['русский'], 'русский');
+    fill('lyricsModel', me.lyricsModels || [], (me.lyricsModels || [])[3]);
+  });
+
   $('makeLyrics').onclick = async () => {
     $('makeLyrics').disabled = true;
     $('lyricsStatus').textContent = 'ставлю в очередь…';
-    const response = await fetch(`/api/job/${jobId}/lyrics`, { method: 'POST' });
+    const form = new FormData();
+    form.append('model', $('lyricsModel').value);
+    form.append('language', $('lyricsLang').value);
+    const response = await fetch(`/api/job/${jobId}/lyrics`, { method: 'POST', body: form });
     if (!response.ok) {
       $('lyricsStatus').innerHTML =
         `<span class="bad">${(await response.json()).detail}</span>`;
@@ -517,72 +531,6 @@ function buildGrips() {
   }));
 }
 
-// --------------------------------------------------------- лист аккордов
-
-// Лента показывает то, что рядом с текущим мгновением, и это правильно
-// для игры. Но разучивают песню иначе: сперва смотрят на неё целиком --
-// где куплет, где припев, что повторяется. Поэтому кроме ленты нужен
-// обычный лист: вся песня по тактам, сразу на одном экране.
-let sheetCells = [];
-
-function buildSheet() {
-  if (!data.chords.length || !(data.downbeats || []).length) return;
-  const bars = data.downbeats;
-  const box = $('sheet');
-  box.innerHTML = '';
-  sheetCells = [];
-
-  // С какого такта начинается фраза. Песня ходит по кругу из четырёх
-  // тактов, но начаться этот круг может не с первого такта записи -- там
-  // обычно вступление. Если разложить лист не с того места, строки
-  // съезжают, и повтор, который виден на слух, на бумаге разваливается.
-  // Пробуем все четыре начала и берём то, при котором соседние четвёрки
-  // совпадают чаще всего.
-  const names = bars.map((start, index) => {
-    const end = bars[index + 1] ?? start + 2;
-    const middle = (start + end) / 2;
-    const chord = data.chords.find((c) => c.start <= middle && middle < c.end);
-    return chord ? chord.name : '';
-  });
-  let phase = 0;
-  let bestRepeats = -1;
-  for (let shift = 0; shift < 4; shift++) {
-    let repeats = 0;
-    for (let i = shift; i + 8 <= names.length; i += 4) {
-      for (let k = 0; k < 4; k++) if (names[i + k] === names[i + 4 + k]) repeats++;
-    }
-    if (repeats > bestRepeats) { bestRepeats = repeats; phase = shift; }
-  }
-  for (let i = 0; i < (4 - phase) % 4; i++) {
-    const filler = document.createElement('div');
-    filler.className = 'bar-cell empty';
-    box.appendChild(filler);
-  }
-
-  let previous = null;
-  bars.forEach((start, index) => {
-    const end = bars[index + 1] ?? (start + (bars[1] - bars[0] || 2));
-    const middle = (start + end) / 2;
-    const chord = data.chords.find((c) => c.start <= middle && middle < c.end)
-      || data.chords.find((c) => c.start <= start && start < c.end);
-
-    const cell = document.createElement('button');
-    cell.className = 'bar-cell';
-    const name = chord ? chord.name : '';
-    // Повтор того же аккорда не пишем словом -- так виднее, где смена
-    cell.innerHTML = name === previous
-      ? '<span class="same">╱</span>'
-      : `<b>${name || '—'}</b>`;
-    if (chord && chord.confidence < 0.55) cell.classList.add('shaky');
-    cell.title = `Такт ${index + 1}${name ? ' — ' + name : ''}`;
-    cell.onclick = () => { clock.time = start; clock.play(); };
-    box.appendChild(cell);
-    sheetCells.push({ el: cell, start, end });
-    previous = name;
-  });
-  $('sheetCard').style.display = '';
-}
-
 // ------------------------------------------------------- перемотка лентой
 
 // Лента -- это и есть шкала времени песни, и тянуть её мышкой
@@ -684,10 +632,6 @@ function tick() {
   const playing = (ribs.find(({ chord }) => now >= chord.start && now < chord.end) || {}).chord;
   gripEls.forEach(({ el, name }) =>
     el.classList.toggle('now', !!playing && playing.name === name));
-
-  // Текущий такт подсвечивается и в листе -- глаз не теряет место
-  sheetCells.forEach(({ el, start, end }) =>
-    el.classList.toggle('now', now >= start && now < end));
 
   metro.sync(now);
   $('time').textContent = `${mmss(now)} / ${mmss(clock.duration)}`;

@@ -461,7 +461,25 @@ class JobRunner:
         if job is None or not job.result:
             return
         paths = (job.result.get("paths") or {}).get("parts", {})
-        source = paths.get("vocals") or job.result.get("paths", {}).get("source")
+        options = job.settings or {}
+        full = (job.result.get("paths") or {}).get("source")
+
+        # Разделить трек ПЕРЕД распознаванием, если это ещё не сделано.
+        # Разница не в процентах: на полном миксе Whisper слышит гитару и
+        # барабаны наравне с голосом и выдумывает слова там, где их нет.
+        # Ради текста стоит подождать разделение -- иначе результат всё
+        # равно негодный, и ожидание потрачено впустую.
+        if "vocals" not in paths and full and os.path.isfile(full):
+            ok, _why = separate.available()
+            if ok:
+                try:
+                    self._separate_later(job_id)
+                    job = self.storage.job(job_id)
+                    paths = ((job.result or {}).get("paths") or {}).get("parts", {})
+                except Exception as exc:
+                    print(f"[lyrics {job_id}] разделение не удалось: {exc}")
+
+        source = paths.get("vocals") or full
         if not source or not os.path.isfile(source):
             self.storage.update_job(job_id, error="Нет дорожки для распознавания текста")
             return
@@ -473,6 +491,7 @@ class JobRunner:
             result = lyrics_mod.transcribe(
                 source,
                 model=model,
+                language=lyrics_mod.language_code(options.get("language")),
                 cache_dir=os.path.join(self.data_dir, "models"),
                 progress=bar.note,
             )

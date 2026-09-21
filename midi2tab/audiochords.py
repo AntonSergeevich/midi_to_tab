@@ -438,15 +438,33 @@ def detect_from_audio(
 
 
 def _sync(librosa, chroma, boundaries, np):
-    """Усреднить хромаграмму по отрезкам и нормировать каждый столбец."""
-    synced = librosa.util.sync(chroma, boundaries, aggregate=np.median)
+    """
+    Усреднить хромаграмму по отрезкам и нормировать каждый столбец.
+
+    pad=False здесь обязателен, и это была дорогая ошибка. По умолчанию
+    librosa добавляет границы в начале и в конце, и столбцов получается
+    на один больше, чем промежутков: нулевой столбец покрывает то, что
+    было ДО первой доли. Дальше нулевой столбец подписывался именем
+    первого такта, первый -- именем второго, и так вся песня.
+
+    Отсюда сразу два изъяна, на которые жаловались: аккорды отставали
+    ровно на такт, а в самом начале появлялся аккорд из ниоткуда -- это
+    размечали вступительную тишину перед первой долей.
+    """
+    synced = librosa.util.sync(chroma, boundaries, aggregate=np.median, pad=False)
     norms = np.linalg.norm(synced, axis=0, keepdims=True)
     norms[norms == 0] = 1.0
     return synced / norms
 
 
 def _edges(times, duration: float):
-    """Границы отрезков: к началам добавляется конец последнего."""
+    """
+    Границы отрезков.
+
+    Их ровно столько же, сколько долей: промежуток i лежит между долей i
+    и долей i+1. Последний промежуток замыкается концом записи -- иначе
+    хвост песни остаётся без разметки.
+    """
     import numpy as np
 
     values = [float(t) for t in np.asarray(times).ravel()]
@@ -461,26 +479,40 @@ def _decide(np, vectors, penalties, synced, change_cost: float):
     """
     Разобрать последовательность и оценить уверенность.
 
-    Уверенность = насколько выбранный аккорд оторвался от ближайшего
-    соперника. Абсолютная схожесть тут обманывает: на плотном миксе она
-    низкая у всех подряд, но если один вариант ушёл далеко вперёд --
-    сомневаться не в чем. И наоборот: два почти равных варианта это
-    настоящая неоднозначность, даже когда оба похожи.
-
     Штраф влияет на то, КАКОЙ аккорд выбрать, но не на то, насколько мы в
     нём уверены: иначе все подписи выглядели бы сомнительными просто
     из-за способа отбора.
     """
     scores = (vectors @ synced) - penalties[:, None]
-    if scores.shape[0] < 2:
-        path = np.zeros(scores.shape[1], dtype=int)
-        return path, np.ones(scores.shape[1])
+    path = (np.zeros(scores.shape[1], dtype=int)
+            if scores.shape[0] < 2 else _viterbi(scores, change_cost))
+    return path, _confidence(np, vectors, synced, path)
 
-    ordered = np.sort(scores, axis=0)
-    margin = ordered[-1] - ordered[-2]
-    spread = as_float(np.percentile(margin, 90)) or 1.0
-    confidence = np.minimum(1.0, margin / spread)
-    return _viterbi(scores, change_cost), confidence
+
+def _confidence(np, vectors, synced, path):
+    """
+    Насколько подпись заслуживает доверия.
+
+    Раньше уверенность считалась как отрыв от ближайшего соперника. На
+    трёх размеченных песнях эта мера оказалась шумом: сомнительными она
+    помечала 55% ВЕРНЫХ подписей против 67% неверных -- то есть почти не
+    различала их, зато исправно пугала человека на очевидном до-мажоре.
+    Причина простая: до-мажор и ля-минор всегда рядом по схожести, но
+    это не неуверенность, а родство аккордов.
+
+    Спрашиваем то, что и надо спрашивать: ЗВУЧАТ ЛИ ноты этого аккорда.
+    Берём самую слабую из них -- аккорд держится на самой тихой своей
+    ноте, и если терции не слышно, уверенным быть не в чем, как бы
+    громко ни звучали основной тон с квинтой.
+    """
+    loudest = synced.max(axis=0)
+    loudest[loudest == 0] = 1.0
+    result = np.zeros(len(path))
+    for index, state in enumerate(path):
+        notes = np.nonzero(vectors[state])[0]
+        share = synced[notes, index] / loudest[index]
+        result[index] = float(np.clip(share.min() / 0.22, 0.0, 1.0))
+    return result
 
 
 def _segments(names, decision, times, min_duration: float) -> list[AudioChord]:

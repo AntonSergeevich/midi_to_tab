@@ -648,3 +648,69 @@ def test_shapes_follow_the_tuning():
 
     drop_d = Fretboard(TUNINGS["Drop D (DADGBE)"])
     assert shapes_for("D", drop_d, 1)[0].frets == (0, 0, 0, 2, 3, 2)
+
+
+def test_chords_are_not_shifted_by_a_bar():
+    """
+    Разметка не должна отставать от музыки.
+
+    librosa.util.sync по умолчанию добавляет границы в начале и в конце,
+    и столбцов выходит на один больше, чем промежутков: нулевой столбец
+    покрывает то, что было ДО первой доли. Из-за этого нулевой столбец
+    подписывался именем первого такта, первый -- именем второго, и так
+    вся песня. Отсюда сразу два изъяна: аккорды отставали ровно на такт,
+    а в начале появлялся аккорд из ниоткуда -- это размечали тишину
+    перед первой долей.
+    """
+    np = pytest.importorskip("numpy")
+    librosa = pytest.importorskip("librosa")
+
+    from midi2tab.audiochords import _sync
+
+    # Две доли, между ними три промежутка -- значит, и столбцов три
+    chroma = np.zeros((12, 40))
+    chroma[0, 0:10] = 1.0      # до вступления
+    chroma[2, 10:20] = 1.0
+    chroma[5, 20:30] = 1.0
+    chroma[7, 30:40] = 1.0
+    boundaries = np.array([10, 20, 30, 40])
+
+    synced = _sync(librosa, chroma, boundaries, np)
+    assert synced.shape[1] == len(boundaries) - 1
+
+    # Первый столбец -- это то, что звучит ПОСЛЕ первой границы,
+    # а не вступление перед ней
+    assert int(np.argmax(synced[:, 0])) == 2
+    assert int(np.argmax(synced[:, 1])) == 5
+
+
+def test_confidence_asks_whether_the_notes_are_sounding():
+    """
+    Уверенность меряет то, что и должна: слышны ли ноты аккорда.
+
+    Прежняя мера -- отрыв от ближайшего соперника -- оказалась шумом: на
+    трёх размеченных песнях она помечала сомнительными 55% ВЕРНЫХ
+    подписей и ловила при этом ноль процентов настоящих ошибок. До-мажор
+    и ля-минор всегда рядом по схожести, но это родство аккордов, а не
+    неуверенность.
+    """
+    np = pytest.importorskip("numpy")
+
+    from midi2tab.audiochords import _confidence
+
+    vectors = np.zeros((1, 12))
+    for pitch in (0, 4, 7):                 # до-мажор
+        vectors[0, pitch] = 1.0
+
+    full = np.zeros((12, 1))
+    for pitch in (0, 4, 7):
+        full[pitch, 0] = 1.0
+    assert _confidence(np, vectors, full, np.array([0]))[0] == pytest.approx(1.0)
+
+    # Терция почти не звучит -- уверенности быть не в чем, как бы громко
+    # ни звучали основной тон с квинтой
+    thin = np.zeros((12, 1))
+    thin[0, 0] = 1.0
+    thin[7, 0] = 1.0
+    thin[4, 0] = 0.02
+    assert _confidence(np, vectors, thin, np.array([0]))[0] < 0.2

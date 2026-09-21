@@ -478,6 +478,8 @@ class Storage:
             return
         if "result" in fields and fields["result"] is not None:
             fields["result"] = json.dumps(fields["result"], ensure_ascii=False)
+        if "settings" in fields and not isinstance(fields["settings"], str):
+            fields["settings"] = json.dumps(fields["settings"] or {}, ensure_ascii=False)
         if "counted" in fields:
             fields["counted"] = int(bool(fields["counted"]))
         assignments = ", ".join(f"{key} = ?" for key in fields)

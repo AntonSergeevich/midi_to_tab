@@ -25,10 +25,22 @@ from dataclasses import dataclass, field
 MODELS: dict[str, str] = {
     "tiny (75 МБ, черновик)": "tiny",
     "base (145 МБ)": "base",
-    "small (480 МБ, рекомендуется)": "small",
-    "medium (1.5 ГБ, точнее и медленнее)": "medium",
+    "small (480 МБ, быстро)": "small",
+    "medium (1.5 ГБ, рекомендуется)": "medium",
+    "large-v3 (3 ГБ, лучшее качество)": "large-v3",
 }
-DEFAULT_MODEL = "small (480 МБ, рекомендуется)"
+DEFAULT_MODEL = "medium (1.5 ГБ, рекомендуется)"
+
+# Языки, на которых чаще всего поют у нас. Указать язык прямо -- не
+# мелочь: на пении автоопределение ошибается заметно чаще, чем на речи,
+# и, приняв русский за украинский или болгарский, Whisper выдаёт
+# правдоподобную бессмыслицу вместо текста.
+LANGUAGES: dict[str, str | None] = {
+    "русский": "ru",
+    "английский": "en",
+    "определить самому": None,
+}
+DEFAULT_LANGUAGE = "русский"
 
 
 @dataclass
@@ -82,11 +94,20 @@ def _device_and_type() -> tuple[str, str]:
     return "cpu", "int8"
 
 
+def language_code(name: str | None) -> str | None:
+    """Название языка из настроек -> код для Whisper."""
+    if not name:
+        return LANGUAGES[DEFAULT_LANGUAGE]
+    if name in LANGUAGES:
+        return LANGUAGES[name]
+    return name if len(name) == 2 else None
+
+
 def transcribe(
     audio_path: str,
     *,
     model: str = DEFAULT_MODEL,
-    language: str | None = None,
+    language: str | None = "ru",
     cache_dir: str | None = None,
     progress=None,
 ) -> Lyrics:
@@ -122,6 +143,25 @@ def transcribe(
         word_timestamps=True,     # нужны, чтобы подсвечивать слова по ходу
         vad_filter=True,          # тишину и проигрыши не «расшифровываем»
         beam_size=5,
+        # Ключевая настройка для песен. По умолчанию Whisper при разборе
+        # каждого куска опирается на уже распознанный текст -- для речи
+        # это помогает, а в песне губит: припев повторяется, модель
+        # цепляется за собственный предыдущий вывод и уходит в петлю,
+        # повторяя одну строчку до конца записи. На песнях это надо
+        # выключать.
+        condition_on_previous_text=False,
+        # Если кусок всё же выродился в повтор -- перебрать с другой
+        # температурой, а не оставлять мусор в тексте.
+        temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+        compression_ratio_threshold=2.2,
+        no_speech_threshold=0.5,
+        vad_parameters={
+            # В пении паузы длиннее, чем в речи: между строчками легко
+            # проходит секунда, и при коротком пороге VAD режет фразу
+            # посередине слова.
+            "min_silence_duration_ms": 700,
+            "speech_pad_ms": 300,
+        },
     )
 
     lines: list[Line] = []

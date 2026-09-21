@@ -29,6 +29,7 @@ from midi2tab.timing import GRIDS
 from midi2tab.tuning import TUNINGS
 
 from . import auth, billing, mailer, support
+from . import jobs as jobs_module
 from .jobs import JobRunner
 from .storage import Storage
 
@@ -551,6 +552,7 @@ def api_me(request: Request):
     payload["unlimited"] = user.unlimited
     payload["lyricsReady"] = lyrics_mod.available()[0]
     payload["lyricsModels"] = list(lyrics_mod.MODELS)
+    payload["lyricsLanguages"] = list(lyrics_mod.LANGUAGES)
     payload["vocabulary"] = audiochords.DEFAULT_VOCABULARY
     payload["jobs"] = [
         {"id": j.id, "name": j.filename, "status": j.status, "at": j.created_at,
@@ -652,6 +654,13 @@ def api_job(job_id: str):
         payload["result"] = {
             key: value for key, value in job.result.items() if key != "paths"
         }
+        # Аппликатуры появились позже, чем часть разборов. Считать их
+        # заново -- доли секунды, а без этого человек, открывший старый
+        # трек, картинок просто не увидит и решит, что их нет вовсе.
+        if not payload["result"].get("shapes") and payload["result"].get("chords"):
+            payload["result"]["shapes"] = jobs_module._shapes_for(
+                payload["result"]["chords"], job.settings or {}
+            )
     # Табы, сделанные раньше, должны находиться и после перезагрузки
     # страницы: человек вернулся к треку за файлами, а не делать всё заново.
     labels = {p["key"]: p["label"] for p in ((job.result or {}).get("parts") or [])}
@@ -718,7 +727,12 @@ def api_library(request: Request):
 
 
 @app.post("/api/job/{job_id}/lyrics")
-def api_make_lyrics(job_id: str, request: Request, model: str = Form(lyrics_mod.DEFAULT_MODEL)):
+def api_make_lyrics(
+    job_id: str,
+    request: Request,
+    model: str = Form(lyrics_mod.DEFAULT_MODEL),
+    language: str = Form(lyrics_mod.DEFAULT_LANGUAGE),
+):
     """Распознать текст песни по вокальной партии."""
     job = storage.job(job_id)
     if not job or job.status != "done" or not job.result:
@@ -726,6 +740,12 @@ def api_make_lyrics(job_id: str, request: Request, model: str = Form(lyrics_mod.
     ok, why = lyrics_mod.available()
     if not ok:
         raise HTTPException(503, why)
+    # Язык кладём в настройки задания: на пении автоопределение ошибается
+    # заметно чаще, чем на речи, и, приняв русский за болгарский, Whisper
+    # выдаёт правдоподобную бессмыслицу вместо текста.
+    job = storage.job(job_id)
+    if job:
+        storage.update_job(job_id, settings={**(job.settings or {}), "language": language})
     runner.submit_lyrics(job_id, model)
     return {"ok": True}
 

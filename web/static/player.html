@@ -61,17 +61,9 @@
     <h2>Как ставить</h2>
     <p class="muted" style="margin:0 0 12px">
       Аппликатуры для выбранного строя. Тот аккорд, что звучит сейчас, подсвечен.
+      Ленту с аккордами над плеером можно тянуть мышкой или пальцем.
     </p>
     <div id="grips"></div>
-  </div>
-
-  <div class="card" id="sheetCard" style="margin-top:16px;display:none">
-    <h2>Аккорды песни</h2>
-    <p class="muted" style="margin:0 0 12px">
-      Вся песня по тактам. Нажмите на такт — плеер перейдёт к нему.
-      Ленту над плеером можно тянуть мышкой.
-    </p>
-    <div id="sheet"></div>
   </div>
 
   <div class="card" style="margin-top:16px">
@@ -98,8 +90,18 @@
       <p class="muted" style="margin:0 0 12px" id="lyricsHint">
         Текст распознаётся по вокальной партии — так заметно точнее, чем по всему миксу.
       </p>
-      <button id="makeLyrics">Распознать текст</button>
-      <span id="lyricsStatus" class="muted" style="margin-left:10px"></span>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <label class="field" style="width:170px;margin:0">
+          <span>Язык песни</span><select id="lyricsLang"></select></label>
+        <label class="field" style="width:220px;margin:0">
+          <span>Модель</span><select id="lyricsModel"></select></label>
+        <button class="primary" id="makeLyrics">Распознать текст</button>
+      </div>
+      <p class="muted" style="margin:10px 0 0">
+        Если трек ещё не разделён на партии, это будет сделано сначала:
+        по чистому вокалу распознаётся несравнимо точнее, чем по всему миксу.
+      </p>
+      <span id="lyricsStatus" class="muted"></span>
     </div>
     <div id="lyricsLines" style="margin-top:14px;display:none"></div>
   </div>
