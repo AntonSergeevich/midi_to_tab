@@ -784,3 +784,26 @@ def test_bass_decides_between_neighbours():
     bass_f[5, :] = 1.0                  # в басу фа
     path, _ = _decide(np, vectors, np.zeros(2), muddy, 0.05, bass=bass_f, roots=roots)
     assert list(path) == [1, 1, 1]
+
+
+def test_btc_labels_are_translated_to_our_notation():
+    """
+    Скрипт сравнения с BTC должен говорить на нашем языке подписей.
+
+    Модель пишет "C:min" и бемолями, у нас -- "Cm" и диезы. Тишина
+    обозначается буквой N и в разбор попадать не должна вовсе.
+    """
+    import os
+    import sys
+
+    sys.path.insert(0, os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+    from btc_chords import tidy
+
+    assert tidy("C:min") == "Cm"
+    assert tidy("Bb") == "A#"
+    assert tidy("Db:maj7") == "C#maj7"
+    assert tidy("G:min7") == "Gm7"
+    assert tidy("D") == "D"
+    assert tidy("N") is None
+    assert tidy("X") is None
