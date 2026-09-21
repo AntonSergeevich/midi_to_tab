@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15161c">
+<title>NASLUX — тарифы</title>
+<meta name="description" content="Две бесплатные песни, потом 19 ₽ за трек или 199 ₽ в месяц без ограничений.">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
+    <div style="display:flex;gap:14px;align-items:center">
+      <a href="/library">Мои треки</a>
+      <a href="/pricing">Тарифы</a>
+      <a href="/account" id="account">Вход</a>
+      <a href="/pricing" id="access" class="badge">загрузка…</a>
+    </div>
+  </header>
+
+  <section class="hero">
+    <h1>Сколько это стоит</h1>
+    <p class="lead" id="state">Первые две песни — бесплатно, платить за них не нужно.</p>
+  </section>
+
+  <!-- Кнопки отдаются сразу вместе со страницей: пока грузились через
+       запрос, человек секунду видел пустоту на месте главного, за чем
+       он сюда и пришёл. Цены подставляет сервер из тех же констант,
+       что считают оплату, -- разойтись они не могут. -->
+  <div class="choices" id="plans" style="margin-bottom:18px">
+    <button class="choice" data-plan="single">
+      <b>{{priceSingle}} ₽ — один трек</b>
+      <small>разово, без подписки. Разобрали песню — и всё</small>
+    </button>
+    <button class="choice" data-plan="month">
+      <b>{{price}} ₽ — месяц без ограничений</b>
+      <small>сколько угодно песен 30 дней. Выгоднее с одиннадцатого трека</small>
+    </button>
+  </div>
+  <p id="msg" class="muted" style="margin:0 0 24px"></p>
+
+  <div class="card">
+    <h2>Что входит в любой тариф</h2>
+    <div class="grid" style="margin-top:12px">
+      <div><b>Аккорды всей песни</b><div class="muted">с тональностью и бегущей лентой</div></div>
+      <div><b>Аппликатуры</b><div class="muted">как ставить каждый аккорд, под ваш строй</div></div>
+      <div><b>Разделение на партии</b><div class="muted">гитара, бас, барабаны, вокал отдельно</div></div>
+      <div><b>Табы и MIDI</b><div class="muted">Guitar Pro, текстовые табы, MIDI-файл</div></div>
+      <div><b>Текст песни</b><div class="muted">распознаётся по вокальной партии</div></div>
+      <div><b>Метроном и замедление</b><div class="muted">по найденным долям, а не по среднему темпу</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Вопросы</h2>
+    <p><b>Подписка продлевается сама?</b><br>
+      <span class="muted">Нет. Через 30 дней она просто закончится — списаний без вашего
+      участия не будет.</span></p>
+    <p><b>Что выгоднее?</b><br>
+      <span class="muted">Разовая покупка — если разбираете песню изредка. Подписка
+      окупается с одиннадцатого трека в месяц.</span></p>
+    <p><b>Если разбор не получился?</b><br>
+      <span class="muted">Оплата возвращается или трек восстанавливается на счёт —
+      по вашему выбору. Напишите через форму в кабинете.</span></p>
+    <p><b>Треки остаются?</b><br>
+      <span class="muted">Да, в «Моих треках»: со всеми табами, MIDI и текстом.
+      Удалить можно в любой момент.</span></p>
+  </div>
+
+  <footer class="legal">
+    <a href="/privacy">Политика конфиденциальности</a>
+    <a href="/offer">Оферта</a>
+    <span>© NASLUX</span>
+  </footer>
+</div>
+<script src="/static/pricing.js"></script>
+<script src="/static/consent.js"></script>
+</body>
+</html>

@@ -84,9 +84,11 @@ def build_stamp() -> str:
 STAMP = build_stamp()
 
 
-def page(name: str) -> HTMLResponse:
+def page(name: str, values: dict | None = None) -> HTMLResponse:
     """Отдать страницу, проставив отпечаток версии в ссылки на статику."""
     html = (STATIC_DIR / name).read_text(encoding="utf-8")
+    for key, value in (values or {}).items():
+        html = html.replace("{{" + key + "}}", str(value))
     html = re.sub(r'(/static/[\w./-]+\.(?:js|css|svg))"', rf'\1?v={STAMP}"', html)
     return HTMLResponse(
         html,
@@ -286,15 +288,27 @@ def api_admin_notices(request: Request):
 
 
 @app.get("/api/admin/users")
-def api_admin_users(request: Request):
+def api_admin_users(request: Request, q: str = "", offset: int = 0, limit: int = 50):
+    """
+    Страница списка пользователей.
+
+    Список постраничный намеренно: когда людей станет тысяча, выгружать
+    их всех разом -- это полминуты ожидания ради одного экрана. Поиск и
+    счётчик треков считает база, а не Python.
+    """
     require_admin(request)
-    users = storage.all_users()
+    page_size = max(10, min(200, limit))
+    found = storage.users_page(q, max(0, offset), page_size)
     return {
         "stats": storage.stats(),
+        "total": found["total"],
+        "offset": found["offset"],
+        "limit": found["limit"],
         "users": [
             {
                 "id": u.id,
                 "short": u.id[:8],
+                "email": u.email,
                 "at": u.created_at,
                 "freeUsed": u.free_used,
                 "paidUntil": u.paid_until,
@@ -302,9 +316,9 @@ def api_admin_users(request: Request):
                 "unlimited": u.unlimited,
                 "isAdmin": u.is_admin,
                 "note": u.note,
-                "tracks": len(storage.root_jobs(u.id, 500)),
+                "tracks": tracks,
             }
-            for u in users
+            for u, tracks in found["users"]
         ],
     }
 
@@ -640,6 +654,19 @@ def api_drop_invite(code: str, request: Request):
     user = require_admin(request)
     storage.drop_invite(code, user.id)
     return {"ok": True}
+
+
+@app.get("/pricing", response_class=HTMLResponse)
+def pricing_page() -> HTMLResponse:
+    """
+    Тарифы. Цены подставляются на сервере, а не запрашиваются со
+    страницы: иначе человек секунду видит пустоту на месте главного,
+    за чем он сюда и пришёл.
+    """
+    return page("pricing.html", {
+        "price": f"{billing.PRICE_RUB:.0f}",
+        "priceSingle": f"{billing.PRICE_SINGLE_RUB:.0f}",
+    })
 
 
 @app.get("/privacy", response_class=HTMLResponse)

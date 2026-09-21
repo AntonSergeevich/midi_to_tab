@@ -515,12 +515,76 @@ class Storage:
             )
 
     def all_users(self, limit: int = 500) -> list[User]:
-        """Все пользователи -- для админки, свежие сверху."""
+        """Все пользователи -- для консольных команд, свежие сверху."""
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id FROM users ORDER BY created_at DESC LIMIT ?", (limit,)
+                "SELECT * FROM users ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
-        return [u for u in (self.user(r["id"]) for r in rows) if u]
+        return [self._user_from_row(r) for r in rows]
+
+    def users_page(self, query: str = "", offset: int = 0, limit: int = 50) -> dict:
+        """
+        Страница списка пользователей для админки.
+
+        Раньше админка забирала всех разом, причём на каждого делался
+        отдельный запрос, а чтобы показать число треков -- подгружались
+        сами задания, до пятисот на человека. На десятке пользователей
+        это незаметно, на тысяче -- тысячи запросов и полминуты ожидания
+        ради одной страницы.
+
+        Теперь всё считает база: счётчик треков берётся одной группировкой,
+        а наружу отдаётся ровно одна страница. Порядок тоже осмысленный:
+        сначала те, у кого есть доступ или треки, потом остальные --
+        владельцу нужны живые люди, а не хвост из случайных заходов.
+        """
+        like = f"%{query.strip().lower()}%" if query.strip() else None
+        where, params = "", []
+        if like:
+            # Ищем и по заметке: владелец подписывает друзей и
+            # тестировщиков словами, а не идентификаторами, и искать
+            # потом будет именно по словам.
+            where = (" WHERE LOWER(COALESCE(u.email, '')) LIKE ?"
+                     " OR LOWER(u.id) LIKE ?"
+                     " OR LOWER(COALESCE(u.note, '')) LIKE ?")
+            params = [like, like, like]
+
+        with self._connect() as conn:
+            total = conn.execute(
+                f"SELECT COUNT(*) AS n FROM users u{where}", params
+            ).fetchone()["n"]
+            rows = conn.execute(
+                "SELECT u.*, COALESCE(j.tracks, 0) AS tracks FROM users u"
+                " LEFT JOIN (SELECT user_id, COUNT(*) AS tracks FROM jobs"
+                "            WHERE json_extract(settings, '$.parent') IS NULL"
+                "            GROUP BY user_id) j ON j.user_id = u.id"
+                + where
+                + " ORDER BY (u.unlimited = 1 OR COALESCE(u.paid_until, 0) > ?) DESC,"
+                  " tracks DESC, u.created_at DESC"
+                  " LIMIT ? OFFSET ?",
+                (*params, time.time(), limit, offset),
+            ).fetchall()
+
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "users": [(self._user_from_row(r), r["tracks"]) for r in rows],
+        }
+
+    def _user_from_row(self, row) -> User:
+        return User(
+            id=row["id"],
+            created_at=row["created_at"],
+            free_used=row["free_used"],
+            paid_until=row["paid_until"],
+            email=row["email"],
+            is_admin=bool(row["is_admin"]),
+            unlimited=bool(row["unlimited"]),
+            note=row["note"],
+            credits=row["credits"],
+            password_hash=row["password_hash"] if "password_hash" in row.keys() else None,
+            registered_at=row["registered_at"] if "registered_at" in row.keys() else None,
+        )
 
     def stats(self) -> dict:
         """Сводка по сервису."""

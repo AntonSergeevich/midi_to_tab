@@ -31,8 +31,18 @@ $('enter').onclick = async () => {
 };
 $('key').onkeydown = (e) => { if (e.key === 'Enter') $('enter').click(); };
 
+// Список постраничный: когда людей станет тысяча, выгружать их всех
+// разом -- это полминуты ожидания ради одного экрана. Поиск тоже ушёл
+// на сервер: искать надо среди всех, а не среди загруженной страницы.
+let offset = 0;
+let found = 0;
+const PAGE = 50;
+let searchTimer = null;
+
 async function loadUsers() {
-  const data = await (await fetch('/api/admin/users')).json();
+  const query = encodeURIComponent(($('search').value || '').trim());
+  const data = await (await fetch(
+    `/api/admin/users?q=${query}&offset=${offset}&limit=${PAGE}`)).json();
   $('panel').style.display = '';
 
   const s = data.stats;
@@ -51,6 +61,7 @@ async function loadUsers() {
     </div>`).join('');
 
   all = data.users;
+  found = data.total;
   render();
   await loadTickets();
 }
@@ -123,16 +134,21 @@ async function loadTickets() {
   });
 }
 
-$('search').oninput = render;
+// Поиск идёт на сервере, поэтому не дёргаем его на каждую букву
+$('search').oninput = () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { offset = 0; loadUsers(); }, 350);
+};
 
 function render() {
-  const q = $('search').value.trim().toLowerCase();
-  const rows = all.filter((u) =>
-    !q || u.short.includes(q) || (u.note || '').toLowerCase().includes(q));
+  const rows = all;
+  const from = found ? offset + 1 : 0;
+  const to = offset + rows.length;
 
   $('users').innerHTML = rows.map((u) => `
     <div class="part" data-id="${u.id}">
-      <span class="name" style="font-family:Consolas,monospace">${u.short}</span>
+      <span class="name" style="font-family:Consolas,monospace"
+        title="${u.id}">${u.email || u.short}</span>
       <label class="check"><input type="checkbox" data-act="unlimited"
         ${u.unlimited ? 'checked' : ''}> безлимит</label>
       <label class="check"><input type="checkbox" data-act="admin"
@@ -146,7 +162,22 @@ function render() {
       </span>
       <button data-act="grant">+30 дней</button>
       <span class="muted" data-role="status"></span>
-    </div>`).join('');
+    </div>`).join('') + `
+    <div class="part" style="border:none;background:none">
+      <span class="muted">${found ? `${from}–${to} из ${found}` : 'никого не найдено'}</span>
+      <span class="spacer"></span>
+      <button id="prev" ${offset === 0 ? 'disabled' : ''}>← назад</button>
+      <button id="next" ${to >= found ? 'disabled' : ''}>вперёд →</button>
+    </div>`;
+
+  if ($('prev')) $('prev').onclick = () => {
+    offset = Math.max(0, offset - PAGE);
+    loadUsers();
+  };
+  if ($('next')) $('next').onclick = () => {
+    offset += PAGE;
+    loadUsers();
+  };
 
   document.querySelectorAll('[data-id]').forEach((row) => {
     const id = row.dataset.id;

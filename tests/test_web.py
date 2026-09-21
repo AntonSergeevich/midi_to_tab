@@ -662,3 +662,75 @@ def test_rejected_notices_are_kept_for_diagnosis(tmp_path):
     for index in range(30):
         store.save_notice("getplatinum", {"order_id": f"x{index}"}, False, "шум")
     assert len(store.notices(100)) == 20
+
+
+def test_pricing_page_shows_prices_without_javascript(tmp_path, monkeypatch):
+    """
+    Тарифы должны быть видны сразу, а не подгружаться.
+
+    Пока цены приходили отдельным запросом, человек секунду видел
+    пустоту ровно на том месте, за чем пришёл. Цены подставляет сервер
+    из тех же констант, что считают оплату, -- разойтись они не могут.
+    """
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+    from web import billing
+
+    with TestClient(app_module.app) as client:
+        html = client.get("/pricing").text
+        assert f"{billing.PRICE_SINGLE_RUB:.0f} ₽" in html
+        assert f"{billing.PRICE_RUB:.0f} ₽" in html
+        assert "{{" not in html          # подстановки не остались сырыми
+        assert 'data-plan="single"' in html and 'data-plan="month"' in html
+
+        # И ссылка на тарифы есть в меню каждой страницы
+        for path in ("/", "/library", "/account", "/privacy", "/offer"):
+            assert '/pricing' in client.get(path).text, path
+
+
+def test_admin_user_list_is_paged_and_searchable(tmp_path):
+    """
+    Тысяча пользователей не должна выгружаться одним списком.
+
+    Раньше админка забирала всех разом, причём на каждого делался
+    отдельный запрос, а ради счётчика треков подгружались сами задания.
+    На десятке это незаметно, на тысяче -- тысячи запросов.
+    """
+    from web.storage import Storage
+
+    store = Storage(str(tmp_path / "many.db"))
+    for index in range(300):
+        user = store.ensure_user(None)
+        if index % 10 == 0:
+            store.set_flags(user.id, unlimited=True, note=f"тестировщик {index}")
+        if index % 25 == 0:
+            store.register(user.id, f"человек{index}@mail.ru", "x" * 80)
+        for _ in range(index % 3):
+            store.create_job(user.id, "песня.mp3", {})
+
+    page = store.users_page("", 0, 50)
+    assert page["total"] == 300
+    assert len(page["users"]) == 50
+
+    # Сначала те, у кого есть доступ: владельцу нужны живые люди
+    assert page["users"][0][0].unlimited
+
+    # Счётчик треков считает база, и считает верно
+    for user, tracks in page["users"]:
+        assert tracks == len(store.root_jobs(user.id, 500))
+
+    # Поиск идёт по почте, номеру И заметке -- друзей подписывают словами
+    assert store.users_page("человек25@", 0, 50)["total"] == 1
+    assert store.users_page("тестировщик 30", 0, 50)["total"] == 1
+    assert store.users_page("тестировщик", 0, 50)["total"] == 30
+
+    # Страницы не пересекаются и покрывают всё
+    first = {u.id for u, _ in store.users_page("", 0, 50)["users"]}
+    second = {u.id for u, _ in store.users_page("", 50, 50)["users"]}
+    assert not (first & second)
