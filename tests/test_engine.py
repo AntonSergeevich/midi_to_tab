@@ -807,3 +807,55 @@ def test_btc_labels_are_translated_to_our_notation():
     assert tidy("D") == "D"
     assert tidy("N") is None
     assert tidy("X") is None
+
+
+def test_separation_is_not_throttled_to_one_thread():
+    """
+    Ограничение потоков не должно задевать разделение.
+
+    Прежняя правка выставляла OMP_NUM_THREADS на весь процесс, чтобы
+    onnxruntime не забирал все ядра, -- и заодно сажала на одно ядро
+    PyTorch, то есть Demucs. Разделение и так самый долгий шаг; на
+    половине ядер оно растянулось на часы, и человек уходил, не
+    дождавшись. Лечение оказалось хуже болезни.
+    """
+    import os
+
+    from midi2tab import audioin  # noqa: F401  -- важен побочный эффект импорта
+
+    # Ограничиваем только onnxruntime, общие переменные не трогаем
+    assert os.environ.get("ORT_INTRA_OP_NUM_THREADS")
+    assert "OMP_NUM_THREADS" not in os.environ or os.environ["OMP_NUM_THREADS"] != "1"
+
+
+def test_quality_asks_the_third_before_the_key():
+    """
+    Мажор или минор -- сперва вопрос к записи, и только потом к ладу.
+
+    На семи размеченных песнях тональность угадывалась в трёх случаях
+    из семи, и каждая её ошибка переворачивала мажор с минором на всех
+    ступенях разом: в "Силуэте" (ля минор) вышел ре мажор, и ля с ре
+    стали мажорными. Прямое сравнение терций такой ошибки не знает.
+    """
+    np = pytest.importorskip("numpy")
+
+    from midi2tab.audiochords import _pick_quality, _templates
+
+    names, vectors, penalties, roots, qualities = _templates()
+    wrong_key = (2, True)                  # ре мажор -- нарочно неверный
+
+    def decide(root, third):
+        profile = np.zeros(12)
+        profile[root] = 1.0
+        profile[(root + 7) % 12] = 0.8
+        profile[(root + third) % 12] = 0.9
+        return names[_pick_quality(np, names, vectors, penalties, roots,
+                                   qualities, root, profile / np.linalg.norm(profile),
+                                   wrong_key)]
+
+    # Малая терция звучит -- минор, хотя лад ждёт мажор
+    assert decide(9, 3) == "Am"
+    assert decide(2, 3) == "Dm"
+    # Большая терция -- мажор
+    assert decide(9, 4) == "A"
+    assert decide(7, 4) == "G"

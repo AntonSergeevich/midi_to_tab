@@ -51,11 +51,15 @@ QUALITY: dict[str, tuple[float, int, float]] = {
     "быстро": (0.25, 1, 1.2),
     "точнее": (0.50, 2, 3.6),
 }
-DEFAULT_QUALITY = "точнее"
+# По умолчанию -- быстро. "Точнее" честно стоит втрое дороже, и на
+# двухъядерном сервере это превращает четырёхминутную песню в
+# получасовое ожидание. Выигрыш в чистоте дорожки того не стоит, когда
+# человек уходит, не дождавшись; кому нужно -- выберет сам.
+DEFAULT_QUALITY = "быстро"
 
 # Длина куска в секундах, которым Demucs обрабатывает трек. Меньше кусок
 # -- меньше пиковая память, но чуть хуже склейка на границах.
-SEGMENT = int(os.environ.get("MIDI2TAB_SEGMENT", "10"))
+SEGMENT = int(os.environ.get("MIDI2TAB_SEGMENT", "15"))
 
 
 @dataclass
@@ -107,6 +111,16 @@ def separate(
     os.makedirs(out_dir, exist_ok=True)
 
     overlap, shifts, _ = QUALITY.get(quality, QUALITY[DEFAULT_QUALITY])
+
+    # Разделению отдаём все ядра явно. Полагаться на настройки по
+    # умолчанию нельзя: их мог сузить кто-то другой в этом же процессе,
+    # и тогда самый долгий шаг молча поедет вдвое медленнее.
+    try:
+        import torch
+
+        torch.set_num_threads(max(1, os.cpu_count() or 1))
+    except Exception:
+        pass
 
     if progress:
         progress(f"Разделяю трек моделью {model_name}. Это самый долгий шаг...")
