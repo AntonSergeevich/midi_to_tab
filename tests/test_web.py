@@ -301,14 +301,53 @@ def test_payment_provider_selection(monkeypatch):
     assert billing.provider().name == "yookassa"
 
 
-def test_getplatinum_normalises_success_statuses():
+def test_getplatinum_normalises_success_statuses(monkeypatch):
     from web import billing
 
+    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", "тайна")
     gateway = billing.GetPlatinumProvider()
-    for raw in ("paid", "success", "succeeded", "completed"):
-        assert gateway.verify_webhook({"payment_id": "x", "status": raw})[1] == "succeeded"
-    assert gateway.verify_webhook({"payment_id": "x", "status": "canceled"})[1] == "canceled"
+
+    def notice(status):
+        body = {"payment_id": "x", "order_id": "x", "terminal": gateway.terminal,
+                "amount": "199.00", "status": status}
+        body["signature"] = gateway.sign(body, gateway.CALLBACK_SIGN_FIELDS)
+        return body
+
+    for raw in ("paid", "success", "succeeded", "completed", "confirmed"):
+        assert gateway.verify_webhook(notice(raw))[1] == "succeeded"
+    assert gateway.verify_webhook(notice("canceled"))[1] == "canceled"
     assert gateway.verify_webhook({}) is None
+
+
+def test_getplatinum_refuses_unsigned_notice(monkeypatch):
+    """
+    Уведомление без верной подписи -- не уведомление.
+
+    Адрес обработчика не секрет: он прописан в кабинете мерчанта и
+    виден в логах. Если верить телу запроса на слово, подписку себе
+    выпишет любой, кто отправит туда {"status": "paid"}.
+    """
+    from web import billing
+
+    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", "тайна")
+    gateway = billing.GetPlatinumProvider()
+    body = {"payment_id": "x", "order_id": "x", "terminal": gateway.terminal,
+            "amount": "199.00", "status": "paid"}
+
+    assert gateway.verify_webhook(body) is None                       # без подписи
+    assert gateway.verify_webhook({**body, "signature": "0" * 64}) is None   # чужая
+
+    body["signature"] = gateway.sign(body, gateway.CALLBACK_SIGN_FIELDS)
+    assert gateway.verify_webhook(body) == ("x", "succeeded")
+
+    # Подменённая сумма ломает подпись -- значит, и сумму подделать нельзя
+    assert gateway.verify_webhook({**body, "amount": "1.00"}) is None
+
+
+def test_getplatinum_terminal_is_ours_by_default():
+    from web import billing
+
+    assert billing.GetPlatinumProvider().terminal == "153777"
 
 
 # -------------------------------------------------------------- два тарифа

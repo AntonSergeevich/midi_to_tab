@@ -186,6 +186,7 @@ async function start(separate, button) {
   form.append('grid', $('grid').value);
   form.append('min_chord', $('minchord').value);
   form.append('vocabulary', $('vocabulary').value);
+  form.append('quality', $('quality').value);
   form.append('chords', $('chords').value);
   form.append('remove_ghosts', $('ghosts').checked);
   form.append('max_polyphony', $('poly').value);

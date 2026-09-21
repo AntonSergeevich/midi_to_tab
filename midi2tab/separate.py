@@ -34,6 +34,15 @@ MODELS: dict[str, str] = {
 }
 DEFAULT_MODEL = "htdemucs_6s (с отдельной гитарой)"
 
+# Качество разделения покупается временем, и честнее показать эту цену,
+# чем решать за человека. Числа -- это (перекрытие кусков, число сдвигов,
+# во сколько раз дольше самой музыки на двух ядрах).
+QUALITY: dict[str, tuple[float, int, float]] = {
+    "быстро": (0.25, 1, 1.2),
+    "точнее": (0.50, 2, 3.6),
+}
+DEFAULT_QUALITY = "точнее"
+
 
 @dataclass
 class SeparateResult:
@@ -67,6 +76,7 @@ def separate(
     audio_path: str,
     out_dir: str,
     model: str = DEFAULT_MODEL,
+    quality: str = DEFAULT_QUALITY,
     progress=None,
 ) -> SeparateResult:
     """
@@ -82,6 +92,8 @@ def separate(
     model_name = MODELS.get(model, model)
     os.makedirs(out_dir, exist_ok=True)
 
+    overlap, shifts, _ = QUALITY.get(quality, QUALITY[DEFAULT_QUALITY])
+
     if progress:
         progress(f"Разделяю трек моделью {model_name}. Это самый долгий шаг...")
 
@@ -91,6 +103,15 @@ def separate(
         "--out", out_dir,
         "-n", model_name,
         "--device", _device(),
+        # Модель слушает трек кусками, и на стыках кусков она ошибается
+        # сильнее всего. Увеличенное перекрытие даёт каждому мгновению
+        # попасть в середину куска хотя бы раз, а усреднение по сдвигам
+        # (shifts) гасит то, что зависит от случайной фазы нарезки. Для
+        # гитары это заметнее, чем для остальных дорожек: её отделяют от
+        # клавиш и подпевок, а не от баса с барабанами, и остаток вылезает
+        # именно призвуками на стыках.
+        "--overlap", str(overlap),
+        "--shifts", str(shifts),
         audio_path,
     ]
     demucs.separate.main(argv)
@@ -105,11 +126,66 @@ def separate(
     if not stems:
         raise RuntimeError(f"В папке {stem_dir} нет ни одной дорожки.")
 
+    for key, file_path in stems.items():
+        if key in BANDS:
+            if progress:
+                progress(f"Дочищаю дорожку: {STEM_NAMES.get(key, key)}...")
+            polish(file_path, key)
+
     if progress:
         names = ", ".join(STEM_NAMES.get(k, k) for k in stems)
         progress(f"Готово, получено дорожек: {len(stems)} ({names})")
 
     return SeparateResult(stems=stems, model=model_name, out_dir=str(stem_dir))
+
+
+def polish(path: str, kind: str) -> str:
+    """
+    Дочистить дорожку по диапазону инструмента.
+
+    Demucs оставляет в гитаре следы соседей: низ от баса и бочки, верх от
+    тарелок и шипения. Для слуха это мелочь, а для распознавания нот --
+    нет: Basic Pitch принимает низкий гул за басовую ноту и рисует её в
+    табы. Режем всё, чего у инструмента быть не может.
+
+    Дорисовывать недостающие призвуки нейросетью -- соблазнительно, но
+    вредно: она додумает ноты, которых в записи не было, и они окажутся в
+    табах как настоящие. Здесь лучше убрать лишнее, чем добавить своё.
+    """
+    band = BANDS.get(kind)
+    if not band:
+        return path
+    try:
+        import numpy as np
+        import soundfile
+        from scipy.signal import butter, sosfiltfilt
+    except ImportError:
+        return path
+
+    try:
+        audio, rate = soundfile.read(path, always_2d=True)
+        low, high = band
+        high = min(high, rate / 2 * 0.98)
+        if low >= high:
+            return path
+        sos = butter(4, [low / (rate / 2), high / (rate / 2)], btype="band", output="sos")
+        cleaned = sosfiltfilt(sos, audio, axis=0)
+        peak = float(np.max(np.abs(cleaned))) or 1.0
+        if peak > 1.0:
+            cleaned = cleaned / peak
+        soundfile.write(path, cleaned.astype("float32"), rate)
+    except Exception:
+        return path
+    return path
+
+
+# Рабочий диапазон инструмента в герцах: ниже и выше -- заведомо не он.
+# Гитара: нижняя ми шестой струны 82 Гц, верхние обертоны до 6 кГц.
+BANDS: dict[str, tuple[float, float]] = {
+    "guitar": (75.0, 6000.0),
+    "bass": (30.0, 1200.0),
+    "piano": (27.0, 8000.0),
+}
 
 
 def _device() -> str:

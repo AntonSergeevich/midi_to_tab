@@ -530,6 +530,7 @@ def api_me(request: Request):
     payload["tunings"] = list(TUNINGS)
     payload["grids"] = list(GRIDS)
     payload["models"] = list(separate.MODELS)
+    payload["qualities"] = list(separate.QUALITY)
     payload["email"] = user.email
     payload["registered"] = user.registered
     payload["mailReady"] = mailer.available()[0]
@@ -561,6 +562,7 @@ async def api_upload(
     grid: str = Form(""),
     separate_track: bool = Form(False),
     model: str = Form(""),
+    quality: str = Form(""),
     remove_ghosts: bool = Form(True),
     max_polyphony: int = Form(0),
 ):
@@ -585,6 +587,7 @@ async def api_upload(
         "grid": grid or None,
         "separate": separate_track,
         "model": model or separate.DEFAULT_MODEL,
+        "quality": quality if quality in separate.QUALITY else separate.DEFAULT_QUALITY,
         "removeGhosts": remove_ghosts,
         "maxPolyphony": max_polyphony,
     }
@@ -815,9 +818,20 @@ def api_subscribe(request: Request, plan: str = Form("month")):
     return {"paymentUrl": url, "paymentId": created.get("id"), "plan": plan}
 
 
-@app.post("/api/webhook/yookassa")
-async def api_webhook(request: Request):
-    payload = await request.json()
+@app.post("/api/webhook/{gateway_name}")
+async def api_webhook(gateway_name: str, request: Request):
+    """
+    Уведомление об оплате.
+
+    Адрес включает имя сервиса, потому что его прописывают в кабинете
+    мерчанта и менять там что-то задним числом неудобно: пусть у каждого
+    будет свой, а смена провайдера не требует править настройки у старого.
+    Форма тела бывает и JSON, и обычной формой -- принимаем обе.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = dict(await request.form())
     gateway = billing.provider()
     verified = gateway.verify_webhook(payload)
     if not verified:

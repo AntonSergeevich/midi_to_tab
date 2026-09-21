@@ -71,7 +71,7 @@ def tab_payload(placements, board, tempo, time_signatures) -> dict:
 # сервере с двумя ядрами. Числа нужны только для оценки процента: если
 # реальность окажется медленнее, полоса не встанет намертво, а замедлится.
 SPEED = {
-    "separate": 1.15,   # Demucs на процессоре -- самый долгий шаг
+    "separate": 1.2,    # Demucs на процессоре -- самый долгий шаг
     "chords": 0.10,     # хромаграмма и Витерби
     "notes": 0.06,      # Basic Pitch плюс раскладка по грифу
     "lyrics": 0.40,     # Whisper small с квантизацией int8
@@ -112,9 +112,10 @@ class Progress:
 
     # ------------------------------------------------------------- шаги
 
-    def begin(self, text: str, low: float, high: float, kind: str) -> None:
+    def begin(self, text: str, low: float, high: float, kind: str,
+              factor: float | None = None) -> None:
         """Начать шаг: полоса пойдёт от low до high за ожидаемое время."""
-        expected = max(3.0, self.duration * SPEED.get(kind, 0.2))
+        expected = max(3.0, self.duration * (factor or SPEED.get(kind, 0.2)))
         with self._lock:
             self._text, self._low, self._high = text, low, high
             self._expected = expected
@@ -224,11 +225,16 @@ class JobRunner:
                     raise RuntimeError(why)
                 # Разделение занимает примерно столько же, сколько длится
                 # сама музыка, поэтому ему отдана большая часть полосы.
-                bar.begin("Делю трек на партии...", 2, 72, "separate")
+                quality = options.get("quality") or separate.DEFAULT_QUALITY
+                factor = separate.QUALITY.get(
+                    quality, separate.QUALITY[separate.DEFAULT_QUALITY]
+                )[2]
+                bar.begin("Делю трек на партии...", 2, 72, "separate", factor)
                 result = separate.separate(
                     source_path,
                     os.path.join(out_dir, "stems"),
                     options.get("model", separate.DEFAULT_MODEL),
+                    quality=quality,
                     progress=bar.note,
                 )
                 parts = [

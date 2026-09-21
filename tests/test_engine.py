@@ -396,3 +396,30 @@ def test_power_chord_costs_more_than_a_triad():
     cost = dict(zip(names, penalties))
     assert cost["D5"] > cost["Dm"]
     assert cost["D5"] > cost["D"]
+
+
+def test_separation_quality_levels_are_ordered():
+    """
+    Качество разделения покупается временем, и цена должна быть честной.
+
+    «Точнее» обязано и перекрывать куски сильнее, и усреднять по сдвигам,
+    и заявлять себя более долгим: на этом числе строится оценка процента,
+    и если оно соврёт, полоса замрёт на середине.
+    """
+    from midi2tab import separate
+
+    fast = separate.QUALITY["быстро"]
+    better = separate.QUALITY["точнее"]
+    assert better[0] > fast[0]      # перекрытие кусков
+    assert better[1] > fast[1]      # сдвиги
+    assert better[2] > fast[2]      # во сколько раз дольше
+    assert separate.DEFAULT_QUALITY in separate.QUALITY
+
+
+def test_instrument_bands_stay_inside_hearing():
+    """Полосы дочистки не должны резать сам инструмент."""
+    from midi2tab import separate
+
+    low, high = separate.BANDS["guitar"]
+    assert low < 82.4 < high        # нижняя ми шестой струны
+    assert high > 1318.5            # ми на 24-м ладу первой струны

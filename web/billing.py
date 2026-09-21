@@ -153,73 +153,126 @@ class PaymentProvider:
 
 class GetPlatinumProvider(PaymentProvider):
     """
-    GetPlatinum -- приём карт и СБП, рассчитан на самозанятых и экспертов.
+    GetPlatinum, API версии 2.
 
-    ВНИМАНИЕ: точные адреса и поля запроса берутся из кабинета мерчанта.
-    Здесь описана общая для таких сервисов схема (создать платёж ->
-    получить ссылку на оплату -> принять уведомление), а конкретные имена
-    полей вынесены в константы ниже -- подставьте их из документации.
+    Терминал задаётся GETPLATINUM_TERMINAL (по умолчанию -- наш), секрет --
+    GETPLATINUM_SECRET_KEY. Пока секрета нет, провайдер честно сообщает,
+    что оплата не подключена, и ничего не имитирует.
 
-    Проверить вызовы на живом магазине не удалось, поэтому перед запуском
-    обязательно прогоните тестовый режим. Пока реквизиты не заданы,
-    провайдер честно сообщает, что оплата не подключена.
+    ВАЖНО про подпись. В версии 2 контрольная сумма считается иначе, чем в
+    первой, и точный состав полей берётся из документации сервиса. Поэтому
+    он вынесен в SIGN_FIELDS и переопределяется переменной окружения
+    GETPLATINUM_SIGN_FIELDS -- поправить порядок можно, не трогая код и не
+    выкладывая новую версию. Проверить вызовы на живом магазине пока не
+    удалось, поэтому перед первым настоящим платежом обязательно прогоните
+    тестовый режим.
     """
 
     name = "getplatinum"
-    API_URL = os.environ.get("GETPLATINUM_API_URL", "")
+    API_URL = os.environ.get(
+        "GETPLATINUM_API_URL", "https://api.getplatinum.ru/v2/payment/create"
+    )
     # Поля ответа, из которых берутся ссылка на оплату и идентификатор.
     URL_FIELD = os.environ.get("GETPLATINUM_URL_FIELD", "payment_url")
     ID_FIELD = os.environ.get("GETPLATINUM_ID_FIELD", "payment_id")
+    # Порядок полей в строке, из которой считается подпись. Секрет
+    # добавляется последним -- так устроено у большинства подобных сервисов.
+    SIGN_FIELDS = tuple(
+        os.environ.get(
+            "GETPLATINUM_SIGN_FIELDS", "terminal,order_id,amount,currency"
+        ).split(",")
+    )
+    CALLBACK_SIGN_FIELDS = tuple(
+        os.environ.get(
+            "GETPLATINUM_CALLBACK_SIGN_FIELDS", "terminal,order_id,amount,status"
+        ).split(",")
+    )
+    SIGN_FIELD = os.environ.get("GETPLATINUM_SIGN_FIELD", "signature")
 
     def __init__(self) -> None:
-        self.shop_id = os.environ.get("GETPLATINUM_SHOP_ID", "")
+        self.terminal = os.environ.get("GETPLATINUM_TERMINAL", "153777")
         self.secret = os.environ.get("GETPLATINUM_SECRET_KEY", "")
 
     def configured(self) -> bool:
-        return bool(self.shop_id and self.secret and self.API_URL)
+        return bool(self.terminal and self.secret and self.API_URL)
+
+    def sign(self, data: dict, fields) -> str:
+        """
+        Контрольная подпись: sha256 от значений в заданном порядке.
+
+        Значения склеиваются через двоеточие, секрет идёт последним.
+        Отсутствующее поле даёт пустую строку, а не пропускается: иначе
+        подпись зависела бы от того, какие поля сервис решил прислать.
+        """
+        import hashlib
+
+        parts = [str(data.get(field, "")) for field in fields]
+        parts.append(self.secret)
+        return hashlib.sha256(":".join(parts).encode()).hexdigest()
 
     def create_payment(self, user_id: str, amount: float, return_url: str) -> dict:
         if not self.configured():
             raise RuntimeError(
-                "GetPlatinum не настроен. Задайте GETPLATINUM_API_URL, "
-                "GETPLATINUM_SHOP_ID и GETPLATINUM_SECRET_KEY."
+                "GetPlatinum не настроен. Задайте GETPLATINUM_SECRET_KEY "
+                "(и при необходимости GETPLATINUM_TERMINAL)."
             )
         import json
         import urllib.request
+        import uuid
 
-        body = json.dumps(
-            {
-                "shop_id": self.shop_id,
-                "amount": round(amount, 2),
-                "currency": "RUB",
-                "description": f"Подписка NASLUX, {PERIOD_DAYS} дней",
-                "order_id": user_id,
-                "return_url": return_url,
-            }
-        ).encode()
+        payload = {
+            "terminal": self.terminal,
+            "order_id": f"{user_id}-{uuid.uuid4().hex[:8]}",
+            "amount": f"{amount:.2f}",
+            "currency": "RUB",
+            "description": f"NASLUX, разбор песен",
+            "success_url": return_url,
+            "fail_url": return_url,
+        }
+        payload[self.SIGN_FIELD] = self.sign(payload, self.SIGN_FIELDS)
+
         request = urllib.request.Request(
             self.API_URL,
-            data=body,
-            headers={
-                "Authorization": f"Bearer {self.secret}",
-                "Content-Type": "application/json",
-            },
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
         )
         with urllib.request.urlopen(request, timeout=30) as response:
             data = json.load(response)
         return {
-            "id": data.get(self.ID_FIELD),
+            "id": data.get(self.ID_FIELD) or payload["order_id"],
             "confirmation": {"confirmation_url": data.get(self.URL_FIELD)},
             "raw": data,
         }
 
     def verify_webhook(self, payload: dict) -> tuple[str, str] | None:
-        provider_id = payload.get(self.ID_FIELD) or payload.get("id")
+        """
+        Проверить уведомление об оплате.
+
+        Подпись проверяется обязательно: без неё выдать себе подписку
+        сможет кто угодно, кто знает адрес обработчика. Сравнение
+        постоянное по времени -- подбирать подпись по знакам бессмысленно.
+        """
+        import secrets
+
+        provider_id = payload.get(self.ID_FIELD) or payload.get("order_id") or payload.get("id")
         status = payload.get("status")
         if not provider_id or not status:
             return None
+
+        given = str(payload.get(self.SIGN_FIELD, ""))
+        if not self.secret or not given:
+            return None
+        if not secrets.compare_digest(
+            given.lower(), self.sign(payload, self.CALLBACK_SIGN_FIELDS)
+        ):
+            return None
+
         # У разных сервисов успех называется по-разному
-        normalised = "succeeded" if status in ("succeeded", "success", "paid", "completed") else status
+        normalised = (
+            "succeeded"
+            if str(status).lower() in ("succeeded", "success", "paid", "completed", "confirmed")
+            else str(status)
+        )
         return str(provider_id), normalised
 
 
