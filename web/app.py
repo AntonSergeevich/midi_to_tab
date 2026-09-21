@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sys
 from contextlib import asynccontextmanager
@@ -55,6 +56,45 @@ def safe_stem(filename: str) -> str:
     stem = Path(filename or "").stem.strip() or "song"
     cleaned = "".join(c for c in stem if c.isalnum() or c in " _-()[]").strip()
     return (cleaned or "song")[:60]
+
+def build_stamp() -> str:
+    """
+    Отпечаток выложенной версии статики.
+
+    Нужен против самой коварной поломки при обновлении: браузер держит
+    в кеше СТАРЫЙ player.js, а страницу получает новую. Старый скрипт
+    обращается к элементам, которых в новой странице уже нет, падает --
+    и человек видит пустую ленту без аккордов и мёртвую кнопку "играть".
+    Ошибка выглядит как сломанный сервер, а на самом деле сломан кеш.
+
+    Отпечаток берётся из времени правки файлов и подставляется в адреса
+    css и js: поменялся файл -- поменялся адрес -- браузер обязан скачать
+    заново, и смешать старое с новым уже нельзя.
+    """
+    newest = 0.0
+    for path in STATIC_DIR.rglob("*"):
+        if path.suffix in (".js", ".css", ".svg"):
+            try:
+                newest = max(newest, path.stat().st_mtime)
+            except OSError:
+                pass
+    return format(int(newest), "x")
+
+
+STAMP = build_stamp()
+
+
+def page(name: str) -> HTMLResponse:
+    """Отдать страницу, проставив отпечаток версии в ссылки на статику."""
+    html = (STATIC_DIR / name).read_text(encoding="utf-8")
+    html = re.sub(r'(/static/[\w./-]+\.(?:js|css|svg))"', rf'\1?v={STAMP}"', html)
+    return HTMLResponse(
+        html,
+        # Саму страницу кешировать нельзя: в ней и лежит отпечаток, по
+        # которому браузер узнаёт, что статика обновилась.
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
+
 
 def download_name(title: str, part: str, suffix: str) -> str:
     """
@@ -148,7 +188,7 @@ def attach_cookie(response: Response, user_id: str) -> None:
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
-    return HTMLResponse((STATIC_DIR / "index.html").read_text(encoding="utf-8"))
+    return page("index.html")
 
 
 def require_admin(request: Request):
@@ -161,7 +201,7 @@ def require_admin(request: Request):
 
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page() -> HTMLResponse:
-    return HTMLResponse((STATIC_DIR / "admin.html").read_text(encoding="utf-8"))
+    return page("admin.html")
 
 
 @app.post("/api/admin/login")
@@ -252,7 +292,7 @@ def api_admin_set(
 
 @app.get("/account", response_class=HTMLResponse)
 def account_page() -> HTMLResponse:
-    return HTMLResponse((STATIC_DIR / "account.html").read_text(encoding="utf-8"))
+    return page("account.html")
 
 
 # ----------------------------------------------------------- учётные записи
@@ -509,26 +549,73 @@ def api_admin_answer(
     return {"ok": True, "emailed": sent, "problem": problem}
 
 
+@app.get("/i/{code}")
+def invite_page(code: str, request: Request):
+    """
+    Пройти по ссылке-приглашению.
+
+    Регистрироваться заранее не нужно: доступ выдаётся тому, кто открыл
+    ссылку, и остаётся при нём, даже если он заведёт учётную запись
+    позже -- разобранные треки при этом не теряются.
+    """
+    user = current_user(request)
+    if user.unlimited:
+        response = RedirectResponse("/?приглашение=уже", status_code=303)
+    elif storage.spend_invite(code):
+        storage.set_flags(user.id, unlimited=True, note=f"по приглашению {code.upper()}")
+        response = RedirectResponse("/?приглашение=принято", status_code=303)
+    else:
+        response = RedirectResponse("/?приглашение=нет", status_code=303)
+    attach_cookie(response, user.id)
+    return response
+
+
+@app.get("/api/invites")
+def api_invites(request: Request):
+    user = require_admin(request)
+    base = str(request.base_url).rstrip("/")
+    return {
+        "invites": [
+            {**row, "url": f"{base}/i/{row['code']}"} for row in storage.invites(user.id)
+        ]
+    }
+
+
+@app.post("/api/invites")
+def api_make_invite(request: Request, uses: int = Form(5), note: str = Form("")):
+    user = require_admin(request)
+    code = storage.create_invite(user.id, uses=max(1, min(100, uses)), note=note[:120])
+    base = str(request.base_url).rstrip("/")
+    return {"code": code, "url": f"{base}/i/{code}"}
+
+
+@app.delete("/api/invites/{code}")
+def api_drop_invite(code: str, request: Request):
+    user = require_admin(request)
+    storage.drop_invite(code, user.id)
+    return {"ok": True}
+
+
 @app.get("/privacy", response_class=HTMLResponse)
 def privacy_page() -> HTMLResponse:
-    return HTMLResponse((STATIC_DIR / "privacy.html").read_text(encoding="utf-8"))
+    return page("privacy.html")
 
 
 @app.get("/offer", response_class=HTMLResponse)
 def offer_page() -> HTMLResponse:
-    return HTMLResponse((STATIC_DIR / "offer.html").read_text(encoding="utf-8"))
+    return page("offer.html")
 
 
 @app.get("/library", response_class=HTMLResponse)
 def library_page() -> HTMLResponse:
-    return HTMLResponse((STATIC_DIR / "library.html").read_text(encoding="utf-8"))
+    return page("library.html")
 
 
 @app.get("/player/{job_id}", response_class=HTMLResponse)
 def player_page(job_id: str) -> HTMLResponse:
     if not storage.job(job_id):
         raise HTTPException(404, "Задание не найдено")
-    return HTMLResponse((STATIC_DIR / "player.html").read_text(encoding="utf-8"))
+    return page("player.html")
 
 
 # --------------------------------------------------------------------- API

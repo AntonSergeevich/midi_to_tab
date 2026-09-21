@@ -518,3 +518,35 @@ def test_tabs_from_a_full_mix_are_refused(tmp_path, monkeypatch):
         refused = client.post(f"/api/job/{job.id}/tabs/full")
         assert refused.status_code == 409
         assert "Разделите" in refused.json()["detail"] or "разделите" in refused.json()["detail"]
+
+
+def test_pages_carry_a_build_stamp(tmp_path, monkeypatch):
+    """
+    Самая коварная поломка при обновлении -- смешанный кеш.
+
+    Браузер держит СТАРЫЙ player.js, а страницу получает новую. Старый
+    скрипт обращается к элементам, которых в новой странице уже нет,
+    падает -- и человек видит пустую ленту без аккордов и мёртвую
+    кнопку "играть". Выглядит как сломанный сервер, а сломан кеш.
+
+    Отпечаток версии в адресах css и js делает такое невозможным:
+    поменялся файл -- поменялся адрес -- браузер обязан скачать заново.
+    """
+    import re
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        for path in ("/", "/account", "/library", "/privacy", "/offer"):
+            response = client.get(path)
+            assert response.status_code == 200, path
+            stamped = re.findall(r'/static/[\w.\-/]+\?v=\w+', response.text)
+            assert stamped, f"на {path} статика без отпечатка версии"
+            # Саму страницу кешировать нельзя: в ней и лежит отпечаток
+            assert "no-cache" in response.headers.get("cache-control", ""), path

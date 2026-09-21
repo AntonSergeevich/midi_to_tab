@@ -20,6 +20,17 @@ AUDIO_EXTENSIONS = (".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aiff", ".aif")
 # Заглушаем болтовню бэкендов до импорта
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
+# Сколько ядер отдавать одному распознаванию. onnxruntime по умолчанию
+# забирает все, и на двухъядерном сервере два одновременных задания
+# начинают драться за процессор: каждое ставит столько потоков, сколько
+# ядер всего, и вместо работы они переключаются между собой. Двум
+# заданиям на двух ядрах правильнее взять по одному и не мешать друг
+# другу. Переменные читает и сам onnxruntime, и numpy с OpenMP внутри.
+THREADS = os.environ.get("MIDI2TAB_THREADS", "1")
+for _name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+              "NUMEXPR_NUM_THREADS", "ORT_INTRA_OP_NUM_THREADS"):
+    os.environ.setdefault(_name, THREADS)
+
 
 @dataclass
 class TranscribeSettings:

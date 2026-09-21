@@ -41,6 +41,8 @@ async function boot() {
   if (!me.mailReady) {
     $('showForgot').title = 'Отправка писем на сервере не настроена';
   }
+  await loadBilling(me);
+  await loadInvites(me);
 }
 
 document.querySelectorAll('.tab').forEach((tab) => {
@@ -165,3 +167,99 @@ $('sendTicket').onclick = async () => {
 
 boot();
 loadSupport();
+
+
+// ------------------------------------------------------------------ тариф
+
+// Оплата должна быть видна ВСЕГДА, а не только когда упёрся в предел.
+// Раньше кнопки появлялись лишь после того, как кончались пробные песни,
+// и владелец с безлимитом своей же оплаты не видел никогда.
+async function loadBilling(me) {
+  if (!me.registered) return;
+  const now = $('billingNow');
+  now.textContent = me.unlimited
+    ? 'Безлимитный доступ — платить не нужно.'
+    : me.subscribed
+      ? `Подписка активна до ${new Date(me.paidUntil * 1000).toLocaleDateString('ru-RU')}.`
+      : me.credits > 0
+        ? `Оплачено треков: ${me.credits}.`
+        : `Бесплатных песен осталось: ${me.freeLeft} из ${me.freeSongs}.`;
+
+  $('plans').innerHTML = `
+    <button class="choice" data-plan="single">
+      <b>${me.priceSingle} ₽ — один трек</b>
+      <small>разово, без подписки</small>
+    </button>
+    <button class="choice" data-plan="month">
+      <b>${me.price} ₽ — месяц без ограничений</b>
+      <small>выгоднее с одиннадцатого трека</small>
+    </button>`;
+  $('billing').style.display = '';
+
+  if (!me.paymentReady) {
+    $('billingMsg').innerHTML =
+      '<span class="bad">Приём оплаты ещё не подключён на сервере.</span>';
+    $('plans').querySelectorAll('button').forEach((b) => (b.disabled = true));
+    return;
+  }
+  $('plans').querySelectorAll('[data-plan]').forEach((button) => {
+    button.onclick = async () => {
+      button.classList.add('busy');
+      const form = new FormData();
+      form.append('plan', button.dataset.plan);
+      const response = await fetch('/api/subscribe', { method: 'POST', body: form });
+      const data = await response.json();
+      button.classList.remove('busy');
+      if (!response.ok) {
+        $('billingMsg').innerHTML = `<span class="bad">${data.detail}</span>`;
+        return;
+      }
+      if (data.paymentUrl) location.href = data.paymentUrl;
+    };
+  });
+}
+
+// ------------------------------------------------------------ приглашения
+
+async function loadInvites(me) {
+  if (!me.isAdmin) return;
+  $('invites').style.display = '';
+  const draw = async () => {
+    const { invites } = await (await fetch('/api/invites')).json();
+    $('inviteList').innerHTML = invites.length ? invites.map((i) => `
+      <div class="part">
+        <span class="name" style="font:14px/1.4 Consolas,monospace">${i.url}</span>
+        <span class="spacer"></span>
+        <span class="muted">${i.note || ''} · осталось ${i.uses_left}, прошло ${i.used}</span>
+        <button data-copy="${i.url}">Копировать</button>
+        <button class="del" data-kill="${i.code}">Удалить</button>
+      </div>`).join('') : '<p class="muted">Ссылок пока нет.</p>';
+
+    $('inviteList').querySelectorAll('[data-copy]').forEach((b) => {
+      b.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(b.dataset.copy);
+          b.textContent = 'скопировано';
+          setTimeout(() => (b.textContent = 'Копировать'), 1500);
+        } catch (e) {
+          prompt('Скопируйте ссылку:', b.dataset.copy);
+        }
+      };
+    });
+    $('inviteList').querySelectorAll('[data-kill]').forEach((b) => {
+      b.onclick = async () => {
+        await fetch(`/api/invites/${b.dataset.kill}`, { method: 'DELETE' });
+        draw();
+      };
+    });
+  };
+  $('makeInvite').onclick = async () => {
+    const form = new FormData();
+    form.append('uses', $('inviteUses').value);
+    form.append('note', $('inviteNote').value);
+    await fetch('/api/invites', { method: 'POST', body: form });
+    $('inviteNote').value = '';
+    draw();
+  };
+  draw();
+}

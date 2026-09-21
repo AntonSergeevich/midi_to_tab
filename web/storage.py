@@ -77,6 +77,15 @@ CREATE TABLE IF NOT EXISTS tickets (
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS invites (
+    code         TEXT PRIMARY KEY,
+    created_at   REAL NOT NULL,
+    created_by   TEXT NOT NULL,
+    uses_left    INTEGER NOT NULL DEFAULT 1,
+    used         INTEGER NOT NULL DEFAULT 0,
+    note         TEXT
+);
+
 CREATE INDEX IF NOT EXISTS tickets_status ON tickets(status, created_at);
 CREATE INDEX IF NOT EXISTS jobs_user ON jobs(user_id, created_at);
 -- Почта уникальна на уровне базы: две учётные записи с одним адресом
@@ -318,6 +327,57 @@ class Storage:
             conn.execute("DELETE FROM resets WHERE user_id = ?", (user_id,))
 
     # -------------------------------------------------------- обращения
+
+    # ------------------------------------------------------------- приглашения
+
+    def create_invite(self, created_by: str, uses: int = 1, note: str = "") -> str:
+        """
+        Код приглашения.
+
+        Короткий и без похожих друг на друга знаков: его диктуют в чате и
+        набирают руками, а единица с буквой I в этом деле -- source ошибок.
+        """
+        import secrets
+
+        alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        code = "".join(secrets.choice(alphabet) for _ in range(8))
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO invites (code, created_at, created_by, uses_left, note)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (code, time.time(), created_by, max(1, uses), note),
+            )
+        return code
+
+    def invites(self, created_by: str) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM invites WHERE created_by = ? ORDER BY created_at DESC",
+                (created_by,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def spend_invite(self, code: str) -> bool:
+        """
+        Погасить одно использование кода.
+
+        Списание и проверка -- одним запросом с условием uses_left > 0:
+        иначе двое, открывших последнюю ссылку одновременно, оба прошли бы.
+        """
+        with self._connect() as conn:
+            changed = conn.execute(
+                "UPDATE invites SET uses_left = uses_left - 1, used = used + 1"
+                " WHERE code = ? AND uses_left > 0",
+                (code.strip().upper(),),
+            ).rowcount
+        return bool(changed)
+
+    def drop_invite(self, code: str, created_by: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM invites WHERE code = ? AND created_by = ?",
+                (code, created_by),
+            )
 
     def create_ticket(self, user_id: str, email: str | None, topic: str, body: str) -> str:
         ticket_id = uuid.uuid4().hex

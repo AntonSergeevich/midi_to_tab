@@ -14,8 +14,18 @@
 from __future__ import annotations
 
 import os
+import threading
 from dataclasses import dataclass
 from pathlib import Path
+
+# Разделение -- единственная по-настоящему прожорливая часть: Demucs
+# держит в памяти и модель, и весь трек целиком. На сервере с четырьмя
+# гигабайтами два разделения разом кончаются тем, что ядро убивает
+# процесс по нехватке памяти, и человек получает пустую ошибку вместо
+# результата. Поэтому разделение идёт строго по одному -- второй ждёт.
+_ONE_AT_A_TIME = threading.Semaphore(
+    int(os.environ.get("MIDI2TAB_SEPARATE_WORKERS", "1"))
+)
 
 # Дорожки моделей: внутреннее имя -> как показывать
 STEM_NAMES: dict[str, str] = {
@@ -42,6 +52,10 @@ QUALITY: dict[str, tuple[float, int, float]] = {
     "точнее": (0.50, 2, 3.6),
 }
 DEFAULT_QUALITY = "точнее"
+
+# Длина куска в секундах, которым Demucs обрабатывает трек. Меньше кусок
+# -- меньше пиковая память, но чуть хуже склейка на границах.
+SEGMENT = int(os.environ.get("MIDI2TAB_SEGMENT", "10"))
 
 
 @dataclass
@@ -112,9 +126,18 @@ def separate(
         # именно призвуками на стыках.
         "--overlap", str(overlap),
         "--shifts", str(shifts),
+        # Трек обрабатывается кусками, а не целиком: пиковая память
+        # зависит от длины куска, а не от длины песни. Без этого
+        # десятиминутная запись отъедает памяти столько же, сколько
+        # десять трёхминутных.
+        "--segment", str(SEGMENT),
         audio_path,
     ]
-    demucs.separate.main(argv)
+    if progress:
+        progress("Жду очереди на разделение..." if _ONE_AT_A_TIME._value == 0
+                 else f"Разделяю трек моделью {model_name}...")
+    with _ONE_AT_A_TIME:
+        demucs.separate.main(argv)
 
     stem_dir = Path(out_dir) / model_name / Path(audio_path).stem
     if not stem_dir.is_dir():

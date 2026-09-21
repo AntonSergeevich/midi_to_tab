@@ -122,7 +122,19 @@ $('reset').onclick = () => {
   $('file').value = '';
   hide('chosen');
   hide('progress');
-  loadMe();
+  // Ответ на переход по ссылке-приглашению
+const invite = new URLSearchParams(location.search).get('приглашение');
+if (invite) {
+  const words = {
+    'принято': ['ok', 'Доступ открыт — можно разбирать песни без ограничений.'],
+    'уже': ['muted', 'У вас уже есть безлимитный доступ.'],
+    'нет': ['bad', 'Ссылка недействительна или все приглашения по ней разобраны.'],
+  };
+  const [kind, text] = words[invite] || words['нет'];
+  $('msg').innerHTML = `<span class="${kind}">${text}</span>`;
+}
+
+loadMe();
 };
 
 function blocked() {

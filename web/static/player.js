@@ -315,7 +315,14 @@ function buildLyrics() {
     }
     const timer = setInterval(async () => {
       const job = await (await fetch(`/api/job/${jobId}`)).json();
-      $('lyricsStatus').textContent = job.stage || '';
+      // Разделение занимает минуты, и без процента человек не понимает,
+      // идёт работа или всё повисло.
+      const percent = Math.round(job.progress || 0);
+      $('lyricsStatus').innerHTML = job.stage
+        ? `${job.stage} — ${percent}%` +
+          `<div class="bar done" style="margin-top:6px;max-width:320px">` +
+          `<i style="width:${percent}%"></i></div>`
+        : '';
       if (job.result && job.result.lyrics) {
         clearInterval(timer);
         renderLyrics(job.result.lyrics, job.result.lyricsSource);

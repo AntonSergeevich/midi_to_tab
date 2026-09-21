@@ -27,6 +27,31 @@
   </div>
 
   <!-- Вход и регистрация -->
+  <div class="card" id="billing" style="display:none">
+    <h2>Тариф</h2>
+    <p class="muted" id="billingNow" style="margin:0 0 14px"></p>
+    <div class="choices" id="plans"></div>
+    <p id="billingMsg" class="muted" style="margin:14px 0 0"></p>
+  </div>
+
+  <div class="card" id="invites" style="display:none">
+    <h2>Пригласить на проверку</h2>
+    <p class="muted" style="margin:0 0 12px">
+      Ссылка даёт открывшему её безлимитный доступ. Удобно раздать
+      друзьям и тестировщикам: регистрироваться заранее им не нужно.
+    </p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <label class="field" style="width:150px;margin:0">
+        <span>На сколько человек</span>
+        <input type="number" id="inviteUses" value="5" min="1" max="100"></label>
+      <label class="field" style="width:220px;margin:0">
+        <span>Пометка — для кого</span>
+        <input type="text" id="inviteNote" placeholder="друзья из чата"></label>
+      <button class="primary" id="makeInvite">Создать ссылку</button>
+    </div>
+    <div id="inviteList" style="margin-top:16px"></div>
+  </div>
+
   <div id="forms">
     <div class="tabs">
       <button class="tab active" data-tab="login">Вход</button>
