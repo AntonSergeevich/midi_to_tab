@@ -172,3 +172,71 @@ def test_separation_installer_avoids_cuda():
     text = (DEPLOY / "install_separation.sh").read_text(encoding="utf-8")
     assert "download.pytorch.org/whl/cpu" in text
     assert "df --output=avail" in text   # проверка места до установки
+
+
+# ------------------------------------------------------- консольная админка
+
+
+def test_admin_tool_runs(tmp_path):
+    """
+    Инструмент должен работать на пустой базе, а не падать.
+
+    Он нужен как раз тогда, когда что-то пошло не так, -- и падать в
+    такой момент ему нельзя.
+    """
+    import subprocess
+    import sys
+
+    from web.storage import Storage
+
+    Storage(str(tmp_path / "app.db"))
+    result = subprocess.run(
+        [sys.executable, str(DEPLOY / "admin.py"), "список"],
+        env={**os.environ, "MIDI2TAB_DATA": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Пользователей пока нет" in result.stdout
+
+
+def test_admin_tool_grants_rights(tmp_path):
+    import subprocess
+    import sys
+
+    from web import auth
+    from web.storage import Storage
+
+    store = Storage(str(tmp_path / "app.db"))
+    user = store.ensure_user(None)
+    store.register(user.id, "ivan@mail.ru", auth.hash_password("пароль-12345"))
+
+    result = subprocess.run(
+        [sys.executable, str(DEPLOY / "admin.py"), "админ", "ivan@mail.ru"],
+        env={**os.environ, "MIDI2TAB_DATA": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+
+    fresh = Storage(str(tmp_path / "app.db")).user(user.id)
+    assert fresh.is_admin and fresh.unlimited
+
+
+def test_admin_tool_reports_missing_database(tmp_path):
+    """Понятное сообщение вместо трассировки: инструмент для экстренных случаев."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, str(DEPLOY / "admin.py"), "список"],
+        env={**os.environ, "MIDI2TAB_DATA": str(tmp_path / "нет-такой")},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode != 0
+    assert "База не найдена" in result.stderr
+    assert "Traceback" not in result.stderr
