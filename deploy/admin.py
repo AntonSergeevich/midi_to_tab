@@ -11,6 +11,9 @@
 
     /opt/nasluh/venv/bin/python /opt/nasluh/app/deploy/admin.py список
     /opt/nasluh/venv/bin/python /opt/nasluh/app/deploy/admin.py админ ivan@mail.ru
+
+Команда "админ" заведёт учётную запись, если её ещё нет, и спросит пароль:
+в первый день записей в базе нет вообще, а войти в управление уже нужно.
 """
 
 from __future__ import annotations
@@ -43,15 +46,58 @@ def when(moment: float | None) -> str:
     return time.strftime("%d.%m.%Y", time.localtime(moment)) if moment else "—"
 
 
-def find(db: Storage, who: str):
-    """Найти по почте или по началу идентификатора."""
-    user = db.user_by_email(who.lower()) if "@" in who else None
+def find(db: Storage, who: str, create: bool = False):
+    """
+    Найти по почте или по началу идентификатора.
+
+    С create=True недостающая запись заводится на месте. Это нужно как
+    раз в первый день: сайт ещё никто не открывал, учётных записей в базе
+    нет, а владельцу уже надо войти в управление. Иначе получался замкнутый
+    круг -- права выдаются только существующему, а существующим становишься
+    только через сайт.
+    """
+    user = db.user_by_email(normalise(who)) if "@" in who else None
     if user:
         return user
     for candidate in db.all_users():
         if candidate.id.startswith(who):
             return candidate
-    sys.exit(f"Пользователь не найден: {who}")
+    if create and "@" in who:
+        return make_user(db, who)
+    sys.exit(
+        f"Пользователь не найден: {who}\n"
+        + ("Заведите запись: admin.py создать " + who if "@" in who else
+           "Укажите почту или начало идентификатора; список -- admin.py список")
+    )
+
+
+def normalise(email: str) -> str:
+    return auth.normalise_email(email)
+
+
+def make_user(db: Storage, email: str, password: str | None = None):
+    """Завести учётную запись прямо с сервера."""
+    import getpass
+
+    email = normalise(email)
+    if db.user_by_email(email):
+        sys.exit(f"Почта уже занята: {email}")
+    if not password:
+        password = getpass.getpass(f"Пароль для {email}: ")
+        again = getpass.getpass("Ещё раз: ")
+        if password != again:
+            sys.exit("Пароли не совпали.")
+    try:
+        hashed = auth.hash_password(password)
+    except auth.AuthError as exc:
+        sys.exit(str(exc))
+    user = db.ensure_user(None)
+    try:
+        db.register(user.id, email, hashed)
+    except ValueError as exc:
+        sys.exit(str(exc))
+    print(f"Создана учётная запись: {email}")
+    return db.user(user.id)
 
 
 # ------------------------------------------------------------------ команды
@@ -86,10 +132,19 @@ def cmd_list(db: Storage, args) -> None:
     )
 
 
+def cmd_create(db: Storage, args) -> None:
+    user = make_user(db, args.who, args.password)
+    print(f"Идентификатор: {user.id[:8]}. Войти можно на странице /account.")
+
+
 def cmd_admin(db: Storage, args) -> None:
-    user = find(db, args.who)
+    # Заводим на месте, если записи ещё нет: в первый день её и не будет.
+    user = find(db, args.who, create=True)
     db.set_flags(user.id, is_admin=True, unlimited=True, note=args.note or "владелец")
-    print(f"{user.email or user.id[:8]}: выданы права администратора и безлимит.")
+    print(
+        f"{user.email or user.id[:8]}: выданы права администратора и безлимит.\n"
+        "Войдите на /account этой почтой, дальше откроется /admin."
+    )
 
 
 def cmd_unlimited(db: Storage, args) -> None:
@@ -156,7 +211,14 @@ def main() -> None:
         func=cmd_list
     )
 
-    p_admin = sub.add_parser("админ", help="выдать права администратора и безлимит")
+    p_create = sub.add_parser("создать", help="завести учётную запись")
+    p_create.add_argument("who", help="почта")
+    p_create.add_argument("--password", default=None, help="без него спросит скрытно")
+    p_create.set_defaults(func=cmd_create)
+
+    p_admin = sub.add_parser(
+        "админ", help="выдать права администратора и безлимит (заведёт запись, если её нет)"
+    )
     p_admin.add_argument("who", help="почта или начало идентификатора")
     p_admin.add_argument("--note", default="", help="заметка")
     p_admin.set_defaults(func=cmd_admin)

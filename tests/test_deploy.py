@@ -236,3 +236,51 @@ def test_admin_tool_reports_missing_database(tmp_path):
     assert result.returncode != 0
     assert "База не найдена" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+def test_admin_command_works_on_an_empty_database(tmp_path):
+    """
+    В первый день учётных записей в базе нет вообще.
+
+    Раньше получался замкнутый круг: права выдаются только существующему
+    пользователю, а существующим становишься только зарегистрировавшись
+    через сайт. Владелец с чистого сервера в управление не попадал.
+    Теперь "админ" заводит запись на месте.
+    """
+    import subprocess
+    import sys
+    import os
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    data = tmp_path / "data"
+    data.mkdir()
+
+    sys.path.insert(0, root)
+    from web.storage import Storage
+
+    Storage(str(data / "app.db"))
+
+    result = subprocess.run(
+        [sys.executable, os.path.join(root, "deploy", "admin.py"),
+         "админ", "vladelec@naslux.ru", "--note", "владелец"],
+        env={**os.environ, "MIDI2TAB_DATA": str(data)},
+        input="длинный-пароль-99\nдлинный-пароль-99\n",
+        capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Создана учётная запись" in result.stdout
+
+    store = Storage(str(data / "app.db"))
+    owner = store.user_by_email("vladelec@naslux.ru")
+    assert owner is not None
+    assert owner.is_admin and owner.unlimited and owner.registered
+
+    # Повторный вызов не должен плодить двойников
+    again = subprocess.run(
+        [sys.executable, os.path.join(root, "deploy", "admin.py"),
+         "админ", "vladelec@naslux.ru"],
+        env={**os.environ, "MIDI2TAB_DATA": str(data)},
+        capture_output=True, text=True, timeout=60,
+    )
+    assert again.returncode == 0, again.stdout + again.stderr
+    assert len(store.all_users()) == 1
