@@ -209,7 +209,42 @@ button.primary:hover:not(:disabled) { background: var(--accent-hi); }
   text-shadow: 0 0 30px rgba(217,154,78,.45);
 }
 .rib.near { color: var(--text); opacity: .85; font-size: 30px; }
-.rib.past { opacity: .28; }
+/* Прошедшие аккорды не гаснут в ноль: отмотал ленту назад -- они на месте */
+.rib.past { opacity: .38; }
+.rib { cursor: pointer; }
+
+/* Ленту тянут мышкой, поэтому она и выглядит как то, что можно тянуть */
+.stage { cursor: grab; user-select: none; }
+.stage.dragging { cursor: grabbing; }
+.stage.dragging .rib { transition: none; }
+.stage .controls { cursor: auto; }
+
+/* Границы тактов: видно, где аккорд начинается, а не только какой он */
+.ribbar {
+  position: absolute; top: 14px; bottom: 14px; width: 1px;
+  background: var(--muted); opacity: .28;
+}
+
+/* Лист аккордов: вся песня по тактам, по четыре в строке -- как её и
+   записывают от руки, квадратами */
+#sheet {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+}
+@media (min-width: 720px) { #sheet { grid-template-columns: repeat(8, 1fr); } }
+
+.bar-cell {
+  padding: 12px 4px; min-height: 48px; font-size: 17px;
+  background: var(--panel-hi); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text); cursor: pointer;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.bar-cell:hover { border-color: var(--accent); }
+.bar-cell.empty { background: transparent; border-color: transparent; cursor: default; }
+.bar-cell .same { color: var(--muted); font-weight: 400; }
+.bar-cell.shaky b { color: var(--muted); }
+.bar-cell.now {
+  border-color: var(--accent); background: rgba(217,154,78,.16); color: var(--accent);
+}
 
 .rib small {
   display: block; font-size: 11px; font-weight: 400;

@@ -483,3 +483,53 @@ def test_harmonic_minor_is_decided_by_the_music():
     raised = np.zeros((12, 4))
     raised[1, :] = 1.0                  # до-диез громкий
     assert dict(zip(names, key_penalties(names, (2, False), raised)))["A"] == 0.0
+
+
+def test_uncertain_bars_are_kept_not_dropped():
+    """
+    Сомнительный такт остаётся в разборе, а не выбрасывается.
+
+    Раньше такты с низкой уверенностью просто пропускались, и в ленте
+    появлялись дыры по одному-два такта. На реальном треке так терялось
+    21 секунда из 173 -- на слух это «половины аккордов нет». Человеку
+    полезнее сомнительная подпись, помеченная сомнительной, чем пустота,
+    под которую нечего играть.
+    """
+    np = pytest.importorskip("numpy")
+
+    from midi2tab.audiochords import _segments
+
+    names = ["Dm", "C"]
+    path = np.array([0, 1, 0, 1])
+    confidence = np.array([1.0, 0.01, 1.0, 0.01])   # каждый второй такт сомнителен
+    times = [0.0, 2.0, 4.0, 6.0, 8.0]
+
+    chords = _segments(names, (path, confidence), times, min_duration=0.5)
+    assert [c.name for c in chords] == ["Dm", "C", "Dm", "C"]
+
+    # Разметка идёт сплошь, без провалов между отрезками
+    for previous, following in zip(chords, chords[1:]):
+        assert following.start == pytest.approx(previous.end)
+    assert chords[0].start == 0.0 and chords[-1].end == pytest.approx(8.0)
+
+
+def test_bar_grid_is_taken_from_the_recording():
+    """
+    Начало такта определяется по записи, а не по черновым аккордам.
+
+    Прежде сдвиг выбирался по тому, куда попадали смены из первого,
+    заведомо чернового прохода. Ошибка там уводила сетку тактов, и
+    дальше КАЖДЫЙ аккорд вставал не на своё место.
+    """
+    np = pytest.importorskip("numpy")
+
+    from midi2tab.audiochords import _bar_offset
+
+    # Гармония меняется каждые четыре доли, начиная со второй
+    chroma = np.zeros((12, 40))
+    for block, pitch in enumerate((0, 5, 7, 2, 0, 5, 7, 2, 0)):
+        start = 2 + block * 4
+        chroma[pitch, start:start + 4] = 1.0
+    beats = np.arange(0, 40, 1)
+
+    assert _bar_offset(chroma, beats, 4) == 2

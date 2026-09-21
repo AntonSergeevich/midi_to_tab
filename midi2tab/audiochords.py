@@ -52,6 +52,12 @@ FIFTH_PENALTY = 0.14
 # их сыграли, а потому что голос задержался на секунде поверх выдержанной
 # гармонии. Небольшой штраф оставляет их там, где они настоящие.
 SUS_PENALTY = 0.04
+# Секста и надстройки с ноной складываются из нот СОСЕДНЕГО аккорда:
+# C6 -- это C E G A, то есть до-мажор вместе с ля-минором. Стоит соседям
+# чуть зазвучать вместе -- и вместо двух честных трезвучий выходит одна
+# выдуманная подпись. В песне под гитару их почти не бывает, поэтому
+# придерживаем сильнее прочих.
+COLOUR_PENALTY = 0.10
 # Уменьшённые и увеличенные в песнях редки, а в мутной хромаграмме
 # возникают легко: их ступени равномерно раскиданы по октаве и ложатся
 # почти на любой шум. Придерживаем, чтобы не выдавать артефакт за гармонию.
@@ -84,7 +90,7 @@ MINOR_SCALE = (0, 2, 3, 5, 7, 8, 10)
 KEY_PENALTY = 0.10
 # Смена аккорда на втором проходе штрафуется сильнее: здесь шаг -- целый
 # такт, а гармония редко меняется каждый такт подряд.
-BAR_CHANGE_COST = 0.08
+BAR_CHANGE_COST = 0.03
 
 
 @dataclass
@@ -233,6 +239,8 @@ def _templates():
                 penalty += SUS_PENALTY
             elif quality in ("dim", "aug", "dim7", "m7b5"):
                 penalty += ODD_PENALTY
+            elif quality in ("6", "m6", "add9", "9", "m9"):
+                penalty += COLOUR_PENALTY
             penalties.append(penalty)
             names.append(f"{PITCH_CLASSES[root]}{quality}")
             roots.append(root)
@@ -363,9 +371,9 @@ def detect_from_audio(
     beat_times = [float(t) for t in librosa.frames_to_time(beats, sr=sr)]
     duration = librosa.get_duration(y=y, sr=sr)
 
-    # Сетка тактов: первый проход показал, где меняется гармония, а смена
-    # почти всегда попадает на начало такта -- по этому и выбирается сдвиг.
-    offset = _bar_offset(beat_times, rough, beats_per_bar)
+    # Сетка тактов выбирается по самой записи, а не по черновым аккордам:
+    # иначе ошибка первого прохода сдвигает КАЖДЫЙ аккорд в песне.
+    offset = _bar_offset(chroma, beats, beats_per_bar)
     groups = _bar_groups(beats, offset, beats_per_bar)
     bar_chroma = _sync(librosa, chroma, groups, np)
     bar_times = _edges(librosa.frames_to_time(groups, sr=sr), duration)
@@ -394,7 +402,7 @@ def detect_from_audio(
         )
         chords = _segments(names, (keep[path], sure), bar_times, min_duration)
 
-    downbeats = _guess_downbeats(beat_times, chords, beats_per_bar)
+    downbeats = _guess_downbeats(beat_times, offset, beats_per_bar)
 
     if progress:
         progress(
@@ -466,9 +474,12 @@ def _segments(names, decision, times, min_duration: float) -> list[AudioChord]:
         start, end = float(times[index]), float(times[index + 1])
         if end <= start:
             continue
+        # Такт НЕ выбрасывается, даже если уверенности мало. Раньше
+        # сомнительные такты просто пропускались, и в ленте получались
+        # дыры по одному-два такта -- на слух это "половины аккордов нет".
+        # Человеку полезнее сомнительная подпись, помеченная как
+        # сомнительная, чем пустота, в которой играть нечего.
         sure = float(confidence[index])
-        if sure < MIN_CONFIDENCE:
-            continue
         name = names[chord_index]
         if chords and chords[-1].name == name and abs(chords[-1].end - start) < 0.05:
             chords[-1].end = end
@@ -556,22 +567,45 @@ def _pick_names(names, allowed) -> list[int] | None:
     return sorted(picked) or None
 
 
-def _bar_offset(beats: list[float], chords: list[AudioChord], beats_per_bar: int) -> int:
+def _bar_offset(chroma, beats, beats_per_bar: int) -> int:
     """
     С какой доли начинается такт.
 
-    Зацепка та же, что и у сильных долей: смена гармонии почти всегда
-    попадает на начало такта.
+    Раньше сдвиг выбирался по тому, куда попадают смены аккордов из
+    первого прохода. Это порочный круг: если первый проход ошибся --
+    а он для того и черновой, чтобы ошибаться, -- вся сетка тактов
+    уезжает, и дальше КАЖДЫЙ аккорд стоит не на своём месте. На слух
+    это худшее, что может сделать разбор: подписи вроде и те, а играть
+    по ним невозможно.
+
+    Теперь сдвиг выбирается по самой записи и без всяких аккордов.
+    Гармония держится такт: если нарезать верно, внутри такта
+    хромаграмма почти не меняется, а если промахнуться -- в один такт
+    попадут половинки двух разных аккордов и разброс подскочит. Берём
+    нарезку с наименьшим разбросом внутри тактов.
     """
-    if not beats or not chords:
+    import numpy as np
+
+    frames = np.asarray(beats).ravel()
+    if len(frames) < beats_per_bar * 2:
         return 0
-    starts = [c.start for c in chords]
-    best_offset, best_hits = 0, -1
+
+    best_offset, best_spread = 0, None
     for offset in range(beats_per_bar):
-        candidates = beats[offset::beats_per_bar]
-        hits = sum(1 for s in starts if any(abs(s - b) < 0.12 for b in candidates))
-        if hits > best_hits:
-            best_offset, best_hits = offset, hits
+        edges = frames[offset::beats_per_bar]
+        spreads = []
+        for start, end in zip(edges, edges[1:]):
+            block = chroma[:, start:end]
+            if block.shape[1] < 2:
+                continue
+            norms = np.linalg.norm(block, axis=0, keepdims=True)
+            norms[norms == 0] = 1.0
+            spreads.append(float(np.mean(np.std(block / norms, axis=1))))
+        if not spreads:
+            continue
+        spread = float(np.mean(spreads))
+        if best_spread is None or spread < best_spread:
+            best_offset, best_spread = offset, spread
     return best_offset
 
 
@@ -585,19 +619,17 @@ def _bar_groups(beats, offset: int, beats_per_bar: int):
     return grouped
 
 
-def _guess_downbeats(
-    beats: list[float], chords: list[AudioChord], beats_per_bar: int
-) -> list[float]:
+def _guess_downbeats(beats: list[float], offset: int, beats_per_bar: int) -> list[float]:
     """
-    Определить сильные доли.
+    Сильные доли -- те же начала тактов, что и у разбора.
 
-    Точное определение размера -- отдельная большая задача, поэтому здесь
-    используется надёжная зацепка: смена гармонии почти всегда попадает на
-    сильную долю. По ней и выбирается сдвиг внутри такта.
+    Важно, чтобы метроном и аккорды считали такт одинаково: иначе
+    щелчок звучит в одном месте, а подпись меняется в другом, и человек
+    не понимает, кому из них верить.
     """
     if not beats:
         return []
-    return beats[_bar_offset(beats, chords, beats_per_bar)::beats_per_bar]
+    return beats[offset::beats_per_bar]
 
 
 def _viterbi(scores, change_cost: float = CHANGE_COST):

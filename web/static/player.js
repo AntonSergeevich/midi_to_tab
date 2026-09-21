@@ -55,7 +55,9 @@ async function load() {
   buildSplit();
   buildMade(job.made || []);
   buildLyrics();
+  buildSheet();
   bindControls();
+  bindDrag();
   requestAnimationFrame(tick);
 }
 
@@ -78,8 +80,21 @@ function buildRibbon() {
     el.innerHTML = `<div>${chord.name}` +
       (shaky ? '<small class="low-conf">не уверен</small>' : '<small></small>') + '</div>';
     el.style.left = `${((chord.start + chord.end) / 2) * PX_PER_SEC}px`;
+    // Нажатие по подписи переносит воспроизведение к ней: так возвращаются
+    // к месту, которое не выходит, не целясь в ползунок.
+    el.onclick = () => { clock.time = chord.start; };
     track.appendChild(el);
     return { el, chord };
+  });
+
+  // Границы тактов на ленте: по ним видно, где аккорд начинается, а
+  // не только какой он. Без этого подпись висит в пустоте.
+  (data.downbeats || []).forEach((moment, index) => {
+    const line = document.createElement('div');
+    line.className = 'ribbar';
+    line.style.left = `${moment * PX_PER_SEC}px`;
+    line.dataset.n = index + 1;
+    track.appendChild(line);
   });
   track.style.width = `${(data.chords[data.chords.length - 1].end + 8) * PX_PER_SEC}px`;
 }
@@ -405,6 +420,134 @@ function bindControls() {
 
 // --------------------------------------------------------------------- кадр
 
+// --------------------------------------------------------- лист аккордов
+
+// Лента показывает то, что рядом с текущим мгновением, и это правильно
+// для игры. Но разучивают песню иначе: сперва смотрят на неё целиком --
+// где куплет, где припев, что повторяется. Поэтому кроме ленты нужен
+// обычный лист: вся песня по тактам, сразу на одном экране.
+let sheetCells = [];
+
+function buildSheet() {
+  if (!data.chords.length || !(data.downbeats || []).length) return;
+  const bars = data.downbeats;
+  const box = $('sheet');
+  box.innerHTML = '';
+  sheetCells = [];
+
+  // С какого такта начинается фраза. Песня ходит по кругу из четырёх
+  // тактов, но начаться этот круг может не с первого такта записи -- там
+  // обычно вступление. Если разложить лист не с того места, строки
+  // съезжают, и повтор, который виден на слух, на бумаге разваливается.
+  // Пробуем все четыре начала и берём то, при котором соседние четвёрки
+  // совпадают чаще всего.
+  const names = bars.map((start, index) => {
+    const end = bars[index + 1] ?? start + 2;
+    const middle = (start + end) / 2;
+    const chord = data.chords.find((c) => c.start <= middle && middle < c.end);
+    return chord ? chord.name : '';
+  });
+  let phase = 0;
+  let bestRepeats = -1;
+  for (let shift = 0; shift < 4; shift++) {
+    let repeats = 0;
+    for (let i = shift; i + 8 <= names.length; i += 4) {
+      for (let k = 0; k < 4; k++) if (names[i + k] === names[i + 4 + k]) repeats++;
+    }
+    if (repeats > bestRepeats) { bestRepeats = repeats; phase = shift; }
+  }
+  for (let i = 0; i < (4 - phase) % 4; i++) {
+    const filler = document.createElement('div');
+    filler.className = 'bar-cell empty';
+    box.appendChild(filler);
+  }
+
+  let previous = null;
+  bars.forEach((start, index) => {
+    const end = bars[index + 1] ?? (start + (bars[1] - bars[0] || 2));
+    const middle = (start + end) / 2;
+    const chord = data.chords.find((c) => c.start <= middle && middle < c.end)
+      || data.chords.find((c) => c.start <= start && start < c.end);
+
+    const cell = document.createElement('button');
+    cell.className = 'bar-cell';
+    const name = chord ? chord.name : '';
+    // Повтор того же аккорда не пишем словом -- так виднее, где смена
+    cell.innerHTML = name === previous
+      ? '<span class="same">╱</span>'
+      : `<b>${name || '—'}</b>`;
+    if (chord && chord.confidence < 0.55) cell.classList.add('shaky');
+    cell.title = `Такт ${index + 1}${name ? ' — ' + name : ''}`;
+    cell.onclick = () => { clock.time = start; clock.play(); };
+    box.appendChild(cell);
+    sheetCells.push({ el: cell, start, end });
+    previous = name;
+  });
+  $('sheetCard').style.display = '';
+}
+
+// ------------------------------------------------------- перемотка лентой
+
+// Лента -- это и есть шкала времени песни, и тянуть её мышкой
+// естественнее, чем целиться в тонкий ползунок под плеером. Особенно
+// когда разбираешь место, которое не выходит: отмотал на полтакта назад,
+// послушал, ещё раз.
+function bindDrag() {
+  const stage = document.querySelector('.stage');
+  let dragging = false;
+  let startX = 0;
+  let startTime = 0;
+  let moved = 0;
+  let wasPlaying = false;
+
+  const pointX = (event) =>
+    event.touches ? event.touches[0].clientX : event.clientX;
+
+  const begin = (event) => {
+    if (event.target.closest('.controls')) return;   // кнопки живут своей жизнью
+    dragging = true;
+    moved = 0;
+    startX = pointX(event);
+    startTime = clock.time;
+    wasPlaying = !clock.paused;
+    if (wasPlaying) clock.pause();
+    stage.classList.add('dragging');
+  };
+
+  const move = (event) => {
+    if (!dragging) return;
+    const delta = pointX(event) - startX;
+    moved = Math.max(moved, Math.abs(delta));
+    const limit = clock.duration || Infinity;
+    clock.time = Math.max(0, Math.min(limit, startTime - delta / PX_PER_SEC));
+    if (event.cancelable) event.preventDefault();
+  };
+
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    stage.classList.remove('dragging');
+    // Короткий тык -- это не перетаскивание, а «продолжай играть»
+    if (wasPlaying || moved < 4) clock.play();
+  };
+
+  stage.addEventListener('mousedown', begin);
+  window.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', end);
+  stage.addEventListener('touchstart', begin, { passive: true });
+  stage.addEventListener('touchmove', move, { passive: false });
+  stage.addEventListener('touchend', end);
+
+  // Колесо и горизонтальная прокрутка тачпада -- то же самое
+  stage.addEventListener('wheel', (event) => {
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY)
+      ? event.deltaX : event.deltaY;
+    const limit = clock.duration || Infinity;
+    clock.time = Math.max(0, Math.min(limit, clock.time + delta / PX_PER_SEC));
+    event.preventDefault();
+  }, { passive: false });
+}
+
 function tick() {
   // При уходе со страницы кадр может успеть выполниться, когда элементов
   // уже нет: тогда в консоль сыплются ошибки на ровном месте.
@@ -439,6 +582,10 @@ function tick() {
     el.style.fontSize = active ? '18px' : '15px';
     el.style.fontWeight = active ? '600' : '400';
   });
+
+  // Текущий такт подсвечивается и в листе -- глаз не теряет место
+  sheetCells.forEach(({ el, start, end }) =>
+    el.classList.toggle('now', now >= start && now < end));
 
   metro.sync(now);
   $('time').textContent = `${mmss(now)} / ${mmss(clock.duration)}`;
