@@ -338,3 +338,23 @@ def test_playback_degrades_without_backend():
 
     ok, why = playback.available()
     assert ok or "pip install" in why
+
+
+def test_tempo_survives_numpy_2_array():
+    """
+    librosa отдаёт темп то числом, то массивом из одного элемента.
+
+    В NumPy 2 float() от такого массива падает с "only 0-dimensional
+    arrays can be converted to Python scalars" -- на сервере из-за этого
+    обрывался разбор любого трека. Проверяем все формы сразу.
+    """
+    np = pytest.importorskip("numpy")
+
+    from midi2tab.audiochords import as_float
+
+    assert as_float(np.array([123.4])) == pytest.approx(123.4)
+    assert as_float(np.array(123.4)) == pytest.approx(123.4)
+    assert as_float(np.float64(123.4)) == pytest.approx(123.4)
+    assert as_float(123.4) == pytest.approx(123.4)
+    assert as_float(np.array([])) == 0.0
+    assert as_float(np.array([np.nan]), default=120.0) == 120.0

@@ -75,6 +75,28 @@ class ChordAnalysis:
         return [c.name for c in self.chords]
 
 
+def as_float(value, default: float = 0.0) -> float:
+    """
+    Число из того, что вернула librosa.
+
+    Темп приходит то числом, то массивом из одного элемента -- зависит от
+    версии librosa. В NumPy 1.x float() от такого массива молча работал, в
+    NumPy 2.x он падает: "only 0-dimensional arrays can be converted to
+    Python scalars". На сервере стоит NumPy 2, поэтому разбор любого трека
+    обрывался на самом входе. Разворачиваем вручную и не полагаемся на то,
+    что именно вернёт библиотека.
+    """
+    import numpy as np
+
+    array = np.asarray(value, dtype=float).ravel()
+    if array.size == 0:
+        return default
+    number = float(array[0])
+    if number != number:  # NaN
+        return default
+    return number
+
+
 def available() -> tuple[bool, str]:
     try:
         import librosa  # noqa: F401
@@ -197,6 +219,8 @@ def detect_from_audio(
     if progress:
         progress("Ищу доли и строю хромаграмму...")
     tempo, beats = librosa.beat.beat_track(y=y, sr=sr, units="frames")
+    bpm = as_float(tempo)
+    beats = np.asarray(beats).ravel()
     chroma = librosa.feature.chroma_cqt(y=harmonic, sr=sr, bins_per_octave=36)
 
     if len(beats) < 2:
@@ -230,7 +254,7 @@ def detect_from_audio(
     # настоящая неоднозначность, даже когда оба похожи.
     ordered = np.sort(scores, axis=0)
     margin = ordered[-1] - ordered[-2]
-    spread = float(np.percentile(margin, 90)) or 1.0
+    spread = as_float(np.percentile(margin, 90)) or 1.0
 
     if progress:
         progress("Выбираю последовательность аккордов...")
@@ -260,10 +284,10 @@ def detect_from_audio(
     downbeats = _guess_downbeats(beat_times, chords, beats_per_bar)
 
     if progress:
-        progress(f"Аккордов найдено: {len(chords)}, темп {float(tempo):.0f}")
+        progress(f"Аккордов найдено: {len(chords)}, темп {bpm:.0f}")
     return ChordAnalysis(
         chords=chords,
-        tempo=float(tempo),
+        tempo=bpm,
         beats=beat_times,
         downbeats=downbeats,
     )
