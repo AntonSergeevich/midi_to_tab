@@ -533,3 +533,118 @@ def test_bar_grid_is_taken_from_the_recording():
     beats = np.arange(0, 40, 1)
 
     assert _bar_offset(chroma, beats, 4) == 2
+
+
+def test_quality_falls_back_to_the_key_when_the_third_is_silent():
+    """
+    Мажор или минор решается ладом там, где терцию не слышно.
+
+    В плотном миксе с перегруженной гитарой терции в спектре может не
+    быть вовсе. Раньше в этом случае побеждал квинт-аккорд -- шаблон из
+    двух нот, которому терция не нужна, -- и на двух реальных песнях
+    разбор целиком состоял из D5, A#5, G5. Ни одного верного названия:
+    0% против 98% после правки.
+
+    Лад отвечает на этот вопрос без всякого спектра: в ре миноре на соль
+    ожидается минор, на си-бемоле -- мажор.
+    """
+    np = pytest.importorskip("numpy")
+
+    from midi2tab.audiochords import _pick_quality, _templates
+
+    names, vectors, penalties, roots, qualities = _templates()
+    key = (2, False)                       # ре минор
+
+    def decide(root, sounding):
+        profile = np.zeros(12)
+        for pitch in sounding:
+            profile[pitch] = 1.0
+        profile = profile / np.linalg.norm(profile)
+        return names[_pick_quality(np, names, vectors, penalties, roots,
+                                   qualities, root, profile, key)]
+
+    # Звучат только основной тон и квинта -- терции нет. Решает лад.
+    assert decide(7, (7, 2)) == "Gm"       # соль: четвёртая ступень -> минор
+    assert decide(10, (10, 5)) == "A#"     # си-бемоль: шестая -> мажор
+    assert decide(2, (2, 9)) == "Dm"       # тоника -> минор
+
+    # Отчётливо прозвучавшая чужая терция перевешивает лад: заимствованные
+    # аккорды вроде Cm вместо C в ре миноре разбор обязан услышать.
+    assert decide(0, (0, 3, 7)) == "Cm"
+
+
+def test_power_chords_are_never_a_label():
+    """
+    Квинт-аккорд -- не название гармонии.
+
+    Даже когда гитарист играет D5, в песеннике пишут Dm: подпись
+    называет аккорд, а не то, сколько струн зажато.
+    """
+    from midi2tab.audiochords import LABEL_QUALITIES
+
+    assert "5" not in LABEL_QUALITIES
+    assert "m" in LABEL_QUALITIES and "" in LABEL_QUALITIES
+
+
+def test_chord_shapes_match_the_ones_guitarists_play():
+    """
+    Аппликатуры выводятся из строя, а не берутся из таблицы.
+
+    Проверяем на тех аккордах, положение которых знает наизусть любой
+    гитарист: если совпало с ними, значит, и для остальных выведется
+    разумное.
+    """
+    from midi2tab.shapes import shapes_for
+    from midi2tab.tuning import DEFAULT_TUNING, TUNINGS, Fretboard
+
+    board = Fretboard(TUNINGS[DEFAULT_TUNING])
+
+    def best(name):
+        shape = shapes_for(name, board, 1)[0]
+        return "".join("x" if f is None else str(f) for f in shape.frets)
+
+    assert best("Am") == "x02210"
+    assert best("C") == "x32010"
+    assert best("D") == "xx0232"
+    assert best("Dm") == "xx0231"
+    assert best("E") == "022100"
+    assert best("Em") == "022000"
+    assert best("G") == "320003"
+    assert best("A") == "x02220"
+
+
+def test_barre_is_not_drawn_over_an_open_string():
+    """
+    Баррэ прижимает ВСЕ струны на своём ладу.
+
+    Значит, рядом с ним не может быть открытой струны: палец её всё
+    равно прижмёт, и нота выйдет другая. Такую картинку человек
+    поставить не сможет.
+    """
+    from midi2tab.shapes import shapes_for
+    from midi2tab.tuning import DEFAULT_TUNING, TUNINGS, Fretboard
+
+    board = Fretboard(TUNINGS[DEFAULT_TUNING])
+    for name in ("Dm", "C", "Gm", "A#", "F", "Am", "Cm", "Fm", "Bm", "G", "E"):
+        for shape in shapes_for(name, board, 3):
+            if shape.barre:
+                assert 0 not in [f for f in shape.frets if f is not None], name
+
+
+def test_shapes_follow_the_tuning():
+    """
+    Таблицу аккордов пришлось бы заводить на каждый строй, а их дюжина.
+
+    Здесь аппликатура выводится из строя -- и для укулеле с его
+    перевёрнутой первой струной получается то же самое до-мажорное
+    0003, которое печатают в самоучителях.
+    """
+    from midi2tab.shapes import shapes_for
+    from midi2tab.tuning import TUNINGS, Fretboard
+
+    ukulele = Fretboard(TUNINGS["Укулеле (GCEA)"])
+    shape = shapes_for("C", ukulele, 1)[0]
+    assert shape.frets == (0, 0, 0, 3)
+
+    drop_d = Fretboard(TUNINGS["Drop D (DADGBE)"])
+    assert shapes_for("D", drop_d, 1)[0].frets == (0, 0, 0, 2, 3, 2)

@@ -225,6 +225,21 @@ button.primary:hover:not(:disabled) { background: var(--accent-hi); }
   background: var(--muted); opacity: .28;
 }
 
+/* Аппликатуры: сетка грифа рядом с названием */
+#grips { display: flex; flex-wrap: wrap; gap: 10px; }
+.grip {
+  padding: 10px 12px 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel-hi); text-align: center; transition: border-color .15s;
+}
+.grip.now { border-color: var(--accent); background: rgba(217,154,78,.12); }
+.grip-name { font-size: 19px; font-weight: 700; margin-bottom: 4px; }
+.grip.now .grip-name { color: var(--accent); }
+.grip-more {
+  display: block; margin: 6px auto 0; padding: 3px 8px;
+  font-size: 11px; color: var(--muted); background: none; border: none;
+  cursor: pointer; text-decoration: underline;
+}
+
 /* Лист аккордов: вся песня по тактам, по четыре в строке -- как её и
    записывают от руки, квадратами */
 #sheet {

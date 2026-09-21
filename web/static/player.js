@@ -55,6 +55,7 @@ async function load() {
   buildSplit();
   buildMade(job.made || []);
   buildLyrics();
+  buildGrips();
   buildSheet();
   bindControls();
   bindDrag();
@@ -420,6 +421,102 @@ function bindControls() {
 
 // --------------------------------------------------------------------- кадр
 
+// ------------------------------------------------------------ аппликатуры
+
+// Название аккорда мало что даёт, если не помнишь, как он берётся --
+// а за этим сервис и открывают. Сетку рисуем на SVG: она должна
+// оставаться чёткой и на телефоне, и при увеличении страницы.
+const STRINGS_LABEL = { 6: 'EADGBE', 7: 'BEADGBE', 4: 'GCEA' };
+let gripEls = [];
+
+function grip(name, shape) {
+  const strings = shape.frets.length;
+  const rows = 5;                       // сколько ладов в окошке
+  const step = 20;                      // расстояние между струнами
+  const w = step * (strings - 1);
+  const h = 19 * rows;
+  const px = 14, py = 26;
+  const parts = [];
+
+  // Лады и струны. Верхний порожек рисуется толстым -- по нему и видно,
+  // что аккорд берётся в первой позиции, а не где-то посреди грифа.
+  for (let r = 0; r <= rows; r++) {
+    const y = py + (h / rows) * r;
+    const nut = r === 0 && shape.base <= 1;
+    parts.push(`<line x1="${px}" y1="${y}" x2="${px + w}" y2="${y}"
+      stroke="${nut ? 'var(--muted)' : 'var(--border)'}"
+      stroke-width="${nut ? 3.5 : 1}"/>`);
+  }
+  for (let c = 0; c < strings; c++) {
+    const x = px + step * c;
+    parts.push(`<line x1="${x}" y1="${py}" x2="${x}" y2="${py + h}"
+      stroke="var(--border)" stroke-width="1"/>`);
+  }
+
+  // Баррэ -- одной полосой, а не шестью точками: так его и показывают
+  if (shape.barre) {
+    const row = shape.barre - shape.base;
+    const y = py + (h / rows) * (row + 0.5);
+    parts.push(`<rect x="${px - 5}" y="${y - 6.5}" width="${w + 10}" height="13"
+      rx="6.5" fill="var(--accent)" opacity=".9"/>`);
+  }
+
+  shape.frets.forEach((fret, index) => {
+    const x = px + step * index;
+    if (fret === null) {
+      parts.push(`<text x="${x}" y="${py - 8}" text-anchor="middle"
+        font-size="13" fill="var(--muted)">×</text>`);
+    } else if (fret === 0) {
+      parts.push(`<circle cx="${x}" cy="${py - 12}" r="4.5" fill="none"
+        stroke="var(--muted)" stroke-width="1.6"/>`);
+    } else if (fret !== shape.barre) {
+      const y = py + (h / rows) * (fret - shape.base + 0.5);
+      parts.push(`<circle cx="${x}" cy="${y}" r="7" fill="var(--accent)"/>`);
+    }
+  });
+
+  if (shape.base > 1) {
+    parts.push(`<text x="${px + w + 8}" y="${py + h / rows * 0.8}"
+      font-size="12" fill="var(--muted)">${shape.base}</text>`);
+  }
+
+  return `<svg viewBox="0 0 ${w + 30} ${h + 36}" width="${w + 30}" height="${h + 36}"
+    role="img" aria-label="${name}">${parts.join('')}</svg>`;
+}
+
+function buildGrips() {
+  const table = data.shapes || {};
+  const used = [...new Set(data.chords.map((c) => c.name))]
+    .filter((name) => (table[name] || []).length);
+  if (!used.length) return;
+
+  $('grips').innerHTML = used.map((name) => `
+    <div class="grip" data-chord="${name}">
+      <div class="grip-name">${name}</div>
+      ${grip(name, table[name][0])}
+      ${table[name].length > 1
+        ? `<button class="grip-more" data-alt="${name}">ещё вариант</button>` : ''}
+    </div>`).join('');
+  $('gripCard').style.display = '';
+
+  // Второй и третий вариант показываем по запросу: новичку нужен один,
+  // а кто ищет удобнее -- нажмёт.
+  const shown = {};
+  $('grips').querySelectorAll('[data-alt]').forEach((button) => {
+    button.onclick = () => {
+      const name = button.dataset.alt;
+      shown[name] = ((shown[name] || 0) + 1) % table[name].length;
+      const box = button.parentElement;
+      box.querySelector('svg').outerHTML = grip(name, table[name][shown[name]]);
+      button.textContent = shown[name] ? 'ещё вариант' : 'первый вариант';
+    };
+  });
+
+  gripEls = [...$('grips').querySelectorAll('.grip')].map((el) => ({
+    el, name: el.dataset.chord,
+  }));
+}
+
 // --------------------------------------------------------- лист аккордов
 
 // Лента показывает то, что рядом с текущим мгновением, и это правильно
@@ -582,6 +679,11 @@ function tick() {
     el.style.fontSize = active ? '18px' : '15px';
     el.style.fontWeight = active ? '600' : '400';
   });
+
+  // Подсвечиваем аппликатуру того аккорда, что звучит сейчас
+  const playing = (ribs.find(({ chord }) => now >= chord.start && now < chord.end) || {}).chord;
+  gripEls.forEach(({ el, name }) =>
+    el.classList.toggle('now', !!playing && playing.name === name));
 
   // Текущий такт подсвечивается и в листе -- глаз не теряет место
   sheetCells.forEach(({ el, start, end }) =>

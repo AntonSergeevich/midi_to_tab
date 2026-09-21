@@ -23,7 +23,8 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from midi2tab import audiochords, audioin, cleanup, gp5out, lyrics as lyrics_mod, midiin, separate
+from midi2tab import (audiochords, audioin, cleanup, gp5out,
+                     lyrics as lyrics_mod, midiin, separate, shapes)
 from midi2tab.convert import Settings, convert
 from midi2tab.timing import TPQ
 
@@ -176,6 +177,25 @@ def _share(elapsed: float, expected: float) -> float:
     return 0.92 + 0.08 * (1.0 - 1.0 / (1.0 + (ratio - 1.0)))
 
 
+def _shapes_for(chords, options) -> dict:
+    """
+    Картинки аппликатур для каждого аккорда песни.
+
+    Название аккорда мало что даёт, если человек не помнит, как этот
+    аккорд берётся, -- а именно за этим сервис и открывают. Считаются
+    аппликатуры для того строя, который выбран: у drop D и укулеле они
+    свои.
+    """
+    from midi2tab.tuning import DEFAULT_TUNING, TUNINGS, Fretboard
+
+    tuning = TUNINGS.get(options.get("tuning") or DEFAULT_TUNING)
+    board = Fretboard(tuning or TUNINGS[DEFAULT_TUNING], capo=int(options.get("capo", 0)))
+    return {
+        name: shapes.diagram(name, board)
+        for name in dict.fromkeys(c["name"] for c in chords)
+    }
+
+
 class JobRunner:
     def __init__(self, storage: Storage, data_dir: str, workers: int = 2) -> None:
         self.storage = storage
@@ -303,6 +323,7 @@ class JobRunner:
                 "chords": chords,
                 "chordSource": source_note,
                 "key": key,
+                "shapes": _shapes_for(chords, options),
                 "beats": beats,
                 "downbeats": downbeats,
                 "parts": [
@@ -426,6 +447,7 @@ class JobRunner:
         payload["downbeats"] = [round(b, 3) for b in analysis.downbeats]
         payload["chordSource"] = "без барабанов и голоса"
         payload["key"] = analysis.key
+        payload["shapes"] = _shapes_for(payload["chords"], options)
 
     def _lyrics(self, job_id: str, model: str) -> None:
         """

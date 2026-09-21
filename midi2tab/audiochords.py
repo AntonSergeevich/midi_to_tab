@@ -88,6 +88,24 @@ MINOR_SCALE = (0, 2, 3, 5, 7, 8, 10)
 # Но не запрет: отклонения в музыке бывают, и на них штраф тратится
 # честно -- аккорд с чужой нотой должен подойти заметно лучше своего.
 KEY_PENALTY = 0.10
+
+# Какое качество аккорда ожидается на каждой ступени лада. Это не догадка,
+# а устройство тональности: в миноре на первой ступени минор, на шестой
+# мажор, и так далее. Ступени даны в полутонах от тоники.
+DIATONIC_MINOR = {0: "m", 2: "dim", 3: "", 5: "m", 7: "m", 8: "", 10: "", 11: ""}
+DIATONIC_MAJOR = {0: "", 2: "m", 4: "m", 5: "", 7: "", 9: "m", 11: "dim"}
+
+# Насколько ожидаемое ладом качество лучше прочих при равной похожести.
+# Нужен именно перевес, а не запрет: заимствованные аккорды -- Cm вместо C
+# в ре миноре -- обычное дело, и услышать их разбор обязан.
+DIATONIC_BONUS = 0.10
+
+# Качества, которыми вообще стоит ПОДПИСЫВАТЬ аккорд. Квинт-аккорда тут
+# нет намеренно: даже когда гитарист играет D5, в песеннике пишут Dm --
+# подпись называет гармонию, а не то, сколько струн зажато. Именно из-за
+# этого разбор плотного микса превращался в частокол из D5, A#5, G5:
+# в перегруженной гитаре терцию не слышно, и двухнотный шаблон побеждал.
+LABEL_QUALITIES = ("", "m", "7", "m7", "sus4", "maj7", "dim")
 # Смена аккорда на втором проходе штрафуется сильнее: здесь шаг -- целый
 # такт, а гармония редко меняется каждый такт подряд.
 BAR_CHANGE_COST = 0.03
@@ -389,7 +407,8 @@ def detect_from_audio(
     picked = _pick_names(names, allowed)
     if picked is None:
         picked = _vocabulary(
-            np, names, vectors, penalties, roots, qualities, bar_chroma, vocabulary
+            np, names, vectors, penalties, roots, qualities, bar_chroma,
+            vocabulary, key,
         )
     if not picked:
         chords = rough
@@ -489,7 +508,7 @@ def _segments(names, decision, times, min_duration: float) -> list[AudioChord]:
     return _merge_short(chords, min_duration)
 
 
-def _vocabulary(np, names, vectors, penalties, roots, qualities, bars, limit):
+def _vocabulary(np, names, vectors, penalties, roots, qualities, bars, limit, key):
     """
     Собрать круг аккордов песни: сначала основные тоны, потом качества.
 
@@ -529,11 +548,51 @@ def _vocabulary(np, names, vectors, penalties, roots, qualities, bars, limit):
             continue
         profile = bars[:, mask].mean(axis=1)
         norm = np.linalg.norm(profile) or 1.0
-        profile = profile / norm
-        family = np.where(roots == roots[template])[0]
-        scores = (vectors[family] @ profile) - penalties[family]
-        picked.append(int(family[int(np.argmax(scores))]))
+        picked.append(
+            _pick_quality(np, names, vectors, penalties, roots, qualities,
+                          int(roots[template]), profile / norm, key)
+        )
     return sorted(set(picked))
+
+
+def _pick_quality(np, names, vectors, penalties, roots, qualities,
+                  root: int, profile, key) -> int:
+    """
+    Мажор или минор -- решается ладом там, где терцию не слышно.
+
+    В плотном миксе с перегруженной гитарой терции в спектре может не
+    быть вовсе: её съедают искажения и соседние инструменты. Раньше в
+    этом случае побеждал квинт-аккорд -- шаблон из двух нот, которому
+    терция и не нужна. Разбор превращался в D5 A#5 G5, то есть не
+    отвечал на единственный вопрос, ради которого его затевали.
+
+    Но неизвестность тут мнимая. Лад уже определён, и он говорит, какое
+    качество на этой ступени ожидается: в ре миноре на соль -- минор, на
+    си-бемоле -- мажор. Это не догадка, а устройство тональности.
+    Поэтому ожидаемому качеству даётся перевес -- достаточный, чтобы
+    выиграть при молчащей терции, и недостаточный, чтобы заглушить
+    отчётливо прозвучавшую чужую: заимствованные аккорды вроде Cm вместо
+    C в ре миноре разбор обязан услышать.
+    """
+    tonic, is_major = key
+    table = DIATONIC_MAJOR if is_major else DIATONIC_MINOR
+    expected = table.get((root - tonic) % 12)
+
+    family = [
+        i for i in np.where(roots == root)[0]
+        if qualities[i] in LABEL_QUALITIES
+    ]
+    if not family:
+        family = list(np.where(roots == root)[0])
+    index = np.array(family)
+
+    scores = (vectors[index] @ profile) - penalties[index]
+    if expected is not None:
+        bonus = np.array([
+            DIATONIC_BONUS if qualities[i] == expected else 0.0 for i in family
+        ])
+        scores = scores + bonus
+    return int(index[int(np.argmax(scores))])
 
 
 def _pick_names(names, allowed) -> list[int] | None:
