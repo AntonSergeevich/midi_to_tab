@@ -32,8 +32,10 @@ MIN_CONFIDENCE = 0.12
 # нонаккорды: пятизвучие "объясняет" больше энергии, чем трезвучие, и
 # выигрывает всегда. На реальном треке в ре миноре штраф поднял долю
 # аккордов, принадлежащих тональности, с 71% до 84%, а нонаккорды,
-# которых в песне не было, исчезли совсем.
-SIZE_PENALTY = 0.09
+# которых в песне не было, исчезли совсем. Значение подобрано по песне,
+# круг которой назвал человек: 0.12 дало 98.7% против 89.9% у 0.09 --
+# при 0.09 вместо Gm стабильно выигрывал Gm7.
+SIZE_PENALTY = 0.12
 # Отдельно придерживаем квинт-аккорд: из двух нот он подходит почти
 # всюду, и без этого весь разбор превращается в частокол из D5, C5, G5.
 # Оставшиеся квинт-аккорды честны -- там, где в миксе правда нет терции.
@@ -65,6 +67,21 @@ MIN_DURATION = 0.9
 # задержалась одна нота. Второй проход отбирает самые "весомые" аккорды и
 # пересобирает разбор только из них.
 DEFAULT_VOCABULARY = 6
+
+# Профили Крумхансл: насколько каждая ступень характерна для тональности.
+# Получены в слуховых опытах -- люди оценивали, насколько нота "подходит"
+# прозвучавшему ладу. Сравнение хромаграммы со всеми 24 поворотами и даёт
+# тональность песни.
+KRUMHANSL_MAJOR = (6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88)
+KRUMHANSL_MINOR = (6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17)
+MAJOR_SCALE = (0, 2, 4, 5, 7, 9, 11)
+MINOR_SCALE = (0, 2, 3, 5, 7, 8, 10)
+
+# Штраф за каждую ноту аккорда вне тональности. Песня почти целиком
+# состоит из своих семи ступеней, и чужая нота -- сильный довод против.
+# Но не запрет: отклонения в музыке бывают, и на них штраф тратится
+# честно -- аккорд с чужой нотой должен подойти заметно лучше своего.
+KEY_PENALTY = 0.10
 # Смена аккорда на втором проходе штрафуется сильнее: здесь шаг -- целый
 # такт, а гармония редко меняется каждый такт подряд.
 BAR_CHANGE_COST = 0.08
@@ -86,6 +103,7 @@ class ChordAnalysis:
     tempo: float                 # ударов в минуту
     beats: list[float]           # моменты долей в секундах
     downbeats: list[float]       # предполагаемые сильные доли
+    key: str = ""                # тональность, например "Dm"
 
     @property
     def names(self) -> list[str]:
@@ -124,6 +142,71 @@ def available() -> tuple[bool, str]:
             "    pip install -r requirements-audio.txt"
         )
     return True, ""
+
+
+def guess_key(chroma) -> tuple[int, bool]:
+    """
+    Тональность песни: (основной тон, мажор ли).
+
+    Сравниваем усреднённую хромаграмму со всеми 24 профилями и берём
+    самый похожий. Точность здесь не критична: тональность нужна лишь
+    как довод при выборе аккорда, а не как окончательный приговор.
+    """
+    import numpy as np
+
+    profile = np.asarray(chroma).mean(axis=1)
+    norm = np.linalg.norm(profile)
+    if not norm:
+        return 0, True
+    profile = profile / norm
+
+    best, best_score = (0, True), -2.0
+    for tonic in range(12):
+        for is_major, weights in ((True, KRUMHANSL_MAJOR), (False, KRUMHANSL_MINOR)):
+            reference = np.roll(np.asarray(weights), tonic)
+            reference = reference / np.linalg.norm(reference)
+            score = float(profile @ reference)
+            if score > best_score:
+                best, best_score = (tonic, is_major), score
+    return best
+
+
+def key_penalties(names, key: tuple[int, bool], chroma=None,
+                  strength: float = KEY_PENALTY):
+    """Штраф каждому шаблону за ноты, которых в тональности нет."""
+    import numpy as np
+
+    tonic, is_major = key
+    scale = {(tonic + step) % 12 for step in (MAJOR_SCALE if is_major else MINOR_SCALE)}
+    if not is_major and chroma is not None:
+        # Минор бывает натуральный, а бывает гармонический -- с поднятой
+        # седьмой ступенью и мажорной доминантой. Решать это за песню
+        # нельзя: у одной доминанта мажорная, у другой минорная, и
+        # ошибка стоит целого аккорда в круге. Смотрим, что в записи
+        # громче: поднятая седьмая или натуральная.
+        energy = np.asarray(chroma).mean(axis=1)
+        raised, natural = energy[(tonic + 11) % 12], energy[(tonic + 10) % 12]
+        if raised > natural * 0.8:
+            scale.add((tonic + 11) % 12)
+
+    penalties = []
+    for name in names:
+        root, quality = _split(name)
+        intervals = dict(TEMPLATES).get(quality, (0, 4, 7))
+        outside = sum(1 for i in intervals if (root + i) % 12 not in scale)
+        penalties.append(strength * outside)
+    return np.array(penalties)
+
+
+def _split(name: str) -> tuple[int, str]:
+    """Разобрать подпись на основной тон и качество."""
+    head = name[:2] if len(name) > 1 and name[1] == "#" else name[:1]
+    return PITCH_CLASSES.index(head), name[len(head):]
+
+
+def key_name(key: tuple[int, bool]) -> str:
+    tonic, is_major = key
+    return f"{PITCH_CLASSES[tonic]}{'' if is_major else 'm'}"
 
 
 def _templates():
@@ -287,6 +370,14 @@ def detect_from_audio(
     bar_chroma = _sync(librosa, chroma, groups, np)
     bar_times = _edges(librosa.frames_to_time(groups, sr=sr), duration)
 
+    # Тональность -- сильный довод при выборе аккорда. Песня почти целиком
+    # состоит из своих семи ступеней, и чужая нота в аккорде означает либо
+    # отклонение (редко), либо ошибку разбора (обычно).
+    key = guess_key(bar_chroma)
+    penalties = penalties + key_penalties(names, key, bar_chroma)
+    if progress:
+        progress(f"Тональность: {key_name(key)}")
+
     picked = _pick_names(names, allowed)
     if picked is None:
         picked = _vocabulary(
@@ -315,6 +406,7 @@ def detect_from_audio(
         tempo=bpm,
         beats=beat_times,
         downbeats=downbeats,
+        key=key_name(key),
     )
 
 

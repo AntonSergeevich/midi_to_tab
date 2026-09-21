@@ -218,6 +218,7 @@ class JobRunner:
             parts: list[dict] = []
             chords: list[dict] = []
             source_note = ""
+            key = ""
             beats: list[float] = []
             downbeats: list[float] = []
             tempo = int(options.get("tempo") or 0)
@@ -290,6 +291,7 @@ class JobRunner:
                 ]
                 beats = [round(b, 3) for b in analysis.beats]
                 downbeats = [round(b, 3) for b in analysis.downbeats]
+                key = analysis.key
                 if not tempo and analysis.tempo:
                     tempo = int(round(analysis.tempo))
 
@@ -300,6 +302,7 @@ class JobRunner:
                 "tempoDetected": bool(not options.get("tempo") and tempo),
                 "chords": chords,
                 "chordSource": source_note,
+                "key": key,
                 "beats": beats,
                 "downbeats": downbeats,
                 "parts": [
@@ -422,6 +425,7 @@ class JobRunner:
         payload["beats"] = [round(b, 3) for b in analysis.beats]
         payload["downbeats"] = [round(b, 3) for b in analysis.downbeats]
         payload["chordSource"] = "без барабанов и голоса"
+        payload["key"] = analysis.key
 
     def _lyrics(self, job_id: str, model: str) -> None:
         """

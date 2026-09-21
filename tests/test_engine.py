@@ -423,3 +423,63 @@ def test_instrument_bands_stay_inside_hearing():
     low, high = separate.BANDS["guitar"]
     assert low < 82.4 < high        # нижняя ми шестой струны
     assert high > 1318.5            # ми на 24-м ладу первой струны
+
+
+def test_key_is_found_from_a_chroma():
+    """Тональность узнаётся по тому, какие ступени звучат чаще."""
+    np = pytest.importorskip("numpy")
+
+    from midi2tab.audiochords import guess_key, key_name
+
+    # Ре минор: D F A плюс остальные ступени лада потише
+    chroma = np.full((12, 8), 0.05)
+    for pitch, weight in ((2, 1.0), (5, 0.8), (9, 0.8), (0, 0.6), (7, 0.5), (10, 0.4)):
+        chroma[pitch, :] = weight
+    assert key_name(guess_key(chroma)) == "Dm"
+
+
+def test_out_of_key_chords_are_penalised():
+    """
+    Чужая нота в аккорде -- сильный довод против него.
+
+    На реальной песне в ре миноре разбор упорно выдавал Bm (B D F#), где
+    на деле звучал B-бемоль: две ноты из трёх в тональность не входят.
+    Штраф за них убрал ошибку и довёл совпадение корней до 100%.
+    """
+    np = pytest.importorskip("numpy")
+
+    from midi2tab.audiochords import _templates, key_penalties
+
+    names = _templates()[0]
+    natural_minor = np.zeros((12, 4))
+    for pitch in (2, 4, 5, 7, 9, 10, 0):        # ре минор натуральный
+        natural_minor[pitch, :] = 1.0
+    penalties = dict(zip(names, key_penalties(names, (2, False), natural_minor)))
+
+    for own in ("Dm", "Gm", "A#", "C", "Am", "F"):
+        assert penalties[own] == 0.0, own
+    assert penalties["Bm"] > 0.0        # B и F# -- чужие
+    assert penalties["F#"] > 0.0
+
+
+def test_harmonic_minor_is_decided_by_the_music():
+    """
+    Поднятая седьмая ступень -- вопрос к записи, а не к правилу.
+
+    У одной песни доминанта мажорная, у другой минорная, и решать это
+    за песню нельзя: ошибка стоит целого аккорда в круге. Смотрим, что
+    в записи громче -- поднятая седьмая или натуральная.
+    """
+    np = pytest.importorskip("numpy")
+
+    from midi2tab.audiochords import _templates, key_penalties
+
+    names = _templates()[0]
+
+    natural = np.zeros((12, 4))
+    natural[0, :] = 1.0                 # до-бекар громкий
+    assert dict(zip(names, key_penalties(names, (2, False), natural)))["A"] > 0.0
+
+    raised = np.zeros((12, 4))
+    raised[1, :] = 1.0                  # до-диез громкий
+    assert dict(zip(names, key_penalties(names, (2, False), raised)))["A"] == 0.0

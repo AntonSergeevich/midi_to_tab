@@ -40,9 +40,11 @@ async function load() {
   $('title').textContent = job.name;
   const detected = data.tempoDetected ? ' (определён автоматически)' : '';
   const source = data.chordSource ? ` (${data.chordSource})` : '';
+  const circle = [...new Set(data.chords.map((c) => c.name))];
   $('meta').textContent =
-    `Темп ${data.tempo}${detected} · аккордов ${data.chords.length}${source}` +
-    ` · партий ${data.parts.length}`;
+    (data.key ? `Тональность ${data.key} · ` : '') +
+    `темп ${data.tempo}${detected} · партий ${data.parts.length}` +
+    (circle.length ? ` · круг: ${circle.join(' ')}${source}` : '');
 
   $('audio').src = data.audio;
   clock = audioClock($('audio'));
