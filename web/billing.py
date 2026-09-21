@@ -154,6 +154,117 @@ class PaymentProvider:
         raise NotImplementedError
 
 
+# ---------------------------------------------------------------- подписи
+
+# Как разные сервисы считают контрольную подпись. Точную формулу
+# GetPlatinum для версии 2 я прочитать не смог -- их сайт закрыт сетевой
+# политикой моего окружения. Поэтому здесь собраны все ходовые способы:
+# когда придёт первое настоящее уведомление, подходящий определится сам
+# (см. detect_scheme), и его останется только записать в настройки.
+#
+# Различаются три вещи: чем хешируем, как склеиваем значения и куда
+# девается секрет.
+SCHEMES: dict[str, dict] = {
+    "sha256:двоеточие:секрет_в_конце": {
+        "hash": "sha256", "join": ":", "secret": "tail", "pairs": False},
+    "sha256:подряд:секрет_в_конце": {
+        "hash": "sha256", "join": "", "secret": "tail", "pairs": False},
+    "sha256:подряд:секрет_в_начале": {
+        "hash": "sha256", "join": "", "secret": "head", "pairs": False},
+    "sha256:амперсанд:секрет_в_конце": {
+        "hash": "sha256", "join": "&", "secret": "tail", "pairs": False},
+    "sha256:ключ=значение:секрет_в_конце": {
+        "hash": "sha256", "join": "&", "secret": "tail", "pairs": True},
+    "md5:двоеточие:секрет_в_конце": {
+        "hash": "md5", "join": ":", "secret": "tail", "pairs": False},
+    "md5:подряд:секрет_в_конце": {
+        "hash": "md5", "join": "", "secret": "tail", "pairs": False},
+    "hmac-sha256:двоеточие": {
+        "hash": "sha256", "join": ":", "secret": "key", "pairs": False},
+    "hmac-sha256:подряд": {
+        "hash": "sha256", "join": "", "secret": "key", "pairs": False},
+    "hmac-sha256:ключ=значение": {
+        "hash": "sha256", "join": "&", "secret": "key", "pairs": True},
+}
+DEFAULT_SCHEME = "sha256:двоеточие:секрет_в_конце"
+
+
+def make_signature(data: dict, fields, secret: str, scheme: str) -> str:
+    """Посчитать подпись по названному способу."""
+    import hashlib
+    import hmac
+
+    spec = SCHEMES.get(scheme, SCHEMES[DEFAULT_SCHEME])
+    parts = [
+        f"{field}={data.get(field, '')}" if spec["pairs"] else str(data.get(field, ""))
+        for field in fields
+    ]
+    if spec["secret"] == "head":
+        parts.insert(0, secret)
+    elif spec["secret"] == "tail":
+        parts.append(secret)
+
+    message = spec["join"].join(parts).encode()
+    if spec["secret"] == "key":
+        return hmac.new(secret.encode(), message, spec["hash"]).hexdigest()
+    return hashlib.new(spec["hash"], message).hexdigest()
+
+
+def detect_scheme(payload: dict, signature: str, secret: str,
+                  fields_guesses) -> list[tuple[str, tuple]]:
+    """
+    Подобрать формулу по настоящему уведомлению.
+
+    Перебираются все способы и все правдоподобные наборы полей. Когда
+    подпись сойдётся -- формула найдена, и гадать больше не нужно.
+    Возвращает список подошедших пар (способ, поля).
+    """
+    import secrets as _secrets
+
+    given = (signature or "").strip().lower()
+    if not given or not secret:
+        return []
+    found = []
+    for scheme in SCHEMES:
+        for fields in fields_guesses:
+            candidate = make_signature(payload, fields, secret, scheme)
+            if _secrets.compare_digest(candidate, given):
+                found.append((scheme, tuple(fields)))
+    return found
+
+
+def field_guesses(payload: dict) -> list[tuple]:
+    """
+    Правдоподобные наборы полей для подписи.
+
+    Служебные ключи -- саму подпись и её номер версии -- в неё не входят
+    никогда. Перебираем: все поля по алфавиту, все в порядке прихода, и
+    ходовые сочетания из терминала, заказа, суммы и статуса.
+    """
+    skip = {"signature", "sign", "sig", "hash", "checksum", "token", "version"}
+    keys = [k for k in payload if k.lower() not in skip]
+    ordered = tuple(keys)
+    alphabet = tuple(sorted(keys))
+    guesses = [ordered, alphabet]
+    for combo in (
+        ("terminal", "order_id", "amount", "status"),
+        ("terminal", "order_id", "amount"),
+        ("order_id", "amount", "status"),
+        ("terminal", "amount", "order_id", "status"),
+        ("amount", "order_id", "terminal"),
+        ("order_id", "amount"),
+        ("terminal", "order_id"),
+    ):
+        if all(field in payload for field in combo):
+            guesses.append(combo)
+    seen, unique = set(), []
+    for guess in guesses:
+        if guess not in seen:
+            seen.add(guess)
+            unique.append(guess)
+    return unique
+
+
 class GetPlatinumProvider(PaymentProvider):
     """
     GetPlatinum, API версии 2.
@@ -191,6 +302,7 @@ class GetPlatinumProvider(PaymentProvider):
         ).split(",")
     )
     SIGN_FIELD = os.environ.get("GETPLATINUM_SIGN_FIELD", "signature")
+    SCHEME = os.environ.get("GETPLATINUM_SCHEME", DEFAULT_SCHEME)
 
     def __init__(self) -> None:
         self.terminal = os.environ.get("GETPLATINUM_TERMINAL", "153777")
@@ -224,6 +336,7 @@ class GetPlatinumProvider(PaymentProvider):
                 else f"задан, длина {len(secret)}"
             ),
             "адрес API": self.API_URL,
+            "способ подписи": self.SCHEME,
             "поля подписи": ",".join(self.SIGN_FIELDS),
             "поля подписи уведомления": ",".join(self.CALLBACK_SIGN_FIELDS),
             "адрес для уведомлений": "/api/webhook/getplatinum",
@@ -232,17 +345,19 @@ class GetPlatinumProvider(PaymentProvider):
 
     def sign(self, data: dict, fields) -> str:
         """
-        Контрольная подпись: sha256 от значений в заданном порядке.
+        Контрольная подпись по выбранному способу.
 
-        Значения склеиваются через двоеточие, секрет идёт последним.
         Отсутствующее поле даёт пустую строку, а не пропускается: иначе
         подпись зависела бы от того, какие поля сервис решил прислать.
         """
-        import hashlib
+        return make_signature(data, fields, self.secret, self.SCHEME)
 
-        parts = [str(data.get(field, "")) for field in fields]
-        parts.append(self.secret)
-        return hashlib.sha256(":".join(parts).encode()).hexdigest()
+    def guess_scheme(self, payload: dict) -> list[tuple[str, tuple]]:
+        """Подобрать формулу подписи по настоящему уведомлению."""
+        return detect_scheme(
+            payload, str(payload.get(self.SIGN_FIELD, "")),
+            self.secret, field_guesses(payload),
+        )
 
     def create_payment(self, user_id: str, amount: float, return_url: str) -> dict:
         if not self.configured():

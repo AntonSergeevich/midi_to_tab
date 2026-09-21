@@ -86,6 +86,15 @@ CREATE TABLE IF NOT EXISTS invites (
     note         TEXT
 );
 
+CREATE TABLE IF NOT EXISTS notices (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at   REAL NOT NULL,
+    provider     TEXT NOT NULL,
+    body         TEXT NOT NULL,
+    accepted     INTEGER NOT NULL DEFAULT 0,
+    reason       TEXT
+);
+
 CREATE INDEX IF NOT EXISTS tickets_status ON tickets(status, created_at);
 CREATE INDEX IF NOT EXISTS jobs_user ON jobs(user_id, created_at);
 -- Почта уникальна на уровне базы: две учётные записи с одним адресом
@@ -327,6 +336,45 @@ class Storage:
             conn.execute("DELETE FROM resets WHERE user_id = ?", (user_id,))
 
     # -------------------------------------------------------- обращения
+
+    # -------------------------------------------------- уведомления об оплате
+
+    def save_notice(self, provider: str, body: dict, accepted: bool,
+                    reason: str = "") -> None:
+        """
+        Сохранить пришедшее уведомление -- принятое и отвергнутое тоже.
+
+        Отвергнутое важнее: именно по нему потом подбирается формула
+        подписи. Без записи причина отказа теряется навсегда, и остаётся
+        только гадать, почему оплата не доходит.
+        """
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO notices (created_at, provider, body, accepted, reason)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (time.time(), provider, json.dumps(body, ensure_ascii=False),
+                 int(accepted), reason[:300]),
+            )
+            # Держим последние два десятка: это диагностика, а не архив
+            conn.execute(
+                "DELETE FROM notices WHERE id NOT IN"
+                " (SELECT id FROM notices ORDER BY id DESC LIMIT 20)"
+            )
+
+    def notices(self, limit: int = 20) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM notices ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+        out = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["body"] = json.loads(item["body"])
+            except ValueError:
+                pass
+            out.append(item)
+        return out
 
     # ------------------------------------------------------------- приглашения
 

@@ -12,6 +12,7 @@ async function boot() {
     $('login').style.display = 'none';
     await loadUsers();
     await loadPayment();
+    await loadNotices();
   }
 }
 
@@ -26,6 +27,7 @@ $('enter').onclick = async () => {
   $('login').style.display = 'none';
   await loadUsers();
   await loadPayment();
+  await loadNotices();
 };
 $('key').onkeydown = (e) => { if (e.key === 'Enter') $('enter').click(); };
 
@@ -203,4 +205,44 @@ async function loadPayment() {
       После правки обязателен перезапуск:
       <code>systemctl restart nasluh</code>.
     </p>`);
+}
+
+
+// ------------------------------- уведомления от платёжного сервиса
+
+// Формулу подписи GetPlatinum для версии 2 прочитать не удалось: их
+// сайт закрыт. Но угадывать её и не нужно -- по первому настоящему
+// уведомлению она определяется перебором ходовых способов.
+async function loadNotices() {
+  const box = document.getElementById('notices');
+  if (!box) return;
+  const response = await fetch('/api/admin/notices');
+  if (!response.ok) return;
+  const data = await response.json();
+  const rows = data['уведомления'] || [];
+  if (!rows.length) {
+    box.innerHTML = '<p class="muted">Уведомлений пока не было.</p>';
+    return;
+  }
+  box.innerHTML = rows.map((notice) => {
+    const when = new Date(notice['когда'] * 1000).toLocaleString('ru-RU');
+    const ok = notice['принято'];
+    const guesses = notice['подходящая формула'] || [];
+    return `<div class="part" style="align-items:flex-start;flex-wrap:wrap">
+      <span class="name">${when}</span>
+      <span class="${ok ? 'ok' : 'bad'}">${ok ? 'принято' : 'отвергнуто'}</span>
+      <span class="muted">${notice['причина'] || ''}</span>
+      <div style="flex-basis:100%;margin-top:8px">
+        <pre style="font:11px/1.5 Consolas,monospace;overflow-x:auto;margin:0"
+>${JSON.stringify(notice['тело'], null, 1)}</pre>
+        ${guesses.length ? `<p class="ok" style="margin:8px 0 0">
+          Подошла формула: ${guesses.map((g) =>
+            `<code>GETPLATINUM_SCHEME=${g['способ']}</code> при полях
+             <code>${g['поля']}</code>`).join('<br>')}</p>`
+          : (ok ? '' : `<p class="muted" style="margin:8px 0 0">
+             Ни одна из известных формул не подошла — нужен раздел
+             документации про контрольную подпись.</p>`)}
+      </div>
+    </div>`;
+  }).join('');
 }

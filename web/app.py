@@ -253,6 +253,38 @@ def api_admin_payment(request: Request):
     return {"состояние": gateway.diagnose()}
 
 
+@app.get("/api/admin/notices")
+def api_admin_notices(request: Request):
+    """
+    Что приходило от платёжного сервиса -- и подошла ли формула подписи.
+
+    Точную формулу GetPlatinum для версии 2 прочитать не удалось: их
+    сайт закрыт сетевой политикой. Поэтому здесь по настоящему
+    уведомлению перебираются все ходовые способы, и подходящий
+    определяется сам. Останется записать его в настройки.
+    """
+    require_admin(request)
+    gateway = billing.provider()
+    rows = []
+    for notice in storage.notices():
+        item = {
+            "когда": notice["created_at"],
+            "принято": bool(notice["accepted"]),
+            "причина": notice["reason"],
+            "тело": notice["body"],
+            "подходящая формула": [],
+        }
+        if not notice["accepted"] and isinstance(notice["body"], dict):
+            guess = getattr(gateway, "guess_scheme", None)
+            if guess:
+                item["подходящая формула"] = [
+                    {"способ": scheme, "поля": ",".join(fields)}
+                    for scheme, fields in guess(notice["body"])
+                ]
+        rows.append(item)
+    return {"уведомления": rows, "способы": list(billing.SCHEMES)}
+
+
 @app.get("/api/admin/users")
 def api_admin_users(request: Request):
     require_admin(request)
@@ -1011,11 +1043,17 @@ async def api_webhook(gateway_name: str, request: Request):
     gateway = billing.provider()
     verified = gateway.verify_webhook(payload)
     if not verified:
+        # Отвергнутое уведомление сохраняем обязательно: именно по нему
+        # потом подбирается формула подписи. Без записи причина отказа
+        # теряется навсегда, и остаётся гадать, почему оплата не доходит.
+        storage.save_notice(gateway_name, payload, False, "подпись не сошлась")
         raise HTTPException(400, "Неожиданный формат уведомления")
     provider_id, status = verified
     record = storage.payment_by_provider(provider_id)
     if not record:
+        storage.save_notice(gateway_name, payload, False, "платёж не найден")
         raise HTTPException(404, "Платёж не найден")
+    storage.save_notice(gateway_name, payload, True, status)
     storage.set_payment_status(record["id"], status)
     if status == "succeeded":
         billing.apply_plan(storage, record["user_id"], record.get("plan") or "month")

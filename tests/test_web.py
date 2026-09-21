@@ -587,3 +587,78 @@ def test_payment_diagnostics_name_the_real_problem():
     finally:
         os.environ.clear()
         os.environ.update(saved)
+
+
+def test_signature_formula_is_found_from_a_real_notice():
+    """
+    Формулу подписи можно не знать заранее -- её выдаёт первое уведомление.
+
+    Точную формулу GetPlatinum для версии 2 прочитать не удалось: их
+    сайт закрыт сетевой политикой. Но угадывать и не нужно: когда
+    приходит настоящее уведомление с настоящей подписью, перебор ходовых
+    способов находит тот, при котором подпись сходится.
+    """
+    from web import billing
+
+    secret = "секрет-магазина"
+    payload = {"terminal": "153777", "order_id": "a1b2c3", "amount": "19.00",
+               "status": "paid"}
+
+    for scheme in billing.SCHEMES:
+        for fields in (("terminal", "order_id", "amount", "status"),
+                       ("order_id", "amount")):
+            signature = billing.make_signature(payload, fields, secret, scheme)
+            found = billing.detect_scheme(
+                payload, signature, secret, billing.field_guesses(payload)
+            )
+            assert (scheme, fields) in found, (scheme, fields)
+
+    # Чужая подпись не подходит ни под одну формулу
+    assert not billing.detect_scheme(
+        payload, "0" * 64, secret, billing.field_guesses(payload)
+    )
+
+
+def test_signature_field_never_signs_itself():
+    """
+    Сама подпись в подписываемую строку входить не может.
+
+    Иначе её нельзя было бы вычислить: чтобы посчитать подпись, нужна
+    подпись. Проверяем, что служебные ключи из перебора исключены.
+    """
+    from web import billing
+
+    payload = {"terminal": "1", "amount": "19", "signature": "abc",
+               "sign": "x", "hash": "y", "version": "2"}
+    for fields in billing.field_guesses(payload):
+        assert "signature" not in fields
+        assert "sign" not in fields
+        assert "hash" not in fields
+        assert "version" not in fields
+
+
+def test_rejected_notices_are_kept_for_diagnosis(tmp_path):
+    """
+    Отвергнутое уведомление важнее принятого.
+
+    Именно по нему подбирается формула подписи. Без записи причина
+    отказа теряется навсегда, и остаётся гадать, почему оплата не
+    доходит.
+    """
+    from web.storage import Storage
+
+    store = Storage(str(tmp_path / "notices.db"))
+    store.save_notice("getplatinum", {"order_id": "a1", "status": "paid"},
+                      False, "подпись не сошлась")
+    store.save_notice("getplatinum", {"order_id": "a2", "status": "paid"},
+                      True, "succeeded")
+
+    rows = store.notices()
+    assert len(rows) == 2
+    assert rows[0]["body"]["order_id"] == "a2" and rows[0]["accepted"] == 1
+    assert rows[1]["accepted"] == 0 and "подпись" in rows[1]["reason"]
+
+    # Хранится диагностика, а не архив: старое вытесняется
+    for index in range(30):
+        store.save_notice("getplatinum", {"order_id": f"x{index}"}, False, "шум")
+    assert len(store.notices(100)) == 20
