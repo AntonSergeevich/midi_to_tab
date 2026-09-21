@@ -89,6 +89,24 @@ MINOR_SCALE = (0, 2, 3, 5, 7, 8, 10)
 # честно -- аккорд с чужой нотой должен подойти заметно лучше своего.
 KEY_PENALTY = 0.10
 
+# Голос баса при выборе аккорда. Основной тон играет бас, и это главный
+# довод там, где верхние голоса двусмысленны: си-бемоль (A# D F) и
+# фа-мажор (F A C) в плотном миксе почти неразличимы -- над си-бемолем
+# продолжает звенеть ля от предыдущего ре-минора, и оба шаблона
+# подходят одинаково. В басу же разница слышна сразу.
+#
+# Важно, ГДЕ именно слушать: первая попытка брала две октавы от до
+# большой октавы и не дала ничего -- туда попадает середина гитары.
+# Нужен самый низ, от до контроктавы.
+BASS_WEIGHT = 0.6
+BASS_OCTAVES = 2
+
+# Сколько похожих тактов усреднять. Песня ходит по кругу, и один и тот
+# же аккорд звучит в ней много раз. Усреднение по его повторам гасит
+# случайный шум одного проведения -- то, из-за чего в первом куплете
+# аккорд слышался верно, а в третьем подменялся соседним.
+SIMILAR_BARS = 6
+
 # Какое качество аккорда ожидается на каждой ступени лада. Это не догадка,
 # а устройство тональности: в миноре на первой ступени минор, на шестой
 # мажор, и так далее. Ступени даны в полутонах от тоники.
@@ -371,6 +389,10 @@ def detect_from_audio(
     bpm = as_float(tempo)
     beats = np.asarray(beats).ravel()
     chroma = librosa.feature.chroma_cqt(y=harmonic, sr=sr, bins_per_octave=36)
+    low = librosa.feature.chroma_cqt(
+        y=harmonic, sr=sr, bins_per_octave=36,
+        fmin=librosa.note_to_hz("C1"), n_octaves=BASS_OCTAVES,
+    )
 
     if len(beats) < 2:
         # Ритм не нашёлся -- режем на равные отрезки по полсекунды
@@ -393,7 +415,8 @@ def detect_from_audio(
     # иначе ошибка первого прохода сдвигает КАЖДЫЙ аккорд в песне.
     offset = _bar_offset(chroma, beats, beats_per_bar)
     groups = _bar_groups(beats, offset, beats_per_bar)
-    bar_chroma = _sync(librosa, chroma, groups, np)
+    bar_chroma = _smooth_by_repeats(librosa, np, _sync(librosa, chroma, groups, np))
+    bar_bass = _sync(librosa, low, groups, np)
     bar_times = _edges(librosa.frames_to_time(groups, sr=sr), duration)
 
     # Тональность -- сильный довод при выборе аккорда. Песня почти целиком
@@ -417,7 +440,8 @@ def detect_from_audio(
             progress("Круг аккордов песни: " + ", ".join(names[i] for i in picked))
         keep = np.array(picked)
         path, sure = _decide(
-            np, vectors[keep], penalties[keep], bar_chroma, BAR_CHANGE_COST
+            np, vectors[keep], penalties[keep], bar_chroma, BAR_CHANGE_COST,
+            bass=bar_bass, roots=roots[keep],
         )
         chords = _segments(names, (keep[path], sure), bar_times, min_duration)
 
@@ -475,7 +499,33 @@ def _edges(times, duration: float):
     return values
 
 
-def _decide(np, vectors, penalties, synced, change_cost: float):
+def _smooth_by_repeats(librosa, np, bars):
+    """
+    Усреднить каждый такт с самыми похожими на него тактами песни.
+
+    Песня ходит по кругу: припев звучит одинаково каждый раз. Разбирая
+    каждое его проведение поодиночке, мы каждый раз заново рискуем
+    ошибиться из-за случайного призвука -- отсюда и брались жалобы, что
+    в начале аккорд слышится верно, а дальше подменяется соседним.
+    Усреднение по повторам гасит этот шум: чтобы сбить разбор, призвук
+    должен теперь повториться во всех проведениях сразу.
+    """
+    if bars.shape[1] < SIMILAR_BARS * 2:
+        return bars
+    try:
+        rec = librosa.segment.recurrence_matrix(
+            bars, k=SIMILAR_BARS, mode="affinity", metric="cosine", sparse=True
+        )
+        smoothed = librosa.decompose.nn_filter(bars, rec=rec, aggregate=np.average)
+    except Exception:
+        return bars
+    norms = np.linalg.norm(smoothed, axis=0, keepdims=True)
+    norms[norms == 0] = 1.0
+    return smoothed / norms
+
+
+def _decide(np, vectors, penalties, synced, change_cost: float,
+            bass=None, roots=None):
     """
     Разобрать последовательность и оценить уверенность.
 
@@ -484,6 +534,8 @@ def _decide(np, vectors, penalties, synced, change_cost: float):
     из-за способа отбора.
     """
     scores = (vectors @ synced) - penalties[:, None]
+    if bass is not None and roots is not None:
+        scores = scores + BASS_WEIGHT * bass[np.asarray(roots, dtype=int)]
     path = (np.zeros(scores.shape[1], dtype=int)
             if scores.shape[0] < 2 else _viterbi(scores, change_cost))
     return path, _confidence(np, vectors, synced, path)

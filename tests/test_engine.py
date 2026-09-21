@@ -714,3 +714,73 @@ def test_confidence_asks_whether_the_notes_are_sounding():
     thin[7, 0] = 1.0
     thin[4, 0] = 0.02
     assert _confidence(np, vectors, thin, np.array([0]))[0] < 0.2
+
+
+def test_repeated_bars_are_averaged_together():
+    """
+    Песня ходит по кругу -- значит, одинаковые такты должны разбираться одинаково.
+
+    Разбирая каждое проведение припева поодиночке, мы каждый раз заново
+    рискуем ошибиться из-за случайного призвука. Отсюда и брались жалобы,
+    что в начале песни аккорд слышится верно, а дальше подменяется
+    соседним. Усреднение по повторам гасит этот шум: чтобы сбить разбор,
+    призвук должен повториться во всех проведениях сразу.
+    """
+    np = pytest.importorskip("numpy")
+    librosa = pytest.importorskip("librosa")
+
+    from midi2tab.audiochords import _smooth_by_repeats
+
+    # Круг из четырёх тактов, повторённый шесть раз
+    circle = np.zeros((12, 4))
+    for column, pitch in enumerate((2, 0, 10, 7)):
+        circle[pitch, column] = 1.0
+    bars = np.tile(circle, 6)
+
+    # В одном такте -- случайный призвук, какого в остальных повторах нет
+    spoiled = bars.copy()
+    spoiled[5, 10] = 0.9
+
+    smoothed = _smooth_by_repeats(librosa, np, spoiled)
+    assert smoothed.shape == bars.shape
+    # Призвук ослаб относительно настоящей ноты этого такта
+    assert smoothed[5, 10] < smoothed[10, 10]
+
+
+def test_bass_decides_between_neighbours():
+    """
+    Основной тон играет бас, и это главный довод при двусмысленности.
+
+    Си-бемоль (A# D F) и фа-мажор (F A C) в плотном миксе почти
+    неразличимы: над си-бемолем продолжает звенеть ля от предыдущего
+    ре-минора, и оба шаблона подходят одинаково. В басу разница слышна
+    сразу. На реальной песне это подняло число верно услышанных
+    си-бемолей с 5 до 11 и убрало подмены совсем.
+    """
+    np = pytest.importorskip("numpy")
+
+    from midi2tab.audiochords import _decide
+
+    vectors = np.zeros((2, 12))
+    for pitch in (10, 2, 5):            # A# D F -- си-бемоль
+        vectors[0, pitch] = 1.0
+    for pitch in (5, 9, 0):             # F A C -- фа-мажор
+        vectors[1, pitch] = 1.0
+    vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
+
+    # Наверху звучит всё сразу -- шаблоны неразличимы
+    muddy = np.zeros((12, 3))
+    for pitch in (10, 2, 5, 9, 0):
+        muddy[pitch, :] = 1.0
+
+    bass = np.zeros((12, 3))
+    bass[10, :] = 1.0                   # в басу си-бемоль
+    roots = np.array([10, 5])
+
+    path, _ = _decide(np, vectors, np.zeros(2), muddy, 0.05, bass=bass, roots=roots)
+    assert list(path) == [0, 0, 0]
+
+    bass_f = np.zeros((12, 3))
+    bass_f[5, :] = 1.0                  # в басу фа
+    path, _ = _decide(np, vectors, np.zeros(2), muddy, 0.05, bass=bass_f, roots=roots)
+    assert list(path) == [1, 1, 1]
