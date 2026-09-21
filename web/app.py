@@ -55,6 +55,21 @@ def safe_stem(filename: str) -> str:
     cleaned = "".join(c for c in stem if c.isalnum() or c in " _-()[]").strip()
     return (cleaned or "song")[:60]
 
+def download_name(title: str, part: str, suffix: str) -> str:
+    """
+    Имя скачиваемого файла: по нему должно быть понятно, что внутри.
+
+    Demucs называет свои дорожки guitar.wav и bass.wav, и после трёх
+    разобранных песен в папке «Загрузки» лежат три одинаковых guitar.wav.
+    Поэтому имя собирается из названия трека и партии.
+    """
+    base = Path(title or "track").stem.strip() or "track"
+    name = f"{base} — {part}" if part else base
+    banned = '<>:"/\\|?*'
+    cleaned = "".join("_" if ch in banned or ord(ch) < 32 else ch for ch in name)
+    return cleaned[:120].strip() + suffix
+
+
 def _running_port() -> str:
     """
     Порт, на котором нас запустили.
@@ -522,8 +537,10 @@ def api_me(request: Request):
     payload["unlimited"] = user.unlimited
     payload["lyricsReady"] = lyrics_mod.available()[0]
     payload["lyricsModels"] = list(lyrics_mod.MODELS)
+    payload["vocabulary"] = audiochords.DEFAULT_VOCABULARY
     payload["jobs"] = [
-        {"id": j.id, "name": j.filename, "status": j.status, "at": j.created_at}
+        {"id": j.id, "name": j.filename, "status": j.status, "at": j.created_at,
+         "stage": j.stage, "progress": j.progress}
         for j in storage.root_jobs(user.id, 10)
     ]
     response = JSONResponse(payload)
@@ -539,6 +556,8 @@ async def api_upload(
     capo: int = Form(0),
     tempo: int = Form(0),
     min_chord: float = Form(0.9),
+    vocabulary: int = Form(audiochords.DEFAULT_VOCABULARY),
+    chords: str = Form(""),
     grid: str = Form(""),
     separate_track: bool = Form(False),
     model: str = Form(""),
@@ -561,6 +580,8 @@ async def api_upload(
         "capo": capo,
         "tempo": tempo,
         "minChord": min_chord,
+        "vocabulary": max(0, min(24, vocabulary)),
+        "allowed": chords.strip() or None,
         "grid": grid or None,
         "separate": separate_track,
         "model": model or separate.DEFAULT_MODEL,
@@ -607,6 +628,7 @@ def api_job(job_id: str):
         "id": job.id,
         "status": job.status,
         "stage": job.stage,
+        "progress": job.progress,
         "error": job.error,
         "name": job.filename,
     }
@@ -614,6 +636,25 @@ def api_job(job_id: str):
         payload["result"] = {
             key: value for key, value in job.result.items() if key != "paths"
         }
+    # Табы, сделанные раньше, должны находиться и после перезагрузки
+    # страницы: человек вернулся к треку за файлами, а не делать всё заново.
+    labels = {p["key"]: p["label"] for p in ((job.result or {}).get("parts") or [])}
+    made = []
+    for child in storage.child_jobs(job.id):
+        stem = (child.settings or {}).get("stem", "")
+        made.append(
+            {
+                "id": child.id,
+                "stem": stem,
+                "label": labels.get(stem, stem),
+                "status": child.status,
+                "stage": child.stage,
+                "progress": child.progress,
+                "files": [k for k, v in ((child.result or {}).get("files") or {}).items() if v],
+            }
+        )
+    if made:
+        payload["made"] = made
     return payload
 
 
@@ -637,6 +678,7 @@ def api_library(request: Request):
                 "at": job.created_at,
                 "status": job.status,
                 "stage": job.stage,
+                "progress": job.progress,
                 "tempo": result.get("tempo"),
                 "chords": len(result.get("chords") or []),
                 "parts": [p["label"] for p in (result.get("parts") or [])],
@@ -646,6 +688,8 @@ def api_library(request: Request):
                         "id": child.id,
                         "stem": (child.settings or {}).get("stem", ""),
                         "status": child.status,
+                        "stage": child.stage,
+                        "progress": child.progress,
                         "files": list(((child.result or {}).get("files") or {}).keys()),
                     }
                     for child in children
@@ -729,7 +773,9 @@ def api_part_file(job_id: str, stem_key: str):
     path = (job.result.get("paths") or {}).get("parts", {}).get(stem_key)
     if not path or not os.path.isfile(path):
         raise HTTPException(404, "Партия не найдена")
-    return FileResponse(path, filename=os.path.basename(path))
+    labels = {p["key"]: p["label"] for p in (job.result.get("parts") or [])}
+    return FileResponse(path, filename=download_name(job.filename, labels.get(stem_key, stem_key),
+                                                     Path(path).suffix))
 
 
 @app.get("/api/file/{job_id}/{kind}")
@@ -740,7 +786,10 @@ def api_file(job_id: str, kind: str):
     path = (job.result.get("paths") or {}).get(kind)
     if not path or not os.path.isfile(path):
         raise HTTPException(404, "Файл не найден")
-    return FileResponse(path, filename=os.path.basename(path))
+    parent = storage.job((job.settings or {}).get("parent", "")) if job.settings else None
+    title = (parent or job).filename
+    stem = (job.settings or {}).get("stem", "")
+    return FileResponse(path, filename=download_name(title, stem, Path(path).suffix))
 
 
 # ------------------------------------------------------------------ оплата

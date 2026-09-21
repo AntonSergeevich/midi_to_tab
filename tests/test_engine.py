@@ -358,3 +358,41 @@ def test_tempo_survives_numpy_2_array():
     assert as_float(123.4) == pytest.approx(123.4)
     assert as_float(np.array([])) == 0.0
     assert as_float(np.array([np.nan]), default=120.0) == 120.0
+
+
+def test_chord_list_from_user_is_parsed():
+    """
+    Человек может сам назвать аккорды песни -- он знает лучше.
+
+    Принимаем и через запятую, и через пробел; бемоли переводим в диезы,
+    потому что шаблоны названы диезами. Неизвестное имя молча отбрасываем:
+    опечатка не должна ронять разбор целого трека.
+    """
+    pytest.importorskip("numpy")
+
+    from midi2tab.audiochords import _pick_names, _templates
+
+    names = _templates()[0]
+    assert [names[i] for i in _pick_names(names, "Dm, Bb, F, C")] == ["C", "Dm", "F", "A#"]
+    assert [names[i] for i in _pick_names(names, "dm bb")] == ["Dm", "A#"]
+    assert _pick_names(names, "") is None
+    assert _pick_names(names, "хрень") is None
+
+
+def test_power_chord_costs_more_than_a_triad():
+    """
+    Квинт-аккорд обязан быть дороже трезвучия, а не дешевле.
+
+    Штраф начисляется за каждую ноту шаблона, и из-за этого двухнотный
+    квинт-аккорд когда-то выходил дешевле трезвучия -- при том, что обе
+    его ноты в трезвучие входят и подходят всюду, где подходит оно. Разбор
+    превращался в частокол из D5, C5, G5.
+    """
+    pytest.importorskip("numpy")
+
+    from midi2tab.audiochords import _templates
+
+    names, _, penalties, _, _ = _templates()
+    cost = dict(zip(names, penalties))
+    assert cost["D5"] > cost["Dm"]
+    assert cost["D5"] > cost["D"]

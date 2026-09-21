@@ -77,10 +77,21 @@
             <input type="number" id="tempo" value="0" min="0" max="300"></label>
           <label class="field"><span>Реже менять аккорды, сек</span>
             <input type="number" id="minchord" value="0.9" min="0.2" max="8" step="0.1"></label>
+          <label class="field"><span>Сколько разных аккордов в песне</span>
+            <select id="vocabulary">
+              <option value="4">4 — самый простой круг</option>
+              <option value="6" selected>6 — обычная песня</option>
+              <option value="8">8 — с отклонениями</option>
+              <option value="12">12 — сложная гармония</option>
+              <option value="0">без ограничения</option>
+            </select></label>
           <label class="field"><span>Квантизация</span><select id="grid"></select></label>
           <label class="field"><span>Максимум голосов, 0 — без предела</span>
             <input type="number" id="poly" value="0" min="0" max="8"></label>
         </div>
+        <label class="field" style="margin-top:12px">
+          <span>Знаете аккорды? Впишите — разбор пойдёт только по ним</span>
+          <input type="text" id="chords" placeholder="например: Dm Bb F C"></label>
         <label class="check" style="margin-top:12px">
           <input type="checkbox" id="ghosts" checked> Убирать призрачные обертоны</label>
       </details>
@@ -94,12 +105,13 @@
     <div class="card">
       <div style="display:flex;align-items:center;gap:12px">
         <div class="spinner"></div>
-        <div>
+        <div style="flex:1;min-width:0">
           <div id="stage" style="font-weight:600">Ставлю в очередь…</div>
           <div class="muted" id="hint">Можно не ждать — трек останется в «Моих треках».</div>
         </div>
+        <div class="big" id="percent" style="font-size:30px;min-width:auto">0%</div>
       </div>
-      <div class="bar" style="margin-top:14px"><i></i></div>
+      <div class="bar done" style="margin-top:14px"><i id="barFill" style="width:0%"></i></div>
     </div>
   </section>
 

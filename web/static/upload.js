@@ -60,9 +60,21 @@ async function loadMe() {
       <div style="padding:8px 0;border-bottom:1px solid var(--border)">
         ${j.name} — ${j.status === 'done'
           ? `<a href="/player/${j.id}">открыть</a>`
-          : `<span class="muted">${j.status}</span>`}
+          : j.status === 'error'
+            ? '<span class="bad">ошибка</span>'
+            : `<span class="muted">${j.stage || j.status} ${Math.round(j.progress || 0)}%</span>`}
       </div>`).join('');
     reveal('history');
+  }
+
+  // Обработка идёт на сервере и не прерывается уходом со страницы. Раньше
+  // человек, заглянувший в «Мои треки» и вернувшийся назад, видел чистую
+  // форму и думал, что всё пропало. Теперь подхватываем то, что считается.
+  const busy = (me.jobs || []).find((j) => j.status === 'running' || j.status === 'queued');
+  if (busy && !chosenFile) {
+    $('hint').textContent = `«${busy.name}» — можно закрыть страницу, работа не пропадёт.`;
+    reveal('progress');
+    watch(busy.id, null);
   }
 }
 
@@ -173,6 +185,8 @@ async function start(separate, button) {
   form.append('tempo', $('tempo').value);
   form.append('grid', $('grid').value);
   form.append('min_chord', $('minchord').value);
+  form.append('vocabulary', $('vocabulary').value);
+  form.append('chords', $('chords').value);
   form.append('remove_ghosts', $('ghosts').checked);
   form.append('max_polyphony', $('poly').value);
 
@@ -196,17 +210,24 @@ async function start(separate, button) {
 }
 
 function watch(jobId, button) {
+  const show = (percent) => {
+    const value = Math.max(0, Math.min(100, Math.round(percent || 0)));
+    $('percent').textContent = `${value}%`;
+    $('barFill').style.width = `${value}%`;
+  };
   const timer = setInterval(async () => {
     const job = await (await fetch(`/api/job/${jobId}`)).json();
     if (job.stage) $('stage').textContent = job.stage;
+    show(job.progress);
     if (job.status === 'done') {
       clearInterval(timer);
+      show(100);
       $('stage').textContent = 'Готово, открываю…';
       setTimeout(() => (location.href = `/player/${jobId}`), 320);
     } else if (job.status === 'error') {
       clearInterval(timer);
       hide('progress');
-      button.classList.remove('busy');
+      if (button) button.classList.remove('busy');
       [$('modeParts'), $('modeChords')].forEach((b) => (b.disabled = false));
       $('msg').innerHTML = `<span class="bad">${job.error}</span>`;
     }

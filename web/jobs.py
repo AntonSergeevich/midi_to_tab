@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -65,6 +67,114 @@ def tab_payload(placements, board, tempo, time_signatures) -> dict:
     }
 
 
+# Во сколько раз обработка минуты музыки дольше самой музыки. Замерено на
+# сервере с двумя ядрами. Числа нужны только для оценки процента: если
+# реальность окажется медленнее, полоса не встанет намертво, а замедлится.
+SPEED = {
+    "separate": 1.15,   # Demucs на процессоре -- самый долгий шаг
+    "chords": 0.10,     # хромаграмма и Витерби
+    "notes": 0.06,      # Basic Pitch плюс раскладка по грифу
+    "lyrics": 0.40,     # Whisper small с квантизацией int8
+}
+
+
+class Progress:
+    """
+    Оценка доли выполненного.
+
+    Честного процента взять неоткуда: библиотеки внутри не отчитываются о
+    ходе работы. Зато известно другое -- длительность записи и во сколько
+    раз обработка её дольше. Этого хватает: каждому шагу отводится своя
+    полоса процентов, а внутри полосы доля считается по прошедшему
+    времени. Если шаг затянулся сверх ожидаемого, полоса не упирается в
+    потолок и не замирает, а подползает к концу своего отрезка всё
+    медленнее -- человек видит, что работа идёт.
+
+    Обновление вынесено в отдельный поток: тяжёлый шаг -- это один
+    блокирующий вызов, и без тикера процент стоял бы всё время, пока он
+    считается.
+    """
+
+    INTERVAL = 2.0
+
+    def __init__(self, storage: Storage, job_id: str, duration: float = 0.0) -> None:
+        self.storage = storage
+        self.job_id = job_id
+        self.duration = max(0.0, duration)
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._text = ""
+        self._low = 0.0
+        self._high = 0.0
+        self._expected = 1.0
+        self._started = time.time()
+
+    # ------------------------------------------------------------- шаги
+
+    def begin(self, text: str, low: float, high: float, kind: str) -> None:
+        """Начать шаг: полоса пойдёт от low до high за ожидаемое время."""
+        expected = max(3.0, self.duration * SPEED.get(kind, 0.2))
+        with self._lock:
+            self._text, self._low, self._high = text, low, high
+            self._expected = expected
+            self._started = time.time()
+        self._push()
+        self._start_thread()
+
+    def note(self, text: str) -> None:
+        """Сменить подпись, не трогая отсчёт шага."""
+        with self._lock:
+            self._text = text
+        self._push()
+
+    def done(self, text: str = "Готово") -> None:
+        self.stop()
+        self.storage.update_job(self.job_id, stage=text, progress=100.0)
+
+    def stop(self) -> None:
+        self._stop.set()
+        thread = self._thread
+        if thread and thread is not threading.current_thread():
+            thread.join(timeout=self.INTERVAL + 1)
+        self._thread = None
+
+    # --------------------------------------------------------- механика
+
+    def _start_thread(self) -> None:
+        if self._thread is None and not self._stop.is_set():
+            self._thread = threading.Thread(target=self._tick, daemon=True)
+            self._thread.start()
+
+    def _tick(self) -> None:
+        while not self._stop.wait(self.INTERVAL):
+            self._push()
+
+    def _push(self) -> None:
+        with self._lock:
+            text, low, high = self._text, self._low, self._high
+            share = _share(time.time() - self._started, self._expected)
+        self.storage.update_job(
+            self.job_id, stage=text, progress=round(low + (high - low) * share, 1)
+        )
+
+
+def _share(elapsed: float, expected: float) -> float:
+    """
+    Доля шага, пройденная за elapsed секунд при ожидаемых expected.
+
+    До ожидаемого времени -- просто линейно, до 0.92. Дальше остаток
+    расходуется всё медленнее и никогда не заканчивается: лучше показать
+    93%, которые ползут, чем 100%, после которых человек ещё минуту ждёт.
+    """
+    if expected <= 0:
+        return 0.92
+    ratio = elapsed / expected
+    if ratio <= 1.0:
+        return 0.92 * ratio
+    return 0.92 + 0.08 * (1.0 - 1.0 / (1.0 + (ratio - 1.0)))
+
+
 class JobRunner:
     def __init__(self, storage: Storage, data_dir: str, workers: int = 2) -> None:
         self.storage = storage
@@ -85,20 +195,22 @@ class JobRunner:
 
     # --------------------------------------------------------------- разбор
 
-    def _stage(self, job_id: str, text: str) -> None:
-        self.storage.update_job(job_id, stage=text)
-
     def _analyze(self, job_id: str, source_path: str) -> None:
         job = self.storage.job(job_id)
         if job is None:
             return
         out_dir = os.path.join(self.data_dir, "results", job_id)
         os.makedirs(out_dir, exist_ok=True)
-        self.storage.update_job(job_id, status="running", stage="Начинаю разбор...")
+        self.storage.update_job(
+            job_id, status="running", stage="Начинаю разбор...", progress=1.0
+        )
+
+        options = job.settings or {}
+        is_midi = source_path.lower().endswith(MIDI_SUFFIXES)
+        seconds = 0.0 if is_midi else audioin.duration_seconds(source_path)
+        bar = Progress(self.storage, job_id, seconds)
 
         try:
-            options = job.settings or {}
-            is_midi = source_path.lower().endswith(MIDI_SUFFIXES)
             parts: list[dict] = []
             chords: list[dict] = []
             beats: list[float] = []
@@ -110,12 +222,14 @@ class JobRunner:
                 ok, why = separate.available()
                 if not ok:
                     raise RuntimeError(why)
-                self._stage(job_id, "Делю трек на партии...")
+                # Разделение занимает примерно столько же, сколько длится
+                # сама музыка, поэтому ему отдана большая часть полосы.
+                bar.begin("Делю трек на партии...", 2, 72, "separate")
                 result = separate.separate(
                     source_path,
                     os.path.join(out_dir, "stems"),
                     options.get("model", separate.DEFAULT_MODEL),
-                    progress=lambda m: self._stage(job_id, m),
+                    progress=bar.note,
                 )
                 parts = [
                     {"key": key, "label": result.label_for(key), "path": path}
@@ -129,11 +243,14 @@ class JobRunner:
             # 2. Аккорды прямо из звука -- без нейросети и в разы быстрее,
             #    чем через распознавание отдельных нот
             if not is_midi:
-                self._stage(job_id, "Слушаю аккорды...")
+                low = 72 if options.get("separate") else 2
+                bar.begin("Слушаю аккорды...", low, 97, "chords")
                 analysis = audiochords.detect_from_audio(
                     source_path,
                     min_duration=float(options.get("minChord", audiochords.MIN_DURATION)),
-                    progress=lambda m: self._stage(job_id, m),
+                    vocabulary=int(options.get("vocabulary", audiochords.DEFAULT_VOCABULARY)),
+                    allowed=options.get("allowed") or None,
+                    progress=bar.note,
                 )
                 chords = [
                     {
@@ -168,11 +285,16 @@ class JobRunner:
                     "parts": {p["key"]: p["path"] for p in parts},
                 },
             }
+            bar.stop()
             self.storage.update_job(
-                job_id, status="done", stage="Готово", result=result_data, error=None
+                job_id, status="done", stage="Готово", progress=100.0,
+                result=result_data, error=None,
             )
         except Exception as exc:
-            self.storage.update_job(job_id, status="error", stage="", error=str(exc))
+            bar.stop()
+            self.storage.update_job(
+                job_id, status="error", stage="", progress=0.0, error=str(exc)
+            )
             print(f"[analyze {job_id}] {exc}\n{traceback.format_exc()}")
 
     def _lyrics(self, job_id: str, model: str) -> None:
@@ -193,19 +315,24 @@ class JobRunner:
             return
 
         used_vocals = "vocals" in paths
-        self._stage(job_id, "Распознаю текст...")
+        bar = Progress(self.storage, job_id, audioin.duration_seconds(source))
+        bar.begin("Распознаю текст...", 2, 97, "lyrics")
         try:
             result = lyrics_mod.transcribe(
                 source,
                 model=model,
                 cache_dir=os.path.join(self.data_dir, "models"),
-                progress=lambda m: self._stage(job_id, m),
+                progress=bar.note,
             )
             payload = dict(job.result)
             payload["lyrics"] = lyrics_mod.to_dict(result)
             payload["lyricsSource"] = "вокальная дорожка" if used_vocals else "весь трек"
-            self.storage.update_job(job_id, result=payload, stage="Текст готов")
+            bar.stop()
+            self.storage.update_job(
+                job_id, result=payload, stage="Текст готов", progress=100.0
+            )
         except Exception as exc:
+            bar.stop()
             self.storage.update_job(job_id, stage=f"Текст не распознан: {exc}")
             print(f"[lyrics {job_id}] {exc}\n{traceback.format_exc()}")
 
@@ -223,7 +350,9 @@ class JobRunner:
 
         out_dir = os.path.join(self.data_dir, "results", job_id)
         os.makedirs(out_dir, exist_ok=True)
-        self.storage.update_job(job_id, status="running", stage="Распознаю ноты...")
+        bar = Progress(self.storage, job_id, audioin.duration_seconds(source))
+        self.storage.update_job(job_id, status="running", progress=1.0)
+        bar.begin("Распознаю ноты...", 2, 97, "notes")
 
         try:
             options = parent.settings or {}
@@ -238,7 +367,7 @@ class JobRunner:
                 remove_ghosts=bool(options.get("removeGhosts", True)),
                 max_polyphony=int(options.get("maxPolyphony", 0)),
             )
-            converted = convert(settings, progress=lambda m: self._stage(job_id, m))
+            converted = convert(settings, progress=bar.note)
             board = settings.fretboard()
 
             result_data = {
@@ -266,9 +395,14 @@ class JobRunner:
                     "mid": converted.midi_path,
                 },
             }
+            bar.stop()
             self.storage.update_job(
-                job_id, status="done", stage="Готово", result=result_data, error=None
+                job_id, status="done", stage="Готово", progress=100.0,
+                result=result_data, error=None,
             )
         except Exception as exc:
-            self.storage.update_job(job_id, status="error", stage="", error=str(exc))
+            bar.stop()
+            self.storage.update_job(
+                job_id, status="error", stage="", progress=0.0, error=str(exc)
+            )
             print(f"[tabs {job_id}] {exc}\n{traceback.format_exc()}")

@@ -42,6 +42,38 @@ def is_audio(path: str) -> bool:
     return path.lower().endswith(AUDIO_EXTENSIONS)
 
 
+def duration_seconds(path: str) -> float:
+    """
+    Длительность записи в секундах -- нужна для оценки времени обработки.
+
+    Спрашиваем заголовок файла, а не читаем его целиком: на десятиминутном
+    треке разница между "прочитать заголовок" и "распаковать всё" -- это
+    миллисекунды против секунд. Если формат не опознан, прикидываем по
+    размеру при 192 кбит/с: грубо, но лучше, чем ничего, ведь число идёт
+    только в оценку процента выполнения.
+    """
+    try:
+        import soundfile
+
+        info = soundfile.info(path)
+        if info.frames and info.samplerate:
+            return info.frames / float(info.samplerate)
+    except Exception:
+        pass
+    try:
+        import librosa
+
+        value = float(librosa.get_duration(path=path))
+        if value > 0:
+            return value
+    except Exception:
+        pass
+    try:
+        return os.path.getsize(path) / (192_000 / 8)
+    except OSError:
+        return 0.0
+
+
 def available() -> tuple[bool, str]:
     """Установлен ли модуль распознавания."""
     try:

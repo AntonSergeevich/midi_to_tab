@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     filename     TEXT NOT NULL,
     status       TEXT NOT NULL,
     stage        TEXT NOT NULL DEFAULT '',
+    progress     REAL NOT NULL DEFAULT 0,
     error        TEXT,
     settings     TEXT NOT NULL DEFAULT '{}',
     result       TEXT,
@@ -119,6 +120,7 @@ class Job:
     filename: str
     status: str            # queued | running | done | error
     stage: str = ""
+    progress: float = 0.0  # доля выполненного, 0..100
     error: str | None = None
     settings: dict = field(default_factory=dict)
     result: dict | None = None
@@ -144,6 +146,10 @@ class Storage:
         payment_columns = {row["name"] for row in conn.execute("PRAGMA table_info(payments)")}
         if "plan" not in payment_columns:
             conn.execute("ALTER TABLE payments ADD COLUMN plan TEXT NOT NULL DEFAULT 'month'")
+
+        job_columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
+        if "progress" not in job_columns:
+            conn.execute("ALTER TABLE jobs ADD COLUMN progress REAL NOT NULL DEFAULT 0")
 
         existing = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
         for column, definition in (
@@ -460,6 +466,7 @@ class Storage:
             filename=row["filename"],
             status=row["status"],
             stage=row["stage"] or "",
+            progress=float(row["progress"] or 0.0),
             error=row["error"],
             settings=json.loads(row["settings"] or "{}"),
             result=json.loads(row["result"]) if row["result"] else None,

@@ -99,6 +99,12 @@ button.primary:hover:not(:disabled) { background: var(--accent-hi); }
   animation: slide 1.4s ease-in-out infinite; }
 @keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
 
+/* Полоса с известным процентом: не бегает туда-сюда, а растёт */
+.bar.done i { animation: none; margin-left: 0; transition: width .4s ease; }
+
+.field.vol { width: 130px; }
+.field.vol input[type="range"] { accent-color: var(--accent); width: 100%; }
+
 /* ---------------- плеер ---------------- */
 
 .stage {

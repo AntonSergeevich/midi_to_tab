@@ -7,6 +7,10 @@ const when = (ts) => new Date(ts * 1000).toLocaleString('ru-RU',
 
 const FILE_NAMES = { gp5: 'Guitar Pro', txt: 'Табы .txt', mid: 'MIDI' };
 
+// Пока что-то считается, список сам обновляется: иначе человек сидит
+// перед застывшим «обрабатывается» и жмёт F5.
+let timer = null;
+
 async function load() {
   const me = await (await fetch('/api/me')).json();
   const badge = $('access');
@@ -55,6 +59,11 @@ async function load() {
       await load();
     };
   });
+
+  const busy = tracks.some((t) => t.status === 'running' || t.status === 'queued')
+    || tracks.some((t) => t.made.some((m) => m.status === 'running' || m.status === 'queued'));
+  clearTimeout(timer);
+  if (busy) timer = setTimeout(load, 2000);
 }
 
 function card(track) {
@@ -64,20 +73,24 @@ function card(track) {
   if (track.parts.length) facts.push(`партий ${track.parts.length}`);
   if (track.hasLyrics) facts.push('текст распознан');
 
+  // Ссылки прямо в списке: за файлами возвращаются чаще, чем за всем
+  // остальным, и ради них не должно приходиться открывать плеер.
   const made = track.made
-    .filter((m) => m.status === 'done')
-    .map((m) => {
-      const files = m.files.map((f) => FILE_NAMES[f] || f).join(', ');
-      return `<span class="badge" style="font-size:12px">${m.stem}: ${files}</span>`;
-    })
+    .filter((m) => m.status === 'done' && m.files.length)
+    .map((m) => m.files.map((f) =>
+      `<a href="/api/file/${m.id}/${f}" download onclick="event.stopPropagation()"
+          class="badge" style="font-size:12px">${m.stem}: ${FILE_NAMES[f] || f}</a>`).join(' '))
     .join(' ');
 
   const pending = track.made.filter((m) => m.status === 'running' || m.status === 'queued');
+  const percent = Math.round(track.progress || 0);
   const state = track.status === 'done'
     ? (made || '<span class="muted">табы ещё не создавались</span>')
     : track.status === 'error'
       ? `<span class="bad">${track.stage || 'ошибка'}</span>`
-      : `<span class="muted">${track.stage || track.status}…</span>`;
+      : `<span class="muted">${track.stage || track.status} — ${percent}%</span>
+         <div class="bar done" style="flex-basis:100%;margin-top:6px">
+           <i style="width:${percent}%"></i></div>`;
 
   return `
     <div class="card" style="cursor:pointer" data-open="${track.id}">
@@ -92,7 +105,7 @@ function card(track) {
       <div class="muted" style="margin:6px 0 10px">${facts.join(' · ') || '—'}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         ${state}
-        ${pending.length ? `<span class="muted">в работе: ${pending.length}</span>` : ''}
+        ${pending.length ? `<span class="muted">в работе: ${pending.length} — ${Math.round(pending[0].progress || 0)}%</span>` : ''}
       </div>
     </div>`;
 }

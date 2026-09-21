@@ -39,6 +39,10 @@
       <span class="time" id="time">0:00 / 0:00</span>
       <input type="range" class="seek" id="seek" value="0" min="0" max="1000">
       <button id="metro" title="Метроном по найденным долям">🥁 Метроном</button>
+      <label class="field vol" style="margin:0">
+        <span>Громкость <b id="volValue">100%</b></span>
+        <input type="range" id="vol" min="0" max="100" value="100">
+      </label>
       <label class="field" style="width:104px;margin:0">
         <span>Скорость</span>
         <select id="rate">
@@ -72,6 +76,14 @@
       <span id="lyricsStatus" class="muted" style="margin-left:10px"></span>
     </div>
     <div id="lyricsLines" style="margin-top:14px;display:none"></div>
+  </div>
+
+  <div class="card" id="madeCard" style="display:none">
+    <h2>Готовые файлы</h2>
+    <p class="muted" style="margin:0 0 12px">
+      Всё, что уже сделано из этого трека. Файлы хранятся и после закрытия страницы.
+    </p>
+    <div id="madeList"></div>
   </div>
 
   <div class="card" id="tabCard" style="display:none">

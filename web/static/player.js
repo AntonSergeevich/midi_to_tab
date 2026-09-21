@@ -27,9 +27,13 @@ const mmss = (s) => (!isFinite(s) ? '0:00'
 async function load() {
   const job = await (await fetch(`/api/job/${jobId}`)).json();
   if (job.status !== 'done') {
-    $('title').textContent = 'Разбор ещё не готов';
-    $('meta').textContent = job.stage || job.status;
-    setTimeout(load, 1500);
+    $('title').textContent = job.name || 'Разбор ещё не готов';
+    const percent = Math.round(job.progress || 0);
+    $('meta').innerHTML = job.status === 'error'
+      ? `<span class="bad">${job.error}</span>`
+      : `${job.stage || job.status} — ${percent}%` +
+        `<div class="bar done" style="margin-top:8px"><i style="width:${percent}%"></i></div>`;
+    if (job.status !== 'error') setTimeout(load, 1500);
     return;
   }
   data = job.result;
@@ -44,6 +48,7 @@ async function load() {
 
   buildRibbon();
   buildParts();
+  buildMade(job.made || []);
   buildLyrics();
   bindControls();
   requestAnimationFrame(tick);
@@ -84,6 +89,7 @@ function buildParts() {
     row.innerHTML = `
       <span class="name">${part.label}</span>
       <button data-act="listen">Слушать</button>
+      <a href="${part.audio}" download><button>Скачать</button></a>
       <span class="spacer"></span>
       <span class="muted" data-role="status"></span>
       <button class="primary" data-act="tabs">Создать MIDI и табы</button>`;
@@ -114,6 +120,33 @@ function buildParts() {
   });
 }
 
+// Табы, сделанные в прошлый заход. Без этого человек возвращался к треку,
+// видел пустую страницу и запускал распознавание заново -- поверх уже
+// готовых файлов, которые всё это время лежали на диске.
+const FILE_NAMES = { gp5: 'Guitar Pro (.gp5)', txt: 'Табы (.txt)', mid: 'MIDI (.mid)' };
+
+function buildMade(made) {
+  const ready = made.filter((m) => m.status === 'done' && m.files.length);
+  if (!ready.length) return;
+  $('madeCard').style.display = '';
+  $('madeList').innerHTML = ready.map((m) => `
+    <div class="part">
+      <span class="name">${m.label || m.stem}</span>
+      <span class="spacer"></span>
+      ${m.files.map((f) =>
+        `<a href="/api/file/${m.id}/${f}" download><button>${FILE_NAMES[f] || f}</button></a>`
+      ).join(' ')}
+      <button data-show="${m.id}">Показать табы</button>
+    </div>`).join('');
+  $('madeList').querySelectorAll('[data-show]').forEach((button) => {
+    button.onclick = async () => {
+      const job = await (await fetch(`/api/job/${button.dataset.show}`)).json();
+      if (job.result) showTabs(job.result, button.dataset.show,
+        ready.find((m) => m.id === button.dataset.show).label);
+    };
+  });
+}
+
 function watchTabs(childId, status, button, label) {
   const timer = setInterval(async () => {
     const job = await (await fetch(`/api/job/${childId}`)).json();
@@ -123,6 +156,7 @@ function watchTabs(childId, status, button, label) {
       status.innerHTML = '<span class="ok">готово</span>';
       button.disabled = false;
       showTabs(job.result, childId, label);
+      fetch(`/api/job/${jobId}`).then((r) => r.json()).then((j) => buildMade(j.made || []));
     } else if (job.status === 'error') {
       clearInterval(timer);
       status.innerHTML = `<span class="bad">${job.error}</span>`;
@@ -138,10 +172,10 @@ function showTabs(result, childId, label) {
   $('tabCard').querySelector('h2').textContent = ` Табулатура — ${label} `;
   $('tabText').textContent = result.tabText;
   $('tabSummary').innerHTML = (result.summary || []).map((s) => `<div>${s}</div>`).join('');
-  const kinds = { gp5: 'Guitar Pro (.gp5)', txt: 'Текстовые табы (.txt)', mid: 'MIDI (.mid)' };
   $('tabFiles').innerHTML = Object.entries(result.files)
     .filter(([, has]) => has)
-    .map(([k]) => `<a href="/api/file/${childId}/${k}"><button>${kinds[k]}</button></a>`)
+    .map(([k]) => `<a href="/api/file/${childId}/${k}" download>` +
+                  `<button>${FILE_NAMES[k] || k}</button></a>`)
     .join('');
   buildTabLane();
   document.querySelector('.stage').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -304,6 +338,19 @@ function bindControls() {
     $('play').textContent = clock.paused ? '▶ Играть' : '❚❚ Пауза';
   });
   $('rate').onchange = () => clock.setRate(parseFloat($('rate').value));
+
+  // Громкость запоминается: разбирают песни подолгу, и каждый раз
+  // подкручивать ползунок заново -- раздражает.
+  const volume = (percent) => {
+    $('audio').volume = Math.max(0, Math.min(1, percent / 100));
+    $('volValue').textContent = `${percent}%`;
+    try { localStorage.setItem('naslux.volume', percent); } catch (e) { /* режим инкогнито */ }
+  };
+  let saved = 100;
+  try { saved = parseInt(localStorage.getItem('naslux.volume'), 10) || 100; } catch (e) { /* */ }
+  $('vol').value = saved;
+  volume(saved);
+  $('vol').oninput = () => volume(parseInt($('vol').value, 10));
   $('seek').oninput = () => {
     if (clock.duration) clock.time = ($('seek').value / 1000) * clock.duration;
   };

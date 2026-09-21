@@ -37,7 +37,14 @@ SIZE_PENALTY = 0.09
 # Отдельно придерживаем квинт-аккорд: из двух нот он подходит почти
 # всюду, и без этого весь разбор превращается в частокол из D5, C5, G5.
 # Оставшиеся квинт-аккорды честны -- там, где в миксе правда нет терции.
-FIFTH_PENALTY = 0.06
+# Штраф считается пропорционально числу нот в шаблоне, и из-за этого
+# двухнотный квинт-аккорд выходил ДЕШЕВЛЕ трезвучия (0.18 против 0.27) --
+# при том, что его две ноты входят в трезвучие целиком и подходят везде,
+# где подходит оно. Отсюда и брался частокол из D5, C5, G5 вместо Dm, C,
+# Gm. Штраф должен перекрывать эту фору: 0.14 сверх 0.18 даёт 0.32 --
+# дороже трезвучия, и квинт-аккорд выигрывает только там, где терции в
+# звуке действительно нет.
+FIFTH_PENALTY = 0.14
 # Sus-аккорды складываются из тех же трёх нот, что и трезвучия, поэтому
 # размер их не придерживает. А возникают они чаще всего не потому, что
 # их сыграли, а потому что голос задержался на секунде поверх выдержанной
@@ -51,6 +58,16 @@ ODD_PENALTY = 0.07
 # длительности список превращается в частокол из десятков подписей, в
 # котором ничего не разобрать на ходу.
 MIN_DURATION = 0.9
+
+# Сколько разных аккордов оставлять на песню. В песне их обычно четыре-шесть:
+# куплет и припев ходят по одному кругу. Всё, что сверх этого, -- почти всегда
+# не гармония, а мусор от распознавания: случайный maj7 там, где в мелодии
+# задержалась одна нота. Второй проход отбирает самые "весомые" аккорды и
+# пересобирает разбор только из них.
+DEFAULT_VOCABULARY = 6
+# Смена аккорда на втором проходе штрафуется сильнее: здесь шаг -- целый
+# такт, а гармония редко меняется каждый такт подряд.
+BAR_CHANGE_COST = 0.08
 
 
 @dataclass
@@ -113,13 +130,13 @@ def _templates():
     """
     Шаблоны аккордов и штрафы к ним.
 
-    Возвращает (названия, нормированные векторы, штрафы). Штраф вычитается
-    из схожести, поэтому сложный аккорд должен подойти заметно лучше
-    простого, чтобы его выбрали.
+    Возвращает (названия, нормированные векторы, штрафы, основные тоны,
+    качества). Штраф вычитается из схожести, поэтому сложный аккорд должен
+    подойти заметно лучше простого, чтобы его выбрали.
     """
     import numpy as np
 
-    names, vectors, penalties = [], [], []
+    names, vectors, penalties, roots, qualities = [], [], [], [], []
     for root in range(12):
         for quality, intervals in TEMPLATES:
             vector = np.zeros(12)
@@ -135,7 +152,10 @@ def _templates():
                 penalty += ODD_PENALTY
             penalties.append(penalty)
             names.append(f"{PITCH_CLASSES[root]}{quality}")
-    return names, np.array(vectors), np.array(penalties)
+            roots.append(root)
+            qualities.append(quality)
+    return (names, np.array(vectors), np.array(penalties),
+            np.array(roots), qualities)
 
 
 def prewarm() -> None:
@@ -192,10 +212,30 @@ def detect_from_audio(
     sample_rate: int = 22050,
     min_duration: float = MIN_DURATION,
     beats_per_bar: int = 4,
+    vocabulary: int = DEFAULT_VOCABULARY,
+    allowed: list[str] | str | None = None,
     progress=None,
 ) -> ChordAnalysis:
     """
     Разметить запись аккордами.
+
+    Разбор идёт в два прохода, и это главное, что отличает результат от
+    свалки из двух десятков подписей.
+
+    Первый проход слушает каждую долю всеми шаблонами сразу. Он полезен не
+    сам по себе, а тем, что показывает, ЧЕМ песня вообще играется: какие
+    аккорды набрали больше всего звучащего времени. Их и оставляем --
+    столько, сколько задано vocabulary. В песне круг обычно из четырёх-шести
+    аккордов, а всё остальное, что выдаёт первый проход, -- это не гармония,
+    а задержавшаяся в мелодии нота, которую шаблон посложнее объяснил лучше
+    трезвучия.
+
+    Второй проход пересобирает разбор только из отобранных аккордов и уже
+    не по долям, а по тактам: гармония держится такт, а не четверть. Сетка
+    тактов берётся от того же места, где первый проход увидел смены.
+
+    Если аккорды известны заранее, их можно передать в allowed -- тогда
+    отбор не нужен и разбор идёт сразу по ним.
 
     Возвращает (аккорды, определённый темп в ударах в минуту).
     """
@@ -228,69 +268,229 @@ def detect_from_audio(
         step = max(1, int(0.5 * sr / 512))
         beats = np.arange(0, chroma.shape[1], step)
 
-    # Усреднение по долям: гармония держится долю, а не отдельный кадр
-    synced = librosa.util.sync(chroma, beats, aggregate=np.median)
-    times = librosa.frames_to_time(beats, sr=sr)
-    if len(times) < synced.shape[1] + 1:
-        duration = librosa.get_duration(y=y, sr=sr)
-        times = np.append(times, duration)
-
-    # Нормируем каждый столбец: важны пропорции ступеней, не громкость
-    norms = np.linalg.norm(synced, axis=0, keepdims=True)
-    norms[norms == 0] = 1.0
-    synced = synced / norms
-
-    names, vectors, penalties = _templates()
-    # Схожесть и отдельно -- оценка для выбора. Штраф влияет на то, какой
-    # аккорд выбрать, но не на то, насколько мы в нём уверены: иначе все
-    # подписи выглядели бы сомнительными просто из-за способа отбора.
-    similarity = vectors @ synced
-    scores = similarity - penalties[:, None]
-
-    # Уверенность = насколько выбранный аккорд оторвался от ближайшего
-    # соперника. Абсолютная схожесть тут обманывает: на плотном миксе она
-    # низкая у всех подряд, но если один вариант ушёл далеко вперёд --
-    # сомневаться не в чем. И наоборот: два почти равных варианта это
-    # настоящая неоднозначность, даже когда оба похожи.
-    ordered = np.sort(scores, axis=0)
-    margin = ordered[-1] - ordered[-2]
-    spread = as_float(np.percentile(margin, 90)) or 1.0
+    times = _edges(librosa.frames_to_time(beats, sr=sr), librosa.get_duration(y=y, sr=sr))
+    names, vectors, penalties, roots, qualities = _templates()
 
     if progress:
         progress("Выбираю последовательность аккордов...")
-    path = _viterbi(scores)
+    beat_chroma = _sync(librosa, chroma, beats, np)
+    first = _decide(np, vectors, penalties, beat_chroma, CHANGE_COST)
+    rough = _segments(names, first, times, min_duration)
 
-    chords: list[AudioChord] = []
-    for index, chord_index in enumerate(path):
-        start = float(times[index])
-        end = float(times[min(index + 1, len(times) - 1)])
-        if end <= start:
-            continue
-        confidence = float(min(1.0, margin[index] / spread))
-        if confidence < MIN_CONFIDENCE:
-            continue
-        name = names[chord_index]
-        if chords and chords[-1].name == name and abs(chords[-1].end - start) < 0.05:
-            chords[-1].end = end
-            chords[-1].confidence = max(chords[-1].confidence, confidence)
-        else:
-            chords.append(AudioChord(name, start, end, confidence))
-
-    chords = _merge_short(chords, min_duration)
-
-    # Доли нужны метроному: щёлкать по найденным долям точнее, чем
-    # отсчитывать от среднего темпа -- живая игра всегда чуть плывёт.
     beat_times = [float(t) for t in librosa.frames_to_time(beats, sr=sr)]
+    duration = librosa.get_duration(y=y, sr=sr)
+
+    # Сетка тактов: первый проход показал, где меняется гармония, а смена
+    # почти всегда попадает на начало такта -- по этому и выбирается сдвиг.
+    offset = _bar_offset(beat_times, rough, beats_per_bar)
+    groups = _bar_groups(beats, offset, beats_per_bar)
+    bar_chroma = _sync(librosa, chroma, groups, np)
+    bar_times = _edges(librosa.frames_to_time(groups, sr=sr), duration)
+
+    picked = _pick_names(names, allowed)
+    if picked is None:
+        picked = _vocabulary(
+            np, names, vectors, penalties, roots, qualities, bar_chroma, vocabulary
+        )
+    if not picked:
+        chords = rough
+    else:
+        if progress:
+            progress("Круг аккордов песни: " + ", ".join(names[i] for i in picked))
+        keep = np.array(picked)
+        path, sure = _decide(
+            np, vectors[keep], penalties[keep], bar_chroma, BAR_CHANGE_COST
+        )
+        chords = _segments(names, (keep[path], sure), bar_times, min_duration)
+
     downbeats = _guess_downbeats(beat_times, chords, beats_per_bar)
 
     if progress:
-        progress(f"Аккордов найдено: {len(chords)}, темп {bpm:.0f}")
+        progress(
+            f"Аккордов найдено: {len(chords)}, разных "
+            f"{len({c.name for c in chords})}, темп {bpm:.0f}"
+        )
     return ChordAnalysis(
         chords=chords,
         tempo=bpm,
         beats=beat_times,
         downbeats=downbeats,
     )
+
+
+def _sync(librosa, chroma, boundaries, np):
+    """Усреднить хромаграмму по отрезкам и нормировать каждый столбец."""
+    synced = librosa.util.sync(chroma, boundaries, aggregate=np.median)
+    norms = np.linalg.norm(synced, axis=0, keepdims=True)
+    norms[norms == 0] = 1.0
+    return synced / norms
+
+
+def _edges(times, duration: float):
+    """Границы отрезков: к началам добавляется конец последнего."""
+    import numpy as np
+
+    values = [float(t) for t in np.asarray(times).ravel()]
+    if not values:
+        return [0.0, duration]
+    if values[-1] < duration:
+        values.append(float(duration))
+    return values
+
+
+def _decide(np, vectors, penalties, synced, change_cost: float):
+    """
+    Разобрать последовательность и оценить уверенность.
+
+    Уверенность = насколько выбранный аккорд оторвался от ближайшего
+    соперника. Абсолютная схожесть тут обманывает: на плотном миксе она
+    низкая у всех подряд, но если один вариант ушёл далеко вперёд --
+    сомневаться не в чем. И наоборот: два почти равных варианта это
+    настоящая неоднозначность, даже когда оба похожи.
+
+    Штраф влияет на то, КАКОЙ аккорд выбрать, но не на то, насколько мы в
+    нём уверены: иначе все подписи выглядели бы сомнительными просто
+    из-за способа отбора.
+    """
+    scores = (vectors @ synced) - penalties[:, None]
+    if scores.shape[0] < 2:
+        path = np.zeros(scores.shape[1], dtype=int)
+        return path, np.ones(scores.shape[1])
+
+    ordered = np.sort(scores, axis=0)
+    margin = ordered[-1] - ordered[-2]
+    spread = as_float(np.percentile(margin, 90)) or 1.0
+    confidence = np.minimum(1.0, margin / spread)
+    return _viterbi(scores, change_cost), confidence
+
+
+def _segments(names, decision, times, min_duration: float) -> list[AudioChord]:
+    """Собрать отрезки из выбранной цепочки, слив слишком короткие."""
+    path, confidence = decision
+    chords: list[AudioChord] = []
+    for index, chord_index in enumerate(path):
+        if index + 1 >= len(times):
+            break
+        start, end = float(times[index]), float(times[index + 1])
+        if end <= start:
+            continue
+        sure = float(confidence[index])
+        if sure < MIN_CONFIDENCE:
+            continue
+        name = names[chord_index]
+        if chords and chords[-1].name == name and abs(chords[-1].end - start) < 0.05:
+            chords[-1].end = end
+            chords[-1].confidence = max(chords[-1].confidence, sure)
+        else:
+            chords.append(AudioChord(name, start, end, sure))
+    return _merge_short(chords, min_duration)
+
+
+def _vocabulary(np, names, vectors, penalties, roots, qualities, bars, limit):
+    """
+    Собрать круг аккордов песни: сначала основные тоны, потом качества.
+
+    Порядок именно такой, и это главное. Пробовать все шаблоны сразу
+    бесполезно: четырёхзвучие всегда "объясняет" больше энергии, чем
+    трезвучие, потому что содержит его целиком. В ре миноре ля-бемоль-мажор
+    с большой септимой (A# D F A) накрывает собой и Dm, и B-бемоль, и
+    побеждает оба -- хотя в песне его нет.
+
+    А вот ОСНОВНОЙ ТОН такой подмены не боится: квинта от корня однозначна.
+    Поэтому сначала двенадцатью квинт-аккордами выясняется, вокруг каких
+    нот ходит песня, и берутся самые весомые. И только потом для каждой
+    выбирается качество -- по усреднённому звучанию тех тактов, где этот
+    тон и звучал. Мажор или минор решается там, где мешать уже некому.
+    """
+    if limit <= 0 or bars.shape[1] == 0:
+        return []
+
+    # 1. Основные тоны. Двенадцать состояний -- по одному на ноту.
+    fifths = [i for i, q in enumerate(qualities) if q == "5"]
+    if not fifths:
+        return []
+    fifth_idx = np.array(fifths)
+    root_path = _viterbi(vectors[fifth_idx] @ bars, BAR_CHANGE_COST)
+
+    weight = np.bincount(root_path, minlength=len(fifths)).astype(float)
+    order = np.argsort(-weight)
+    chosen = [fifths[i] for i in order[:limit] if weight[i] > 0]
+    if not chosen:
+        return []
+
+    # 2. Качество для каждого тона -- по тактам, где он и звучал.
+    picked: list[int] = []
+    for state, template in zip(order[: len(chosen)], chosen):
+        mask = root_path == state
+        if not mask.any():
+            continue
+        profile = bars[:, mask].mean(axis=1)
+        norm = np.linalg.norm(profile) or 1.0
+        profile = profile / norm
+        family = np.where(roots == roots[template])[0]
+        scores = (vectors[family] @ profile) - penalties[family]
+        picked.append(int(family[int(np.argmax(scores))]))
+    return sorted(set(picked))
+
+
+def _pick_names(names, allowed) -> list[int] | None:
+    """
+    Разобрать список аккордов, заданный человеком.
+
+    Принимается "Dm, Bb, F, C" или "Dm Bb F C". Бемоли переводятся в
+    диезы, потому что шаблоны названы диезами; регистр качества сохраняем
+    (m -- минор, M -- нота), поэтому сравнение не по lower().
+    """
+    if not allowed:
+        return None
+    if isinstance(allowed, str):
+        parts = [p for p in allowed.replace(",", " ").split() if p]
+    else:
+        parts = [str(p).strip() for p in allowed if str(p).strip()]
+
+    flats = {"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#", "Cb": "B",
+             "Fb": "E", "E#": "F", "B#": "C"}
+    table = {name.lower(): i for i, name in enumerate(names)}
+    picked: list[int] = []
+    for part in parts:
+        text = part[0].upper() + part[1:]
+        for flat, sharp in flats.items():
+            if text.startswith(flat):
+                text = sharp + text[len(flat):]
+                break
+        index = table.get(text.lower())
+        if index is not None and index not in picked:
+            picked.append(index)
+    return sorted(picked) or None
+
+
+def _bar_offset(beats: list[float], chords: list[AudioChord], beats_per_bar: int) -> int:
+    """
+    С какой доли начинается такт.
+
+    Зацепка та же, что и у сильных долей: смена гармонии почти всегда
+    попадает на начало такта.
+    """
+    if not beats or not chords:
+        return 0
+    starts = [c.start for c in chords]
+    best_offset, best_hits = 0, -1
+    for offset in range(beats_per_bar):
+        candidates = beats[offset::beats_per_bar]
+        hits = sum(1 for s in starts if any(abs(s - b) < 0.12 for b in candidates))
+        if hits > best_hits:
+            best_offset, best_hits = offset, hits
+    return best_offset
+
+
+def _bar_groups(beats, offset: int, beats_per_bar: int):
+    """Границы тактов в кадрах: каждая beats_per_bar-я доля, начиная со сдвига."""
+    import numpy as np
+
+    grouped = np.asarray(beats).ravel()[offset::beats_per_bar]
+    if len(grouped) < 2:
+        return np.asarray(beats).ravel()
+    return grouped
 
 
 def _guess_downbeats(
@@ -305,22 +505,10 @@ def _guess_downbeats(
     """
     if not beats:
         return []
-    if not chords:
-        return beats[::beats_per_bar]
-
-    starts = [c.start for c in chords]
-    best_offset, best_hits = 0, -1
-    for offset in range(beats_per_bar):
-        candidates = beats[offset::beats_per_bar]
-        hits = sum(
-            1 for s in starts if any(abs(s - b) < 0.12 for b in candidates)
-        )
-        if hits > best_hits:
-            best_offset, best_hits = offset, hits
-    return beats[best_offset::beats_per_bar]
+    return beats[_bar_offset(beats, chords, beats_per_bar)::beats_per_bar]
 
 
-def _viterbi(scores):
+def _viterbi(scores, change_cost: float = CHANGE_COST):
     """
     Выбрать цепочку аккордов, а не по отдельности самый похожий на каждой доле.
 
@@ -335,7 +523,7 @@ def _viterbi(scores):
 
     for step in range(1, n_steps):
         stay = best
-        switch = best.max() - CHANGE_COST
+        switch = best.max() - change_cost
         source = best.argmax()
         improved = stay < switch
         candidate = np.where(improved, switch, stay)
