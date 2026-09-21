@@ -8,12 +8,17 @@
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-DEPLOY = Path(__file__).resolve().parent.parent / "deploy"
+ROOT = Path(__file__).resolve().parent.parent
+DEPLOY = ROOT / "deploy"
+sys.path.insert(0, str(ROOT))
 
 
 @pytest.fixture(scope="module")
@@ -184,9 +189,6 @@ def test_admin_tool_runs(tmp_path):
     Он нужен как раз тогда, когда что-то пошло не так, -- и падать в
     такой момент ему нельзя.
     """
-    import subprocess
-    import sys
-
     from web.storage import Storage
 
     Storage(str(tmp_path / "app.db"))
@@ -202,9 +204,6 @@ def test_admin_tool_runs(tmp_path):
 
 
 def test_admin_tool_grants_rights(tmp_path):
-    import subprocess
-    import sys
-
     from web import auth
     from web.storage import Storage
 
@@ -227,9 +226,6 @@ def test_admin_tool_grants_rights(tmp_path):
 
 def test_admin_tool_reports_missing_database(tmp_path):
     """Понятное сообщение вместо трассировки: инструмент для экстренных случаев."""
-    import subprocess
-    import sys
-
     result = subprocess.run(
         [sys.executable, str(DEPLOY / "admin.py"), "список"],
         env={**os.environ, "MIDI2TAB_DATA": str(tmp_path / "нет-такой")},
