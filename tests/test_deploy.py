@@ -127,3 +127,48 @@ def test_static_path_matches_installer(nginx, installer):
     alias = re.search(r"alias (\S+)/web/static/;", nginx)
     assert alias
     assert re.search(rf"APP_DIR={re.escape(alias.group(1))}\b", installer)
+
+
+# ------------------------------------------------------------ обновление
+
+
+@pytest.fixture(scope="module")
+def updater() -> str:
+    return (DEPLOY / "update.sh").read_text(encoding="utf-8")
+
+
+def test_update_script_exists(updater):
+    assert "systemctl restart nasluh" in updater
+
+
+@pytest.mark.parametrize("script", ["install.sh", "update.sh"])
+def test_git_ownership_exception(script):
+    """
+    Регрессия: папка принадлежит nasluh, git запускается от root, и с
+    версии 2.35 он отказывается работать -- "detected dubious ownership".
+    """
+    text = (DEPLOY / script).read_text(encoding="utf-8")
+    assert "safe.directory" in text
+
+
+def test_update_reinstalls_units(updater):
+    """Юниты меняются вместе с кодом -- иначе правки в них не доедут."""
+    for unit in ("nasluh.service", "nasluh-cleanup.service", "nasluh-cleanup.timer"):
+        assert unit in updater
+    assert "daemon-reload" in updater
+
+
+def test_update_keeps_ownership(updater):
+    """После обновления файлы должны остаться у пользователя службы."""
+    assert "chown -R nasluh:nasluh" in updater
+
+
+def test_separation_installer_avoids_cuda():
+    """
+    Регрессия: pip install demucs тянет torch со всем набором CUDA --
+    около двух гигабайт драйверов для видеокарты, которой нет. Диск на
+    сорок гигабайт этого не выдержал.
+    """
+    text = (DEPLOY / "install_separation.sh").read_text(encoding="utf-8")
+    assert "download.pytorch.org/whl/cpu" in text
+    assert "df --output=avail" in text   # проверка места до установки

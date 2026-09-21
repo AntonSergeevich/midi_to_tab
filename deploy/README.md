@@ -56,11 +56,25 @@ journalctl -u nasluh -f        # логи вживую
 systemctl restart nasluh       # перезапуск
 
 # обновление после git push
-cd /opt/nasluh/app && git pull && systemctl restart nasluh
+bash /opt/nasluh/app/deploy/update.sh
 
 # ключ администратора
 grep MIDI2TAB_ADMIN_KEY /opt/nasluh/nasluh.env
 ```
+
+## Обновление
+
+```bash
+bash /opt/nasluh/app/deploy/update.sh
+```
+
+Скрипт забирает код, перекладывает изменившиеся systemd-юниты,
+перечитывает их и перезапускает службу.
+
+Просто `git pull` в этой папке не сработает: она принадлежит
+пользователю `nasluh`, а команда идёт от root, и git с версии 2.35
+отказывается работать с чужим репозиторием — «detected dubious
+ownership». Скрипт разрешает этот конкретный путь.
 
 ## Тяжёлые части
 

@@ -43,6 +43,11 @@ id -u nasluh >/dev/null 2>&1 || useradd --system --home /opt/nasluh --shell /usr
 mkdir -p "$APP_DIR" "$DATA"/{uploads,results,models,cache}
 
 say "Код"
+# Папка принадлежит пользователю nasluh, а git запускается от root.
+# С версии 2.35 git отказывается работать с чужим репозиторием
+# ("detected dubious ownership") -- разрешаем этот конкретный путь.
+git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
+
 if [ -d "$APP_DIR/.git" ]; then
     git -C "$APP_DIR" fetch origin "$BRANCH"
     git -C "$APP_DIR" reset --hard "origin/$BRANCH"
