@@ -8,7 +8,11 @@ const when = (ts) => ts ? new Date(ts * 1000).toLocaleDateString('ru-RU',
 
 async function boot() {
   const me = await (await fetch('/api/me')).json();
-  if (me.isAdmin) { $('login').style.display = 'none'; await loadUsers(); }
+  if (me.isAdmin) {
+    $('login').style.display = 'none';
+    await loadUsers();
+    await loadPayment();
+  }
 }
 
 $('enter').onclick = async () => {
@@ -21,6 +25,7 @@ $('enter').onclick = async () => {
   }
   $('login').style.display = 'none';
   await loadUsers();
+  await loadPayment();
 };
 $('key').onkeydown = (e) => { if (e.key === 'Enter') $('enter').click(); };
 
@@ -170,3 +175,32 @@ function render() {
 }
 
 boot();
+
+
+// --------------------------------------------------------- приём оплаты
+
+// Самая частая причина, по которой оплата "не работает", лежит не в коде:
+// переменные не доехали до службы, ключ не заменили на настоящий, службу
+// не перезапустили. Показываем ровно то, что видит процесс, -- гадать не
+// приходится.
+async function loadPayment() {
+  const box = document.getElementById('payment');
+  if (!box) return;
+  const response = await fetch('/api/admin/payment');
+  if (!response.ok) return;
+  const { состояние: state } = await response.json();
+  const ready = state['готов принимать оплату'];
+  box.innerHTML = Object.entries(state).map(([key, value]) => {
+    const bad = value === false || String(value).includes('НЕ ЗАДАН')
+      || String(value).includes('ИЗ ПРИМЕРА');
+    return `<div class="part">
+      <span class="name">${key}</span><span class="spacer"></span>
+      <span class="${bad ? 'bad' : 'muted'}">${value === true ? 'да'
+        : value === false ? 'нет' : value}</span></div>`;
+  }).join('') + (ready ? '' : `
+    <p class="muted" style="margin-top:12px">
+      Переменные читаются из <code>/opt/nasluh/nasluh.env</code>.
+      После правки обязателен перезапуск:
+      <code>systemctl restart nasluh</code>.
+    </p>`);
+}

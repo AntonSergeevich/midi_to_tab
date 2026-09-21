@@ -178,6 +178,23 @@ def cmd_password(db: Storage, args) -> None:
     print(f"{user.email}: пароль изменён, прежние коды восстановления погашены.")
 
 
+def cmd_payment(db: Storage, args) -> None:
+    """Что видит служба о приёме оплаты."""
+    gateway = billing.provider()
+    print("Приём оплаты\n" + "-" * 44)
+    for key, value in gateway.diagnose().items():
+        print(f"  {key:28} {value}")
+    if not gateway.configured():
+        print(
+            "\nПеременные читаются из /opt/nasluh/nasluh.env.\n"
+            "После правки обязателен перезапуск: systemctl restart nasluh\n"
+            "Проверить, что их видит именно служба:\n"
+            "  systemctl show nasluh -p Environment\n"
+            "  tr '\\0' '\\n' < /proc/$(pgrep -f 'uvicorn web.app' | head -1)/environ"
+            " | grep GETPLATINUM"
+        )
+
+
 def cmd_tickets(db: Storage, args) -> None:
     from web import support
 
@@ -238,6 +255,10 @@ def main() -> None:
     p_pass.add_argument("who")
     p_pass.add_argument("--password", default=None, help="без него спросит скрытно")
     p_pass.set_defaults(func=cmd_password)
+
+    sub.add_parser("оплата", help="почему не работает приём оплаты").set_defaults(
+        func=cmd_payment
+    )
 
     p_tick = sub.add_parser("обращения", help="показать обращения")
     p_tick.add_argument("--new", action="store_true", help="только неотвеченные")

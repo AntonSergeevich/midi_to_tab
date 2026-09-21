@@ -143,6 +143,9 @@ class PaymentProvider:
     def configured(self) -> bool:
         return False
 
+    def diagnose(self) -> dict:
+        return {"провайдер": self.name, "готов принимать оплату": self.configured()}
+
     def create_payment(self, user_id: str, amount: float, return_url: str) -> dict:
         raise NotImplementedError
 
@@ -193,8 +196,39 @@ class GetPlatinumProvider(PaymentProvider):
         self.terminal = os.environ.get("GETPLATINUM_TERMINAL", "153777")
         self.secret = os.environ.get("GETPLATINUM_SECRET_KEY", "")
 
+    # Значения из примера настроек. Если ключ равен одному из них, значит,
+    # строку скопировали целиком, не заменив на настоящий ключ, -- и
+    # честнее сказать это прямо, чем делать вид, что оплата настроена, и
+    # ронять каждый платёж.
+    PLACEHOLDERS = frozenset(
+        {"ваш_ключ", "ваш ключ", "your_key", "secret", "xxx", "changeme", "..."}
+    )
+
     def configured(self) -> bool:
-        return bool(self.terminal and self.secret and self.API_URL)
+        return bool(self.terminal and self.secret and self.API_URL
+                    and self.secret.strip().lower() not in self.PLACEHOLDERS)
+
+    def diagnose(self) -> dict:
+        """
+        Что именно видит сервер. Ключ не показывается -- только его длина:
+        по ней видно, задан он или туда попала строка из примера.
+        """
+        secret = self.secret.strip()
+        return {
+            "провайдер": self.name,
+            "терминал": self.terminal or "НЕ ЗАДАН",
+            "ключ": (
+                "НЕ ЗАДАН" if not secret
+                else "ЭТО СТРОКА ИЗ ПРИМЕРА, а не ключ"
+                if secret.lower() in self.PLACEHOLDERS
+                else f"задан, длина {len(secret)}"
+            ),
+            "адрес API": self.API_URL,
+            "поля подписи": ",".join(self.SIGN_FIELDS),
+            "поля подписи уведомления": ",".join(self.CALLBACK_SIGN_FIELDS),
+            "адрес для уведомлений": "/api/webhook/getplatinum",
+            "готов принимать оплату": self.configured(),
+        }
 
     def sign(self, data: dict, fields) -> str:
         """

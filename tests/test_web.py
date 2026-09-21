@@ -550,3 +550,40 @@ def test_pages_carry_a_build_stamp(tmp_path, monkeypatch):
             assert stamped, f"на {path} статика без отпечатка версии"
             # Саму страницу кешировать нельзя: в ней и лежит отпечаток
             assert "no-cache" in response.headers.get("cache-control", ""), path
+
+
+def test_payment_diagnostics_name_the_real_problem():
+    """
+    Оплата "не работает" чаще всего не из-за кода.
+
+    Строка из примера, скопированная целиком вместо настоящего ключа,
+    выглядит как заданный ключ: она непустая, и провайдер считал себя
+    настроенным. Каждый платёж после этого падал бы уже на стороне
+    GetPlatinum, а причина была бы не видна ниоткуда.
+    """
+    import os
+
+    from web import billing
+
+    saved = dict(os.environ)
+    try:
+        os.environ["GETPLATINUM_SECRET_KEY"] = ""
+        gateway = billing.GetPlatinumProvider()
+        assert not gateway.configured()
+        assert "НЕ ЗАДАН" in gateway.diagnose()["ключ"]
+
+        os.environ["GETPLATINUM_SECRET_KEY"] = "ваш_ключ"
+        gateway = billing.GetPlatinumProvider()
+        assert not gateway.configured()
+        assert "ИЗ ПРИМЕРА" in gateway.diagnose()["ключ"]
+
+        os.environ["GETPLATINUM_SECRET_KEY"] = "f3a9c21e8b7d4a06"
+        gateway = billing.GetPlatinumProvider()
+        assert gateway.configured()
+        state = gateway.diagnose()
+        assert state["ключ"] == "задан, длина 16"
+        assert "f3a9c21e8b7d4a06" not in str(state)     # ключ не утекает
+        assert state["терминал"] == "153777"
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)

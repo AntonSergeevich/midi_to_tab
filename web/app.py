@@ -239,6 +239,20 @@ def api_admin_login(request: Request, key: str = Form(...)):
     return response
 
 
+@app.get("/api/admin/payment")
+def api_admin_payment(request: Request):
+    """
+    Почему оплата не работает -- без гаданий.
+
+    Самая частая причина не в коде: переменные не доехали до службы,
+    ключ не заменили на настоящий, служба не перезапущена. Показываем
+    ровно то, что видит процесс.
+    """
+    require_admin(request)
+    gateway = billing.provider()
+    return {"состояние": gateway.diagnose()}
+
+
 @app.get("/api/admin/users")
 def api_admin_users(request: Request):
     require_admin(request)
