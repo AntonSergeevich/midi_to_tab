@@ -431,3 +431,102 @@ class Separator:
     assert bad_report["б_снятие_вокала"]["ok"] is False
     assert "неизвестная.ckpt" in bad_report["б_снятие_вокала"]["error"]
     assert "Traceback" not in bad_report["б_снятие_вокала"]["error"]
+
+
+# ------------------------------------------------------- вебхук автодеплоя
+
+sys.path.insert(0, str(DEPLOY))
+import webhook_deploy  # noqa: E402 -- путь добавлен строкой выше
+
+
+def hmac_hex(secret: str, body: bytes) -> str:
+    import hashlib
+    import hmac as hmac_mod
+
+    return hmac_mod.new(secret.encode(), body, hashlib.sha256).hexdigest()
+
+
+def test_deploy_webhook_script_is_executable():
+    assert os.access(DEPLOY / "webhook_deploy.py", os.X_OK)
+
+
+def test_deploy_webhook_accepts_correctly_signed_push():
+    secret = "тестовый-секрет"
+    body = json.dumps({"ref": "refs/heads/claude/epic-mccarthy-sl30hz"}).encode()
+    header = "sha256=" + hmac_hex(secret, body)
+    assert webhook_deploy.verify_signature(secret, body, header) is True
+
+
+def test_deploy_webhook_rejects_wrong_signature():
+    body = b'{"ref": "refs/heads/claude/epic-mccarthy-sl30hz"}'
+    assert webhook_deploy.verify_signature("секрет", body, "sha256=" + "0" * 64) is False
+
+
+def test_deploy_webhook_rejects_missing_or_malformed_header():
+    body = b"{}"
+    assert webhook_deploy.verify_signature("секрет", body, None) is False
+    assert webhook_deploy.verify_signature("секрет", body, "не-sha256=подпись") is False
+
+
+def test_deploy_webhook_refuses_to_verify_without_a_secret():
+    """Пустой секрет (не задан на сервере) не должен принимать вообще ничего."""
+    body = b"{}"
+    header = "sha256=" + hmac_hex("", body)
+    assert webhook_deploy.verify_signature("", body, header) is False
+
+
+def test_deploy_webhook_ignores_ping_event():
+    """
+    Регрессия: GitHub шлёт "ping" сразу при добавлении вебхука -- сама
+    настройка вебхука не должна вызывать деплой.
+    """
+    deploy, reason = webhook_deploy.should_deploy("ping", {"ref": "refs/heads/claude/epic-mccarthy-sl30hz"})
+    assert deploy is False
+    assert "ping" in reason
+
+
+def test_deploy_webhook_ignores_other_branches():
+    deploy, reason = webhook_deploy.should_deploy(
+        "push", {"ref": "refs/heads/какая-то-другая-ветка"}
+    )
+    assert deploy is False
+
+
+def test_deploy_webhook_ignores_branch_deletion():
+    deploy, reason = webhook_deploy.should_deploy(
+        "push",
+        {"ref": "refs/heads/claude/epic-mccarthy-sl30hz", "deleted": True},
+    )
+    assert deploy is False
+
+
+def test_deploy_webhook_deploys_matching_push():
+    deploy, reason = webhook_deploy.should_deploy(
+        "push", {"ref": "refs/heads/claude/epic-mccarthy-sl30hz"}
+    )
+    assert deploy is True
+
+
+def test_deploy_webhook_service_runs_as_root_with_own_env_file():
+    """
+    Сознательно root (update.sh делает chown/systemctl), но НЕ делит
+    окружение с nasluh.service -- секрет деплоя не должен быть виден
+    процессу, который разбирает чужой ввод.
+    """
+    unit = (DEPLOY / "nasluh-deploy-webhook.service").read_text(encoding="utf-8")
+    assert "User=root" in unit
+    assert "EnvironmentFile=/opt/nasluh/deploy-webhook.env" in unit
+    assert "nasluh.env" not in unit
+
+
+def test_deploy_webhook_nginx_location_proxies_to_internal_port(nginx):
+    assert "location /internal/deploy-webhook" in nginx
+    assert "proxy_pass http://127.0.0.1:8099" in nginx
+
+
+def test_install_deploy_webhook_generates_a_secret():
+    text = (DEPLOY / "install_deploy_webhook.sh").read_text(encoding="utf-8")
+    assert "openssl rand -hex 32" in text
+    assert "nasluh-deploy-webhook.service" in text
+    # Не должен перезаписывать уже существующий секрет при повторном запуске.
+    assert "if [ ! -f \"$ENV_FILE\" ]" in text

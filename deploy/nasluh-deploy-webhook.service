@@ -1,0 +1,28 @@
+[Unit]
+Description=NASLUH - слушатель вебхука автодеплоя
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+# От root, сознательно: update.sh делает chown и systemctl restart --
+# для этого нужны права root, обойти их сужением пользователя нельзя.
+# Поэтому это отдельный от nasluh.service процесс: сам он не разбирает
+# чужой ввод, только проверяет подпись GitHub и запускает один
+# фиксированный скрипт -- поверхность атаки минимальна и видна целиком
+# в webhook_deploy.py.
+User=root
+WorkingDirectory=/opt/nasluh/app
+EnvironmentFile=/opt/nasluh/deploy-webhook.env
+
+ExecStart=/usr/bin/python3 /opt/nasluh/app/deploy/webhook_deploy.py
+
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nasluh-deploy-webhook
+
+[Install]
+WantedBy=multi-user.target
