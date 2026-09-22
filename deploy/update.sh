@@ -21,9 +21,22 @@ echo "=== Настройки службы ==="
 cp "$APP_DIR/deploy/nasluh.service" /etc/systemd/system/
 cp "$APP_DIR/deploy/nasluh-cleanup.service" /etc/systemd/system/
 cp "$APP_DIR/deploy/nasluh-cleanup.timer" /etc/systemd/system/
+# Юнит вебхука не перезапускаем: этот скрипт сам запущен им же, и
+# systemctl restart убьёт всю его cgroup -- включая нас самих на полпути.
+cp "$APP_DIR/deploy/nasluh-deploy-webhook.service" /etc/systemd/system/
 mkdir -p /opt/nasluh/data/cache
 chown -R nasluh:nasluh /opt/nasluh/data
 systemctl daemon-reload
+
+echo
+echo "=== Nginx ==="
+cp "$APP_DIR/deploy/nginx.conf" /etc/nginx/sites-available/nasluh
+if nginx -t; then
+    systemctl reload nginx
+    echo "nginx перечитал конфиг"
+else
+    echo "ВНИМАНИЕ: nginx -t не прошёл, новый конфиг НЕ применён (старый остаётся активным)"
+fi
 
 echo
 echo "=== Перезапуск ==="
