@@ -931,3 +931,36 @@ def test_health_reports_payment_status_and_recent_failures(tmp_path, monkeypatch
         assert "оплата" in payload
         assert payload["уведомлений_за_последние"] == 2
         assert payload["из_них_отклонено"] == 1
+
+
+def test_no_route_is_registered_twice(tmp_path, monkeypatch):
+    """
+    Регрессия: /api/health когда-то был объявлен дважды -- один раз с
+    токеном для мониторинга (см. выше), и один раз без, ещё с первых
+    версий сайта. FastAPI отдаёт первый подходящий маршрут и молча
+    игнорирует второй, поэтому старое объявление было мёртвым кодом:
+    оно выглядело как открытая проверка здоровья, а на самом деле не
+    отвечало никогда. Второе определение того же пути и метода -- всегда
+    такая ловушка, будущую тоже стоит поймать здесь.
+    """
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+
+    import web.app as app_module
+
+    seen = set()
+    duplicates = []
+    for route in app_module.app.routes:
+        methods = getattr(route, "methods", None)
+        path = getattr(route, "path", None)
+        if not methods or not path:
+            continue
+        for method in methods:
+            key = (path, method)
+            if key in seen:
+                duplicates.append(key)
+            seen.add(key)
+    assert not duplicates, f"путь объявлен дважды: {duplicates}"

@@ -179,50 +179,6 @@ class PaymentProvider:
         return self.verify_webhook(payload)
 
 
-class PaymentError(RuntimeError):
-    """
-    Понятная ошибка приёма оплаты.
-
-    Несёт с собой подробности для админки: адрес, код ответа, тело. Без
-    них человек видит только "не получилось" и не может ничего сделать,
-    а владелец -- понять, что именно чинить.
-    """
-
-    def __init__(self, message: str, details: dict | None = None) -> None:
-        super().__init__(message)
-        self.details = details or {}
-
-
-class PaymentProvider:
-    """Интерфейс приёма денег."""
-
-    name = "none"
-
-    def configured(self) -> bool:
-        return False
-
-    def diagnose(self) -> dict:
-        return {"провайдер": self.name, "готов принимать оплату": self.configured()}
-
-    def create_payment(self, user_id: str, amount: float, return_url: str) -> dict:
-        raise NotImplementedError
-
-    def verify_webhook(self, payload: dict) -> tuple[str, str] | None:
-        """Вернуть (id платежа у провайдера, статус) или None, если это не наш случай."""
-        raise NotImplementedError
-
-    def verify(self, raw: bytes, headers, payload: dict) -> tuple[str, str] | None:
-        """
-        Проверить уведомление целиком: тело, заголовки, разобранный JSON.
-
-        Сырое тело нужно потому, что подпись может считаться именно от
-        него -- байт в байт, как прислали. Пересобрать JSON и посчитать
-        подпись от результата нельзя: порядок ключей и пробелы изменятся,
-        и подпись не сойдётся, хотя уведомление настоящее.
-        """
-        return self.verify_webhook(payload)
-
-
 # ---------------------------------------------------------------- подписи
 
 # Как разные сервисы считают контрольную подпись. Точную формулу

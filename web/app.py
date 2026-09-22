@@ -1181,10 +1181,4 @@ def favicon():
     return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
 
 
-@app.get("/api/health")
-def api_health():
-    return {"ok": True, "separation": separate.available()[0],
-            "recognition": audioin.available()[0]}
-
-
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
