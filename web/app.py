@@ -1081,27 +1081,63 @@ async def api_webhook(gateway_name: str, request: Request):
     будет свой, а смена провайдера не требует править настройки у старого.
     Форма тела бывает и JSON, и обычной формой -- принимаем обе.
     """
+    # Сырое тело обязательно: подпись считается именно от него, байт в
+    # байт. Если разобрать JSON и собрать заново, порядок ключей или
+    # пробелы изменятся -- и подпись не сойдётся, хотя уведомление
+    # настоящее. В документации GetPlatinum это оговорено прямо.
+    raw = await request.body()
     try:
-        payload = await request.json()
+        import json as _json
+
+        payload = _json.loads(raw.decode("utf-8"))
+        if not isinstance(payload, dict):
+            payload = {"значение": payload}
     except Exception:
         payload = dict(await request.form())
+
     gateway = billing.provider()
-    verified = gateway.verify_webhook(payload)
+    verified = gateway.verify(raw, request.headers, payload)
     if not verified:
         # Отвергнутое уведомление сохраняем обязательно: именно по нему
         # потом подбирается формула подписи. Без записи причина отказа
         # теряется навсегда, и остаётся гадать, почему оплата не доходит.
-        storage.save_notice(gateway_name, payload, False, "подпись не сошлась")
-        raise HTTPException(400, "Неожиданный формат уведомления")
+        # Сохраняем и то, что помогает понять причину: пришедшую подпись
+        # и ту, что ждали. Сам ключ, разумеется, никуда не попадает.
+        expected = ""
+        if hasattr(gateway, "checksum") and getattr(gateway, "secret", ""):
+            expected = gateway.checksum(raw, gateway.secret)
+        storage.save_notice(
+            gateway_name,
+            {
+                "тело": payload,
+                "подпись пришла": request.headers.get("X-Checksum", "(заголовка нет)"),
+                "подпись ожидалась": expected or "(не посчитать)",
+                "длина тела": len(raw),
+            },
+            False,
+            "подпись не сошлась",
+        )
+        raise HTTPException(401, "Подпись уведомления не сошлась")
     provider_id, status = verified
     record = storage.payment_by_provider(provider_id)
     if not record:
         storage.save_notice(gateway_name, payload, False, "платёж не найден")
         raise HTTPException(404, "Платёж не найден")
-    storage.save_notice(gateway_name, payload, True, status)
-    storage.set_payment_status(record["id"], status)
-    if status == "succeeded":
+    if status != "succeeded":
+        storage.save_notice(gateway_name, payload, True, status)
+        storage.set_payment_status(record["id"], status)
+        return {"ok": True}
+
+    # Начисляем ровно один раз. Платёжные сервисы повторяют уведомления,
+    # если ответ потерялся, -- и это нормально; а вот выдать за один
+    # платёж два трека или два месяца подписки -- уже нет.
+    first_time = storage.mark_paid_once(record["id"])
+    if first_time:
         billing.apply_plan(storage, record["user_id"], record.get("plan") or "month")
+    storage.save_notice(
+        gateway_name, payload, True,
+        "succeeded" if first_time else "succeeded (повтор, начислять нечего)",
+    )
     return {"ok": True}
 
 

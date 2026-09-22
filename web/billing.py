@@ -167,6 +167,17 @@ class PaymentProvider:
         """Вернуть (id платежа у провайдера, статус) или None, если это не наш случай."""
         raise NotImplementedError
 
+    def verify(self, raw: bytes, headers, payload: dict) -> tuple[str, str] | None:
+        """
+        Проверить уведомление целиком: тело, заголовки, разобранный JSON.
+
+        Сырое тело нужно потому, что подпись может считаться именно от
+        него -- байт в байт, как прислали. Пересобрать JSON и посчитать
+        подпись от результата нельзя: порядок ключей и пробелы изменятся,
+        и подпись не сойдётся, хотя уведомление настоящее.
+        """
+        return self.verify_webhook(payload)
+
 
 # ---------------------------------------------------------------- подписи
 
@@ -350,9 +361,7 @@ class GetPlatinumProvider(PaymentProvider):
                 else f"задан, длина {len(secret)}"
             ),
             "адрес API": self.API_URL,
-            "способ подписи": self.SCHEME,
-            "поля подписи": ",".join(self.SIGN_FIELDS),
-            "поля подписи уведомления": ",".join(self.CALLBACK_SIGN_FIELDS),
+            "подпись": "HMAC-SHA256 от тела, заголовок X-Checksum (версия 2)",
             "адрес для уведомлений": "/api/webhook/getplatinum",
             "готов принимать оплату": self.configured(),
         }
@@ -393,12 +402,19 @@ class GetPlatinumProvider(PaymentProvider):
             "success_url": return_url,
             "fail_url": return_url,
         }
-        payload[self.SIGN_FIELD] = self.sign(payload, self.SIGN_FIELDS)
 
+        # Тело считаем один раз и подписываем ровно его: подпись берётся
+        # от байтов, а не от словаря. Пересобирать JSON после подписи
+        # нельзя -- по той же причине, по которой её нельзя пересобирать
+        # при проверке уведомления.
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(
             self.API_URL,
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                self.CHECKSUM_HEADER: self.checksum(body, self.secret),
+            },
         )
 
         # Ошибку здесь нельзя ронять наружу голой: адрес API я подбирал
@@ -447,33 +463,64 @@ class GetPlatinumProvider(PaymentProvider):
             "raw": data,
         }
 
+    # ------------------------------------------------- проверка уведомления
+
+    CHECKSUM_HEADER = "X-Checksum"
+
+    @staticmethod
+    def checksum(raw: bytes, secret: str) -> str:
+        """
+        Контрольная подпись версии 2, как её описывает GetPlatinum.
+
+        HMAC-SHA256 от ТЕЛА ЗАПРОСА целиком, ключ -- API-ключ магазина,
+        результат шестнадцатеричной строкой в верхнем регистре.
+
+        Тело берётся байт в байт, как пришло. Пересобрать из него JSON и
+        посчитать подпись от результата нельзя: поменяется порядок
+        ключей или пробелы -- и подпись не сойдётся, хотя уведомление
+        настоящее. В документации это оговорено отдельно.
+        """
+        import hashlib
+        import hmac
+
+        return hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest().upper()
+
+    def verify(self, raw: bytes, headers, payload: dict) -> tuple[str, str] | None:
+        """
+        Принять уведомление, только если подпись сошлась.
+
+        Подпись лежит в заголовке, а не в теле: в версии 2 поля checksum
+        в JSON нет вовсе. Сравнение постоянное по времени -- подбирать
+        подпись по знакам бессмысленно.
+        """
+        import secrets as _secrets
+
+        if not self.secret or not raw:
+            return None
+        given = ""
+        if headers is not None:
+            given = (headers.get(self.CHECKSUM_HEADER)
+                     or headers.get(self.CHECKSUM_HEADER.lower()) or "")
+        expected = self.checksum(raw, self.secret)
+        if not given or not _secrets.compare_digest(given.strip().upper(), expected):
+            return None
+        return self._result(payload)
+
     def verify_webhook(self, payload: dict) -> tuple[str, str] | None:
-        """
-        Проверить уведомление об оплате.
+        """Без сырого тела подпись не проверить -- значит, и принимать нельзя."""
+        return None
 
-        Подпись проверяется обязательно: без неё выдать себе подписку
-        сможет кто угодно, кто знает адрес обработчика. Сравнение
-        постоянное по времени -- подбирать подпись по знакам бессмысленно.
-        """
-        import secrets
-
-        provider_id = payload.get(self.ID_FIELD) or payload.get("order_id") or payload.get("id")
+    def _result(self, payload: dict) -> tuple[str, str] | None:
+        """Что именно сообщили: о каком платеже и с каким исходом."""
+        provider_id = (payload.get(self.ID_FIELD) or payload.get("order_id")
+                       or payload.get("id"))
         status = payload.get("status")
         if not provider_id or not status:
             return None
-
-        given = str(payload.get(self.SIGN_FIELD, ""))
-        if not self.secret or not given:
-            return None
-        if not secrets.compare_digest(
-            given.lower(), self.sign(payload, self.CALLBACK_SIGN_FIELDS)
-        ):
-            return None
-
-        # У разных сервисов успех называется по-разному
         normalised = (
             "succeeded"
-            if str(status).lower() in ("succeeded", "success", "paid", "completed", "confirmed")
+            if str(status).lower() in ("succeeded", "success", "paid", "completed",
+                                       "confirmed", "approved")
             else str(status)
         )
         return str(provider_id), normalised

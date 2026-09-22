@@ -301,47 +301,74 @@ def test_payment_provider_selection(monkeypatch):
     assert billing.provider().name == "yookassa"
 
 
-def test_getplatinum_normalises_success_statuses(monkeypatch):
+def test_getplatinum_checksum_follows_the_documentation(monkeypatch):
+    """
+    Контрольная подпись версии 2 -- ровно как её описывает GetPlatinum.
+
+    HMAC-SHA256 от ТЕЛА ЗАПРОСА целиком, ключ -- API-ключ магазина,
+    шестнадцатеричная строка в ВЕРХНЕМ регистре. Сверяем с эталоном,
+    посчитанным независимо: совпадение с документацией важнее, чем
+    внутренняя согласованность нашего кода с самим собой.
+    """
+    import hashlib
+    import hmac
+
     from web import billing
 
-    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", "тайна")
+    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", "ключ-магазина")
     gateway = billing.GetPlatinumProvider()
+    body = b'{"order_id":"a1b2","status":"paid","amount":"19.00"}'
 
-    def notice(status):
-        body = {"payment_id": "x", "order_id": "x", "terminal": gateway.terminal,
-                "amount": "199.00", "status": status}
-        body["signature"] = gateway.sign(body, gateway.CALLBACK_SIGN_FIELDS)
-        return body
-
-    for raw in ("paid", "success", "succeeded", "completed", "confirmed"):
-        assert gateway.verify_webhook(notice(raw))[1] == "succeeded"
-    assert gateway.verify_webhook(notice("canceled"))[1] == "canceled"
-    assert gateway.verify_webhook({}) is None
+    expected = hmac.new("ключ-магазина".encode(), body, hashlib.sha256).hexdigest().upper()
+    assert gateway.checksum(body, gateway.secret) == expected
+    assert expected.isupper() and len(expected) == 64
 
 
-def test_getplatinum_refuses_unsigned_notice(monkeypatch):
+def test_getplatinum_accepts_only_a_correctly_signed_body(monkeypatch):
     """
-    Уведомление без верной подписи -- не уведомление.
+    Подпись приходит ЗАГОЛОВКОМ, а не полем в JSON.
 
-    Адрес обработчика не секрет: он прописан в кабинете мерчанта и
-    виден в логах. Если верить телу запроса на слово, подписку себе
-    выпишет любой, кто отправит туда {"status": "paid"}.
+    В версии 2 поля checksum в теле нет вовсе. И проверять её надо по
+    сырым байтам: разобрать JSON и собрать заново нельзя -- поменяется
+    порядок ключей или пробелы, и подпись не сойдётся, хотя уведомление
+    настоящее.
     """
+    import json
+
     from web import billing
 
-    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", "тайна")
+    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", "ключ-магазина")
     gateway = billing.GetPlatinumProvider()
-    body = {"payment_id": "x", "order_id": "x", "terminal": gateway.terminal,
-            "amount": "199.00", "status": "paid"}
+    body = b'{"order_id":"a1b2","status":"paid","amount":"19.00"}'
+    payload = json.loads(body)
+    good = gateway.checksum(body, gateway.secret)
 
-    assert gateway.verify_webhook(body) is None                       # без подписи
-    assert gateway.verify_webhook({**body, "signature": "0" * 64}) is None   # чужая
+    assert gateway.verify(body, {"X-Checksum": good}, payload) == ("a1b2", "succeeded")
+    # Заголовок ищется без оглядки на регистр
+    assert gateway.verify(body, {"x-checksum": good.lower()}, payload) == ("a1b2", "succeeded")
 
-    body["signature"] = gateway.sign(body, gateway.CALLBACK_SIGN_FIELDS)
-    assert gateway.verify_webhook(body) == ("x", "succeeded")
+    assert gateway.verify(body, {"X-Checksum": "A" * 64}, payload) is None
+    assert gateway.verify(body, {}, payload) is None
+    assert gateway.verify(b"", {"X-Checksum": good}, payload) is None
 
-    # Подменённая сумма ломает подпись -- значит, и сумму подделать нельзя
-    assert gateway.verify_webhook({**body, "amount": "1.00"}) is None
+    # Подменённая сумма ломает подпись: тело входит в неё целиком
+    changed = b'{"order_id":"a1b2","status":"paid","amount":"1.00"}'
+    assert gateway.verify(changed, {"X-Checksum": good}, json.loads(changed)) is None
+
+    # Пересобранный JSON -- уже другие байты, и это должно быть видно
+    reserialised = json.dumps(payload).encode()
+    assert reserialised != body
+    assert gateway.verify(reserialised, {"X-Checksum": good}, payload) is None
+
+    for raw_status in ("paid", "success", "succeeded", "completed", "confirmed"):
+        notice = json.dumps({"order_id": "x", "status": raw_status}).encode()
+        signed = gateway.checksum(notice, gateway.secret)
+        assert gateway.verify(notice, {"X-Checksum": signed},
+                              json.loads(notice))[1] == "succeeded"
+
+    cancelled = json.dumps({"order_id": "x", "status": "canceled"}).encode()
+    assert gateway.verify(cancelled, {"X-Checksum": gateway.checksum(cancelled, gateway.secret)},
+                          json.loads(cancelled))[1] == "canceled"
 
 
 def test_getplatinum_terminal_is_ours_by_default():
@@ -780,3 +807,54 @@ def test_failed_payment_says_what_went_wrong(tmp_path, monkeypatch):
         notices = app_module.storage.notices()
         assert notices and not notices[0]["accepted"]
         assert "попытка оплаты" in notices[0]["body"]
+
+
+def test_a_repeated_notice_credits_only_once(tmp_path, monkeypatch):
+    """
+    Повторное уведомление не должно начислять второй раз.
+
+    Платёжные сервисы повторяют уведомления, если ответ потерялся или
+    пришёл не сразу, -- и это нормальное их поведение. А вот выдать за
+    один платёж два трека или два месяца подписки -- уже нет. Ошибка
+    нашлась на живом прогоне: то же самое уведомление, посланное дважды,
+    дало человеку два трека вместо одного.
+    """
+    import hashlib
+    import hmac
+    import json
+    import sys
+
+    key = "f" * 64
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("PAYMENT_PROVIDER", "getplatinum")
+    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", key)
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        app_module.storage.create_payment(user.id, 19.0, "zakaz-1", plan="single")
+
+        body = b'{"order_id": "zakaz-1", "status": "paid", "amount": "19.00"}'
+        checksum = hmac.new(key.encode(), body, hashlib.sha256).hexdigest().upper()
+        headers = {"X-Checksum": checksum, "Content-Type": "application/json"}
+
+        for _ in range(4):
+            assert client.post("/api/webhook/getplatinum",
+                               content=body, headers=headers).status_code == 200
+
+        assert app_module.storage.user(user.id).credits == 1
+
+        # Повтор виден в диагностике -- владельцу понятно, что произошло
+        reasons = [n["reason"] for n in app_module.storage.notices()]
+        assert any("повтор" in r for r in reasons)
+
+        # Отменённое уведомление начислений не даёт вовсе
+        cancelled = json.dumps({"order_id": "zakaz-1", "status": "canceled"}).encode()
+        client.post("/api/webhook/getplatinum", content=cancelled, headers={
+            "X-Checksum": hmac.new(key.encode(), cancelled, hashlib.sha256)
+            .hexdigest().upper()})
+        assert app_module.storage.user(user.id).credits == 1

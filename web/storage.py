@@ -722,3 +722,24 @@ class Storage:
             conn.execute(
                 "UPDATE payments SET status = ? WHERE id = ?", (status, payment_id)
             )
+
+    def mark_paid_once(self, payment_id: str) -> bool:
+        """
+        Пометить платёж оплаченным -- и сказать, случилось ли это ВПЕРВЫЕ.
+
+        Платёжные сервисы повторяют уведомления: если ответ потерялся или
+        пришёл не сразу, то же самое придёт ещё раз, и это нормально. А
+        вот начислять по нему второй раз -- уже не нормально: за один
+        платёж человек получил бы два трека или два месяца подписки.
+
+        Проверка и пометка делаются одним запросом с условием на текущее
+        состояние. Разнеси их на два -- и два одновременных уведомления
+        оба увидели бы "ещё не оплачен" и оба начислили бы своё.
+        """
+        with self._connect() as conn:
+            changed = conn.execute(
+                "UPDATE payments SET status = 'succeeded'"
+                " WHERE id = ? AND status <> 'succeeded'",
+                (payment_id,),
+            ).rowcount
+        return bool(changed)
