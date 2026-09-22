@@ -122,19 +122,6 @@ $('reset').onclick = () => {
   $('file').value = '';
   hide('chosen');
   hide('progress');
-  // Ответ на переход по ссылке-приглашению
-const invite = new URLSearchParams(location.search).get('приглашение');
-if (invite) {
-  const words = {
-    'принято': ['ok', 'Доступ открыт — можно разбирать песни без ограничений.'],
-    'уже': ['muted', 'У вас уже есть безлимитный доступ.'],
-    'нет': ['bad', 'Ссылка недействительна или все приглашения по ней разобраны.'],
-  };
-  const [kind, text] = words[invite] || words['нет'];
-  $('msg').innerHTML = `<span class="${kind}">${text}</span>`;
-}
-
-loadMe();
 };
 
 function blocked() {
@@ -247,4 +234,43 @@ function watch(jobId, button) {
   }, 1200);
 }
 
-loadMe();
+// Ответ на переход по ссылке-приглашению
+const invite = new URLSearchParams(location.search).get('приглашение');
+if (invite) {
+  const words = {
+    'принято': ['ok', 'Доступ открыт — можно разбирать песни без ограничений.'],
+    'уже': ['muted', 'У вас уже есть безлимитный доступ.'],
+    'нет': ['bad', 'Ссылка недействительна или все приглашения по ней разобраны.'],
+  };
+  const [kind, text] = words[invite] || words['нет'];
+  $('msg').innerHTML = `<span class="${kind}">${text}</span>`;
+}
+
+// Возврат после оплаты: GetPlatinum отправляет сюда браузер сразу после
+// оплаты картой, а зачисление приходит ОТДЕЛЬНО, вебхуком на сервер --
+// секундами позже, а не тем же кликом. Без этого человек видел пустую
+// страницу и не понимал, дошли ли деньги. Убираем ?paid=1 из адресной
+// строки сразу, чтобы обновление страницы не повторяло проверку.
+async function confirmPayment() {
+  if (new URLSearchParams(location.search).get('paid') !== '1') return;
+  history.replaceState(null, '', location.pathname);
+
+  const before = { credits: me.credits, subscribed: me.subscribed, unlimited: me.unlimited };
+  $('msg').innerHTML = '<span class="muted">Проверяем оплату…</span>';
+
+  for (let attempt = 0; attempt < 12; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await loadMe();
+    const credited = me.credits > before.credits || me.unlimited
+      || (me.subscribed && !before.subscribed);
+    if (credited) {
+      $('msg').innerHTML = '<span class="ok">Оплата прошла — доступ открыт.</span>';
+      return;
+    }
+  }
+  $('msg').innerHTML = '<span class="bad">Деньги могли списаться, а подтверждение от банка '
+    + 'ещё не пришло. Подождите минуту и обновите страницу — если доступ так и не появится, '
+    + 'напишите нам через форму в кабинете.</span>';
+}
+
+loadMe().then(confirmPayment);
