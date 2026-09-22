@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -284,3 +285,134 @@ def test_admin_command_works_on_an_empty_database(tmp_path):
     )
     assert again.returncode == 0, again.stdout + again.stderr
     assert len(store.all_users()) == 1
+
+
+# --------------------------------------------- замер каскада разделения
+
+
+def test_separation_compare_installer_reuses_cpu_torch():
+    """
+    Установщик замера обязан требовать CPU-torch, а не тянуть свой.
+
+    audio-separator сам просит torch>=2.3,<3 -- версия достаточно
+    широкая, чтобы pip не переустанавливал уже стоящий. Но если порядок
+    перепутать или пропустить проверку, можно неожиданно получить сборку
+    с CUDA поверх уже поставленной CPU-версии, а это лишние гигабайты на
+    сервере, для которого их уже один раз считали впритык.
+    """
+    text = (DEPLOY / "install_separation_compare.sh").read_text(encoding="utf-8")
+    assert "cuda.is_available" in text          # проверяет, что torch уже CPU
+    assert "install_separation.sh" in text      # и просит поставить его сначала
+    assert "df --output=avail" in text          # место проверяется, как везде
+
+
+def test_compare_separation_script_has_correct_shape():
+    """
+    Скрипт замера существует, исполняем и его CLI разбирается без сети.
+
+    Сама separation здесь не проверяется -- для неё нужны настоящие веса
+    моделей, которые качаются с сети при первом запуске. Но то, что
+    аргументы командной строки не рассыпаются и модуль вообще
+    импортируется, проверить можно и без него.
+    """
+    script = ROOT / "scripts" / "compare_separation.py"
+    assert script.is_file()
+    assert os.access(script, os.X_OK)
+
+    result = subprocess.run(
+        [sys.executable, str(script), "--help"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--vocal-model" in result.stdout
+
+
+def test_compare_separation_reports_clean_errors_not_tracebacks(tmp_path):
+    """
+    Регрессия: ошибка шага пряталась под полным трейсбеком.
+
+    Шаг печатает свой JSON-отчёт ДО того, как может упасть кодом
+    возврата -- родитель раньше смотрел на код возврата раньше JSON, и
+    понятное "модели нет в списке" пряталось под сырым stderr. Проверяем
+    целиком, настоящим подпроцессом, с поддельными demucs и
+    audio_separator -- так же, как это в итоге отработает на сервере,
+    просто без тяжёлых весов.
+    """
+    fake_root = tmp_path / "fake_libs"
+    (fake_root / "demucs").mkdir(parents=True)
+    (fake_root / "demucs" / "__init__.py").write_text("", encoding="utf-8")
+    (fake_root / "demucs" / "separate.py").write_text(
+        '''
+import os
+
+def main(argv):
+    out_dir = argv[argv.index("--out") + 1]
+    audio = argv[-1]
+    stem = os.path.splitext(os.path.basename(audio))[0]
+    target = os.path.join(out_dir, "htdemucs_6s", stem)
+    os.makedirs(target, exist_ok=True)
+    for name in ("guitar", "vocals", "bass", "drums", "piano", "other"):
+        open(os.path.join(target, f"{name}.wav"), "wb").write(b"RIFFfake")
+''',
+        encoding="utf-8",
+    )
+    sep_pkg = fake_root / "audio_separator" / "separator"
+    sep_pkg.mkdir(parents=True)
+    (fake_root / "audio_separator" / "__init__.py").write_text("", encoding="utf-8")
+    (sep_pkg / "__init__.py").write_text(
+        '''
+class Separator:
+    def __init__(self, output_dir=None, output_format="WAV", model_file_dir=None):
+        self.output_dir = output_dir
+
+    def list_supported_model_files(self):
+        return {"MDXC": {"BS-Roformer": {"filename": "model_bs_roformer_ep_317_sdr_12.9755.ckpt"}}}
+
+    def load_model(self, model_filename):
+        self.model = model_filename
+
+    def separate(self, audio_path):
+        import os
+        os.makedirs(self.output_dir, exist_ok=True)
+        base = os.path.splitext(os.path.basename(audio_path))[0]
+        vocals = f"{base}_(Vocals)_model.wav"
+        instr = f"{base}_(Instrumental)_model.wav"
+        open(os.path.join(self.output_dir, vocals), "wb").write(b"RIFFfake")
+        open(os.path.join(self.output_dir, instr), "wb").write(b"RIFFfake")
+        return [vocals, instr]
+''',
+        encoding="utf-8",
+    )
+
+    audio = tmp_path / "трек.mp3"
+    audio.write_bytes(b"fake")
+    out_dir = tmp_path / "сравнение"
+
+    env = {**os.environ, "PYTHONPATH": str(fake_root)}
+    script = ROOT / "scripts" / "compare_separation.py"
+
+    # Счастливый путь: обе дорожки находятся, отчёт собирается
+    good = subprocess.run(
+        [sys.executable, str(script), str(audio), "--out-dir", str(out_dir)],
+        capture_output=True, text=True, timeout=60, env=env,
+    )
+    assert good.returncode == 0, good.stdout + good.stderr
+    guitar_a = out_dir / "a_htdemucs" / "htdemucs_6s" / "трек" / "guitar.wav"
+    assert guitar_a.is_file()
+    report = json.loads((out_dir / "отчёт.json").read_text(encoding="utf-8"))
+    assert report["а_htdemucs"]["ok"] is True
+    assert report["б_демукс_по_остатку"]["ok"] is True
+
+    # Ошибочный путь: неизвестная модель -- сообщение чистое, без трейсбека
+    bad_out = tmp_path / "сравнение_ошибка"
+    bad = subprocess.run(
+        [sys.executable, str(script), str(audio),
+         "--vocal-model", "неизвестная.ckpt", "--out-dir", str(bad_out)],
+        capture_output=True, text=True, timeout=60, env=env,
+    )
+    assert "в списке audio-separator нет" in bad.stdout
+    assert "Traceback" not in bad.stdout
+    bad_report = json.loads((bad_out / "отчёт.json").read_text(encoding="utf-8"))
+    assert bad_report["б_снятие_вокала"]["ok"] is False
+    assert "неизвестная.ckpt" in bad_report["б_снятие_вокала"]["error"]
+    assert "Traceback" not in bad_report["б_снятие_вокала"]["error"]
