@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -41,6 +42,11 @@ MAX_UPLOAD_MB = int(os.environ.get("MIDI2TAB_MAX_MB", "60"))
 # и безлимит. Без ключа админка недоступна вообще -- это безопаснее, чем
 # пароль по умолчанию, который забывают сменить.
 ADMIN_KEY = os.environ.get("MIDI2TAB_ADMIN_KEY", "")
+# Отдельный токен для автоматических проверок (/api/health) -- НЕ ADMIN_KEY:
+# тому, кто снаружи раз в час проверяет, жива ли оплата, не нужны права
+# менять пользователей. Держать один секрет на обе задачи значило бы, что
+# утечка мониторинга -- это утечка полной админки.
+HEALTH_TOKEN = os.environ.get("MIDI2TAB_HEALTH_TOKEN", "")
 ALLOWED = (".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aiff", ".aif", ".mid", ".midi")
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -239,6 +245,39 @@ def api_admin_login(request: Request, key: str = Form(...)):
     response = JSONResponse({"ok": True})
     attach_cookie(response, user.id)
     return response
+
+
+def require_health_token(request: Request) -> None:
+    """Токен из заголовка -- посимвольно-постоянным сравнением, как ADMIN_KEY."""
+    import secrets
+
+    if not HEALTH_TOKEN:
+        raise HTTPException(503, "Проверки выключены: не задан MIDI2TAB_HEALTH_TOKEN")
+    auth = request.headers.get("Authorization", "")
+    got = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""
+    if not secrets.compare_digest(got.encode(), HEALTH_TOKEN.encode()):
+        raise HTTPException(403, "Неверный токен")
+
+
+@app.get("/api/health")
+def api_health(request: Request):
+    """
+    Узкая, только для чтения проверка для автоматического мониторинга.
+
+    Отдельная от /api/admin/*: тем даёт войти пароль владельца и кука
+    браузера, а этой -- только заголовок Authorization, чтобы дёргать её
+    скриптом раз в несколько часов, не заводя для этого сессию в браузере.
+    """
+    require_health_token(request)
+    gateway = billing.provider()
+    recent = storage.notices(limit=20)
+    failed_recent = sum(1 for n in recent if not n["accepted"])
+    return {
+        "оплата": gateway.diagnose(),
+        "уведомлений_за_последние": len(recent),
+        "из_них_отклонено": failed_recent,
+        "время": time.time(),
+    }
 
 
 @app.get("/api/admin/payment")

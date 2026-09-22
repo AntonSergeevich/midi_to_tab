@@ -856,3 +856,78 @@ def test_a_repeated_notice_credits_only_once(tmp_path, monkeypatch):
             "X-Checksum": hmac.new(key.encode(), cancelled, hashlib.sha256)
             .hexdigest().upper()})
         assert app_module.storage.user(user.id).credits == 1
+
+
+# --------------------------------------------------------------- мониторинг
+
+
+def test_health_is_off_without_a_token(tmp_path, monkeypatch):
+    """Без MIDI2TAB_HEALTH_TOKEN проверка выключена целиком, а не открыта всем."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.delenv("MIDI2TAB_HEALTH_TOKEN", raising=False)
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        response = client.get("/api/health")
+        assert response.status_code == 503
+
+
+def test_health_rejects_wrong_token(tmp_path, monkeypatch):
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_HEALTH_TOKEN", "a" * 32)
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        no_header = client.get("/api/health")
+        assert no_header.status_code == 403
+
+        wrong = client.get("/api/health",
+                           headers={"Authorization": "Bearer " + "b" * 32})
+        assert wrong.status_code == 403
+
+
+def test_health_reports_payment_status_and_recent_failures(tmp_path, monkeypatch):
+    """
+    Регрессия: у /api/admin/payment и /api/admin/notices один и тот же
+    смысл, но эта проверка должна работать по токену из заголовка, а не
+    по куке браузера -- иначе автоматический мониторинг не сможет
+    авторизоваться без живой сессии.
+    """
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_HEALTH_TOKEN", "c" * 32)
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        app_module.storage.save_notice(
+            "getplatinum", {"dealId": "z1"}, accepted=False, reason="подпись не сошлась"
+        )
+        app_module.storage.save_notice(
+            "getplatinum", {"dealId": "z2"}, accepted=True
+        )
+
+        response = client.get(
+            "/api/health", headers={"Authorization": "Bearer " + "c" * 32}
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert "оплата" in payload
+        assert payload["уведомлений_за_последние"] == 2
+        assert payload["из_них_отклонено"] == 1
