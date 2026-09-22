@@ -259,8 +259,26 @@ def _stage_roformer_vocal_split(audio_path: str, out_dir: str, model: str) -> di
     return {"output": str(path)}
 
 
+def _lower_priority() -> None:
+    """
+    Снизить себе приоритет CPU до минимума (nice 19).
+
+    Это разовый диагностический замер, а не служба -- ему простительно
+    работать часами. Боевому приложению (nasluh.service, один воркер,
+    живые пользователи) это непростительно: 22.09.2026 такой замер два
+    часа держал оба ядра на 192% и минимум один платёж словил 502,
+    потому что однопоточному uvicorn не хватило CPU. nice 19 -- планировщик
+    Linux отдаёт этому процессу CPU только когда остальным он не нужен.
+    """
+    try:
+        os.nice(19)
+    except (AttributeError, OSError):
+        pass  # На не-POSIX системах (замер гоняют только на Linux-сервере) нет os.nice
+
+
 def _run_stage_entrypoint(stage: str, argv: list[str]) -> None:
     """Точка входа шага, вызванного как подпроцесс: печатает отчёт и выходит."""
+    _lower_priority()
     try:
         if stage == "demucs":
             audio_path, out_dir = argv
@@ -340,6 +358,8 @@ def main() -> None:
         index = sys.argv.index(STAGE_FLAG)
         _run_stage_entrypoint(sys.argv[index + 1], sys.argv[index + 2:])
         return
+
+    _lower_priority()  # subprocess.run ниже наследует nice от этого процесса
 
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     parser.add_argument("audio", help="mp3/wav/flac -- запись для сравнения")
