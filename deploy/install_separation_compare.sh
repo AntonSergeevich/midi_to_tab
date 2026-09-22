@@ -48,6 +48,14 @@ echo "=== audio-separator (для RoFormer) ==="
 # на ONNX, а не на чистом PyTorch.
 "$VENV/bin/pip" install --no-cache-dir "audio-separator[cpu]"
 
+# audioread пакет НЕ объявляет своей зависимостью, хотя использует его
+# безусловным import прямо при загрузке (uvr_lib_v5/spec_utils.py,
+# версия 0.47.0). Без него Separator падает уже на импорте -- проверено
+# на живом сервере: pip ставит всё "successfully", а первый же вызов
+# рушится с ModuleNotFoundError. Ставим отдельно, на всякий случай --
+# если в новой версии пакета это уже починят, лишняя строка не помешает.
+"$VENV/bin/pip" install --no-cache-dir audioread
+
 echo
 echo "=== Проверка ==="
 "$VENV/bin/python" - <<'PY'

@@ -306,6 +306,21 @@ def test_separation_compare_installer_reuses_cpu_torch():
     assert "df --output=avail" in text          # место проверяется, как везде
 
 
+def test_separation_compare_installer_adds_audioread():
+    """
+    Регрессия: audio-separator 0.47.0 использует audioread, но не
+    объявляет его своей зависимостью.
+
+    uvr_lib_v5/spec_utils.py делает безусловный "import audioread" прямо
+    при загрузке модуля -- он попадает в путь импорта уже при первом же
+    создании Separator(). На реальном сервере пакет встал командой pip
+    без единой ошибки, а первый же вызов рухнул ModuleNotFoundError.
+    Проверено дважды на живом сервере, прежде чем нашлась причина.
+    """
+    text = (DEPLOY / "install_separation_compare.sh").read_text(encoding="utf-8")
+    assert "install --no-cache-dir audioread" in text
+
+
 def test_compare_separation_script_has_correct_shape():
     """
     Скрипт замера существует, исполняем и его CLI разбирается без сети.
