@@ -1047,7 +1047,25 @@ def api_subscribe(request: Request, plan: str = Form("month")):
         )
     spec = billing.PLANS[plan]
     base = str(request.base_url).rstrip("/")
-    created = gateway.create_payment(user.id, spec["price"], f"{base}/?paid=1")
+    try:
+        created = gateway.create_payment(user.id, spec["price"], f"{base}/?paid=1")
+    except billing.PaymentError as error:
+        # Неудачную попытку сохраняем наравне с уведомлениями: по ней
+        # видно, что именно ответил платёжный сервис. Иначе владелец
+        # знает лишь то, что "не получилось", -- и чинить нечего.
+        storage.save_notice(
+            gateway.name, {"попытка оплаты": error.details}, False, str(error)[:300]
+        )
+        raise HTTPException(502, str(error)) from error
+    except Exception as error:                       # noqa: BLE001
+        storage.save_notice(
+            gateway.name, {"попытка оплаты": {"ошибка": repr(error)}}, False,
+            "неожиданная ошибка",
+        )
+        raise HTTPException(
+            502, f"Платёжный сервис не ответил как ожидалось: {error}"
+        ) from error
+
     storage.create_payment(user.id, spec["price"], created.get("id"), plan=plan)
     url = (created.get("confirmation") or {}).get("confirmation_url")
     return {"paymentUrl": url, "paymentId": created.get("id"), "plan": plan}

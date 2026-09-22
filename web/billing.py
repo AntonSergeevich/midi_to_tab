@@ -135,6 +135,20 @@ def grant_subscription(storage: Storage, user_id: str, days: int = PERIOD_DAYS) 
     return until
 
 
+class PaymentError(RuntimeError):
+    """
+    Понятная ошибка приёма оплаты.
+
+    Несёт с собой подробности для админки: адрес, код ответа, тело. Без
+    них человек видит только "не получилось" и не может ничего сделать,
+    а владелец -- понять, что именно чинить.
+    """
+
+    def __init__(self, message: str, details: dict | None = None) -> None:
+        super().__init__(message)
+        self.details = details or {}
+
+
 class PaymentProvider:
     """Интерфейс приёма денег."""
 
@@ -366,6 +380,7 @@ class GetPlatinumProvider(PaymentProvider):
                 "(и при необходимости GETPLATINUM_TERMINAL)."
             )
         import json
+        import urllib.error
         import urllib.request
         import uuid
 
@@ -385,11 +400,50 @@ class GetPlatinumProvider(PaymentProvider):
             data=json.dumps(payload).encode(),
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            data = json.load(response)
+
+        # Ошибку здесь нельзя ронять наружу голой: адрес API я подбирал
+        # без документации, и промах по нему -- самый вероятный исход.
+        # Человеку надо сказать, ЧТО именно не вышло, а не "не получилось".
+        try:
+            # Пятнадцати секунд хватает с запасом: человек стоит перед
+            # экраном и ждёт. Дольше -- он решит, что сайт сломался, и
+            # уйдёт, хотя ответ ещё в пути.
+            with urllib.request.urlopen(request, timeout=15) as response:
+                body = response.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", "replace")[:400]
+            raise PaymentError(
+                f"GetPlatinum ответил ошибкой {error.code} на {self.API_URL}. "
+                f"Ответ: {detail or 'пусто'}",
+                {"адрес": self.API_URL, "код": error.code, "ответ": detail,
+                 "запрос": {k: v for k, v in payload.items() if k != self.SIGN_FIELD}},
+            ) from error
+        except urllib.error.URLError as error:
+            raise PaymentError(
+                f"Не удалось соединиться с {self.API_URL}: {error.reason}. "
+                "Скорее всего неверен адрес API -- он подбирался без документации.",
+                {"адрес": self.API_URL, "причина": str(error.reason)},
+            ) from error
+
+        try:
+            data = json.loads(body)
+        except ValueError as error:
+            raise PaymentError(
+                f"GetPlatinum вернул не JSON. Первые строки ответа: {body[:300]}",
+                {"адрес": self.API_URL, "ответ": body[:400]},
+            ) from error
+
+        link = data.get(self.URL_FIELD)
+        if not link:
+            raise PaymentError(
+                "GetPlatinum не вернул ссылку на оплату. Возможно, поле "
+                f"называется не {self.URL_FIELD!r} -- посмотрите в ответе, "
+                "как оно называется на самом деле.",
+                {"адрес": self.API_URL, "ответ": data},
+            )
         return {
             "id": data.get(self.ID_FIELD) or payload["order_id"],
-            "confirmation": {"confirmation_url": data.get(self.URL_FIELD)},
+            "confirmation": {"confirmation_url": link},
             "raw": data,
         }
 

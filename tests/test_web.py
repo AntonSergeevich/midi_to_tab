@@ -734,3 +734,49 @@ def test_admin_user_list_is_paged_and_searchable(tmp_path):
     first = {u.id for u, _ in store.users_page("", 0, 50)["users"]}
     second = {u.id for u, _ in store.users_page("", 50, 50)["users"]}
     assert not (first & second)
+
+
+def test_failed_payment_says_what_went_wrong(tmp_path, monkeypatch):
+    """
+    "Не получилось" -- это не сообщение об ошибке.
+
+    Обращение к платёжному сервису было ничем не обёрнуто: любая
+    неудача там роняла пятисотую без тела, браузеру нечего было
+    показать, и человек видел голое "Не получилось". Адрес API
+    подбирался без документации, так что промах по нему -- самый
+    вероятный исход, и назвать его надо прямо.
+    """
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("PAYMENT_PROVIDER", "getplatinum")
+    monkeypatch.setenv("GETPLATINUM_TERMINAL", "153777")
+    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", "f" * 64)
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+    from web import billing
+
+    def refuse(self, user_id, amount, return_url):
+        raise billing.PaymentError(
+            "Не удалось соединиться с https://api.getplatinum.ru/...: имя не найдено",
+            {"адрес": "https://api.getplatinum.ru/...", "причина": "имя не найдено"},
+        )
+
+    monkeypatch.setattr(billing.GetPlatinumProvider, "create_payment", refuse)
+
+    with TestClient(app_module.app) as client:
+        client.post("/api/auth/register",
+                    data={"email": "pokupatel@naslux.ru", "password": "длинный-пароль-9"})
+        response = client.post("/api/subscribe", data={"plan": "single"})
+
+        assert response.status_code == 502
+        detail = response.json()["detail"]
+        assert "getplatinum" in detail and "имя не найдено" in detail
+
+        # И попытка сохранена -- владелец увидит её в админке
+        notices = app_module.storage.notices()
+        assert notices and not notices[0]["accepted"]
+        assert "попытка оплаты" in notices[0]["body"]

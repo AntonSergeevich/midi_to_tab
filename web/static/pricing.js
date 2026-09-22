@@ -8,8 +8,18 @@ let me = null;
 
 const date = (ts) => new Date(ts * 1000).toLocaleDateString('ru-RU');
 
-async function load() {
+// Обработчик вешается СРАЗУ, ещё до того, как придут данные о человеке.
+// Иначе выходит ловушка: кнопки уже нарисованы сервером и выглядят
+// рабочими, а нажатие проваливается в пустоту, пока не ответит /api/me.
+// На быстрой связи это доли секунды, на телефоне в метро -- несколько,
+// и человек успевает решить, что сайт сломан.
+const ready = (async () => {
   me = await (await fetch('/api/me')).json();
+  return me;
+})();
+
+async function load() {
+  await ready;
   $('account').textContent = me.registered ? me.email : 'Вход';
 
   const badge = $('access');
@@ -36,37 +46,56 @@ async function load() {
           ? `Бесплатных песен осталось: ${me.freeLeft} из ${me.freeSongs}. Платить пока не нужно.`
           : 'Бесплатные песни закончились. Дальше — разово или по подписке.';
 
-  // Кнопки уже на странице -- их отдал сервер. Здесь только оживляем.
   if (!me.paymentReady) {
     $('msg').innerHTML =
       '<span class="bad">Приём оплаты на сервере ещё не подключён.</span>';
-    $('plans').querySelectorAll('button').forEach((b) => (b.disabled = true));
-    return;
   }
-
-  $('plans').querySelectorAll('[data-plan]').forEach((button) => {
-    button.onclick = () => buy(button.dataset.plan, button);
-  });
 }
 
+// Сразу, не дожидаясь данных: buy() сам подождёт, сколько нужно.
+document.querySelectorAll('[data-plan]').forEach((button) => {
+  button.onclick = () => buy(button.dataset.plan, button);
+});
+
 async function buy(plan, button) {
+  button.classList.add('busy');
+  $('msg').textContent = 'Готовлю оплату…';
+  await ready;                     // данные могли ещё не прийти
+
+  if (!me.paymentReady) {
+    button.classList.remove('busy');
+    $('msg').innerHTML =
+      '<span class="bad">Приём оплаты на сервере ещё не подключён.</span>';
+    return;
+  }
   // Платёж привязывается к учётной записи, а не к браузеру: иначе
   // оплаченное пропадёт вместе с куками или при заходе с телефона.
   if (!me.registered) {
+    button.classList.remove('busy');
     $('msg').innerHTML =
       'Сначала <a href="/account">заведите учётную запись</a> — иначе оплаченное ' +
       'потеряется при смене браузера.';
     return;
   }
-  button.classList.add('busy');
-  $('msg').textContent = 'Готовлю оплату…';
   const form = new FormData();
   form.append('plan', plan);
-  const response = await fetch('/api/subscribe', { method: 'POST', body: form });
+  let response;
+  try {
+    response = await fetch('/api/subscribe', { method: 'POST', body: form });
+  } catch (error) {
+    button.classList.remove('busy');
+    $('msg').innerHTML =
+      `<span class="bad">Связь с сервером прервалась: ${error.message}</span>`;
+    return;
+  }
   const data = await response.json().catch(() => ({}));
   button.classList.remove('busy');
   if (!response.ok) {
-    $('msg').innerHTML = `<span class="bad">${data.detail || 'Не получилось'}</span>`;
+    // Если сервер упал без внятного тела -- так и говорим, а не "не
+    // получилось": человеку нужно знать, что это не он виноват.
+    $('msg').innerHTML = `<span class="bad">${data.detail
+      || `Сервер ответил ошибкой ${response.status}. Загляните в админку —
+          там сохранена причина.`}</span>`;
     return;
   }
   if (data.paymentUrl) {

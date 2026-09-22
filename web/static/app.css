@@ -31,6 +31,18 @@ header.top {
   display: flex; align-items: center; justify-content: space-between;
   gap: 16px; flex-wrap: wrap; margin-bottom: 26px;
 }
+/* На телефоне шапка разъезжалась: длинная почта распирала строку, и
+   "Мои треки" переносилось по слогам. Ссылки не переносим внутри себя,
+   а почту укорачиваем -- целиком она нужна только в кабинете. */
+header.top a { white-space: nowrap; }
+header.top .who {
+  max-width: 34vw; overflow: hidden; text-overflow: ellipsis;
+}
+@media (max-width: 560px) {
+  header.top { gap: 10px 12px; margin-bottom: 18px; }
+  header.top .badge { font-size: 12px; padding: 5px 9px; }
+  header.top .who { max-width: 28vw; }
+}
 .brand {
   display: inline-flex; align-items: center; gap: 10px;
   text-decoration: none; color: var(--text);
