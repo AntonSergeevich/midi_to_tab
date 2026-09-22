@@ -176,8 +176,46 @@ def _model_cache_dir() -> str:
     return path
 
 
+def _disarm_beartype() -> None:
+    """
+    Обезвредить рантайм-проверки beartype ПЕРЕД импортом audio_separator.
+
+    В установленной версии пакета (0.47.0) конструктор BSRoformer
+    размечен как `stft_window_fn: Optional[Callable] = None` через
+    `beartype.typing` -- по спецификации всё верно, но конкретная связка
+    версий beartype/Python в этом окружении не умеет проверить именно
+    этот тип и падает уже на создании модели:
+    "type hint collections.abc.Callable | None either PEP-noncompliant
+    or currently unsupported by @beartype". Баг в самой связке версий,
+    не в коде -- апстрим ещё не выпустил тег с починкой (она есть только
+    в main, не в 0.47.0), а понижать/поднимать beartype на сервере
+    рискованно: от него зависят и другие уже установленные пакеты.
+
+    Подменяем `beartype.beartype` на пустой декоратор ДО первого импорта
+    любого модуля audio_separator -- `from beartype import beartype`
+    внутри него подхватит уже подмененное имя. Это только отключает
+    проверку типов (которая тут просто мешает), саму модель не трогает.
+    Замер -- разовый диагностический скрипт, не часть сервиса, поэтому
+    такой обход здесь уместен.
+    """
+    try:
+        import beartype
+    except ImportError:
+        # Настоящий audio_separator тянет beartype обязательной
+        # зависимостью, так что на сервере он есть всегда. Отсутствует
+        # он только в тестах с поддельным audio_separator -- там
+        # подменять нечего, и это не ошибка.
+        return
+
+    def _noop(func=None, **_kwargs):
+        return func if func is not None else (lambda f: f)
+
+    beartype.beartype = _noop
+
+
 def _stage_roformer_vocal_split(audio_path: str, out_dir: str, model: str) -> dict:
     """Первый шаг каскада: вычленить чистый инструментал без вокала."""
+    _disarm_beartype()
     from audio_separator.separator import Separator
 
     os.makedirs(out_dir, exist_ok=True)

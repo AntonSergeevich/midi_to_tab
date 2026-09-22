@@ -59,7 +59,16 @@ DEFAULT_QUALITY = "быстро"
 
 # Длина куска в секундах, которым Demucs обрабатывает трек. Меньше кусок
 # -- меньше пиковая память, но чуть хуже склейка на границах.
-SEGMENT = int(os.environ.get("MIDI2TAB_SEGMENT", "15"))
+#
+# Модели htdemucs/htdemucs_ft/htdemucs_6s -- это Hybrid Transformer
+# Demucs, и трансформер обучен на кусках фиксированной длины: сам Demucs
+# отказывается резать длиннее, чем модель видела при обучении (сейчас
+# это 7.8 секунды -- проверено на живой ошибке "Cannot use a Transformer
+# model with a longer segment than it was trained for. Maximum segment
+# is: 7.8"). Значение 15 здесь стояло до этой проверки и на деле никогда
+# не срабатывало -- бралось только в настольном GUI (midi2tab/gui.py),
+# веб-сервис separate() не вызывает вовсе. 7.0 -- с запасом под лимит.
+SEGMENT = float(os.environ.get("MIDI2TAB_SEGMENT", "7"))
 
 
 @dataclass
