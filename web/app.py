@@ -260,31 +260,21 @@ def api_admin_notices(request: Request):
     """
     Что приходило от платёжного сервиса -- и подошла ли формула подписи.
 
-    Точную формулу GetPlatinum для версии 2 прочитать не удалось: их
-    сайт закрыт сетевой политикой. Поэтому здесь по настоящему
-    уведомлению перебираются все ходовые способы, и подходящий
-    определяется сам. Останется записать его в настройки.
+    Отвергнутое уведомление сохраняется вместе с пришедшей подписью и
+    той, которую ждали: сравнить есть с чем, и причина видна сразу.
     """
     require_admin(request)
-    gateway = billing.provider()
-    rows = []
-    for notice in storage.notices():
-        item = {
-            "когда": notice["created_at"],
-            "принято": bool(notice["accepted"]),
-            "причина": notice["reason"],
-            "тело": notice["body"],
-            "подходящая формула": [],
-        }
-        if not notice["accepted"] and isinstance(notice["body"], dict):
-            guess = getattr(gateway, "guess_scheme", None)
-            if guess:
-                item["подходящая формула"] = [
-                    {"способ": scheme, "поля": ",".join(fields)}
-                    for scheme, fields in guess(notice["body"])
-                ]
-        rows.append(item)
-    return {"уведомления": rows, "способы": list(billing.SCHEMES)}
+    return {
+        "уведомления": [
+            {
+                "когда": notice["created_at"],
+                "принято": bool(notice["accepted"]),
+                "причина": notice["reason"],
+                "тело": notice["body"],
+            }
+            for notice in storage.notices()
+        ]
+    }
 
 
 @app.get("/api/admin/users")
@@ -1048,7 +1038,12 @@ def api_subscribe(request: Request, plan: str = Form("month")):
     spec = billing.PLANS[plan]
     base = str(request.base_url).rstrip("/")
     try:
-        created = gateway.create_payment(user.id, spec["price"], f"{base}/?paid=1")
+        created = gateway.create_payment(
+            user.id, spec["price"], f"{base}/?paid=1",
+            title=spec["title"],
+            notify_url=f"{base}/api/webhook/{gateway.name}",
+            email=user.email or "",
+        )
     except billing.PaymentError as error:
         # Неудачную попытку сохраняем наравне с уведомлениями: по ней
         # видно, что именно ответил платёжный сервис. Иначе владелец

@@ -258,7 +258,6 @@ async function loadNotices() {
   box.innerHTML = rows.map((notice) => {
     const when = new Date(notice['когда'] * 1000).toLocaleString('ru-RU');
     const ok = notice['принято'];
-    const guesses = notice['подходящая формула'] || [];
     return `<div class="part" style="align-items:flex-start;flex-wrap:wrap">
       <span class="name">${when}</span>
       <span class="${ok ? 'ok' : 'bad'}">${ok ? 'принято' : 'отвергнуто'}</span>
@@ -266,13 +265,7 @@ async function loadNotices() {
       <div style="flex-basis:100%;margin-top:8px">
         <pre style="font:11px/1.5 Consolas,monospace;overflow-x:auto;margin:0"
 >${JSON.stringify(notice['тело'], null, 1)}</pre>
-        ${guesses.length ? `<p class="ok" style="margin:8px 0 0">
-          Подошла формула: ${guesses.map((g) =>
-            `<code>GETPLATINUM_SCHEME=${g['способ']}</code> при полях
-             <code>${g['поля']}</code>`).join('<br>')}</p>`
-          : (ok ? '' : `<p class="muted" style="margin:8px 0 0">
-             Ни одна из известных формул не подошла — нужен раздел
-             документации про контрольную подпись.</p>`)}
+
       </div>
     </div>`;
   }).join('');

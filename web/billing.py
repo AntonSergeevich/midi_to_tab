@@ -179,6 +179,50 @@ class PaymentProvider:
         return self.verify_webhook(payload)
 
 
+class PaymentError(RuntimeError):
+    """
+    Понятная ошибка приёма оплаты.
+
+    Несёт с собой подробности для админки: адрес, код ответа, тело. Без
+    них человек видит только "не получилось" и не может ничего сделать,
+    а владелец -- понять, что именно чинить.
+    """
+
+    def __init__(self, message: str, details: dict | None = None) -> None:
+        super().__init__(message)
+        self.details = details or {}
+
+
+class PaymentProvider:
+    """Интерфейс приёма денег."""
+
+    name = "none"
+
+    def configured(self) -> bool:
+        return False
+
+    def diagnose(self) -> dict:
+        return {"провайдер": self.name, "готов принимать оплату": self.configured()}
+
+    def create_payment(self, user_id: str, amount: float, return_url: str) -> dict:
+        raise NotImplementedError
+
+    def verify_webhook(self, payload: dict) -> tuple[str, str] | None:
+        """Вернуть (id платежа у провайдера, статус) или None, если это не наш случай."""
+        raise NotImplementedError
+
+    def verify(self, raw: bytes, headers, payload: dict) -> tuple[str, str] | None:
+        """
+        Проверить уведомление целиком: тело, заголовки, разобранный JSON.
+
+        Сырое тело нужно потому, что подпись может считаться именно от
+        него -- байт в байт, как прислали. Пересобрать JSON и посчитать
+        подпись от результата нельзя: порядок ключей и пробелы изменятся,
+        и подпись не сойдётся, хотя уведомление настоящее.
+        """
+        return self.verify_webhook(payload)
+
+
 # ---------------------------------------------------------------- подписи
 
 # Как разные сервисы считают контрольную подпись. Точную формулу
@@ -292,206 +336,177 @@ def field_guesses(payload: dict) -> list[tuple]:
 
 class GetPlatinumProvider(PaymentProvider):
     """
-    GetPlatinum, API версии 2.
+    GetPlatinum, API версии 2 -- по официальной спецификации.
 
-    Терминал задаётся GETPLATINUM_TERMINAL (по умолчанию -- наш), секрет --
-    GETPLATINUM_SECRET_KEY. Пока секрета нет, провайдер честно сообщает,
-    что оплата не подключена, и ничего не имитирует.
-
-    ВАЖНО про подпись. В версии 2 контрольная сумма считается иначе, чем в
-    первой, и точный состав полей берётся из документации сервиса. Поэтому
-    он вынесен в SIGN_FIELDS и переопределяется переменной окружения
-    GETPLATINUM_SIGN_FIELDS -- поправить порядок можно, не трогая код и не
-    выкладывая новую версию. Проверить вызовы на живом магазине пока не
-    удалось, поэтому перед первым настоящим платежом обязательно прогоните
-    тестовый режим.
+    Адрес: https://<магазин>.getplatinum.ru/api/public/v2/pay
+    Метод: POST /init-payment-url -- возвращает ссылку на платёжную форму.
+    Ключ передаётся заголовком Authorization: Bearer <ключ>.
+    Уведомление приходит на notificationUrl, подписано заголовком
+    X-Checksum: HMAC-SHA256 от тела, верхний регистр.
     """
 
     name = "getplatinum"
-    API_URL = os.environ.get(
-        "GETPLATINUM_API_URL", "https://api.getplatinum.ru/v2/payment/create"
-    )
-    # Поля ответа, из которых берутся ссылка на оплату и идентификатор.
-    URL_FIELD = os.environ.get("GETPLATINUM_URL_FIELD", "payment_url")
-    ID_FIELD = os.environ.get("GETPLATINUM_ID_FIELD", "payment_id")
-    # Порядок полей в строке, из которой считается подпись. Секрет
-    # добавляется последним -- так устроено у большинства подобных сервисов.
-    SIGN_FIELDS = tuple(
-        os.environ.get(
-            "GETPLATINUM_SIGN_FIELDS", "terminal,order_id,amount,currency"
-        ).split(",")
-    )
-    CALLBACK_SIGN_FIELDS = tuple(
-        os.environ.get(
-            "GETPLATINUM_CALLBACK_SIGN_FIELDS", "terminal,order_id,amount,status"
-        ).split(",")
-    )
-    SIGN_FIELD = os.environ.get("GETPLATINUM_SIGN_FIELD", "signature")
-    SCHEME = os.environ.get("GETPLATINUM_SCHEME", DEFAULT_SCHEME)
+    CHECKSUM_HEADER = "X-Checksum"
 
     def __init__(self) -> None:
         self.terminal = os.environ.get("GETPLATINUM_TERMINAL", "153777")
         self.secret = os.environ.get("GETPLATINUM_SECRET_KEY", "")
+        # Поддомен магазина -- тот, на котором открывается личный кабинет.
+        self.shop = os.environ.get("GETPLATINUM_SHOP", "s-poryadok")
+        self.api_url = os.environ.get("GETPLATINUM_API_URL") or (
+            f"https://{self.shop}.getplatinum.ru/api/public/v2/pay/init-payment-url"
+        )
+        # Ставка НДС и категория позиции для кассового чека. Это налоговый
+        # вопрос, а не технический: у самозанятого НДС не применяется
+        # ("none"), но ставку и категорию владелец обязан сверить со своей
+        # заявкой на подключение -- ошибка тут стоит нарушения учёта.
+        self.vat = os.environ.get("GETPLATINUM_VAT", "none")
+        self.prefix = int(os.environ.get("GETPLATINUM_PREFIX", "3"))
 
-    # Значения из примера настроек. Если ключ равен одному из них, значит,
-    # строку скопировали целиком, не заменив на настоящий ключ, -- и
-    # честнее сказать это прямо, чем делать вид, что оплата настроена, и
-    # ронять каждый платёж.
     PLACEHOLDERS = frozenset(
         {"ваш_ключ", "ваш ключ", "your_key", "secret", "xxx", "changeme", "..."}
     )
 
     def configured(self) -> bool:
-        return bool(self.terminal and self.secret and self.API_URL
+        return bool(self.secret and self.api_url
                     and self.secret.strip().lower() not in self.PLACEHOLDERS)
 
     def diagnose(self) -> dict:
-        """
-        Что именно видит сервер. Ключ не показывается -- только его длина:
-        по ней видно, задан он или туда попала строка из примера.
-        """
         secret = self.secret.strip()
         return {
             "провайдер": self.name,
-            "терминал": self.terminal or "НЕ ЗАДАН",
+            "магазин": self.shop,
+            "терминал": self.terminal or "не задан",
             "ключ": (
                 "НЕ ЗАДАН" if not secret
                 else "ЭТО СТРОКА ИЗ ПРИМЕРА, а не ключ"
                 if secret.lower() in self.PLACEHOLDERS
                 else f"задан, длина {len(secret)}"
             ),
-            "адрес API": self.API_URL,
-            "подпись": "HMAC-SHA256 от тела, заголовок X-Checksum (версия 2)",
+            "адрес создания платежа": self.api_url,
+            "ставка НДС в чеке": self.vat,
+            "категория позиции": self.prefix,
+            "подпись уведомления": "HMAC-SHA256 от тела, заголовок X-Checksum",
             "адрес для уведомлений": "/api/webhook/getplatinum",
             "готов принимать оплату": self.configured(),
         }
 
-    def sign(self, data: dict, fields) -> str:
-        """
-        Контрольная подпись по выбранному способу.
-
-        Отсутствующее поле даёт пустую строку, а не пропускается: иначе
-        подпись зависела бы от того, какие поля сервис решил прислать.
-        """
-        return make_signature(data, fields, self.secret, self.SCHEME)
-
-    def guess_scheme(self, payload: dict) -> list[tuple[str, tuple]]:
-        """Подобрать формулу подписи по настоящему уведомлению."""
-        return detect_scheme(
-            payload, str(payload.get(self.SIGN_FIELD, "")),
-            self.secret, field_guesses(payload),
-        )
-
-    def create_payment(self, user_id: str, amount: float, return_url: str) -> dict:
-        if not self.configured():
-            raise RuntimeError(
-                "GetPlatinum не настроен. Задайте GETPLATINUM_SECRET_KEY "
-                "(и при необходимости GETPLATINUM_TERMINAL)."
-            )
-        import json
-        import urllib.error
-        import urllib.request
-        import uuid
-
-        payload = {
-            "terminal": self.terminal,
-            "order_id": f"{user_id}-{uuid.uuid4().hex[:8]}",
-            "amount": f"{amount:.2f}",
-            "currency": "RUB",
-            "description": f"NASLUX, разбор песен",
-            "success_url": return_url,
-            "fail_url": return_url,
-        }
-
-        # Тело считаем один раз и подписываем ровно его: подпись берётся
-        # от байтов, а не от словаря. Пересобирать JSON после подписи
-        # нельзя -- по той же причине, по которой её нельзя пересобирать
-        # при проверке уведомления.
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        request = urllib.request.Request(
-            self.API_URL,
-            data=body,
-            headers={
-                "Content-Type": "application/json",
-                self.CHECKSUM_HEADER: self.checksum(body, self.secret),
-            },
-        )
-
-        # Ошибку здесь нельзя ронять наружу голой: адрес API я подбирал
-        # без документации, и промах по нему -- самый вероятный исход.
-        # Человеку надо сказать, ЧТО именно не вышло, а не "не получилось".
-        try:
-            # Пятнадцати секунд хватает с запасом: человек стоит перед
-            # экраном и ждёт. Дольше -- он решит, что сайт сломался, и
-            # уйдёт, хотя ответ ещё в пути.
-            with urllib.request.urlopen(request, timeout=15) as response:
-                body = response.read().decode("utf-8", "replace")
-        except urllib.error.HTTPError as error:
-            detail = error.read().decode("utf-8", "replace")[:400]
-            raise PaymentError(
-                f"GetPlatinum ответил ошибкой {error.code} на {self.API_URL}. "
-                f"Ответ: {detail or 'пусто'}",
-                {"адрес": self.API_URL, "код": error.code, "ответ": detail,
-                 "запрос": {k: v for k, v in payload.items() if k != self.SIGN_FIELD}},
-            ) from error
-        except urllib.error.URLError as error:
-            raise PaymentError(
-                f"Не удалось соединиться с {self.API_URL}: {error.reason}. "
-                "Скорее всего неверен адрес API -- он подбирался без документации.",
-                {"адрес": self.API_URL, "причина": str(error.reason)},
-            ) from error
-
-        try:
-            data = json.loads(body)
-        except ValueError as error:
-            raise PaymentError(
-                f"GetPlatinum вернул не JSON. Первые строки ответа: {body[:300]}",
-                {"адрес": self.API_URL, "ответ": body[:400]},
-            ) from error
-
-        link = data.get(self.URL_FIELD)
-        if not link:
-            raise PaymentError(
-                "GetPlatinum не вернул ссылку на оплату. Возможно, поле "
-                f"называется не {self.URL_FIELD!r} -- посмотрите в ответе, "
-                "как оно называется на самом деле.",
-                {"адрес": self.API_URL, "ответ": data},
-            )
-        return {
-            "id": data.get(self.ID_FIELD) or payload["order_id"],
-            "confirmation": {"confirmation_url": link},
-            "raw": data,
-        }
-
-    # ------------------------------------------------- проверка уведомления
-
-    CHECKSUM_HEADER = "X-Checksum"
+    # ----------------------------------------------------------- создание
 
     @staticmethod
     def checksum(raw: bytes, secret: str) -> str:
         """
-        Контрольная подпись версии 2, как её описывает GetPlatinum.
+        Контрольная подпись версии 2.
 
-        HMAC-SHA256 от ТЕЛА ЗАПРОСА целиком, ключ -- API-ключ магазина,
-        результат шестнадцатеричной строкой в верхнем регистре.
-
-        Тело берётся байт в байт, как пришло. Пересобрать из него JSON и
-        посчитать подпись от результата нельзя: поменяется порядок
-        ключей или пробелы -- и подпись не сойдётся, хотя уведомление
-        настоящее. В документации это оговорено отдельно.
+        HMAC-SHA256 от ТЕЛА запроса целиком, ключ -- API-ключ магазина,
+        шестнадцатеричная строка в верхнем регистре. Тело берётся байт в
+        байт: пересобрать JSON и считать подпись от результата нельзя --
+        поменяется порядок ключей или пробелы, и подпись не сойдётся.
         """
         import hashlib
         import hmac
 
         return hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest().upper()
 
+    def create_payment(self, user_id: str, amount: float, return_url: str,
+                       title: str = "", notify_url: str = "",
+                       email: str = "") -> dict:
+        if not self.configured():
+            raise PaymentError(
+                "GetPlatinum не настроен: нет GETPLATINUM_SECRET_KEY.",
+                {"адрес": self.api_url},
+            )
+        import json
+        import urllib.error
+        import urllib.request
+        import uuid
+
+        # Сумма -- в КОПЕЙКАХ, и она обязана в точности сойтись с суммой
+        # позиций. Рубли тут передавать нельзя: сервис примет число как
+        # копейки, и вместо 199 рублей человек заплатит 1 рубль 99 копеек.
+        kopecks = int(round(amount * 100))
+        deal_id = f"{user_id[:12]}-{uuid.uuid4().hex[:10]}"
+        name = title or "Разбор песни на аккорды и табы"
+
+        payload = {
+            "dealId": deal_id,
+            "currency": "RUB",
+            "amount": kopecks,
+            "positions": [{
+                "prefix": self.prefix,
+                "name": name,
+                "price": kopecks,
+                "quantity": 1,
+                "vat": self.vat,
+            }],
+            "clientParams": {"clientId": user_id, **({"email": email} if email else {})},
+            "notificationUrl": notify_url,
+            "successUrl": return_url,
+            "failUrl": return_url,
+        }
+
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(
+            self.api_url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.secret}",
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                text = response.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", "replace")[:400]
+            raise PaymentError(
+                f"GetPlatinum ответил ошибкой {error.code} на {self.api_url}. "
+                f"Ответ: {detail or 'пусто'}",
+                {"адрес": self.api_url, "код": error.code, "ответ": detail,
+                 "запрос": payload},
+            ) from error
+        except urllib.error.URLError as error:
+            raise PaymentError(
+                f"Не удалось соединиться с {self.api_url}: {error.reason}",
+                {"адрес": self.api_url, "причина": str(error.reason)},
+            ) from error
+
+        try:
+            data = json.loads(text)
+        except ValueError as error:
+            raise PaymentError(
+                f"GetPlatinum вернул не JSON: {text[:300]}",
+                {"адрес": self.api_url, "ответ": text[:400]},
+            ) from error
+
+        # errorCode = 0 означает успех; всё остальное -- отказ с причиной
+        if data.get("errorCode"):
+            raise PaymentError(
+                f"GetPlatinum отказал: {data.get('errorMessage') or data.get('errorCode')}",
+                {"адрес": self.api_url, "ответ": data, "запрос": payload},
+            )
+
+        link = data.get("formUrl")
+        if not link:
+            raise PaymentError(
+                "GetPlatinum не вернул ссылку на оплату (поле formUrl).",
+                {"адрес": self.api_url, "ответ": data},
+            )
+        return {
+            "id": data.get("dealId") or deal_id,
+            "confirmation": {"confirmation_url": link},
+            "raw": data,
+        }
+
+    # -------------------------------------------------------- уведомление
+
     def verify(self, raw: bytes, headers, payload: dict) -> tuple[str, str] | None:
         """
         Принять уведомление, только если подпись сошлась.
 
         Подпись лежит в заголовке, а не в теле: в версии 2 поля checksum
-        в JSON нет вовсе. Сравнение постоянное по времени -- подбирать
-        подпись по знакам бессмысленно.
+        в JSON нет вовсе. Сравнение постоянное по времени.
         """
         import secrets as _secrets
 
@@ -511,19 +526,19 @@ class GetPlatinumProvider(PaymentProvider):
         return None
 
     def _result(self, payload: dict) -> tuple[str, str] | None:
-        """Что именно сообщили: о каком платеже и с каким исходом."""
-        provider_id = (payload.get(self.ID_FIELD) or payload.get("order_id")
-                       or payload.get("id"))
-        status = payload.get("status")
-        if not provider_id or not status:
+        """
+        Что именно сообщили.
+
+        В версии 2 исход оплаты -- булево поле isSuccess, а не строка
+        статуса: заказ либо оплачен, либо нет.
+        """
+        deal_id = payload.get("dealId")
+        if not deal_id:
             return None
-        normalised = (
-            "succeeded"
-            if str(status).lower() in ("succeeded", "success", "paid", "completed",
-                                       "confirmed", "approved")
-            else str(status)
-        )
-        return str(provider_id), normalised
+        success = payload.get("isSuccess")
+        if success is None:
+            return None
+        return str(deal_id), "succeeded" if success else "failed"
 
 
 class YooKassaProvider(PaymentProvider):

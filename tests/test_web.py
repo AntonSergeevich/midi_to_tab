@@ -339,7 +339,7 @@ def test_getplatinum_accepts_only_a_correctly_signed_body(monkeypatch):
 
     monkeypatch.setenv("GETPLATINUM_SECRET_KEY", "ключ-магазина")
     gateway = billing.GetPlatinumProvider()
-    body = b'{"order_id":"a1b2","status":"paid","amount":"19.00"}'
+    body = b'{"notificationType":1,"dealId":"a1b2","isSuccess":true}'
     payload = json.loads(body)
     good = gateway.checksum(body, gateway.secret)
 
@@ -351,24 +351,69 @@ def test_getplatinum_accepts_only_a_correctly_signed_body(monkeypatch):
     assert gateway.verify(body, {}, payload) is None
     assert gateway.verify(b"", {"X-Checksum": good}, payload) is None
 
-    # Подменённая сумма ломает подпись: тело входит в неё целиком
-    changed = b'{"order_id":"a1b2","status":"paid","amount":"1.00"}'
-    assert gateway.verify(changed, {"X-Checksum": good}, json.loads(changed)) is None
-
     # Пересобранный JSON -- уже другие байты, и это должно быть видно
     reserialised = json.dumps(payload).encode()
     assert reserialised != body
     assert gateway.verify(reserialised, {"X-Checksum": good}, payload) is None
 
-    for raw_status in ("paid", "success", "succeeded", "completed", "confirmed"):
-        notice = json.dumps({"order_id": "x", "status": raw_status}).encode()
-        signed = gateway.checksum(notice, gateway.secret)
-        assert gateway.verify(notice, {"X-Checksum": signed},
-                              json.loads(notice))[1] == "succeeded"
+    # Неуспешная оплата ничего не начисляет
+    failed = b'{"notificationType":1,"dealId":"a1b2","isSuccess":false}'
+    assert gateway.verify(failed, {"X-Checksum": gateway.checksum(failed, gateway.secret)},
+                          json.loads(failed)) == ("a1b2", "failed")
 
-    cancelled = json.dumps({"order_id": "x", "status": "canceled"}).encode()
-    assert gateway.verify(cancelled, {"X-Checksum": gateway.checksum(cancelled, gateway.secret)},
-                          json.loads(cancelled))[1] == "canceled"
+
+def test_payment_amount_goes_in_kopecks(monkeypatch):
+    """
+    Сумма передаётся в минимальных единицах -- в копейках.
+
+    Рубли тут передавать нельзя: сервис примет число как копейки, и
+    вместо 199 рублей человек заплатит 1 рубль 99 копеек. И сумма
+    заказа обязана в точности сойтись с суммой позиций.
+    """
+    import json
+
+    from web import billing
+
+    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", "f" * 64)
+    gateway = billing.GetPlatinumProvider()
+    sent = {}
+
+    class FakeResponse:
+        def read(self):
+            return json.dumps({"dealId": "d1", "formUrl": "https://pay/x",
+                               "errorCode": 0}).encode()
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+
+    def fake_open(request, timeout=None):
+        sent["body"] = json.loads(request.data.decode())
+        sent["headers"] = dict(request.headers)
+        return FakeResponse()
+
+    import urllib.request
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_open)
+    result = gateway.create_payment(
+        "user-1", billing.PRICE_RUB, "https://naslux.ru/?paid=1",
+        title="Подписка", notify_url="https://naslux.ru/api/webhook/getplatinum",
+        email="kto@mail.ru",
+    )
+
+    body = sent["body"]
+    assert body["amount"] == 19900                      # 199 рублей
+    assert body["positions"][0]["price"] == 19900
+    assert body["amount"] == sum(p["price"] * p["quantity"] for p in body["positions"])
+    assert body["currency"] == "RUB"
+    assert body["clientParams"]["clientId"] == "user-1"
+    assert body["notificationUrl"].endswith("/api/webhook/getplatinum")
+
+    # Ключ передаётся заголовком, а не в теле
+    assert sent["headers"]["Authorization"] == "Bearer " + "f" * 64
+    assert "f" * 64 not in json.dumps(body)
+
+    assert result["confirmation"]["confirmation_url"] == "https://pay/x"
 
 
 def test_getplatinum_terminal_is_ours_by_default():
@@ -616,54 +661,6 @@ def test_payment_diagnostics_name_the_real_problem():
         os.environ.update(saved)
 
 
-def test_signature_formula_is_found_from_a_real_notice():
-    """
-    Формулу подписи можно не знать заранее -- её выдаёт первое уведомление.
-
-    Точную формулу GetPlatinum для версии 2 прочитать не удалось: их
-    сайт закрыт сетевой политикой. Но угадывать и не нужно: когда
-    приходит настоящее уведомление с настоящей подписью, перебор ходовых
-    способов находит тот, при котором подпись сходится.
-    """
-    from web import billing
-
-    secret = "секрет-магазина"
-    payload = {"terminal": "153777", "order_id": "a1b2c3", "amount": "19.00",
-               "status": "paid"}
-
-    for scheme in billing.SCHEMES:
-        for fields in (("terminal", "order_id", "amount", "status"),
-                       ("order_id", "amount")):
-            signature = billing.make_signature(payload, fields, secret, scheme)
-            found = billing.detect_scheme(
-                payload, signature, secret, billing.field_guesses(payload)
-            )
-            assert (scheme, fields) in found, (scheme, fields)
-
-    # Чужая подпись не подходит ни под одну формулу
-    assert not billing.detect_scheme(
-        payload, "0" * 64, secret, billing.field_guesses(payload)
-    )
-
-
-def test_signature_field_never_signs_itself():
-    """
-    Сама подпись в подписываемую строку входить не может.
-
-    Иначе её нельзя было бы вычислить: чтобы посчитать подпись, нужна
-    подпись. Проверяем, что служебные ключи из перебора исключены.
-    """
-    from web import billing
-
-    payload = {"terminal": "1", "amount": "19", "signature": "abc",
-               "sign": "x", "hash": "y", "version": "2"}
-    for fields in billing.field_guesses(payload):
-        assert "signature" not in fields
-        assert "sign" not in fields
-        assert "hash" not in fields
-        assert "version" not in fields
-
-
 def test_rejected_notices_are_kept_for_diagnosis(tmp_path):
     """
     Отвергнутое уведомление важнее принятого.
@@ -786,7 +783,7 @@ def test_failed_payment_says_what_went_wrong(tmp_path, monkeypatch):
     import web.app as app_module
     from web import billing
 
-    def refuse(self, user_id, amount, return_url):
+    def refuse(self, user_id, amount, return_url, **extra):
         raise billing.PaymentError(
             "Не удалось соединиться с https://api.getplatinum.ru/...: имя не найдено",
             {"адрес": "https://api.getplatinum.ru/...", "причина": "имя не найдено"},
@@ -838,7 +835,7 @@ def test_a_repeated_notice_credits_only_once(tmp_path, monkeypatch):
         user = app_module.storage.ensure_user(None)
         app_module.storage.create_payment(user.id, 19.0, "zakaz-1", plan="single")
 
-        body = b'{"order_id": "zakaz-1", "status": "paid", "amount": "19.00"}'
+        body = b'{"notificationType": 1, "dealId": "zakaz-1", "isSuccess": true}'
         checksum = hmac.new(key.encode(), body, hashlib.sha256).hexdigest().upper()
         headers = {"X-Checksum": checksum, "Content-Type": "application/json"}
 
@@ -853,7 +850,8 @@ def test_a_repeated_notice_credits_only_once(tmp_path, monkeypatch):
         assert any("повтор" in r for r in reasons)
 
         # Отменённое уведомление начислений не даёт вовсе
-        cancelled = json.dumps({"order_id": "zakaz-1", "status": "canceled"}).encode()
+        cancelled = json.dumps({"notificationType": 1, "dealId": "zakaz-1",
+                                "isSuccess": False}).encode()
         client.post("/api/webhook/getplatinum", content=cancelled, headers={
             "X-Checksum": hmac.new(key.encode(), cancelled, hashlib.sha256)
             .hexdigest().upper()})
