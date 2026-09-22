@@ -1,0 +1,48 @@
+name: Проверка naslux.ru
+
+# Идёт с инфраструктуры GitHub, не из облачной сессии Claude -- у той
+# исходящий доступ ограничен списком разрешённых доменов, и naslux.ru в
+# него не входит (проверено на живой ошибке EGRESS_BLOCKED). Здесь такого
+# ограничения нет: обычный внешний HTTPS-запрос.
+on:
+  schedule:
+    - cron: "0 */4 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: GET /api/health
+        run: |
+          set -euo pipefail
+
+          if [ -z "${NASLUX_HEALTH_TOKEN:-}" ]; then
+            echo "::error::Секрет NASLUX_HEALTH_TOKEN не задан в настройках репозитория"
+            echo "  (Settings -> Secrets and variables -> Actions -> New repository secret)"
+            exit 1
+          fi
+
+          response="$(curl -sS -w '\n%{http_code}' \
+            -H "Authorization: Bearer ${NASLUX_HEALTH_TOKEN}" \
+            https://naslux.ru/api/health)"
+          code="$(echo "$response" | tail -n1)"
+          body="$(echo "$response" | sed '$d')"
+          echo "$body" | jq .
+
+          if [ "$code" != "200" ]; then
+            echo "::error::/api/health ответил HTTP $code"
+            exit 1
+          fi
+
+          ready="$(echo "$body" | jq -r '.оплата."готов принимать оплату"')"
+          if [ "$ready" != "true" ]; then
+            echo "::error::Оплата не настроена: $(echo "$body" | jq -c .оплата)"
+            exit 1
+          fi
+
+          total="$(echo "$body" | jq -r '.уведомлений_за_последние')"
+          rejected="$(echo "$body" | jq -r '.из_них_отклонено')"
+          echo "Отклонённых уведомлений: $rejected из $total (последние 20)"
+        env:
+          NASLUX_HEALTH_TOKEN: ${{ secrets.NASLUX_HEALTH_TOKEN }}
