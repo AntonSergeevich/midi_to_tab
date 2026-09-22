@@ -67,8 +67,10 @@ DEFAULT_QUALITY = "быстро"
 # model with a longer segment than it was trained for. Maximum segment
 # is: 7.8"). Значение 15 здесь стояло до этой проверки и на деле никогда
 # не срабатывало -- бралось только в настольном GUI (midi2tab/gui.py),
-# веб-сервис separate() не вызывает вовсе. 7.0 -- с запасом под лимит.
-SEGMENT = float(os.environ.get("MIDI2TAB_SEGMENT", "7"))
+# веб-сервис separate() не вызывает вовсе. 7 -- с запасом под лимит.
+# Именно int, а не float: у самого demucs.separate флаг --segment
+# типизирован как int, и "7.0" он не примет ("invalid int value").
+SEGMENT = int(os.environ.get("MIDI2TAB_SEGMENT", "7"))
 
 
 @dataclass
