@@ -395,7 +395,7 @@ class GetPlatinumProvider(PaymentProvider):
 
     def create_payment(self, user_id: str, amount: float, return_url: str,
                        title: str = "", notify_url: str = "",
-                       email: str = "") -> dict:
+                       email: str = "", fail_url: str = "") -> dict:
         if not self.configured():
             raise PaymentError(
                 "GetPlatinum не настроен: нет GETPLATINUM_SECRET_KEY.",
@@ -426,8 +426,13 @@ class GetPlatinumProvider(PaymentProvider):
             }],
             "clientParams": {"clientId": user_id, **({"email": email} if email else {})},
             "notificationUrl": notify_url,
+            # Раньше оба адреса совпадали, и неудачная оплата возвращала
+            # человека туда же, куда удачная, -- "перекинуло на сайт"
+            # выглядело как успех. Редирект сам по себе оплату не
+            # подтверждает (это делает только уведомление), но хотя бы
+            # честно говорит, что форма оплаты закрылась с отказом.
             "successUrl": return_url,
-            "failUrl": return_url,
+            "failUrl": fail_url or return_url,
         }
 
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -520,6 +525,17 @@ class GetPlatinumProvider(PaymentProvider):
         deal_id = payload.get("dealId")
         if not deal_id:
             return None
+        # На один notificationUrl приходят уведомления РАЗНЫХ типов, и
+        # isSuccess у них значит разное. Тип 7 ("заказ создан") приходит
+        # сразу после создания заказа и по спецификации ВСЕГДА несёт
+        # isSuccess=false -- оплаты ещё не было. Раньше это читалось как
+        # "оплата не прошла", и каждый платёж помечался неудавшимся ещё до
+        # того, как человек открыл форму. Исход оплаты -- только тип 1.
+        kind = payload.get("notificationType")
+        if kind == 7:
+            return str(deal_id), "created"
+        if kind not in (None, 1):
+            return str(deal_id), f"type-{kind}"
         success = payload.get("isSuccess")
         if success is None:
             return None

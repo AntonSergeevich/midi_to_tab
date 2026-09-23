@@ -986,6 +986,65 @@ def test_topup_webhook_credits_exact_amount_and_only_once(tmp_path, monkeypatch)
         assert app_module.storage.user(user.id).balance == 350.0
 
 
+def test_deal_created_notice_does_not_fail_the_payment(tmp_path, monkeypatch):
+    """
+    Регрессия с живого сайта: за неделю три оплаты -- и все помечены "не
+    прошёл", а три уведомления отвергнуты как "платёж не найден".
+
+    GetPlatinum шлёт на тот же адрес уведомление типа 7 "заказ создан" с
+    isSuccess=false (по спецификации -- всегда) и шлёт его СРАЗУ, пока
+    платёж ещё не записан у нас. Оно читалось как отказ оплаты. Статус
+    меняет только тип 1, а "неудача" не перетирает уже зачисленное --
+    иначе повтор успеха начислил бы второй раз.
+    """
+    import hashlib
+    import hmac
+    import json
+    import sys
+
+    key = "f" * 64
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("PAYMENT_PROVIDER", "getplatinum")
+    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", key)
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    def send(client, **fields):
+        body = json.dumps(fields).encode()
+        sign = hmac.new(key.encode(), body, hashlib.sha256).hexdigest().upper()
+        return client.post("/api/webhook/getplatinum", content=body,
+                           headers={"X-Checksum": sign, "Content-Type": "application/json"})
+
+    with TestClient(app_module.app) as client:
+        store = app_module.storage
+        user = store.ensure_user(None)
+
+        # "Заказ создан" обгоняет запись платежа -- это не ошибка
+        assert send(client, notificationType=7, dealId="deal-1",
+                    isSuccess=False).status_code == 200
+
+        store.create_payment(user.id, 50.0, "deal-1", plan="topup")
+        assert send(client, notificationType=7, dealId="deal-1",
+                    isSuccess=False).status_code == 200
+        assert store.payment_by_provider("deal-1")["status"] == "pending"
+
+        assert send(client, notificationType=1, dealId="deal-1",
+                    isSuccess=True).status_code == 200
+        assert store.payment_by_provider("deal-1")["status"] == "succeeded"
+        assert store.user(user.id).balance == 50.0
+
+        # Неудача после успеха не перетирает его, повтор успеха не начисляет
+        send(client, notificationType=1, dealId="deal-1", isSuccess=False)
+        send(client, notificationType=1, dealId="deal-1", isSuccess=True)
+        assert store.payment_by_provider("deal-1")["status"] == "succeeded"
+        assert store.user(user.id).balance == 50.0
+
+        assert not any(n["reason"] == "платёж не найден" for n in store.notices())
+
+
 def test_unlimited_owner_sees_balance_and_payment_history(tmp_path, monkeypatch):
     """
     Регрессия с живого сайта: владелец с безлимитом пополнил баланс на

@@ -281,8 +281,16 @@ if (invite) {
 // страницу и не понимал, дошли ли деньги. Убираем ?paid=1 из адресной
 // строки сразу, чтобы обновление страницы не повторяло проверку.
 async function confirmPayment() {
-  if (new URLSearchParams(location.search).get('paid') !== '1') return;
+  const paid = new URLSearchParams(location.search).get('paid');
+  if (paid !== '1' && paid !== '0') return;
   history.replaceState(null, '', location.pathname);
+  // ?paid=0 -- платёжная форма закрылась с отказом (failUrl). Раньше
+  // отказ возвращал на тот же адрес, что и успех, и выглядел как оплата.
+  if (paid === '0') {
+    $('msg').innerHTML = '<span class="bad">Оплата не прошла — деньги не списаны. '
+      + 'Можно попробовать ещё раз или другой картой.</span>';
+    return;
+  }
 
   // Сравниваем ДЕНЬГИ, а не вид доступа: раньше здесь стояло
   // "|| me.unlimited", и у безлимитного владельца проверка сразу

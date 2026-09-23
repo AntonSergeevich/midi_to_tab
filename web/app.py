@@ -1117,6 +1117,7 @@ def _start_payment(request: Request, user, amount: float, title: str, plan: str)
             title=title,
             notify_url=f"{base}/api/webhook/{gateway.name}",
             email=user.email or "",
+            fail_url=f"{base}/?paid=0",
         )
     except billing.PaymentError as error:
         # Неудачную попытку сохраняем наравне с уведомлениями: по ней
@@ -1249,13 +1250,26 @@ async def api_webhook(gateway_name: str, request: Request):
         )
         raise HTTPException(401, "Подпись уведомления не сошлась")
     provider_id, status = verified
+    if status not in ("succeeded", "failed"):
+        # Уведомление не про исход оплаты -- например, "заказ создан".
+        # Статус платежа оно не меняет, и ищем платёж не раньше исхода:
+        # "заказ создан" приходит, пока мы ещё не успели записать платёж
+        # к себе, и раньше отвергалось как "платёж не найден".
+        storage.save_notice(gateway_name, payload, True,
+                            "заказ создан, ждём оплаты" if status == "created"
+                            else f"уведомление не об оплате ({status})")
+        return {"ok": True}
     record = storage.payment_by_provider(provider_id)
     if not record:
         storage.save_notice(gateway_name, payload, False, "платёж не найден")
         raise HTTPException(404, "Платёж не найден")
     if status != "succeeded":
         storage.save_notice(gateway_name, payload, True, status)
-        storage.set_payment_status(record["id"], status)
+        # Уже зачисленный платёж "неудачей" не перетираем: иначе повтор
+        # успешного уведомления после неё начислил бы второй раз
+        # (mark_paid_once смотрит именно на статус).
+        if record.get("status") != "succeeded":
+            storage.set_payment_status(record["id"], status)
         return {"ok": True}
 
     # Начисляем ровно один раз. Платёжные сервисы повторяют уведомления,
