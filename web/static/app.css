@@ -358,6 +358,10 @@ button.primary:hover:not(:disabled) { background: var(--accent-hi); }
 .choice b { display: block; font-size: 15px; margin-bottom: 4px; }
 .choice small { color: var(--muted); font-size: 12px; line-height: 1.4; display: block; }
 .choice.busy { border-color: var(--accent); background: var(--panel); }
+.choice.selected {
+  border-color: var(--accent); background: var(--panel);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
 
 .tune { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
 .tune summary { cursor: pointer; color: var(--text); font-size: 14px; user-select: none; }

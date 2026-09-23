@@ -467,6 +467,99 @@ def test_subscription_plan_grants_days_not_credits(store):
     assert user.credits == 0
 
 
+# ------------------------------------------------------- баланс (пополнение)
+
+
+def test_topup_credits_exact_amount_paid(store):
+    """
+    Пополнение зачисляет РОВНО ту сумму, что пришла в оплате -- у неё нет
+    фиксированной цены, как у тарифов в PLANS.
+    """
+    from web import billing
+
+    user = store.ensure_user(None)
+    billing.apply_plan(store, user.id, "topup", amount=350.0)
+    user = store.user(user.id)
+    assert user.balance == 350.0
+    assert user.credits == 0
+    assert not user.subscribed
+
+
+def test_balance_unblocks_after_free_and_credits_run_out(store):
+    from web import billing
+
+    user = store.ensure_user(None)
+    for _ in range(billing.FREE_SONGS):
+        billing.consume(store, user)
+        user = store.user(user.id)
+    assert not billing.check_access(user).allowed
+
+    billing.apply_plan(store, user.id, "topup", amount=billing.PRICE_SINGLE_RUB)
+    user = store.user(user.id)
+    access = billing.check_access(user)
+    assert access.allowed
+    assert "Баланс" in access.reason
+
+
+def test_consume_spends_balance_only_after_free_and_credits(store):
+    """Порядок списания: бесплатные -> купленные треки -> баланс."""
+    from web import billing
+
+    user = store.ensure_user(None)
+    billing.apply_plan(store, user.id, "single")            # 1 купленный трек
+    billing.apply_plan(store, user.id, "topup", amount=100.0)
+    user = store.user(user.id)
+
+    for _ in range(billing.FREE_SONGS):
+        billing.consume(store, user)                        # тратим бесплатные
+        user = store.user(user.id)
+    assert user.credits == 1 and user.balance == 100.0
+
+    billing.consume(store, user)                             # тратим купленный
+    user = store.user(user.id)
+    assert user.credits == 0 and user.balance == 100.0
+
+    billing.consume(store, user)                             # и только теперь баланс
+    user = store.user(user.id)
+    assert user.balance == 100.0 - billing.PRICE_SINGLE_RUB
+
+
+def test_spend_balance_never_goes_negative_under_race(store):
+    """
+    Регрессия по образцу mark_paid_once: два одновременных списания не
+    должны оба пройти и увести баланс в минус.
+    """
+    user = store.ensure_user(None)
+    store.add_balance(user.id, 19.0)
+
+    first = store.spend_balance(user.id, 19.0)
+    second = store.spend_balance(user.id, 19.0)
+
+    assert first is True
+    assert second is False
+    assert store.user(user.id).balance == 0.0
+
+
+def test_topup_amount_must_be_within_bounds(tmp_path, monkeypatch):
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        client.post("/api/auth/register",
+                    data={"email": "wallet@naslux.ru", "password": "длинный-пароль-9"})
+        too_small = client.post("/api/topup", data={"amount": "1"})
+        assert too_small.status_code == 400
+
+        too_big = client.post("/api/topup", data={"amount": "999999"})
+        assert too_big.status_code == 400
+
+
 def test_payment_remembers_plan(store):
     user = store.ensure_user(None)
     store.create_payment(user.id, 19.0, "prov-1", plan="single")
@@ -856,6 +949,41 @@ def test_a_repeated_notice_credits_only_once(tmp_path, monkeypatch):
             "X-Checksum": hmac.new(key.encode(), cancelled, hashlib.sha256)
             .hexdigest().upper()})
         assert app_module.storage.user(user.id).credits == 1
+
+
+def test_topup_webhook_credits_exact_amount_and_only_once(tmp_path, monkeypatch):
+    """
+    Пополнение через настоящий вебхук: зачисляется именно оплаченная
+    сумма (не фиксированная цена тарифа), и повтор уведомления не
+    удваивает баланс -- та же защита, что и для купленных треков.
+    """
+    import hashlib
+    import hmac
+    import sys
+
+    key = "f" * 64
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("PAYMENT_PROVIDER", "getplatinum")
+    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", key)
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        app_module.storage.create_payment(user.id, 350.0, "popolnenie-1", plan="topup")
+
+        body = b'{"notificationType": 1, "dealId": "popolnenie-1", "isSuccess": true}'
+        checksum = hmac.new(key.encode(), body, hashlib.sha256).hexdigest().upper()
+        headers = {"X-Checksum": checksum, "Content-Type": "application/json"}
+
+        for _ in range(3):
+            assert client.post("/api/webhook/getplatinum",
+                               content=body, headers=headers).status_code == 200
+
+        assert app_module.storage.user(user.id).balance == 350.0
 
 
 # --------------------------------------------------------------- мониторинг

@@ -25,6 +25,13 @@ PRICE_RUB = 199.0         # подписка, рублей в месяц
 PRICE_SINGLE_RUB = 19.0   # один трек
 PERIOD_DAYS = 30
 
+# Пополнение баланса произвольной суммой -- третий способ оплаты рядом с
+# разовым треком и подпиской: деньги списываются по цене трека в момент
+# запуска разбора, а не сразу при пополнении. Границы -- чтобы не пополнить
+# по опечатке на копейку или на сумму, которую потом трудно вернуть.
+TOPUP_MIN_RUB = 50.0
+TOPUP_MAX_RUB = 10000.0
+
 # Подписка окупается примерно с одиннадцатого трека в месяц -- разница
 # достаточная, чтобы постоянным пользователям была выгодна именно она,
 # и при этом разовая покупка не выглядела наказанием.
@@ -44,6 +51,7 @@ class Access:
     subscribed: bool
     paid_until: float | None = None
     credits: int = 0
+    balance: float = 0.0
 
     def as_dict(self) -> dict:
         return {
@@ -53,9 +61,12 @@ class Access:
             "subscribed": self.subscribed,
             "paidUntil": self.paid_until,
             "credits": self.credits,
+            "balance": self.balance,
             "price": PRICE_RUB,
             "priceSingle": PRICE_SINGLE_RUB,
             "freeSongs": FREE_SONGS,
+            "topupMin": TOPUP_MIN_RUB,
+            "topupMax": TOPUP_MAX_RUB,
         }
 
 
@@ -74,25 +85,30 @@ def check_access(user: User) -> Access:
             FREE_SONGS,
             True,
             credits=user.credits,
+            balance=user.balance,
         )
     if user.subscribed:
         return Access(
             True, "Подписка активна", user.free_left(FREE_SONGS), True,
-            user.paid_until, user.credits,
+            user.paid_until, user.credits, balance=user.balance,
         )
     left = user.free_left(FREE_SONGS)
     if left > 0:
         return Access(True, f"Пробный доступ: осталось песен — {left}", left, False,
-                      credits=user.credits)
+                      credits=user.credits, balance=user.balance)
     if user.credits > 0:
         return Access(True, f"Оплачено треков: {user.credits}", 0, False,
-                      credits=user.credits)
+                      credits=user.credits, balance=user.balance)
+    if user.balance >= PRICE_SINGLE_RUB:
+        return Access(True, f"Баланс: {user.balance:.0f} ₽", 0, False,
+                      credits=user.credits, balance=user.balance)
     return Access(
         False,
-        f"Пробные песни закончились. Подписка — {PRICE_RUB:.0f} ₽ в месяц "
-        f"или один трек за {PRICE_SINGLE_RUB:.0f} ₽.",
+        f"Пробные песни закончились. Подписка — {PRICE_RUB:.0f} ₽ в месяц, "
+        f"один трек за {PRICE_SINGLE_RUB:.0f} ₽, или пополните баланс.",
         0,
         False,
+        balance=user.balance,
     )
 
 
@@ -101,8 +117,10 @@ def consume(storage: Storage, user: User) -> None:
     Списать одну песню.
 
     Порядок: у безлимитных и подписчиков не списывается ничего; дальше
-    сначала расходуются бесплатные пробы и только потом оплаченные
-    поштучно треки -- иначе купленный трек сгорал бы раньше бесплатного.
+    сначала расходуются бесплатные пробы, потом оплаченные поштучно
+    треки, и только потом баланс -- иначе уже купленный трек или
+    пополнение сгорали бы раньше бесплатного и друг друга не в том
+    порядке, в котором человек за них платил.
     """
     if user.unlimited or user.subscribed:
         return
@@ -110,10 +128,21 @@ def consume(storage: Storage, user: User) -> None:
         storage.spend_free(user.id)
     elif user.credits > 0:
         storage.spend_credit(user.id)
+    elif user.balance >= PRICE_SINGLE_RUB:
+        storage.spend_balance(user.id, PRICE_SINGLE_RUB)
 
 
-def apply_plan(storage: Storage, user_id: str, plan: str) -> None:
-    """Выдать оплаченное: либо дни подписки, либо треки."""
+def apply_plan(storage: Storage, user_id: str, plan: str, amount: float | None = None) -> None:
+    """
+    Выдать оплаченное: дни подписки, поштучные треки или пополнение баланса.
+
+    Пополнение -- особый случай: суммы произвольные, в PLANS их нет, и
+    зачисляется ровно то, что реально пришло в оплате (amount), а не
+    какая-то заранее заданная цена.
+    """
+    if plan == "topup":
+        storage.add_balance(user_id, amount or 0.0)
+        return
     spec = PLANS.get(plan, PLANS["month"])
     if spec["credits"]:
         storage.add_credits(user_id, spec["credits"])

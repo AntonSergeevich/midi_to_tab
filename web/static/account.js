@@ -36,6 +36,7 @@ async function boot() {
     $('plan').textContent = me.subscribed ? 'Подписка активна'
       : me.unlimited ? 'Безлимитный доступ'
       : me.credits > 0 ? `Оплачено треков: ${me.credits}`
+      : me.balance > 0 ? `Баланс: ${me.balance} ₽`
       : `Бесплатно песен: ${me.freeLeft} из ${me.freeSongs}`;
   }
   if (!me.mailReady) {
@@ -183,14 +184,20 @@ async function loadBilling(me) {
       ? `Подписка активна до ${new Date(me.paidUntil * 1000).toLocaleDateString('ru-RU')}.`
       : me.credits > 0
         ? `Оплачено треков: ${me.credits}.`
-        : `Бесплатных песен осталось: ${me.freeLeft} из ${me.freeSongs}.`;
+        : me.balance > 0
+          ? `Баланс: ${me.balance} ₽. Спишется по ${me.priceSingle} ₽ за трек.`
+          : `Бесплатных песен осталось: ${me.freeLeft} из ${me.freeSongs}.`;
 
+  // Клик отмечает вариант, платит отдельная кнопка ниже -- чтобы не
+  // улетать на оплату по первому касанию. Пополнение произвольной
+  // суммой -- на странице тарифов: там нужно поле для суммы, дублировать
+  // его тут смысла нет.
   $('plans').innerHTML = `
-    <button class="choice" data-plan="single">
+    <button class="choice" type="button" data-plan="single">
       <b>${me.priceSingle} ₽ — один трек</b>
       <small>разово, без подписки</small>
     </button>
-    <button class="choice" data-plan="month">
+    <button class="choice" type="button" data-plan="month">
       <b>${me.price} ₽ — месяц без ограничений</b>
       <small>выгоднее с одиннадцатого трека</small>
     </button>`;
@@ -202,21 +209,33 @@ async function loadBilling(me) {
     $('plans').querySelectorAll('button').forEach((b) => (b.disabled = true));
     return;
   }
+
+  let billingPlan = null;
   $('plans').querySelectorAll('[data-plan]').forEach((button) => {
-    button.onclick = async () => {
-      button.classList.add('busy');
-      const form = new FormData();
-      form.append('plan', button.dataset.plan);
-      const response = await fetch('/api/subscribe', { method: 'POST', body: form });
-      const data = await response.json();
-      button.classList.remove('busy');
-      if (!response.ok) {
-        $('billingMsg').innerHTML = `<span class="bad">${data.detail}</span>`;
-        return;
-      }
-      if (data.paymentUrl) location.href = data.paymentUrl;
+    button.onclick = () => {
+      $('plans').querySelectorAll('[data-plan]').forEach((b) => b.classList.remove('selected'));
+      button.classList.add('selected');
+      billingPlan = button.dataset.plan;
+      const pay = $('billingPay');
+      pay.style.display = 'block';
+      pay.textContent = `Оплатить ${button.querySelector('b').textContent}`;
     };
   });
+  $('billingPay').onclick = async () => {
+    if (!billingPlan) return;
+    const button = $('billingPay');
+    button.classList.add('busy');
+    const form = new FormData();
+    form.append('plan', billingPlan);
+    const response = await fetch('/api/subscribe', { method: 'POST', body: form });
+    const data = await response.json();
+    button.classList.remove('busy');
+    if (!response.ok) {
+      $('billingMsg').innerHTML = `<span class="bad">${data.detail}</span>`;
+      return;
+    }
+    if (data.paymentUrl) location.href = data.paymentUrl;
+  };
 }
 
 // ------------------------------------------------------------ приглашения

@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin     INTEGER NOT NULL DEFAULT 0,
     unlimited    INTEGER NOT NULL DEFAULT 0,
     note         TEXT,
-    credits      INTEGER NOT NULL DEFAULT 0
+    credits      INTEGER NOT NULL DEFAULT 0,
+    balance      REAL NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS jobs (
@@ -114,6 +115,7 @@ class User:
     unlimited: bool = False      # безлимит: друзья, тестировщики, сам владелец
     note: str = ""               # кто это -- видно только в админке
     credits: int = 0             # оплаченные поштучно треки
+    balance: float = 0.0         # пополненный баланс, рублей -- списывается за разбор
     password_hash: str | None = None
     registered_at: float | None = None
 
@@ -177,6 +179,7 @@ class Storage:
             ("credits", "INTEGER NOT NULL DEFAULT 0"),
             ("password_hash", "TEXT"),
             ("registered_at", "REAL"),
+            ("balance", "REAL NOT NULL DEFAULT 0"),
         ):
             if column not in existing:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
@@ -222,6 +225,7 @@ class Storage:
             unlimited=bool(row["unlimited"]),
             note=row["note"] or "",
             credits=row["credits"] or 0,
+            balance=row["balance"] or 0.0,
             password_hash=row["password_hash"],
             registered_at=row["registered_at"],
         )
@@ -238,6 +242,28 @@ class Storage:
             conn.execute(
                 "UPDATE users SET credits = MAX(0, credits - 1) WHERE id = ?", (user_id,)
             )
+
+    def add_balance(self, user_id: str, amount: float) -> None:
+        """Пополнить баланс на произвольную сумму -- ровно ту, что пришла в оплате."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE users SET balance = balance + ? WHERE id = ?", (amount, user_id)
+            )
+
+    def spend_balance(self, user_id: str, amount: float) -> bool:
+        """
+        Списать с баланса ровно за один разбор -- и сказать, хватило ли.
+
+        Условие на текущий остаток в том же запросе, что и списание: два
+        одновременных запуска разбора не должны оба увидеть "баланса
+        хватает" и оба списать, уведя баланс в минус.
+        """
+        with self._connect() as conn:
+            changed = conn.execute(
+                "UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?",
+                (amount, user_id, amount),
+            ).rowcount
+        return bool(changed)
 
     # ------------------------------------------------------ учётные записи
 

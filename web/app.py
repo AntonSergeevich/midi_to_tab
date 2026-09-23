@@ -695,6 +695,8 @@ def pricing_page() -> HTMLResponse:
     return page("pricing.html", {
         "price": f"{billing.PRICE_RUB:.0f}",
         "priceSingle": f"{billing.PRICE_SINGLE_RUB:.0f}",
+        "topupMin": f"{billing.TOPUP_MIN_RUB:.0f}",
+        "topupMax": f"{billing.TOPUP_MAX_RUB:.0f}",
     })
 
 
@@ -1061,12 +1063,12 @@ def api_file(job_id: str, kind: str):
 
 # ------------------------------------------------------------------ оплата
 
-@app.post("/api/subscribe")
-def api_subscribe(request: Request, plan: str = Form("month")):
-    """Создать платёж: подписка на месяц или один трек."""
-    if plan not in billing.PLANS:
-        raise HTTPException(400, "Неизвестный тариф")
-    user = current_user(request)
+def _start_payment(request: Request, user, amount: float, title: str, plan: str) -> dict:
+    """
+    Общая часть создания платежа: подписка, разовый трек и пополнение
+    баланса отличаются только суммой, названием и тем, что зачислится
+    по итогу (plan) -- сам разговор с платёжным шлюзом у них один.
+    """
     gateway = billing.provider()
     if not gateway.configured():
         raise HTTPException(
@@ -1074,12 +1076,11 @@ def api_subscribe(request: Request, plan: str = Form("month")):
             "Приём оплаты пока не подключён. Нужны реквизиты магазина "
             "в переменных окружения, см. web/README.md.",
         )
-    spec = billing.PLANS[plan]
     base = str(request.base_url).rstrip("/")
     try:
         created = gateway.create_payment(
-            user.id, spec["price"], f"{base}/?paid=1",
-            title=spec["title"],
+            user.id, amount, f"{base}/?paid=1",
+            title=title,
             notify_url=f"{base}/api/webhook/{gateway.name}",
             email=user.email or "",
         )
@@ -1100,9 +1101,40 @@ def api_subscribe(request: Request, plan: str = Form("month")):
             502, f"Платёжный сервис не ответил как ожидалось: {error}"
         ) from error
 
-    storage.create_payment(user.id, spec["price"], created.get("id"), plan=plan)
+    storage.create_payment(user.id, amount, created.get("id"), plan=plan)
     url = (created.get("confirmation") or {}).get("confirmation_url")
     return {"paymentUrl": url, "paymentId": created.get("id"), "plan": plan}
+
+
+@app.post("/api/subscribe")
+def api_subscribe(request: Request, plan: str = Form("month")):
+    """Создать платёж: подписка на месяц или один трек."""
+    if plan not in billing.PLANS:
+        raise HTTPException(400, "Неизвестный тариф")
+    user = current_user(request)
+    spec = billing.PLANS[plan]
+    return _start_payment(request, user, spec["price"], spec["title"], plan)
+
+
+@app.post("/api/topup")
+def api_topup(request: Request, amount: float = Form(...)):
+    """
+    Пополнить баланс на любую сумму в разрешённых границах.
+
+    Деньги ложатся на счёт сразу по оплате, но не тратятся: спишутся
+    ровно по цене трека, когда человек реально запустит разбор песни
+    (billing.consume), а не в момент пополнения.
+    """
+    if not (billing.TOPUP_MIN_RUB <= amount <= billing.TOPUP_MAX_RUB):
+        raise HTTPException(
+            400,
+            f"Сумма пополнения — от {billing.TOPUP_MIN_RUB:.0f} "
+            f"до {billing.TOPUP_MAX_RUB:.0f} ₽",
+        )
+    user = current_user(request)
+    return _start_payment(
+        request, user, amount, f"Пополнение баланса на {amount:.0f} ₽", "topup"
+    )
 
 
 @app.post("/api/webhook/{gateway_name}")
@@ -1167,7 +1199,9 @@ async def api_webhook(gateway_name: str, request: Request):
     # платёж два трека или два месяца подписки -- уже нет.
     first_time = storage.mark_paid_once(record["id"])
     if first_time:
-        billing.apply_plan(storage, record["user_id"], record.get("plan") or "month")
+        billing.apply_plan(
+            storage, record["user_id"], record.get("plan") or "month", record.get("amount")
+        )
     storage.save_notice(
         gateway_name, payload, True,
         "succeeded" if first_time else "succeeded (повтор, начислять нечего)",

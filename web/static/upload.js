@@ -133,22 +133,43 @@ function blocked() {
     return;
   }
   // Два тарифа рядом: разовый для «попробовать ещё одну»,
-  // подписка для тех, кто разбирает песни постоянно.
+  // подписка для тех, кто разбирает песни постоянно. Клик отмечает
+  // вариант, а платит отдельная кнопка ниже -- чтобы не улетать на
+  // оплату по первому касанию и можно было передумать.
   $('msg').innerHTML = `
     <div class="bad" style="margin-bottom:12px">${me.reason}</div>
-    <div class="choices">
-      <button class="choice" data-plan="single">
+    <div class="choices" id="blockedPlans">
+      <button class="choice" type="button" data-plan="single">
         <b>${me.priceSingle} ₽ — один трек</b>
         <small>разово, без подписки</small>
       </button>
-      <button class="choice" data-plan="month">
+      <button class="choice" type="button" data-plan="month">
         <b>${me.price} ₽ — месяц без ограничений</b>
         <small>выгоднее с одиннадцатого трека</small>
       </button>
-    </div>`;
-  document.querySelectorAll('[data-plan]').forEach((button) => {
-    button.onclick = () => subscribe(button.dataset.plan, button);
+    </div>
+    <button id="blockedPay" class="choice" type="button"
+            style="display:none;text-align:center;font-weight:600;margin-top:12px;width:100%">
+      Оплатить
+    </button>
+    <p class="muted" style="margin-top:10px">
+      Или <a href="/pricing">пополните баланс на любую сумму</a> — спишется по
+      ${me.priceSingle} ₽, когда начнёте разбор.
+    </p>`;
+
+  let blockedPlan = null;
+  document.querySelectorAll('#blockedPlans [data-plan]').forEach((button) => {
+    button.onclick = () => {
+      document.querySelectorAll('#blockedPlans [data-plan]')
+        .forEach((b) => b.classList.remove('selected'));
+      button.classList.add('selected');
+      blockedPlan = button.dataset.plan;
+      const pay = $('blockedPay');
+      pay.style.display = 'block';
+      pay.textContent = `Оплатить ${button.querySelector('b').textContent}`;
+    };
   });
+  $('blockedPay').onclick = () => subscribe(blockedPlan, $('blockedPay'));
 }
 
 async function subscribe(plan, button) {
