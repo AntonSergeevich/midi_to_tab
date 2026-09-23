@@ -247,6 +247,31 @@ def api_admin_login(request: Request, key: str = Form(...)):
     return response
 
 
+def deployed_commit() -> str:
+    """
+    Какой коммит сейчас работает на сервере.
+
+    Без этого не проверить, доехал ли пуш: автодеплой может молча не
+    сработать (так и было -- вебхук отклонялся с 401), и сайт продолжал
+    работать на старом коде. Читается прямо из .git, без вызова git:
+    служба работает в режиме только-чтение, а файлы читать ей можно.
+    """
+    git = Path(__file__).resolve().parent.parent / ".git"
+    try:
+        head = (git / "HEAD").read_text().strip()
+        if not head.startswith("ref: "):
+            return head[:7]
+        ref = head[5:]
+        if (git / ref).is_file():
+            return (git / ref).read_text().strip()[:7]
+        for line in (git / "packed-refs").read_text().splitlines():
+            if line.endswith(" " + ref):
+                return line.split()[0][:7]
+    except OSError:
+        pass
+    return ""
+
+
 def require_health_token(request: Request) -> None:
     """Токен из заголовка -- посимвольно-постоянным сравнением, как ADMIN_KEY."""
     import secrets
@@ -277,6 +302,7 @@ def api_health(request: Request):
         "уведомлений_за_последние": len(recent),
         "из_них_отклонено": failed_recent,
         "время": time.time(),
+        "версия": deployed_commit(),
     }
 
 

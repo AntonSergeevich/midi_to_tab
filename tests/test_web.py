@@ -1105,6 +1105,16 @@ def test_health_reports_payment_status_and_recent_failures(tmp_path, monkeypatch
         assert payload["уведомлений_за_последние"] == 2
         assert payload["из_них_отклонено"] == 1
 
+        # По версии видно, доехал ли пуш до сервера: автодеплой может
+        # молча не сработать, а сайт -- работать на старом коде.
+        import subprocess
+
+        head = subprocess.run(["git", "rev-parse", "--short=7", "HEAD"],
+                              capture_output=True, text=True,
+                              cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        if head.returncode == 0:
+            assert payload["версия"] == head.stdout.strip()
+
 
 def test_no_route_is_registered_twice(tmp_path, monkeypatch):
     """
