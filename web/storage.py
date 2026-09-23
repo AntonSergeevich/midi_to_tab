@@ -184,6 +184,22 @@ class Storage:
             if column not in existing:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
 
+        # Починка данных после ошибки с уведомлением "заказ создан": оно
+        # приходило запоздалым повтором ПОСЛЕ "оплачено" и перетирало
+        # статус уже оплаченного и зачисленного платежа на "failed".
+        # Деньги при этом начислялись -- неверен только статус, поэтому
+        # здесь ничего не начисляется, только возвращается "succeeded"
+        # платежам, по которым провайдер прислал успешную оплату (тип 1).
+        # Повторный запуск ничего не меняет.
+        conn.execute(
+            "UPDATE payments SET status = 'succeeded'"
+            " WHERE status <> 'succeeded' AND provider_id IN ("
+            "   SELECT json_extract(body, '$.dealId') FROM notices"
+            "   WHERE json_valid(body)"
+            "     AND json_extract(body, '$.notificationType') = 1"
+            "     AND json_extract(body, '$.isSuccess') = 1)"
+        )
+
     @contextmanager
     def _connect(self):
         conn = sqlite3.connect(self.path, timeout=15)

@@ -1045,6 +1045,34 @@ def test_deal_created_notice_does_not_fail_the_payment(tmp_path, monkeypatch):
         assert not any(n["reason"] == "платёж не найден" for n in store.notices())
 
 
+def test_startup_repairs_status_of_payments_that_were_paid(tmp_path):
+    """
+    Данные, испорченные старой ошибкой: провайдер прислал "оплачено",
+    деньги зачислились, а запоздалый "заказ создан" перетёр статус на
+    "failed". При запуске статус возвращается -- и ничего не начисляется
+    повторно: деньги уже на счету.
+    """
+    from web.storage import Storage
+
+    path = str(tmp_path / "repair.db")
+    store = Storage(path)
+    user = store.ensure_user(None)
+    store.create_payment(user.id, 50.0, "deal-paid", plan="topup")
+    store.create_payment(user.id, 19.0, "deal-unpaid", plan="single")
+    store.add_balance(user.id, 50.0)
+    store.set_payment_status(store.payment_by_provider("deal-paid")["id"], "failed")
+    store.set_payment_status(store.payment_by_provider("deal-unpaid")["id"], "failed")
+    store.save_notice("getplatinum", {"notificationType": 1, "dealId": "deal-paid",
+                                      "isSuccess": True}, True, "succeeded")
+    store.save_notice("getplatinum", {"notificationType": 7, "dealId": "deal-unpaid",
+                                      "isSuccess": False}, True, "failed")
+
+    store = Storage(path)                       # как при перезапуске службы
+    assert store.payment_by_provider("deal-paid")["status"] == "succeeded"
+    assert store.payment_by_provider("deal-unpaid")["status"] == "failed"
+    assert store.user(user.id).balance == 50.0
+
+
 def test_unlimited_owner_sees_balance_and_payment_history(tmp_path, monkeypatch):
     """
     Регрессия с живого сайта: владелец с безлимитом пополнил баланс на
