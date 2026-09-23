@@ -613,6 +613,30 @@ def test_chord_shapes_match_the_ones_guitarists_play():
     assert best("A") == "x02220"
 
 
+def test_shapes_never_need_more_than_four_fingers_without_a_barre():
+    """
+    Без баррэ рука ставит не больше четырёх пальцев.
+
+    `shape.fingers <= MAX_FINGERS or barre else shape` раньше возвращал
+    `shape` в обеих ветках условия -- проверка ничего не отсеивала.
+    Например, для C в стандартном строе в тройку лучших попадала
+    растяжка (None, 3, 2, 5, 5, 3): пять пальцев и без баррэ, что рукой
+    не взять.
+    """
+    from midi2tab.chords import PITCH_CLASSES, TEMPLATES
+    from midi2tab.shapes import MAX_FINGERS, shapes_for
+    from midi2tab.tuning import TUNINGS, Fretboard
+
+    for tuning in TUNINGS.values():
+        board = Fretboard(tuning)
+        for root in PITCH_CLASSES:
+            for label, _ in TEMPLATES:
+                for shape in shapes_for(root + label, board, 20):
+                    assert shape.barre or shape.fingers <= MAX_FINGERS, (
+                        root + label, tuning, shape
+                    )
+
+
 def test_barre_is_not_drawn_over_an_open_string():
     """
     Баррэ прижимает ВСЕ струны на своём ладу.

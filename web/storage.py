@@ -252,12 +252,21 @@ class Storage:
                 "UPDATE users SET credits = credits + ? WHERE id = ?", (count, user_id)
             )
 
-    def spend_credit(self, user_id: str) -> None:
-        """Списать один оплаченный трек, не уходя ниже нуля."""
+    def spend_credit(self, user_id: str) -> bool:
+        """
+        Списать один оплаченный трек -- и сказать, был ли он.
+
+        Условие на остаток в том же запросе, что и списание, по тем же
+        соображениям, что и в spend_balance: два одновременных разбора не
+        должны оба увидеть "кредит есть" и списать по одному разу каждый,
+        потратив кредит дважды.
+        """
         with self._connect() as conn:
-            conn.execute(
-                "UPDATE users SET credits = MAX(0, credits - 1) WHERE id = ?", (user_id,)
-            )
+            changed = conn.execute(
+                "UPDATE users SET credits = credits - 1 WHERE id = ? AND credits > 0",
+                (user_id,),
+            ).rowcount
+        return bool(changed)
 
     def add_balance(self, user_id: str, amount: float) -> None:
         """Пополнить баланс на произвольную сумму -- ровно ту, что пришла в оплате."""
@@ -526,11 +535,21 @@ class Storage:
             conn.executemany("DELETE FROM jobs WHERE id = ?", [(i,) for i in ids])
         return ids
 
-    def spend_free(self, user_id: str) -> None:
+    def spend_free(self, user_id: str, limit: int) -> bool:
+        """
+        Списать одну пробную песню -- и сказать, была ли она.
+
+        Условие на счётчик в том же запросе, что и увеличение -- как в
+        spend_balance: без него два одновременных разбора оба видят
+        "лимит не исчерпан" и оба списывают пробную песню, отдавая одну
+        сверх положенного.
+        """
         with self._connect() as conn:
-            conn.execute(
-                "UPDATE users SET free_used = free_used + 1 WHERE id = ?", (user_id,)
-            )
+            changed = conn.execute(
+                "UPDATE users SET free_used = free_used + 1 WHERE id = ? AND free_used < ?",
+                (user_id, limit),
+            ).rowcount
+        return bool(changed)
 
     def set_flags(
         self,

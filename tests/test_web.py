@@ -158,6 +158,46 @@ def test_webhook_payload_parsing():
     assert gateway.verify_webhook({"object": {}}) is None
 
 
+def test_yookassa_webhook_does_not_trust_a_forged_status(monkeypatch):
+    """
+    ЮKassa не подписывает уведомление -- значит, verify() обязан
+    перепроверить исход у самой ЮKassa, а не поверить статусу из тела
+    запроса. Иначе платёж своего собственного id с телом
+    {"status": "succeeded"} мог бы прислать кто угодно.
+    """
+    from web import billing
+
+    monkeypatch.setenv("YOOKASSA_SHOP_ID", "shop1")
+    monkeypatch.setenv("YOOKASSA_SECRET_KEY", "secret1")
+    gateway = billing.YooKassaProvider()
+
+    def fake_pending(payment_id):
+        return "pending"
+
+    monkeypatch.setattr(gateway, "_confirmed_status", fake_pending)
+    forged = {"object": {"id": "p1", "status": "succeeded"}}
+    # Тело лжёт про "succeeded", но верят только ответу самой ЮKassa --
+    # он и приходит в результате, настоящий "pending", а не подделанный.
+    assert gateway.verify(b"{}", {}, forged) == ("p1", "pending")
+
+    def fake_succeeded(payment_id):
+        return "succeeded"
+
+    monkeypatch.setattr(gateway, "_confirmed_status", fake_succeeded)
+    assert gateway.verify(b"{}", {}, forged) == ("p1", "succeeded")
+
+
+def test_yookassa_webhook_refused_without_credentials(monkeypatch):
+    from web import billing
+
+    monkeypatch.delenv("YOOKASSA_SHOP_ID", raising=False)
+    monkeypatch.delenv("YOOKASSA_SECRET_KEY", raising=False)
+    gateway = billing.YooKassaProvider()
+    assert gateway.shop_id == "" and gateway.secret == ""
+    real = {"object": {"id": "p1", "status": "succeeded"}}
+    assert gateway.verify(b"{}", {}, real) is None
+
+
 # --------------------------------------------------------------- хранилище
 
 
@@ -538,6 +578,71 @@ def test_spend_balance_never_goes_negative_under_race(store):
     assert first is True
     assert second is False
     assert store.user(user.id).balance == 0.0
+
+
+def test_spend_free_never_exceeds_the_limit_under_race(store):
+    """
+    Та же гонка, что и у баланса, только для пробных песен.
+
+    `spend_free` раньше просто прибавляла к счётчику без условия на
+    текущее значение -- сколько бы запросов ни пришло одновременно с
+    последней оставшейся пробной песней, каждый её бы списал, и все
+    прошли бы бесплатно.
+    """
+    from web import billing
+
+    user = store.ensure_user(None)
+    for _ in range(billing.FREE_SONGS - 1):
+        assert store.spend_free(user.id, billing.FREE_SONGS) is True
+
+    first = store.spend_free(user.id, billing.FREE_SONGS)
+    second = store.spend_free(user.id, billing.FREE_SONGS)
+
+    assert first is True
+    assert second is False
+    assert store.user(user.id).free_used == billing.FREE_SONGS
+
+
+def test_spend_credit_never_goes_negative_under_race(store):
+    """Та же гонка для оплаченных поштучно треков."""
+    user = store.ensure_user(None)
+    store.add_credits(user.id, 1)
+
+    first = store.spend_credit(user.id)
+    second = store.spend_credit(user.id)
+
+    assert first is True
+    assert second is False
+    assert store.user(user.id).credits == 0
+
+
+def test_consume_falls_back_when_the_first_tier_loses_the_race(store):
+    """
+    consume() должен уметь пробовать следующий уровень, а не молча
+    списывать в никуда, когда снимок `user` устарел.
+
+    Один и тот же снимок пользователя (с одним кредитом и запасом на
+    балансе) передаётся в consume() дважды подряд -- как если бы второй
+    запрос начал обрабатываться до того, как первый успел обновить
+    состояние. Первый вызов должен потратить кредит, второй -- откатиться
+    на баланс, а не решить по устаревшему credits=1, что списывать нечего.
+    """
+    from web import billing
+
+    user = store.ensure_user(None)
+    for _ in range(billing.FREE_SONGS):
+        store.spend_free(user.id, billing.FREE_SONGS)
+    billing.apply_plan(store, user.id, "single")
+    store.add_balance(user.id, billing.PRICE_SINGLE_RUB)
+    stale = store.user(user.id)
+    assert stale.credits == 1
+
+    assert billing.consume(store, stale) is True
+    assert billing.consume(store, stale) is True
+
+    fresh = store.user(user.id)
+    assert fresh.credits == 0
+    assert fresh.balance == 0.0
 
 
 def test_topup_amount_must_be_within_bounds(tmp_path, monkeypatch):

@@ -112,24 +112,35 @@ def check_access(user: User) -> Access:
     )
 
 
-def consume(storage: Storage, user: User) -> None:
+def consume(storage: Storage, user: User) -> bool:
     """
-    Списать одну песню.
+    Списать одну песню. Возвращает, действительно ли было с чего.
 
     Порядок: у безлимитных и подписчиков не списывается ничего; дальше
     сначала расходуются бесплатные пробы, потом оплаченные поштучно
     треки, и только потом баланс -- иначе уже купленный трек или
     пополнение сгорали бы раньше бесплатного и друг друга не в том
     порядке, в котором человек за них платил.
+
+    Каждый шаг сам проверяет и списывает одним атомарным запросом (как
+    spend_balance) и пробует следующий, только если списать не удалось --
+    а не решает по снимку `user`, снятому до этого вызова: при двух
+    одновременных разборах снимок для обоих одинаков, и без атомарной
+    проверки оба увидели бы одну и ту же непотраченную пробную песню или
+    кредит и списали бы его дважды. Возвращаемое значение вызывающий
+    обязан проверить: `check_access` перед этим тоже смотрел на снимок,
+    и в проигранной гонке разрешение могло оказаться устаревшим -- значит,
+    разбор запускать не на что, а не бесплатно.
     """
     if user.unlimited or user.subscribed:
-        return
-    if user.free_left(FREE_SONGS) > 0:
-        storage.spend_free(user.id)
-    elif user.credits > 0:
-        storage.spend_credit(user.id)
-    elif user.balance >= PRICE_SINGLE_RUB:
-        storage.spend_balance(user.id, PRICE_SINGLE_RUB)
+        return True
+    if storage.spend_free(user.id, FREE_SONGS):
+        return True
+    if storage.spend_credit(user.id):
+        return True
+    if user.balance >= PRICE_SINGLE_RUB:
+        return storage.spend_balance(user.id, PRICE_SINGLE_RUB)
+    return False
 
 
 def apply_plan(storage: Storage, user_id: str, plan: str, amount: float | None = None) -> None:
@@ -601,6 +612,46 @@ class YooKassaProvider(PaymentProvider):
         if not provider_id or not status:
             return None
         return provider_id, status
+
+    def verify(self, raw: bytes, headers, payload: dict) -> tuple[str, str] | None:
+        """
+        Проверить уведомление, перезапросив исход у самой ЮKassa.
+
+        В отличие от GetPlatinum, ЮKassa не подписывает уведомление ни
+        секретом, ни заголовком -- значит, статусу ИЗ ТЕЛА доверять
+        нельзя: id платежа отдаётся создателю платежа в ответ на его
+        создание (см. create_payment), и кто угодно, зная свой же id,
+        мог бы прислать сюда чужое "succeeded" и получить оплату
+        бесплатно. Официальная рекомендация ЮKassa на этот случай --
+        не доверять уведомлению напрямую, а подтвердить платёж отдельным
+        запросом к API тем же ключом, которым он создавался.
+        """
+        result = self.verify_webhook(payload)
+        if not result or not self.configured():
+            return None
+        provider_id, _ = result
+        confirmed = self._confirmed_status(provider_id)
+        if not confirmed:
+            return None
+        return provider_id, confirmed
+
+    def _confirmed_status(self, payment_id: str) -> str | None:
+        import base64
+        import json
+        import urllib.error
+        import urllib.request
+
+        token = base64.b64encode(f"{self.shop_id}:{self.secret}".encode()).decode()
+        request = urllib.request.Request(
+            f"{self.API_URL}/{payment_id}",
+            headers={"Authorization": f"Basic {token}"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                data = json.load(response)
+        except (urllib.error.URLError, ValueError, OSError):
+            return None
+        return data.get("status")
 
 
 PROVIDERS = {

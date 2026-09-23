@@ -863,7 +863,15 @@ async def api_upload(
     # Пробная песня списывается в момент постановки в очередь, а не по
     # завершении: иначе один и тот же файл можно было бы гонять бесконечно,
     # обрывая задание на полпути.
-    billing.consume(storage, user)
+    if not billing.consume(storage, user):
+        # Доступ на входе в функцию проверялся по снимку, снятому до
+        # загрузки файла -- у него было время устареть (например, тот же
+        # пользователь параллельно запустил ещё один разбор и списал
+        # последнюю пробную песню/кредит первым). Раз списывать оказалось
+        # не с чего, разбор не запускаем -- иначе он ушёл бы бесплатно.
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        storage.update_job(job.id, status="error", error=access.reason)
+        raise HTTPException(402, access.reason)
     storage.update_job(job.id, counted=True)
     runner.submit_analysis(job.id, target)
 

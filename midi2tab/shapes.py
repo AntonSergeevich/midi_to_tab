@@ -149,7 +149,7 @@ def _best_in_position(board: Fretboard, root: int, wanted: set[int], position: i
             barre = lowest
     base = min(pressed) if pressed and min(pressed) > 1 else 1
     shape = Shape(tuple(frets), base, barre)
-    return shape if shape.fingers <= MAX_FINGERS or barre else shape
+    return shape if shape.fingers <= MAX_FINGERS or barre else None
 
 
 def _cost(shape: Shape, board: Fretboard, root: int, position: int) -> float:
