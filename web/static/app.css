@@ -38,6 +38,16 @@ header.top a { white-space: nowrap; }
 header.top .who {
   max-width: 34vw; overflow: hidden; text-overflow: ellipsis;
 }
+/* Сама шапка переносилась, а блок меню внутри неё -- нет: четыре пункта
+   без переноса (со значком "Бесплатных песен: 2 из 2") на телефоне шире
+   экрана и уезжали за правый край. Меню переносится по пунктам, значок
+   уходит на свою строку, а если и один не влезает -- укорачивается. */
+header.top > div {
+  flex-wrap: wrap; row-gap: 8px; min-width: 0; max-width: 100%;
+}
+header.top .badge {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+}
 @media (max-width: 560px) {
   header.top { gap: 10px 12px; margin-bottom: 18px; }
   header.top .badge { font-size: 12px; padding: 5px 9px; }
@@ -358,6 +368,10 @@ button.primary:hover:not(:disabled) { background: var(--accent-hi); }
 .choice b { display: block; font-size: 15px; margin-bottom: 4px; }
 .choice small { color: var(--muted); font-size: 12px; line-height: 1.4; display: block; }
 .choice.busy { border-color: var(--accent); background: var(--panel); }
+.choice.selected {
+  border-color: var(--accent); background: var(--panel);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
 
 .tune { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
 .tune summary { cursor: pointer; color: var(--text); font-size: 14px; user-select: none; }

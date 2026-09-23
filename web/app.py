@@ -247,6 +247,31 @@ def api_admin_login(request: Request, key: str = Form(...)):
     return response
 
 
+def deployed_commit() -> str:
+    """
+    Какой коммит сейчас работает на сервере.
+
+    Без этого не проверить, доехал ли пуш: автодеплой может молча не
+    сработать (так и было -- вебхук отклонялся с 401), и сайт продолжал
+    работать на старом коде. Читается прямо из .git, без вызова git:
+    служба работает в режиме только-чтение, а файлы читать ей можно.
+    """
+    git = Path(__file__).resolve().parent.parent / ".git"
+    try:
+        head = (git / "HEAD").read_text().strip()
+        if not head.startswith("ref: "):
+            return head[:7]
+        ref = head[5:]
+        if (git / ref).is_file():
+            return (git / ref).read_text().strip()[:7]
+        for line in (git / "packed-refs").read_text().splitlines():
+            if line.endswith(" " + ref):
+                return line.split()[0][:7]
+    except OSError:
+        pass
+    return ""
+
+
 def require_health_token(request: Request) -> None:
     """Токен из заголовка -- посимвольно-постоянным сравнением, как ADMIN_KEY."""
     import secrets
@@ -276,7 +301,24 @@ def api_health(request: Request):
         "оплата": gateway.diagnose(),
         "уведомлений_за_последние": len(recent),
         "из_них_отклонено": failed_recent,
+        # Только время и причина, без тела: в теле бывают почта и номера
+        # платежей, а по причине и так видно, что чинить -- подпись,
+        # ненайденный платёж или ошибку при создании.
+        "отказы": [{"когда": n["created_at"], "причина": n["reason"]}
+                   for n in recent if not n["accepted"]],
+        # Что сообщил провайдер по каждому уведомлению -- тип и исход, без
+        # почты и прочего из тела: по этому видно, приходил ли вообще
+        # сигнал "оплачено" или банк отказал.
+        "уведомления": [
+            {"когда": n["created_at"], "принято": bool(n["accepted"]),
+             "тип": n["body"].get("notificationType") if isinstance(n["body"], dict) else None,
+             "оплачено": n["body"].get("isSuccess") if isinstance(n["body"], dict) else None,
+             "итог": n["reason"]}
+            for n in recent if not (isinstance(n["body"], dict) and "попытка оплаты" in n["body"])
+        ],
+        "платежи_за_неделю": storage.payment_counts(time.time() - 7 * 86400),
         "время": time.time(),
+        "версия": deployed_commit(),
     }
 
 
@@ -346,6 +388,8 @@ def api_admin_users(request: Request, q: str = "", offset: int = 0, limit: int =
                 "isAdmin": u.is_admin,
                 "note": u.note,
                 "tracks": tracks,
+                "credits": u.credits,
+                "balance": u.balance,
             }
             for u, tracks in found["users"]
         ],
@@ -695,6 +739,8 @@ def pricing_page() -> HTMLResponse:
     return page("pricing.html", {
         "price": f"{billing.PRICE_RUB:.0f}",
         "priceSingle": f"{billing.PRICE_SINGLE_RUB:.0f}",
+        "topupMin": f"{billing.TOPUP_MIN_RUB:.0f}",
+        "topupMax": f"{billing.TOPUP_MAX_RUB:.0f}",
     })
 
 
@@ -1061,12 +1107,12 @@ def api_file(job_id: str, kind: str):
 
 # ------------------------------------------------------------------ оплата
 
-@app.post("/api/subscribe")
-def api_subscribe(request: Request, plan: str = Form("month")):
-    """Создать платёж: подписка на месяц или один трек."""
-    if plan not in billing.PLANS:
-        raise HTTPException(400, "Неизвестный тариф")
-    user = current_user(request)
+def _start_payment(request: Request, user, amount: float, title: str, plan: str) -> dict:
+    """
+    Общая часть создания платежа: подписка, разовый трек и пополнение
+    баланса отличаются только суммой, названием и тем, что зачислится
+    по итогу (plan) -- сам разговор с платёжным шлюзом у них один.
+    """
     gateway = billing.provider()
     if not gateway.configured():
         raise HTTPException(
@@ -1074,14 +1120,14 @@ def api_subscribe(request: Request, plan: str = Form("month")):
             "Приём оплаты пока не подключён. Нужны реквизиты магазина "
             "в переменных окружения, см. web/README.md.",
         )
-    spec = billing.PLANS[plan]
     base = str(request.base_url).rstrip("/")
     try:
         created = gateway.create_payment(
-            user.id, spec["price"], f"{base}/?paid=1",
-            title=spec["title"],
+            user.id, amount, f"{base}/?paid=1",
+            title=title,
             notify_url=f"{base}/api/webhook/{gateway.name}",
             email=user.email or "",
+            fail_url=f"{base}/?paid=0",
         )
     except billing.PaymentError as error:
         # Неудачную попытку сохраняем наравне с уведомлениями: по ней
@@ -1100,9 +1146,70 @@ def api_subscribe(request: Request, plan: str = Form("month")):
             502, f"Платёжный сервис не ответил как ожидалось: {error}"
         ) from error
 
-    storage.create_payment(user.id, spec["price"], created.get("id"), plan=plan)
+    storage.create_payment(user.id, amount, created.get("id"), plan=plan)
     url = (created.get("confirmation") or {}).get("confirmation_url")
     return {"paymentUrl": url, "paymentId": created.get("id"), "plan": plan}
+
+
+PLAN_TITLES = {"single": "один трек", "month": "подписка на месяц", "topup": "пополнение баланса"}
+PAYMENT_STATUSES = {"succeeded": "оплачен", "pending": "ожидает оплаты",
+                    "failed": "не прошёл", "canceled": "отменён"}
+
+
+@app.get("/api/payments")
+def api_payments(request: Request):
+    """
+    История своих платежей.
+
+    Без неё человек, заплативший и не увидевший результата, не может
+    понять главного: дошли деньги или нет. Статус "ожидает" значит, что
+    подтверждения от платёжного сервиса ещё не было; "оплачен" -- что
+    зачислено.
+    """
+    user = current_user(request)
+    return {
+        "payments": [
+            {
+                "when": p["created_at"],
+                "amount": p["amount"],
+                "what": PLAN_TITLES.get(p["plan"], p["plan"]),
+                "status": PAYMENT_STATUSES.get(p["status"], p["status"]),
+                "paid": p["status"] == "succeeded",
+            }
+            for p in storage.user_payments(user.id)
+        ]
+    }
+
+
+@app.post("/api/subscribe")
+def api_subscribe(request: Request, plan: str = Form("month")):
+    """Создать платёж: подписка на месяц или один трек."""
+    if plan not in billing.PLANS:
+        raise HTTPException(400, "Неизвестный тариф")
+    user = current_user(request)
+    spec = billing.PLANS[plan]
+    return _start_payment(request, user, spec["price"], spec["title"], plan)
+
+
+@app.post("/api/topup")
+def api_topup(request: Request, amount: float = Form(...)):
+    """
+    Пополнить баланс на любую сумму в разрешённых границах.
+
+    Деньги ложатся на счёт сразу по оплате, но не тратятся: спишутся
+    ровно по цене трека, когда человек реально запустит разбор песни
+    (billing.consume), а не в момент пополнения.
+    """
+    if not (billing.TOPUP_MIN_RUB <= amount <= billing.TOPUP_MAX_RUB):
+        raise HTTPException(
+            400,
+            f"Сумма пополнения — от {billing.TOPUP_MIN_RUB:.0f} "
+            f"до {billing.TOPUP_MAX_RUB:.0f} ₽",
+        )
+    user = current_user(request)
+    return _start_payment(
+        request, user, amount, f"Пополнение баланса на {amount:.0f} ₽", "topup"
+    )
 
 
 @app.post("/api/webhook/{gateway_name}")
@@ -1153,13 +1260,26 @@ async def api_webhook(gateway_name: str, request: Request):
         )
         raise HTTPException(401, "Подпись уведомления не сошлась")
     provider_id, status = verified
+    if status not in ("succeeded", "failed"):
+        # Уведомление не про исход оплаты -- например, "заказ создан".
+        # Статус платежа оно не меняет, и ищем платёж не раньше исхода:
+        # "заказ создан" приходит, пока мы ещё не успели записать платёж
+        # к себе, и раньше отвергалось как "платёж не найден".
+        storage.save_notice(gateway_name, payload, True,
+                            "заказ создан, ждём оплаты" if status == "created"
+                            else f"уведомление не об оплате ({status})")
+        return {"ok": True}
     record = storage.payment_by_provider(provider_id)
     if not record:
         storage.save_notice(gateway_name, payload, False, "платёж не найден")
         raise HTTPException(404, "Платёж не найден")
     if status != "succeeded":
         storage.save_notice(gateway_name, payload, True, status)
-        storage.set_payment_status(record["id"], status)
+        # Уже зачисленный платёж "неудачей" не перетираем: иначе повтор
+        # успешного уведомления после неё начислил бы второй раз
+        # (mark_paid_once смотрит именно на статус).
+        if record.get("status") != "succeeded":
+            storage.set_payment_status(record["id"], status)
         return {"ok": True}
 
     # Начисляем ровно один раз. Платёжные сервисы повторяют уведомления,
@@ -1167,7 +1287,9 @@ async def api_webhook(gateway_name: str, request: Request):
     # платёж два трека или два месяца подписки -- уже нет.
     first_time = storage.mark_paid_once(record["id"])
     if first_time:
-        billing.apply_plan(storage, record["user_id"], record.get("plan") or "month")
+        billing.apply_plan(
+            storage, record["user_id"], record.get("plan") or "month", record.get("amount")
+        )
     storage.save_notice(
         gateway_name, payload, True,
         "succeeded" if first_time else "succeeded (повтор, начислять нечего)",
@@ -1179,12 +1301,6 @@ async def api_webhook(gateway_name: str, request: Request):
 def favicon():
     """Браузер запрашивает иконку сам; без неё в консоли висит 404."""
     return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
-
-
-@app.get("/api/health")
-def api_health():
-    return {"ok": True, "separation": separate.available()[0],
-            "recognition": audioin.available()[0]}
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

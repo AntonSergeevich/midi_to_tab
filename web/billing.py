@@ -25,6 +25,13 @@ PRICE_RUB = 199.0         # подписка, рублей в месяц
 PRICE_SINGLE_RUB = 19.0   # один трек
 PERIOD_DAYS = 30
 
+# Пополнение баланса произвольной суммой -- третий способ оплаты рядом с
+# разовым треком и подпиской: деньги списываются по цене трека в момент
+# запуска разбора, а не сразу при пополнении. Границы -- чтобы не пополнить
+# по опечатке на копейку или на сумму, которую потом трудно вернуть.
+TOPUP_MIN_RUB = 50.0
+TOPUP_MAX_RUB = 10000.0
+
 # Подписка окупается примерно с одиннадцатого трека в месяц -- разница
 # достаточная, чтобы постоянным пользователям была выгодна именно она,
 # и при этом разовая покупка не выглядела наказанием.
@@ -44,6 +51,7 @@ class Access:
     subscribed: bool
     paid_until: float | None = None
     credits: int = 0
+    balance: float = 0.0
 
     def as_dict(self) -> dict:
         return {
@@ -53,9 +61,12 @@ class Access:
             "subscribed": self.subscribed,
             "paidUntil": self.paid_until,
             "credits": self.credits,
+            "balance": self.balance,
             "price": PRICE_RUB,
             "priceSingle": PRICE_SINGLE_RUB,
             "freeSongs": FREE_SONGS,
+            "topupMin": TOPUP_MIN_RUB,
+            "topupMax": TOPUP_MAX_RUB,
         }
 
 
@@ -74,25 +85,30 @@ def check_access(user: User) -> Access:
             FREE_SONGS,
             True,
             credits=user.credits,
+            balance=user.balance,
         )
     if user.subscribed:
         return Access(
             True, "Подписка активна", user.free_left(FREE_SONGS), True,
-            user.paid_until, user.credits,
+            user.paid_until, user.credits, balance=user.balance,
         )
     left = user.free_left(FREE_SONGS)
     if left > 0:
         return Access(True, f"Пробный доступ: осталось песен — {left}", left, False,
-                      credits=user.credits)
+                      credits=user.credits, balance=user.balance)
     if user.credits > 0:
         return Access(True, f"Оплачено треков: {user.credits}", 0, False,
-                      credits=user.credits)
+                      credits=user.credits, balance=user.balance)
+    if user.balance >= PRICE_SINGLE_RUB:
+        return Access(True, f"Баланс: {user.balance:.0f} ₽", 0, False,
+                      credits=user.credits, balance=user.balance)
     return Access(
         False,
-        f"Пробные песни закончились. Подписка — {PRICE_RUB:.0f} ₽ в месяц "
-        f"или один трек за {PRICE_SINGLE_RUB:.0f} ₽.",
+        f"Пробные песни закончились. Подписка — {PRICE_RUB:.0f} ₽ в месяц, "
+        f"один трек за {PRICE_SINGLE_RUB:.0f} ₽, или пополните баланс.",
         0,
         False,
+        balance=user.balance,
     )
 
 
@@ -101,8 +117,10 @@ def consume(storage: Storage, user: User) -> None:
     Списать одну песню.
 
     Порядок: у безлимитных и подписчиков не списывается ничего; дальше
-    сначала расходуются бесплатные пробы и только потом оплаченные
-    поштучно треки -- иначе купленный трек сгорал бы раньше бесплатного.
+    сначала расходуются бесплатные пробы, потом оплаченные поштучно
+    треки, и только потом баланс -- иначе уже купленный трек или
+    пополнение сгорали бы раньше бесплатного и друг друга не в том
+    порядке, в котором человек за них платил.
     """
     if user.unlimited or user.subscribed:
         return
@@ -110,10 +128,21 @@ def consume(storage: Storage, user: User) -> None:
         storage.spend_free(user.id)
     elif user.credits > 0:
         storage.spend_credit(user.id)
+    elif user.balance >= PRICE_SINGLE_RUB:
+        storage.spend_balance(user.id, PRICE_SINGLE_RUB)
 
 
-def apply_plan(storage: Storage, user_id: str, plan: str) -> None:
-    """Выдать оплаченное: либо дни подписки, либо треки."""
+def apply_plan(storage: Storage, user_id: str, plan: str, amount: float | None = None) -> None:
+    """
+    Выдать оплаченное: дни подписки, поштучные треки или пополнение баланса.
+
+    Пополнение -- особый случай: суммы произвольные, в PLANS их нет, и
+    зачисляется ровно то, что реально пришло в оплате (amount), а не
+    какая-то заранее заданная цена.
+    """
+    if plan == "topup":
+        storage.add_balance(user_id, amount or 0.0)
+        return
     spec = PLANS.get(plan, PLANS["month"])
     if spec["credits"]:
         storage.add_credits(user_id, spec["credits"])
@@ -133,50 +162,6 @@ def grant_subscription(storage: Storage, user_id: str, days: int = PERIOD_DAYS) 
     until = base + days * 86400
     storage.extend_subscription(user_id, until)
     return until
-
-
-class PaymentError(RuntimeError):
-    """
-    Понятная ошибка приёма оплаты.
-
-    Несёт с собой подробности для админки: адрес, код ответа, тело. Без
-    них человек видит только "не получилось" и не может ничего сделать,
-    а владелец -- понять, что именно чинить.
-    """
-
-    def __init__(self, message: str, details: dict | None = None) -> None:
-        super().__init__(message)
-        self.details = details or {}
-
-
-class PaymentProvider:
-    """Интерфейс приёма денег."""
-
-    name = "none"
-
-    def configured(self) -> bool:
-        return False
-
-    def diagnose(self) -> dict:
-        return {"провайдер": self.name, "готов принимать оплату": self.configured()}
-
-    def create_payment(self, user_id: str, amount: float, return_url: str) -> dict:
-        raise NotImplementedError
-
-    def verify_webhook(self, payload: dict) -> tuple[str, str] | None:
-        """Вернуть (id платежа у провайдера, статус) или None, если это не наш случай."""
-        raise NotImplementedError
-
-    def verify(self, raw: bytes, headers, payload: dict) -> tuple[str, str] | None:
-        """
-        Проверить уведомление целиком: тело, заголовки, разобранный JSON.
-
-        Сырое тело нужно потому, что подпись может считаться именно от
-        него -- байт в байт, как прислали. Пересобрать JSON и посчитать
-        подпись от результата нельзя: порядок ключей и пробелы изменятся,
-        и подпись не сойдётся, хотя уведомление настоящее.
-        """
-        return self.verify_webhook(payload)
 
 
 class PaymentError(RuntimeError):
@@ -410,7 +395,7 @@ class GetPlatinumProvider(PaymentProvider):
 
     def create_payment(self, user_id: str, amount: float, return_url: str,
                        title: str = "", notify_url: str = "",
-                       email: str = "") -> dict:
+                       email: str = "", fail_url: str = "") -> dict:
         if not self.configured():
             raise PaymentError(
                 "GetPlatinum не настроен: нет GETPLATINUM_SECRET_KEY.",
@@ -441,8 +426,13 @@ class GetPlatinumProvider(PaymentProvider):
             }],
             "clientParams": {"clientId": user_id, **({"email": email} if email else {})},
             "notificationUrl": notify_url,
+            # Раньше оба адреса совпадали, и неудачная оплата возвращала
+            # человека туда же, куда удачная, -- "перекинуло на сайт"
+            # выглядело как успех. Редирект сам по себе оплату не
+            # подтверждает (это делает только уведомление), но хотя бы
+            # честно говорит, что форма оплаты закрылась с отказом.
             "successUrl": return_url,
-            "failUrl": return_url,
+            "failUrl": fail_url or return_url,
         }
 
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -535,6 +525,17 @@ class GetPlatinumProvider(PaymentProvider):
         deal_id = payload.get("dealId")
         if not deal_id:
             return None
+        # На один notificationUrl приходят уведомления РАЗНЫХ типов, и
+        # isSuccess у них значит разное. Тип 7 ("заказ создан") приходит
+        # сразу после создания заказа и по спецификации ВСЕГДА несёт
+        # isSuccess=false -- оплаты ещё не было. Раньше это читалось как
+        # "оплата не прошла", и каждый платёж помечался неудавшимся ещё до
+        # того, как человек открыл форму. Исход оплаты -- только тип 1.
+        kind = payload.get("notificationType")
+        if kind == 7:
+            return str(deal_id), "created"
+        if kind not in (None, 1):
+            return str(deal_id), f"type-{kind}"
         success = payload.get("isSuccess")
         if success is None:
             return None

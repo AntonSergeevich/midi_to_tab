@@ -30,16 +30,33 @@
        запрос, человек секунду видел пустоту на месте главного, за чем
        он сюда и пришёл. Цены подставляет сервер из тех же констант,
        что считают оплату, -- разойтись они не могут. -->
-  <div class="choices" id="plans" style="margin-bottom:18px">
-    <button class="choice" data-plan="single">
+  <!-- Выбор в два шага: сначала отмечаете вариант, потом отдельной
+       кнопкой подтверждаете и уходите на оплату. Раньше клик по любому
+       варианту сразу перекидывал на оплату -- невозможно было передумать
+       или сначала вписать сумму пополнения. -->
+  <div class="choices" id="plans" style="margin-bottom:12px">
+    <button class="choice" type="button" data-plan="single">
       <b>{{priceSingle}} ₽ — один трек</b>
       <small>разово, без подписки. Разобрали песню — и всё</small>
     </button>
-    <button class="choice" data-plan="month">
+    <button class="choice" type="button" data-plan="month">
       <b>{{price}} ₽ — месяц без ограничений</b>
       <small>сколько угодно песен 30 дней. Выгоднее с одиннадцатого трека</small>
     </button>
   </div>
+  <div class="choice" role="button" tabindex="0" data-plan="topup" id="topupChoice" style="margin-bottom:18px">
+    <b>Пополнить баланс</b>
+    <small>любая сумма от {{topupMin}} до {{topupMax}} ₽ — тратится по {{priceSingle}} ₽ за трек
+      ровно в тот момент, когда начинаете разбор, а не при пополнении</small>
+    <div id="topupAmount" style="display:none;margin-top:10px">
+      <input type="number" id="amount" min="{{topupMin}}" max="{{topupMax}}" step="1"
+             placeholder="Сумма, ₽" style="width:140px">
+    </div>
+  </div>
+  <button id="pay" class="choice" type="button"
+          style="display:none;text-align:center;font-weight:600;margin-bottom:18px">
+    Оплатить
+  </button>
   <p id="msg" class="muted" style="margin:0 0 24px"></p>
 
   <div class="card">

@@ -91,7 +91,14 @@ class Handler(BaseHTTPRequestHandler):
         if not SECRET:
             self._respond(503, "DEPLOY_WEBHOOK_SECRET не задан")
             return
-        if not verify_signature(SECRET, body, self.headers.get("X-Hub-Signature-256")):
+        signature = self.headers.get("X-Hub-Signature-256")
+        if not verify_signature(SECRET, body, signature):
+            # В журнал -- то, по чему видно причину, но не сам секрет:
+            # нет заголовка -- в GitHub не задан Secret; есть, а не
+            # сходится -- в GitHub вставлено не то значение (частая ошибка:
+            # вся строка "DEPLOY_WEBHOOK_SECRET=..." вместе с префиксом).
+            print(f"401: заголовок подписи {'есть' if signature else 'НЕТ'}, "
+                  f"тело {len(body)} байт, секрет на сервере {len(SECRET)} символов")
             self._respond(401, "подпись не совпала")
             return
 

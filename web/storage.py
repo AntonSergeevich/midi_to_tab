@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin     INTEGER NOT NULL DEFAULT 0,
     unlimited    INTEGER NOT NULL DEFAULT 0,
     note         TEXT,
-    credits      INTEGER NOT NULL DEFAULT 0
+    credits      INTEGER NOT NULL DEFAULT 0,
+    balance      REAL NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS jobs (
@@ -114,6 +115,7 @@ class User:
     unlimited: bool = False      # безлимит: друзья, тестировщики, сам владелец
     note: str = ""               # кто это -- видно только в админке
     credits: int = 0             # оплаченные поштучно треки
+    balance: float = 0.0         # пополненный баланс, рублей -- списывается за разбор
     password_hash: str | None = None
     registered_at: float | None = None
 
@@ -177,9 +179,26 @@ class Storage:
             ("credits", "INTEGER NOT NULL DEFAULT 0"),
             ("password_hash", "TEXT"),
             ("registered_at", "REAL"),
+            ("balance", "REAL NOT NULL DEFAULT 0"),
         ):
             if column not in existing:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
+
+        # Починка данных после ошибки с уведомлением "заказ создан": оно
+        # приходило запоздалым повтором ПОСЛЕ "оплачено" и перетирало
+        # статус уже оплаченного и зачисленного платежа на "failed".
+        # Деньги при этом начислялись -- неверен только статус, поэтому
+        # здесь ничего не начисляется, только возвращается "succeeded"
+        # платежам, по которым провайдер прислал успешную оплату (тип 1).
+        # Повторный запуск ничего не меняет.
+        conn.execute(
+            "UPDATE payments SET status = 'succeeded'"
+            " WHERE status <> 'succeeded' AND provider_id IN ("
+            "   SELECT json_extract(body, '$.dealId') FROM notices"
+            "   WHERE json_valid(body)"
+            "     AND json_extract(body, '$.notificationType') = 1"
+            "     AND json_extract(body, '$.isSuccess') = 1)"
+        )
 
     @contextmanager
     def _connect(self):
@@ -222,6 +241,7 @@ class Storage:
             unlimited=bool(row["unlimited"]),
             note=row["note"] or "",
             credits=row["credits"] or 0,
+            balance=row["balance"] or 0.0,
             password_hash=row["password_hash"],
             registered_at=row["registered_at"],
         )
@@ -238,6 +258,28 @@ class Storage:
             conn.execute(
                 "UPDATE users SET credits = MAX(0, credits - 1) WHERE id = ?", (user_id,)
             )
+
+    def add_balance(self, user_id: str, amount: float) -> None:
+        """Пополнить баланс на произвольную сумму -- ровно ту, что пришла в оплате."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE users SET balance = balance + ? WHERE id = ?", (amount, user_id)
+            )
+
+    def spend_balance(self, user_id: str, amount: float) -> bool:
+        """
+        Списать с баланса ровно за один разбор -- и сказать, хватило ли.
+
+        Условие на текущий остаток в том же запросе, что и списание: два
+        одновременных запуска разбора не должны оба увидеть "баланса
+        хватает" и оба списать, уведя баланс в минус.
+        """
+        with self._connect() as conn:
+            changed = conn.execute(
+                "UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?",
+                (amount, user_id, amount),
+            ).rowcount
+        return bool(changed)
 
     # ------------------------------------------------------ учётные записи
 
@@ -582,6 +624,7 @@ class Storage:
             unlimited=bool(row["unlimited"]),
             note=row["note"],
             credits=row["credits"],
+            balance=row["balance"] if "balance" in row.keys() else 0.0,
             password_hash=row["password_hash"] if "password_hash" in row.keys() else None,
             registered_at=row["registered_at"] if "registered_at" in row.keys() else None,
         )
@@ -709,6 +752,26 @@ class Storage:
                 (payment_id, user_id, time.time(), amount, provider_id, plan),
             )
         return payment_id
+
+    def payment_counts(self, since: float) -> dict:
+        """Сколько платежей в каком статусе с момента since -- для мониторинга."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT status, plan, COUNT(*) AS n FROM payments"
+                " WHERE created_at >= ? GROUP BY status, plan",
+                (since,),
+            ).fetchall()
+        return {f"{row['plan']}/{row['status']}": row["n"] for row in rows}
+
+    def user_payments(self, user_id: str, limit: int = 20) -> list[dict]:
+        """Платежи человека, новые сверху -- чтобы он сам видел, дошли ли деньги."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT created_at, amount, status, plan FROM payments"
+                " WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def payment_by_provider(self, provider_id: str) -> dict | None:
         with self._connect() as conn:

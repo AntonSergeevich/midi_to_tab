@@ -48,5 +48,22 @@ jobs:
           total="$(echo "$body" | jq -r '.["уведомлений_за_последние"]')"
           rejected="$(echo "$body" | jq -r '.["из_них_отклонено"]')"
           echo "Отклонённых уведомлений: $rejected из $total (последние 20)"
+
+          # Доехал ли последний пуш. Автодеплой уже молча не срабатывал
+          # (вебхук отклонялся с 401), и сайт работал на старом коде --
+          # снаружи этого видно не было. Деплой идёт около минуты, поэтому
+          # при расхождении ждём и проверяем ещё раз, прежде чем падать.
+          want="${GITHUB_SHA:0:7}"
+          for attempt in 1 2 3 4; do
+            have="$(curl -sS -H "Authorization: Bearer ${NASLUX_HEALTH_TOKEN}" \
+              https://naslux.ru/api/health | jq -r '.["версия"]')"
+            [ "$have" = "$want" ] && break
+            [ "$attempt" -lt 4 ] && sleep 45
+          done
+          if [ "$have" != "$want" ]; then
+            echo "::error::На сервере $have, а последний пуш $want -- автодеплой не сработал"
+            exit 1
+          fi
+          echo "На сервере последний пуш: $have"
         env:
           NASLUX_HEALTH_TOKEN: ${{ secrets.NASLUX_HEALTH_TOKEN }}

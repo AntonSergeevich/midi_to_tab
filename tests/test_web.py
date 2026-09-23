@@ -467,6 +467,99 @@ def test_subscription_plan_grants_days_not_credits(store):
     assert user.credits == 0
 
 
+# ------------------------------------------------------- баланс (пополнение)
+
+
+def test_topup_credits_exact_amount_paid(store):
+    """
+    Пополнение зачисляет РОВНО ту сумму, что пришла в оплате -- у неё нет
+    фиксированной цены, как у тарифов в PLANS.
+    """
+    from web import billing
+
+    user = store.ensure_user(None)
+    billing.apply_plan(store, user.id, "topup", amount=350.0)
+    user = store.user(user.id)
+    assert user.balance == 350.0
+    assert user.credits == 0
+    assert not user.subscribed
+
+
+def test_balance_unblocks_after_free_and_credits_run_out(store):
+    from web import billing
+
+    user = store.ensure_user(None)
+    for _ in range(billing.FREE_SONGS):
+        billing.consume(store, user)
+        user = store.user(user.id)
+    assert not billing.check_access(user).allowed
+
+    billing.apply_plan(store, user.id, "topup", amount=billing.PRICE_SINGLE_RUB)
+    user = store.user(user.id)
+    access = billing.check_access(user)
+    assert access.allowed
+    assert "Баланс" in access.reason
+
+
+def test_consume_spends_balance_only_after_free_and_credits(store):
+    """Порядок списания: бесплатные -> купленные треки -> баланс."""
+    from web import billing
+
+    user = store.ensure_user(None)
+    billing.apply_plan(store, user.id, "single")            # 1 купленный трек
+    billing.apply_plan(store, user.id, "topup", amount=100.0)
+    user = store.user(user.id)
+
+    for _ in range(billing.FREE_SONGS):
+        billing.consume(store, user)                        # тратим бесплатные
+        user = store.user(user.id)
+    assert user.credits == 1 and user.balance == 100.0
+
+    billing.consume(store, user)                             # тратим купленный
+    user = store.user(user.id)
+    assert user.credits == 0 and user.balance == 100.0
+
+    billing.consume(store, user)                             # и только теперь баланс
+    user = store.user(user.id)
+    assert user.balance == 100.0 - billing.PRICE_SINGLE_RUB
+
+
+def test_spend_balance_never_goes_negative_under_race(store):
+    """
+    Регрессия по образцу mark_paid_once: два одновременных списания не
+    должны оба пройти и увести баланс в минус.
+    """
+    user = store.ensure_user(None)
+    store.add_balance(user.id, 19.0)
+
+    first = store.spend_balance(user.id, 19.0)
+    second = store.spend_balance(user.id, 19.0)
+
+    assert first is True
+    assert second is False
+    assert store.user(user.id).balance == 0.0
+
+
+def test_topup_amount_must_be_within_bounds(tmp_path, monkeypatch):
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        client.post("/api/auth/register",
+                    data={"email": "wallet@naslux.ru", "password": "длинный-пароль-9"})
+        too_small = client.post("/api/topup", data={"amount": "1"})
+        assert too_small.status_code == 400
+
+        too_big = client.post("/api/topup", data={"amount": "999999"})
+        assert too_big.status_code == 400
+
+
 def test_payment_remembers_plan(store):
     user = store.ensure_user(None)
     store.create_payment(user.id, 19.0, "prov-1", plan="single")
@@ -858,6 +951,173 @@ def test_a_repeated_notice_credits_only_once(tmp_path, monkeypatch):
         assert app_module.storage.user(user.id).credits == 1
 
 
+def test_topup_webhook_credits_exact_amount_and_only_once(tmp_path, monkeypatch):
+    """
+    Пополнение через настоящий вебхук: зачисляется именно оплаченная
+    сумма (не фиксированная цена тарифа), и повтор уведомления не
+    удваивает баланс -- та же защита, что и для купленных треков.
+    """
+    import hashlib
+    import hmac
+    import sys
+
+    key = "f" * 64
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("PAYMENT_PROVIDER", "getplatinum")
+    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", key)
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        app_module.storage.create_payment(user.id, 350.0, "popolnenie-1", plan="topup")
+
+        body = b'{"notificationType": 1, "dealId": "popolnenie-1", "isSuccess": true}'
+        checksum = hmac.new(key.encode(), body, hashlib.sha256).hexdigest().upper()
+        headers = {"X-Checksum": checksum, "Content-Type": "application/json"}
+
+        for _ in range(3):
+            assert client.post("/api/webhook/getplatinum",
+                               content=body, headers=headers).status_code == 200
+
+        assert app_module.storage.user(user.id).balance == 350.0
+
+
+def test_deal_created_notice_does_not_fail_the_payment(tmp_path, monkeypatch):
+    """
+    Регрессия с живого сайта: за неделю три оплаты -- и все помечены "не
+    прошёл", а три уведомления отвергнуты как "платёж не найден".
+
+    GetPlatinum шлёт на тот же адрес уведомление типа 7 "заказ создан" с
+    isSuccess=false (по спецификации -- всегда) и шлёт его СРАЗУ, пока
+    платёж ещё не записан у нас. Оно читалось как отказ оплаты. Статус
+    меняет только тип 1, а "неудача" не перетирает уже зачисленное --
+    иначе повтор успеха начислил бы второй раз.
+    """
+    import hashlib
+    import hmac
+    import json
+    import sys
+
+    key = "f" * 64
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("PAYMENT_PROVIDER", "getplatinum")
+    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", key)
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    def send(client, **fields):
+        body = json.dumps(fields).encode()
+        sign = hmac.new(key.encode(), body, hashlib.sha256).hexdigest().upper()
+        return client.post("/api/webhook/getplatinum", content=body,
+                           headers={"X-Checksum": sign, "Content-Type": "application/json"})
+
+    with TestClient(app_module.app) as client:
+        store = app_module.storage
+        user = store.ensure_user(None)
+
+        # "Заказ создан" обгоняет запись платежа -- это не ошибка
+        assert send(client, notificationType=7, dealId="deal-1",
+                    isSuccess=False).status_code == 200
+
+        store.create_payment(user.id, 50.0, "deal-1", plan="topup")
+        assert send(client, notificationType=7, dealId="deal-1",
+                    isSuccess=False).status_code == 200
+        assert store.payment_by_provider("deal-1")["status"] == "pending"
+
+        assert send(client, notificationType=1, dealId="deal-1",
+                    isSuccess=True).status_code == 200
+        assert store.payment_by_provider("deal-1")["status"] == "succeeded"
+        assert store.user(user.id).balance == 50.0
+
+        # Неудача после успеха не перетирает его, повтор успеха не начисляет
+        send(client, notificationType=1, dealId="deal-1", isSuccess=False)
+        send(client, notificationType=1, dealId="deal-1", isSuccess=True)
+        assert store.payment_by_provider("deal-1")["status"] == "succeeded"
+        assert store.user(user.id).balance == 50.0
+
+        assert not any(n["reason"] == "платёж не найден" for n in store.notices())
+
+
+def test_startup_repairs_status_of_payments_that_were_paid(tmp_path):
+    """
+    Данные, испорченные старой ошибкой: провайдер прислал "оплачено",
+    деньги зачислились, а запоздалый "заказ создан" перетёр статус на
+    "failed". При запуске статус возвращается -- и ничего не начисляется
+    повторно: деньги уже на счету.
+    """
+    from web.storage import Storage
+
+    path = str(tmp_path / "repair.db")
+    store = Storage(path)
+    user = store.ensure_user(None)
+    store.create_payment(user.id, 50.0, "deal-paid", plan="topup")
+    store.create_payment(user.id, 19.0, "deal-unpaid", plan="single")
+    store.add_balance(user.id, 50.0)
+    store.set_payment_status(store.payment_by_provider("deal-paid")["id"], "failed")
+    store.set_payment_status(store.payment_by_provider("deal-unpaid")["id"], "failed")
+    store.save_notice("getplatinum", {"notificationType": 1, "dealId": "deal-paid",
+                                      "isSuccess": True}, True, "succeeded")
+    store.save_notice("getplatinum", {"notificationType": 7, "dealId": "deal-unpaid",
+                                      "isSuccess": False}, True, "failed")
+
+    store = Storage(path)                       # как при перезапуске службы
+    assert store.payment_by_provider("deal-paid")["status"] == "succeeded"
+    assert store.payment_by_provider("deal-unpaid")["status"] == "failed"
+    assert store.user(user.id).balance == 50.0
+
+
+def test_unlimited_owner_sees_balance_and_payment_history(tmp_path, monkeypatch):
+    """
+    Регрессия с живого сайта: владелец с безлимитом пополнил баланс на
+    50 ₽ и купил трек за 19 ₽ -- и не увидел ни суммы, ни треков нигде.
+    Безлимит проверялся первым и прятал деньги, а админка баланс вообще
+    не читала из базы. Деньги должны быть видны при любом виде доступа,
+    а каждый платёж -- со своим статусом.
+    """
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+    from web import billing
+
+    with TestClient(app_module.app) as client:
+        client.post("/api/auth/register",
+                    data={"email": "vladelec@naslux.ru", "password": "длинный-пароль-9"})
+        store = app_module.storage
+        uid = store.user_by_email("vladelec@naslux.ru").id
+        store.set_flags(uid, is_admin=True, unlimited=True)
+
+        store.create_payment(uid, 50.0, "p-topup", plan="topup")
+        store.mark_paid_once(store.payment_by_provider("p-topup")["id"])
+        billing.apply_plan(store, uid, "topup", 50.0)
+        store.create_payment(uid, 19.0, "p-single", plan="single")   # не оплачен
+
+        me = client.get("/api/me").json()
+        assert me["unlimited"] is True
+        assert me["balance"] == 50.0
+
+        payments = client.get("/api/payments").json()["payments"]
+        assert len(payments) == 2
+        statuses = {p["what"]: (p["amount"], p["paid"]) for p in payments}
+        assert statuses["пополнение баланса"] == (50.0, True)
+        assert statuses["один трек"] == (19.0, False)
+
+        admin = client.get("/api/admin/users").json()
+        row = next(u for u in admin["users"] if u["id"] == uid)
+        assert row["balance"] == 50.0
+
+
 # --------------------------------------------------------------- мониторинг
 
 
@@ -931,3 +1191,46 @@ def test_health_reports_payment_status_and_recent_failures(tmp_path, monkeypatch
         assert "оплата" in payload
         assert payload["уведомлений_за_последние"] == 2
         assert payload["из_них_отклонено"] == 1
+
+        # По версии видно, доехал ли пуш до сервера: автодеплой может
+        # молча не сработать, а сайт -- работать на старом коде.
+        import subprocess
+
+        head = subprocess.run(["git", "rev-parse", "--short=7", "HEAD"],
+                              capture_output=True, text=True,
+                              cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        if head.returncode == 0:
+            assert payload["версия"] == head.stdout.strip()
+
+
+def test_no_route_is_registered_twice(tmp_path, monkeypatch):
+    """
+    Регрессия: /api/health когда-то был объявлен дважды -- один раз с
+    токеном для мониторинга (см. выше), и один раз без, ещё с первых
+    версий сайта. FastAPI отдаёт первый подходящий маршрут и молча
+    игнорирует второй, поэтому старое объявление было мёртвым кодом:
+    оно выглядело как открытая проверка здоровья, а на самом деле не
+    отвечало никогда. Второе определение того же пути и метода -- всегда
+    такая ловушка, будущую тоже стоит поймать здесь.
+    """
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+
+    import web.app as app_module
+
+    seen = set()
+    duplicates = []
+    for route in app_module.app.routes:
+        methods = getattr(route, "methods", None)
+        path = getattr(route, "path", None)
+        if not methods or not path:
+            continue
+        for method in methods:
+            key = (path, method)
+            if key in seen:
+                duplicates.append(key)
+            seen.add(key)
+    assert not duplicates, f"путь объявлен дважды: {duplicates}"

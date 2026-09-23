@@ -41,9 +41,17 @@ async function loadMe() {
   } else if (me.credits > 0) {
     badge.textContent = `Оплачено треков: ${me.credits}`;
     badge.className = 'badge pro';
+  } else if (me.balance > 0) {
+    badge.textContent = `Баланс: ${me.balance} ₽`;
+    badge.className = 'badge pro';
   } else {
     badge.textContent = `Бесплатно песен: ${me.freeLeft} из ${me.freeSongs}`;
     badge.className = 'badge';
+  }
+  // Баланс виден и при безлимите/подписке: это живые деньги, и прятать их
+  // за видом доступа нельзя -- владелец пополнял счёт и не видел суммы.
+  if (me.balance > 0 && !badge.textContent.includes('₽')) {
+    badge.textContent += ` · ${me.balance} ₽`;
   }
 
   const missing = [];
@@ -133,22 +141,43 @@ function blocked() {
     return;
   }
   // Два тарифа рядом: разовый для «попробовать ещё одну»,
-  // подписка для тех, кто разбирает песни постоянно.
+  // подписка для тех, кто разбирает песни постоянно. Клик отмечает
+  // вариант, а платит отдельная кнопка ниже -- чтобы не улетать на
+  // оплату по первому касанию и можно было передумать.
   $('msg').innerHTML = `
     <div class="bad" style="margin-bottom:12px">${me.reason}</div>
-    <div class="choices">
-      <button class="choice" data-plan="single">
+    <div class="choices" id="blockedPlans">
+      <button class="choice" type="button" data-plan="single">
         <b>${me.priceSingle} ₽ — один трек</b>
         <small>разово, без подписки</small>
       </button>
-      <button class="choice" data-plan="month">
+      <button class="choice" type="button" data-plan="month">
         <b>${me.price} ₽ — месяц без ограничений</b>
         <small>выгоднее с одиннадцатого трека</small>
       </button>
-    </div>`;
-  document.querySelectorAll('[data-plan]').forEach((button) => {
-    button.onclick = () => subscribe(button.dataset.plan, button);
+    </div>
+    <button id="blockedPay" class="choice" type="button"
+            style="display:none;text-align:center;font-weight:600;margin-top:12px;width:100%">
+      Оплатить
+    </button>
+    <p class="muted" style="margin-top:10px">
+      Или <a href="/pricing">пополните баланс на любую сумму</a> — спишется по
+      ${me.priceSingle} ₽, когда начнёте разбор.
+    </p>`;
+
+  let blockedPlan = null;
+  document.querySelectorAll('#blockedPlans [data-plan]').forEach((button) => {
+    button.onclick = () => {
+      document.querySelectorAll('#blockedPlans [data-plan]')
+        .forEach((b) => b.classList.remove('selected'));
+      button.classList.add('selected');
+      blockedPlan = button.dataset.plan;
+      const pay = $('blockedPay');
+      pay.style.display = 'block';
+      pay.textContent = `Оплатить ${button.querySelector('b').textContent}`;
+    };
   });
+  $('blockedPay').onclick = () => subscribe(blockedPlan, $('blockedPay'));
 }
 
 async function subscribe(plan, button) {
@@ -252,18 +281,35 @@ if (invite) {
 // страницу и не понимал, дошли ли деньги. Убираем ?paid=1 из адресной
 // строки сразу, чтобы обновление страницы не повторяло проверку.
 async function confirmPayment() {
-  if (new URLSearchParams(location.search).get('paid') !== '1') return;
+  const paid = new URLSearchParams(location.search).get('paid');
+  if (paid !== '1' && paid !== '0') return;
   history.replaceState(null, '', location.pathname);
+  // ?paid=0 -- платёжная форма закрылась с отказом (failUrl). Раньше
+  // отказ возвращал на тот же адрес, что и успех, и выглядел как оплата.
+  if (paid === '0') {
+    $('msg').innerHTML = '<span class="bad">Оплата не прошла — деньги не списаны. '
+      + 'Можно попробовать ещё раз или другой картой.</span>';
+    return;
+  }
 
-  const before = { credits: me.credits, subscribed: me.subscribed, unlimited: me.unlimited };
+  // Сравниваем ДЕНЬГИ, а не вид доступа: раньше здесь стояло
+  // "|| me.unlimited", и у безлимитного владельца проверка сразу
+  // объявляла "оплата прошла", ни разу не посмотрев на счёт, -- а
+  // пополнение баланса не проверялось вовсе.
+  const before = {
+    credits: me.credits, balance: me.balance || 0, paidUntil: me.paidUntil || 0,
+  };
   $('msg').innerHTML = '<span class="muted">Проверяем оплату…</span>';
 
   for (let attempt = 0; attempt < 12; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, 1500));
     await loadMe();
-    const credited = me.credits > before.credits || me.unlimited
-      || (me.subscribed && !before.subscribed);
-    if (credited) {
+    const gained = (me.balance || 0) - before.balance;
+    if (gained > 0) {
+      $('msg').innerHTML = `<span class="ok">Оплата прошла — на балансе +${gained} ₽.</span>`;
+      return;
+    }
+    if (me.credits > before.credits || (me.paidUntil || 0) > before.paidUntil) {
       $('msg').innerHTML = '<span class="ok">Оплата прошла — доступ открыт.</span>';
       return;
     }

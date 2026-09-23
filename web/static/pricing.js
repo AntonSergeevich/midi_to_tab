@@ -32,19 +32,31 @@ async function load() {
   } else if (me.credits > 0) {
     badge.textContent = `Оплачено треков: ${me.credits}`;
     badge.className = 'badge pro';
+  } else if (me.balance > 0) {
+    badge.textContent = `Баланс: ${me.balance} ₽`;
+    badge.className = 'badge pro';
   } else {
     badge.textContent = `Бесплатно песен: ${me.freeLeft} из ${me.freeSongs}`;
   }
+  // Баланс -- живые деньги, он виден при любом виде доступа.
+  if (me.balance > 0 && !badge.textContent.includes('₽')) {
+    badge.textContent += ` · ${me.balance} ₽`;
+  }
 
-  $('state').textContent = me.unlimited
+  const state = me.unlimited
     ? 'У вас безлимитный доступ — платить не нужно. Ниже показано то, что видят остальные.'
     : me.subscribed
       ? `Подписка активна до ${date(me.paidUntil)}. Можно продлить заранее — дни прибавятся к остатку.`
       : me.credits > 0
         ? `Оплачено треков: ${me.credits}. Докупить можно в любой момент.`
-        : me.freeLeft > 0
-          ? `Бесплатных песен осталось: ${me.freeLeft} из ${me.freeSongs}. Платить пока не нужно.`
-          : 'Бесплатные песни закончились. Дальше — разово или по подписке.';
+        : me.balance > 0
+          ? `На балансе: ${me.balance} ₽. Спишется по ${me.priceSingle} ₽, когда начнёте разбор песни.`
+          : me.freeLeft > 0
+            ? `Бесплатных песен осталось: ${me.freeLeft} из ${me.freeSongs}. Платить пока не нужно.`
+            : 'Бесплатные песни закончились. Дальше — разово, по подписке или с баланса.';
+  $('state').textContent = me.balance > 0 && (me.unlimited || me.subscribed || me.credits > 0)
+    ? `${state} На балансе: ${me.balance} ₽.`
+    : state;
 
   if (!me.paymentReady) {
     $('msg').innerHTML =
@@ -52,12 +64,71 @@ async function load() {
   }
 }
 
-// Сразу, не дожидаясь данных: buy() сам подождёт, сколько нужно.
-document.querySelectorAll('[data-plan]').forEach((button) => {
-  button.onclick = () => buy(button.dataset.plan, button);
-});
+// ------------------------------------------------------- выбор варианта
+// Клик отмечает вариант, а не сразу уводит на оплату -- отдельная кнопка
+// "Оплатить" подтверждает выбор. Для пополнения так ещё и даёт вписать
+// сумму, прежде чем платить.
 
-async function buy(plan, button) {
+let selectedPlan = null;
+
+document.querySelectorAll('[data-plan]').forEach((el) => {
+  el.onclick = () => selectPlan(el.dataset.plan, el);
+  if (el.dataset.plan === 'topup') {
+    el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') selectPlan('topup', el); };
+  }
+});
+$('amount').addEventListener('input', updatePayLabel);
+$('amount').addEventListener('click', (e) => e.stopPropagation());
+
+function selectPlan(plan, el) {
+  document.querySelectorAll('[data-plan]').forEach((b) => b.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedPlan = plan;
+  $('topupAmount').style.display = plan === 'topup' ? 'block' : 'none';
+  if (plan === 'topup') $('amount').focus();
+  $('pay').style.display = 'block';
+  updatePayLabel();
+}
+
+function updatePayLabel() {
+  const pay = $('pay');
+  if (selectedPlan === 'topup') {
+    const amount = parseFloat($('amount').value || '0');
+    pay.textContent = amount > 0 ? `Оплатить ${amount} ₽` : 'Оплатить';
+  } else if (selectedPlan === 'single') {
+    pay.textContent = `Оплатить ${$('plans').children[0].querySelector('b').textContent}`;
+  } else if (selectedPlan === 'month') {
+    pay.textContent = `Оплатить ${$('plans').children[1].querySelector('b').textContent}`;
+  }
+}
+
+$('pay').onclick = () => {
+  if (!selectedPlan) return;
+  if (selectedPlan === 'topup') {
+    const amount = parseFloat($('amount').value || '0');
+    if (!amount || amount < me.topupMin || amount > me.topupMax) {
+      $('msg').innerHTML =
+        `<span class="bad">Сумма — от ${me.topupMin} до ${me.topupMax} ₽</span>`;
+      return;
+    }
+    pay(() => {
+      const form = new FormData();
+      form.append('amount', amount);
+      return fetch('/api/topup', { method: 'POST', body: form });
+    });
+  } else {
+    pay(() => {
+      const form = new FormData();
+      form.append('plan', selectedPlan);
+      return fetch('/api/subscribe', { method: 'POST', body: form });
+    });
+  }
+};
+
+// Общая часть покупки любого из трёх вариантов: проверки доступности,
+// отправка и разбор ответа отличаются только тем, какой запрос слать.
+async function pay(makeRequest) {
+  const button = $('pay');
   button.classList.add('busy');
   $('msg').textContent = 'Готовлю оплату…';
   await ready;                     // данные могли ещё не прийти
@@ -77,11 +148,9 @@ async function buy(plan, button) {
       'потеряется при смене браузера.';
     return;
   }
-  const form = new FormData();
-  form.append('plan', plan);
   let response;
   try {
-    response = await fetch('/api/subscribe', { method: 'POST', body: form });
+    response = await makeRequest();
   } catch (error) {
     button.classList.remove('busy');
     $('msg').innerHTML =
