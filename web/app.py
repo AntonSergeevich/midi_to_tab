@@ -306,6 +306,16 @@ def api_health(request: Request):
         # ненайденный платёж или ошибку при создании.
         "отказы": [{"когда": n["created_at"], "причина": n["reason"]}
                    for n in recent if not n["accepted"]],
+        # Что сообщил провайдер по каждому уведомлению -- тип и исход, без
+        # почты и прочего из тела: по этому видно, приходил ли вообще
+        # сигнал "оплачено" или банк отказал.
+        "уведомления": [
+            {"когда": n["created_at"], "принято": bool(n["accepted"]),
+             "тип": n["body"].get("notificationType") if isinstance(n["body"], dict) else None,
+             "оплачено": n["body"].get("isSuccess") if isinstance(n["body"], dict) else None,
+             "итог": n["reason"]}
+            for n in recent if not (isinstance(n["body"], dict) and "попытка оплаты" in n["body"])
+        ],
         "платежи_за_неделю": storage.payment_counts(time.time() - 7 * 86400),
         "время": time.time(),
         "версия": deployed_commit(),
