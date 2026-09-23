@@ -737,6 +737,16 @@ class Storage:
             )
         return payment_id
 
+    def payment_counts(self, since: float) -> dict:
+        """Сколько платежей в каком статусе с момента since -- для мониторинга."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT status, plan, COUNT(*) AS n FROM payments"
+                " WHERE created_at >= ? GROUP BY status, plan",
+                (since,),
+            ).fetchall()
+        return {f"{row['plan']}/{row['status']}": row["n"] for row in rows}
+
     def user_payments(self, user_id: str, limit: int = 20) -> list[dict]:
         """Платежи человека, новые сверху -- чтобы он сам видел, дошли ли деньги."""
         with self._connect() as conn:

@@ -301,6 +301,12 @@ def api_health(request: Request):
         "оплата": gateway.diagnose(),
         "уведомлений_за_последние": len(recent),
         "из_них_отклонено": failed_recent,
+        # Только время и причина, без тела: в теле бывают почта и номера
+        # платежей, а по причине и так видно, что чинить -- подпись,
+        # ненайденный платёж или ошибку при создании.
+        "отказы": [{"когда": n["created_at"], "причина": n["reason"]}
+                   for n in recent if not n["accepted"]],
+        "платежи_за_неделю": storage.payment_counts(time.time() - 7 * 86400),
         "время": time.time(),
         "версия": deployed_commit(),
     }
