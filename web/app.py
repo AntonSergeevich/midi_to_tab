@@ -346,6 +346,8 @@ def api_admin_users(request: Request, q: str = "", offset: int = 0, limit: int =
                 "isAdmin": u.is_admin,
                 "note": u.note,
                 "tracks": tracks,
+                "credits": u.credits,
+                "balance": u.balance,
             }
             for u, tracks in found["users"]
         ],
@@ -1104,6 +1106,36 @@ def _start_payment(request: Request, user, amount: float, title: str, plan: str)
     storage.create_payment(user.id, amount, created.get("id"), plan=plan)
     url = (created.get("confirmation") or {}).get("confirmation_url")
     return {"paymentUrl": url, "paymentId": created.get("id"), "plan": plan}
+
+
+PLAN_TITLES = {"single": "один трек", "month": "подписка на месяц", "topup": "пополнение баланса"}
+PAYMENT_STATUSES = {"succeeded": "оплачен", "pending": "ожидает оплаты",
+                    "failed": "не прошёл", "canceled": "отменён"}
+
+
+@app.get("/api/payments")
+def api_payments(request: Request):
+    """
+    История своих платежей.
+
+    Без неё человек, заплативший и не увидевший результата, не может
+    понять главного: дошли деньги или нет. Статус "ожидает" значит, что
+    подтверждения от платёжного сервиса ещё не было; "оплачен" -- что
+    зачислено.
+    """
+    user = current_user(request)
+    return {
+        "payments": [
+            {
+                "when": p["created_at"],
+                "amount": p["amount"],
+                "what": PLAN_TITLES.get(p["plan"], p["plan"]),
+                "status": PAYMENT_STATUSES.get(p["status"], p["status"]),
+                "paid": p["status"] == "succeeded",
+            }
+            for p in storage.user_payments(user.id)
+        ]
+    }
 
 
 @app.post("/api/subscribe")

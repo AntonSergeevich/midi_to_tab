@@ -159,6 +159,8 @@ function render() {
       <span class="muted" style="font-size:12px">
         треков ${u.tracks} · проб ${u.freeUsed} ·
         ${u.subscribed ? 'до ' + when(u.paidUntil) : 'без подписки'}
+        ${u.credits > 0 ? ` · куплено треков ${u.credits}` : ''}
+        ${u.balance > 0 ? ` · баланс ${u.balance} ₽` : ''}
       </span>
       <button data-act="grant">+30 дней</button>
       <span class="muted" data-role="status"></span>

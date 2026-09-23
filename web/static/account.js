@@ -33,11 +33,14 @@ async function boot() {
     $('forms').style.display = 'none';
     $('profile').style.display = '';
     $('who').textContent = me.email;
-    $('plan').textContent = me.subscribed ? 'Подписка активна'
+    const status = me.subscribed ? 'Подписка активна'
       : me.unlimited ? 'Безлимитный доступ'
-      : me.credits > 0 ? `Оплачено треков: ${me.credits}`
-      : me.balance > 0 ? `Баланс: ${me.balance} ₽`
+      : me.credits > 0 || me.balance > 0 ? ''
       : `Бесплатно песен: ${me.freeLeft} из ${me.freeSongs}`;
+    // Деньги показываются ВСЕГДА, отдельно от вида доступа: раньше
+    // безлимит проверялся первым и прятал и баланс, и купленные треки --
+    // владелец пополнял счёт и не видел суммы нигде.
+    $('plan').textContent = [status, money(me)].filter(Boolean).join(' · ');
   }
   if (!me.mailReady) {
     $('showForgot').title = 'Отправка писем на сервере не настроена';
@@ -172,21 +175,30 @@ loadSupport();
 
 // ------------------------------------------------------------------ тариф
 
+// Сколько у человека оплачено -- независимо от того, какой у него доступ.
+function money(me) {
+  const parts = [];
+  if (me.balance > 0) parts.push(`баланс ${me.balance} ₽`);
+  if (me.credits > 0) parts.push(`оплачено треков: ${me.credits}`);
+  return parts.join(', ');
+}
+
 // Оплата должна быть видна ВСЕГДА, а не только когда упёрся в предел.
 // Раньше кнопки появлялись лишь после того, как кончались пробные песни,
 // и владелец с безлимитом своей же оплаты не видел никогда.
 async function loadBilling(me) {
   if (!me.registered) return;
   const now = $('billingNow');
-  now.textContent = me.unlimited
+  const status = me.unlimited
     ? 'Безлимитный доступ — платить не нужно.'
     : me.subscribed
       ? `Подписка активна до ${new Date(me.paidUntil * 1000).toLocaleDateString('ru-RU')}.`
-      : me.credits > 0
-        ? `Оплачено треков: ${me.credits}.`
-        : me.balance > 0
-          ? `Баланс: ${me.balance} ₽. Спишется по ${me.priceSingle} ₽ за трек.`
-          : `Бесплатных песен осталось: ${me.freeLeft} из ${me.freeSongs}.`;
+      : me.credits > 0 || me.balance > 0
+        ? `Спишется по ${me.priceSingle} ₽ за трек, когда начнёте разбор.`
+        : `Бесплатных песен осталось: ${me.freeLeft} из ${me.freeSongs}.`;
+  const paid = money(me);
+  now.textContent = paid ? `${paid[0].toUpperCase()}${paid.slice(1)}. ${status}` : status;
+  loadPayments();
 
   // Клик отмечает вариант, платит отдельная кнопка ниже -- чтобы не
   // улетать на оплату по первому касанию. Пополнение произвольной
@@ -236,6 +248,26 @@ async function loadBilling(me) {
     }
     if (data.paymentUrl) location.href = data.paymentUrl;
   };
+}
+
+// История платежей: видно не только итог, но и каждый платёж со статусом.
+// "Ожидает оплаты" -- платёжный сервис ещё не подтвердил; значит, деньги
+// не зачислены, и это не ошибка отображения, а вопрос к оплате.
+async function loadPayments() {
+  const box = $('payments');
+  if (!box) return;
+  const { payments } = await (await fetch('/api/payments')).json();
+  if (!payments.length) {
+    box.innerHTML = '';
+    return;
+  }
+  box.innerHTML = '<h3 style="margin:18px 0 8px;font-size:15px">Платежи</h3>' +
+    payments.map((p) => `
+      <div class="muted" style="padding:6px 0;border-bottom:1px solid var(--border)">
+        ${new Date(p.when * 1000).toLocaleString('ru-RU')} ·
+        ${p.what} · <b>${p.amount} ₽</b> ·
+        <span class="${p.paid ? 'ok' : 'bad'}">${p.status}</span>
+      </div>`).join('');
 }
 
 // ------------------------------------------------------------ приглашения

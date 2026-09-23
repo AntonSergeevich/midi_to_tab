@@ -32,11 +32,18 @@ async function load() {
   } else if (me.credits > 0) {
     badge.textContent = `Оплачено треков: ${me.credits}`;
     badge.className = 'badge pro';
+  } else if (me.balance > 0) {
+    badge.textContent = `Баланс: ${me.balance} ₽`;
+    badge.className = 'badge pro';
   } else {
     badge.textContent = `Бесплатно песен: ${me.freeLeft} из ${me.freeSongs}`;
   }
+  // Баланс -- живые деньги, он виден при любом виде доступа.
+  if (me.balance > 0 && !badge.textContent.includes('₽')) {
+    badge.textContent += ` · ${me.balance} ₽`;
+  }
 
-  $('state').textContent = me.unlimited
+  const state = me.unlimited
     ? 'У вас безлимитный доступ — платить не нужно. Ниже показано то, что видят остальные.'
     : me.subscribed
       ? `Подписка активна до ${date(me.paidUntil)}. Можно продлить заранее — дни прибавятся к остатку.`
@@ -47,6 +54,9 @@ async function load() {
           : me.freeLeft > 0
             ? `Бесплатных песен осталось: ${me.freeLeft} из ${me.freeSongs}. Платить пока не нужно.`
             : 'Бесплатные песни закончились. Дальше — разово, по подписке или с баланса.';
+  $('state').textContent = me.balance > 0 && (me.unlimited || me.subscribed || me.credits > 0)
+    ? `${state} На балансе: ${me.balance} ₽.`
+    : state;
 
   if (!me.paymentReady) {
     $('msg').innerHTML =

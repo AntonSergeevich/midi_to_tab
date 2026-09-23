@@ -608,6 +608,7 @@ class Storage:
             unlimited=bool(row["unlimited"]),
             note=row["note"],
             credits=row["credits"],
+            balance=row["balance"] if "balance" in row.keys() else 0.0,
             password_hash=row["password_hash"] if "password_hash" in row.keys() else None,
             registered_at=row["registered_at"] if "registered_at" in row.keys() else None,
         )
@@ -735,6 +736,16 @@ class Storage:
                 (payment_id, user_id, time.time(), amount, provider_id, plan),
             )
         return payment_id
+
+    def user_payments(self, user_id: str, limit: int = 20) -> list[dict]:
+        """Платежи человека, новые сверху -- чтобы он сам видел, дошли ли деньги."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT created_at, amount, status, plan FROM payments"
+                " WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def payment_by_provider(self, provider_id: str) -> dict | None:
         with self._connect() as conn:

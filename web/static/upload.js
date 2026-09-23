@@ -41,9 +41,17 @@ async function loadMe() {
   } else if (me.credits > 0) {
     badge.textContent = `Оплачено треков: ${me.credits}`;
     badge.className = 'badge pro';
+  } else if (me.balance > 0) {
+    badge.textContent = `Баланс: ${me.balance} ₽`;
+    badge.className = 'badge pro';
   } else {
     badge.textContent = `Бесплатно песен: ${me.freeLeft} из ${me.freeSongs}`;
     badge.className = 'badge';
+  }
+  // Баланс виден и при безлимите/подписке: это живые деньги, и прятать их
+  // за видом доступа нельзя -- владелец пополнял счёт и не видел суммы.
+  if (me.balance > 0 && !badge.textContent.includes('₽')) {
+    badge.textContent += ` · ${me.balance} ₽`;
   }
 
   const missing = [];
@@ -276,15 +284,24 @@ async function confirmPayment() {
   if (new URLSearchParams(location.search).get('paid') !== '1') return;
   history.replaceState(null, '', location.pathname);
 
-  const before = { credits: me.credits, subscribed: me.subscribed, unlimited: me.unlimited };
+  // Сравниваем ДЕНЬГИ, а не вид доступа: раньше здесь стояло
+  // "|| me.unlimited", и у безлимитного владельца проверка сразу
+  // объявляла "оплата прошла", ни разу не посмотрев на счёт, -- а
+  // пополнение баланса не проверялось вовсе.
+  const before = {
+    credits: me.credits, balance: me.balance || 0, paidUntil: me.paidUntil || 0,
+  };
   $('msg').innerHTML = '<span class="muted">Проверяем оплату…</span>';
 
   for (let attempt = 0; attempt < 12; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, 1500));
     await loadMe();
-    const credited = me.credits > before.credits || me.unlimited
-      || (me.subscribed && !before.subscribed);
-    if (credited) {
+    const gained = (me.balance || 0) - before.balance;
+    if (gained > 0) {
+      $('msg').innerHTML = `<span class="ok">Оплата прошла — на балансе +${gained} ₽.</span>`;
+      return;
+    }
+    if (me.credits > before.credits || (me.paidUntil || 0) > before.paidUntil) {
       $('msg').innerHTML = '<span class="ok">Оплата прошла — доступ открыт.</span>';
       return;
     }

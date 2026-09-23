@@ -986,6 +986,51 @@ def test_topup_webhook_credits_exact_amount_and_only_once(tmp_path, monkeypatch)
         assert app_module.storage.user(user.id).balance == 350.0
 
 
+def test_unlimited_owner_sees_balance_and_payment_history(tmp_path, monkeypatch):
+    """
+    Регрессия с живого сайта: владелец с безлимитом пополнил баланс на
+    50 ₽ и купил трек за 19 ₽ -- и не увидел ни суммы, ни треков нигде.
+    Безлимит проверялся первым и прятал деньги, а админка баланс вообще
+    не читала из базы. Деньги должны быть видны при любом виде доступа,
+    а каждый платёж -- со своим статусом.
+    """
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+    from web import billing
+
+    with TestClient(app_module.app) as client:
+        client.post("/api/auth/register",
+                    data={"email": "vladelec@naslux.ru", "password": "длинный-пароль-9"})
+        store = app_module.storage
+        uid = store.user_by_email("vladelec@naslux.ru").id
+        store.set_flags(uid, is_admin=True, unlimited=True)
+
+        store.create_payment(uid, 50.0, "p-topup", plan="topup")
+        store.mark_paid_once(store.payment_by_provider("p-topup")["id"])
+        billing.apply_plan(store, uid, "topup", 50.0)
+        store.create_payment(uid, 19.0, "p-single", plan="single")   # не оплачен
+
+        me = client.get("/api/me").json()
+        assert me["unlimited"] is True
+        assert me["balance"] == 50.0
+
+        payments = client.get("/api/payments").json()["payments"]
+        assert len(payments) == 2
+        statuses = {p["what"]: (p["amount"], p["paid"]) for p in payments}
+        assert statuses["пополнение баланса"] == (50.0, True)
+        assert statuses["один трек"] == (19.0, False)
+
+        admin = client.get("/api/admin/users").json()
+        row = next(u for u in admin["users"] if u["id"] == uid)
+        assert row["balance"] == 50.0
+
+
 # --------------------------------------------------------------- мониторинг
 
 
