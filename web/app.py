@@ -962,9 +962,16 @@ async def api_upload(
         # пользователь параллельно запустил ещё один разбор и списал
         # последнюю пробную песню/кредит первым). Раз списывать оказалось
         # не с чего, разбор не запускаем -- иначе он ушёл бы бесплатно.
+        # access.reason тут не годится: это сообщение из проверки ДО
+        # загрузки ("осталось песен — 1"), не про то, что списать не
+        # вышло -- показывать его как причину отказа только запутает.
+        race_reason = (
+            "Лимит уже израсходован — похоже, вы запустили разбор ещё "
+            "одной песни параллельно. Обновите страницу и попробуйте снова."
+        )
         shutil.rmtree(upload_dir, ignore_errors=True)
-        storage.update_job(job.id, status="error", error=access.reason)
-        raise HTTPException(402, access.reason)
+        storage.update_job(job.id, status="error", error=race_reason)
+        raise HTTPException(402, race_reason)
     storage.update_job(job.id, counted=True)
     runner.submit_analysis(job.id, target)
 
@@ -1070,8 +1077,9 @@ def api_make_lyrics(
     language: str = Form(lyrics_mod.DEFAULT_LANGUAGE),
 ):
     """Распознать текст песни по вокальной партии."""
+    user = current_user(request)
     job = storage.job(job_id)
-    if not job or job.status != "done" or not job.result:
+    if not job or job.user_id != user.id or job.status != "done" or not job.result:
         raise HTTPException(404, "Разбор ещё не готов")
     ok, why = lyrics_mod.available()
     if not ok:
@@ -1116,8 +1124,9 @@ def api_separate_later(job_id: str, request: Request):
 @app.post("/api/job/{job_id}/tabs/{stem_key}")
 def api_make_tabs(job_id: str, stem_key: str, request: Request):
     """Создать MIDI и табы для выбранной партии."""
+    user = current_user(request)
     parent = storage.job(job_id)
-    if not parent or parent.status != "done" or not parent.result:
+    if not parent or parent.user_id != user.id or parent.status != "done" or not parent.result:
         raise HTTPException(404, "Разбор ещё не готов")
     parts = (parent.result.get("paths") or {}).get("parts", {})
     if stem_key not in parts:
@@ -1137,7 +1146,6 @@ def api_make_tabs(job_id: str, stem_key: str, request: Request):
                 "«Разделить на партии» под списком.",
             )
 
-    user = current_user(request)
     child = storage.create_job(
         user.id, f"{parent.filename} — {stem_key}", {"parent": job_id, "stem": stem_key}
     )
@@ -1214,6 +1222,21 @@ def _start_payment(request: Request, user, amount: float, title: str, plan: str)
     баланса отличаются только суммой, названием и тем, что зачислится
     по итогу (plan) -- сам разговор с платёжным шлюзом у них один.
     """
+    if not user.registered:
+        # Анонимный доступ держится на куке uid: потеряй её (приватная
+        # вкладка, смена телефона, очистка cookies) -- и оплаченное
+        # исчезнет без возможности восстановить, потому что нет ни
+        # почты, ни пароля, которыми можно опознать владельца. На
+        # странице тарифов эта проверка уже стоит на клиенте (pricing.js),
+        # но /api/subscribe и /api/topup дергались и из paywall'а на
+        # странице загрузки (upload.js) без неё -- сервер обязан
+        # требовать регистрацию сам, а не полагаться на то, что каждый
+        # вызывающий код её не забудет.
+        raise HTTPException(
+            403,
+            'Сначала <a href="/account">заведите учётную запись</a> — иначе '
+            "оплаченное потеряется при смене браузера.",
+        )
     gateway = billing.provider()
     if not gateway.configured():
         raise HTTPException(

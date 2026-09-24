@@ -122,7 +122,7 @@ SIMILAR_BARS = 6
 # Какое качество аккорда ожидается на каждой ступени лада. Это не догадка,
 # а устройство тональности: в миноре на первой ступени минор, на шестой
 # мажор, и так далее. Ступени даны в полутонах от тоники.
-DIATONIC_MINOR = {0: "m", 2: "dim", 3: "", 5: "m", 7: "m", 8: "", 10: "", 11: ""}
+DIATONIC_MINOR = {0: "m", 2: "dim", 3: "", 5: "m", 7: "m", 8: "", 10: "", 11: "dim"}
 DIATONIC_MAJOR = {0: "", 2: "m", 4: "m", 5: "", 7: "", 9: "m", 11: "dim"}
 
 # Насколько ожидаемое ладом качество лучше прочих при равной похожести.
@@ -390,15 +390,14 @@ def _merge_short(chords: list[AudioChord], min_duration: float) -> list[AudioCho
     result = [chords[0]]
     for chord in chords[1:]:
         previous = result[-1]
-        if chord.end - chord.start < min_duration:
+        if (
+            chord.end - chord.start < min_duration
+            or previous.end - previous.start < min_duration
+        ):
             previous.end = chord.end
             if chord.confidence > previous.confidence:
                 previous.name = chord.name
                 previous.confidence = chord.confidence
-        elif previous.end - previous.start < min_duration and previous.confidence < chord.confidence:
-            previous.name = chord.name
-            previous.confidence = chord.confidence
-            previous.end = chord.end
         elif chord.name == previous.name:
             previous.end = chord.end
         else:

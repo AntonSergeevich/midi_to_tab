@@ -573,6 +573,36 @@ def test_quality_falls_back_to_the_key_when_the_third_is_silent():
     assert decide(0, (0, 3, 7)) == "Cm"
 
 
+def test_raised_leading_tone_expects_a_diminished_triad():
+    """
+    На повышенной седьмой ступени минора (гармонический минор) лад
+    ожидает уменьшенное трезвучие, а не мажор.
+
+    DIATONIC_MINOR держал для этой ступени "" (мажор) -- ошибка: сама же
+    DIATONIC_MAJOR на симметричной седьмой ступени мажорного лада верно
+    ждёт "dim" (вводный тон), и уменьшённое трезвучие строится по тем же
+    правилам гармонии что в мажоре, что в миноре. Когда из записи не
+    слышно вообще ничего, кроме основного тона, качество решает только
+    лад -- и раньше это давало до-диез мажор в ре миноре там, где верно
+    до-диез уменьшенное.
+    """
+    np = pytest.importorskip("numpy")
+
+    from midi2tab.audiochords import _pick_quality, _templates
+
+    names, vectors, penalties, roots, qualities = _templates()
+    key = (2, False)                       # ре минор
+    root = 1                               # до-диез: одиннадцатая ступень от ре
+
+    profile = np.zeros(12)
+    profile[root] = 1.0
+    profile = profile / np.linalg.norm(profile)
+
+    picked = names[_pick_quality(np, names, vectors, penalties, roots,
+                                 qualities, root, profile, key)]
+    assert picked == "C#dim"
+
+
 def test_power_chords_are_never_a_label():
     """
     Квинт-аккорд -- не название гармонии.
@@ -883,3 +913,42 @@ def test_quality_asks_the_third_before_the_key():
     # Большая терция -- мажор
     assert decide(9, 4) == "A"
     assert decide(7, 4) == "G"
+
+
+def test_a_short_segment_is_merged_even_when_more_confident_than_its_neighbour():
+    """
+    Короткий отрезок обязан слиться с соседом, кто бы из двух ни был увереннее.
+
+    _merge_short сливал короткий сегмент, только если СЛЕДУЮЩИЙ окажется
+    короче порога, или если предыдущий короче порога И при этом МЕНЕЕ
+    уверен, чем следующий. Если короткий предыдущий сегмент оказывался
+    увереннее следующего (длинного, другого названия), обе ветки не
+    срабатывали, и он попадал в результат как есть -- частокол из
+    случайных коротких подписей, который вся функция должна была убрать.
+    """
+    from midi2tab.audiochords import AudioChord, _merge_short
+
+    chords = [
+        AudioChord("C", 0.0, 0.3, 0.9),     # короче порога, но увереннее соседа
+        AudioChord("G", 0.3, 1.8, 0.3),
+    ]
+    result = _merge_short(chords, min_duration=0.9)
+
+    assert len(result) == 1
+    assert result[0].start == 0.0
+    assert result[0].end == 1.8
+    assert result[0].name == "C"           # увереннее -- значит, имя остаётся его
+
+
+def test_merge_short_still_prefers_the_more_confident_neighbour():
+    """Слияние остаётся прежним и в случае, когда следующий увереннее."""
+    from midi2tab.audiochords import AudioChord, _merge_short
+
+    chords = [
+        AudioChord("C", 0.0, 0.3, 0.2),     # короче порога и менее уверен
+        AudioChord("G", 0.3, 1.8, 0.9),
+    ]
+    result = _merge_short(chords, min_duration=0.9)
+
+    assert len(result) == 1
+    assert result[0].name == "G"           # увереннее -- забирает имя

@@ -645,6 +645,45 @@ def test_consume_falls_back_when_the_first_tier_loses_the_race(store):
     assert fresh.balance == 0.0
 
 
+def test_payment_refuses_an_anonymous_account(tmp_path, monkeypatch):
+    """
+    Платёж без учётной записи привязан только к куке -- нельзя.
+
+    Проверка "сначала зарегистрируйтесь" стояла раньше только на клиенте
+    в pricing.js. Но paywall на странице загрузки (upload.js, тот самый
+    экран, куда упирается человек, реально пытающийся разобрать песню)
+    её не повторял и слал /api/subscribe напрямую -- анонимный посетитель
+    мог оплатить, а потеряв куку uid (приватная вкладка, смена телефона),
+    остался бы без денег и без способа доказать, что платёж его. Сервер
+    обязан требовать регистрацию сам, а не полагаться на то, что её не
+    забудет ни один из вызывающих экранов.
+    """
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        subscribe = client.post("/api/subscribe", data={"plan": "single"})
+        assert subscribe.status_code == 403
+        assert "учётную запись" in subscribe.json()["detail"]
+
+        topup = client.post("/api/topup", data={"amount": "500"})
+        assert topup.status_code == 403
+        assert "учётную запись" in topup.json()["detail"]
+
+        # Заведя аккаунт тем же браузером, дальше упирается только в то,
+        # что приём оплаты не настроен в тестовом окружении -- не в 403.
+        client.post("/api/auth/register",
+                    data={"email": "anon-to-real@naslux.ru", "password": "длинный-пароль-9"})
+        registered = client.post("/api/subscribe", data={"plan": "single"})
+        assert registered.status_code != 403
+
+
 def test_topup_amount_must_be_within_bounds(tmp_path, monkeypatch):
     import sys
 
@@ -788,6 +827,57 @@ def test_tabs_from_a_full_mix_are_refused(tmp_path, monkeypatch):
         refused = client.post(f"/api/job/{job.id}/tabs/full")
         assert refused.status_code == 409
         assert "Разделите" in refused.json()["detail"] or "разделите" in refused.json()["detail"]
+
+
+def test_tabs_and_lyrics_refuse_someone_else_s_job(tmp_path, monkeypatch):
+    """
+    Табы и текст песни -- только по своему треку, не по чужому job_id.
+
+    `/api/job/{id}/separate` всегда сверял `job.user_id` с текущим
+    пользователем и отказывал чужаку 404. У `/api/job/{id}/tabs/{stem}`
+    и `/api/job/{id}/lyrics` такой проверки не было вовсе: зная id чужого
+    задания (он утекает, например, в Referer при скачивании файла), можно
+    было запускать на нём разбор в MIDI/табы и распознавание текста --
+    оба не из дешёвых по CPU -- бесплатно и сколько угодно раз, не будучи
+    его владельцем.
+    """
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    monkeypatch.setattr(app_module.lyrics_mod, "available", lambda: (True, ""))
+
+    with TestClient(app_module.app) as client:
+        owner = app_module.storage.ensure_user(None)
+        job = app_module.storage.create_job(owner.id, "песня.mp3", {})
+        app_module.storage.update_job(
+            job.id, status="done",
+            result={"isMidi": False, "parts": [{"key": "guitar", "label": "Гитара"}],
+                    "paths": {"parts": {"guitar": "/нет/такого.wav"}}},
+        )
+
+        # Чужак: своя кука, чужой job_id
+        stranger = app_module.storage.ensure_user(None)
+        client.cookies.set("uid", app_module.signer.dumps(stranger.id))
+
+        tabs = client.post(f"/api/job/{job.id}/tabs/guitar")
+        assert tabs.status_code == 404
+
+        lyrics = client.post(f"/api/job/{job.id}/lyrics")
+        assert lyrics.status_code == 404
+
+        # Никакого дочернего задания чужаку не досталось
+        assert app_module.storage.user_jobs(stranger.id) == []
+
+        # Хозяину те же вызовы доступны
+        client.cookies.set("uid", app_module.signer.dumps(owner.id))
+        owner_tabs = client.post(f"/api/job/{job.id}/tabs/guitar")
+        assert owner_tabs.status_code == 200
 
 
 def test_pages_carry_a_build_stamp(tmp_path, monkeypatch):
