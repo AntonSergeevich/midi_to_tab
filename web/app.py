@@ -336,6 +336,99 @@ def api_admin_payment(request: Request):
     return {"состояние": gateway.diagnose()}
 
 
+FINANCE_GOAL_RUB = 500_000
+
+
+@app.get("/api/admin/finance")
+def api_admin_finance(request: Request, month: str = ""):
+    """
+    Финансовый отчёт: выручка по месяцам, прошедшие и не прошедшие
+    платежи, комиссия и прогноз месяца против цели.
+
+    Месяцы считаются по московскому времени: платёж в 01:00 первого числа
+    по Москве относится к новому месяцу, хотя на сервере (UTC) это ещё
+    старый. Деньги считаются по дате создания платежа.
+    """
+    import calendar
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    require_admin(request)
+    tz = ZoneInfo("Europe/Moscow")
+    now = datetime.now(tz)
+
+    keys = []
+    year, mon = now.year, now.month
+    for _ in range(12):
+        keys.append(f"{year:04d}-{mon:02d}")
+        year, mon = (year - 1, 12) if mon == 1 else (year, mon - 1)
+    keys.reverse()
+    since = datetime(int(keys[0][:4]), int(keys[0][5:]), 1, tzinfo=tz).timestamp()
+
+    months = {k: {"month": k, "revenue": 0.0, "commission": 0.0,
+                  "paid": 0, "failed": 0, "pending": 0} for k in keys}
+    selected = month if month in months else keys[-1]
+    rows, payers, by_plan = [], set(), {}
+    for p in storage.payments_since(since):
+        key = datetime.fromtimestamp(p["created_at"], tz).strftime("%Y-%m")
+        bucket = months.get(key)
+        if bucket is None:
+            continue
+        paid = p["status"] == "succeeded"
+        if paid:
+            bucket["revenue"] += p["amount"]
+            bucket["commission"] += p["commission"] or 0
+            bucket["paid"] += 1
+        elif p["status"] == "pending":
+            bucket["pending"] += 1
+        else:
+            bucket["failed"] += 1
+        if key != selected:
+            continue
+        if paid:
+            payers.add(p["user_id"])
+            plan = by_plan.setdefault(PLAN_TITLES.get(p["plan"], p["plan"]),
+                                      {"count": 0, "sum": 0.0})
+            plan["count"] += 1
+            plan["sum"] += p["amount"]
+        rows.append({
+            "when": p["created_at"],
+            "who": p["email"] or f"без входа · {p['user_id'][:8]}",
+            "what": PLAN_TITLES.get(p["plan"], p["plan"]),
+            "amount": p["amount"],
+            "commission": p["commission"] or 0,
+            "status": PAYMENT_STATUSES.get(p["status"], p["status"]),
+            "state": "paid" if paid else "pending" if p["status"] == "pending" else "failed",
+        })
+
+    cur = months[selected]
+    forecast = None
+    if selected == keys[-1]:
+        # Прогноз -- по темпу с начала месяца. Первые дни он скачет, но
+        # честнее показать его, чем ничего: цель месячная.
+        start = datetime(now.year, now.month, 1, tzinfo=tz)
+        days = max((now - start).total_seconds() / 86400, 1.0)
+        in_month = calendar.monthrange(now.year, now.month)[1]
+        forecast = {"projected": round(cur["revenue"] / days * in_month, 2),
+                    "daysPassed": round(days, 1), "daysInMonth": in_month}
+
+    return {
+        "month": selected,
+        "months": list(months.values()),
+        "summary": {
+            **cur,
+            "net": round(cur["revenue"] - cur["commission"], 2),
+            "avgCheck": round(cur["revenue"] / cur["paid"], 2) if cur["paid"] else 0,
+            "payers": len(payers),
+            "byPlan": by_plan,
+        },
+        "forecast": forecast,
+        "goal": FINANCE_GOAL_RUB,
+        "allTimeRevenue": storage.stats()["revenue"],
+        "payments": rows,
+    }
+
+
 @app.get("/api/admin/notices")
 def api_admin_notices(request: Request):
     """
@@ -1298,6 +1391,11 @@ async def api_webhook(gateway_name: str, request: Request):
         billing.apply_plan(
             storage, record["user_id"], record.get("plan") or "month", record.get("amount")
         )
+    # Комиссия -- для финансового отчёта: GetPlatinum присылает её в
+    # копейках в paymentData успешного уведомления.
+    commission = (payload.get("paymentData") or {}).get("commission")
+    if isinstance(commission, (int, float)):
+        storage.set_commission(record["id"], commission / 100)
     storage.save_notice(
         gateway_name, payload, True,
         "succeeded" if first_time else "succeeded (повтор, начислять нечего)",

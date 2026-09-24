@@ -453,3 +453,67 @@ footer.legal a:hover { color: var(--accent); }
   border-color: transparent; background: transparent;
 }
 .del:hover { color: var(--red); border-color: var(--red); background: var(--panel-hi); }
+
+/* ------------------------------------------------ финансы в админке */
+.fin-tiles {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px; margin-bottom: 14px;
+}
+.fin-tile {
+  background: var(--panel-hi); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px;
+}
+.fin-tile .label { color: var(--muted); font-size: 12px; }
+.fin-tile .value { font-size: 22px; font-weight: 700; color: var(--text); margin-top: 2px; }
+.fin-tile .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.fin-h { font-size: 14px; margin: 20px 0 10px; color: var(--text); }
+
+.fin-goal { margin: 4px 0 6px; }
+.fin-goal .fin-track {
+  height: 10px; border-radius: 999px; background: var(--panel-hi);
+  border: 1px solid var(--border); overflow: hidden;
+}
+.fin-goal .fill { height: 100%; background: var(--accent); border-radius: 999px; }
+.fin-goal .text { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.fin-goal .text b { color: var(--text); }
+
+/* Столбцы выручки: одна серия -- один цвет, скругление только сверху,
+   столбец стоит на базовой линии. Выбранный месяц -- полной яркости. */
+.fin-chart { position: relative; }
+.fin-bars {
+  display: flex; align-items: flex-end; gap: 2px; height: 150px;
+  border-bottom: 1px solid var(--border);
+}
+.fin-col {
+  flex: 1; height: 100%; display: flex; flex-direction: column;
+  justify-content: flex-end; cursor: pointer; outline: none;
+}
+.fin-bar {
+  background: var(--accent); opacity: .5; border-radius: 4px 4px 0 0;
+  min-height: 0; transition: opacity .15s;
+}
+.fin-col:hover .fin-bar, .fin-col:focus-visible .fin-bar { opacity: .8; }
+.fin-col.on .fin-bar { opacity: 1; }
+.fin-col .top { font-size: 11px; color: var(--muted); text-align: center; margin-bottom: 3px; }
+.fin-months { display: flex; gap: 2px; margin-top: 6px; }
+.fin-months span { flex: 1; text-align: center; font-size: 11px; color: var(--muted); }
+.fin-months span.on { color: var(--text); font-weight: 700; }
+.fin-tip {
+  position: absolute; pointer-events: none; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+  font-size: 12px; color: var(--text); white-space: nowrap; display: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .35); z-index: 5;
+}
+.fin-tip .muted { font-size: 12px; }
+
+.fin-row {
+  display: grid; grid-template-columns: 130px 1fr 150px 90px 150px;
+  gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border);
+  font-size: 13px; align-items: center;
+}
+.fin-row .amount { text-align: right; font-variant-numeric: tabular-nums; }
+.fin-row .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 720px) {
+  .fin-row { grid-template-columns: 1fr auto; }
+  .fin-row .when, .fin-row .what { color: var(--muted); font-size: 12px; }
+}

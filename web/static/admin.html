@@ -34,20 +34,19 @@
   <div id="panel" style="display:none">
     <div class="grid" id="stats" style="margin-bottom:18px"></div>
 
-    <div class="card">
-      <h2>Приём оплаты</h2>
-      <p class="muted" style="margin:0 0 12px">
-        Что видит служба. Секретный ключ не показывается — только его длина.
-      </p>
-      <div id="payment"></div>
-    </div>
-
-    <div class="card">
-      <h2>Уведомления от платёжного сервиса</h2>
-      <p class="muted" style="margin:0 0 12px">
-        Последние два десятка. У отвергнутого видно и пришедшую подпись, и ту, которую ждали.
-      </p>
-      <div id="notices"></div>
+    <div class="card" id="finance">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+        <h2 style="margin:0">Финансы</h2>
+        <span style="flex:1"></span>
+        <select id="financeMonth" aria-label="Месяц отчёта" style="width:auto;min-width:190px"></select>
+      </div>
+      <div class="fin-tiles" id="financeTiles"></div>
+      <div id="financeGoal"></div>
+      <h3 class="fin-h">Выручка по месяцам</h3>
+      <div id="financeChart"></div>
+      <h3 class="fin-h">Платежи за месяц</h3>
+      <div id="financePlans" class="muted" style="margin-bottom:8px"></div>
+      <div id="financeRows"></div>
     </div>
 
     <div class="card">
@@ -66,6 +65,24 @@
       <input type="text" id="search" placeholder="Поиск по почте или номеру — среди всех, не только на странице" style="margin-bottom:12px">
       <div id="users"></div>
     </div>
+
+    <!-- Техническое: нужно, только когда оплата сломалась. В повседневной
+         работе владельцу нужен отчёт выше, а не сырые уведомления. -->
+    <details class="card">
+      <summary style="cursor:pointer;color:var(--muted)">
+        Техническое: настройки приёма оплаты и уведомления платёжного сервиса
+      </summary>
+      <h2 style="margin-top:16px">Приём оплаты</h2>
+      <p class="muted" style="margin:0 0 12px">
+        Что видит служба. Секретный ключ не показывается — только его длина.
+      </p>
+      <div id="payment"></div>
+      <h2 style="margin-top:20px">Уведомления от платёжного сервиса</h2>
+      <p class="muted" style="margin:0 0 12px">
+        Последние два десятка. У отвергнутого видно и пришедшую подпись, и ту, которую ждали.
+      </p>
+      <div id="notices"></div>
+    </details>
   </div>
   <footer class="legal">
     <a href="/privacy">Политика конфиденциальности</a>

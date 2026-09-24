@@ -11,6 +11,7 @@ async function boot() {
   if (me.isAdmin) {
     $('login').style.display = 'none';
     await loadUsers();
+    await loadFinance();
     await loadPayment();
     await loadNotices();
   }
@@ -26,6 +27,7 @@ $('enter').onclick = async () => {
   }
   $('login').style.display = 'none';
   await loadUsers();
+  await loadFinance();
   await loadPayment();
   await loadNotices();
 };
@@ -52,7 +54,6 @@ async function loadUsers() {
     ['Безлимит', s.unlimited],
     ['Треков обработано', s.jobs],
     ['Сбоев', s.failed],
-    ['Получено, ₽', Math.round(s.revenue)],
     ['Обращений ждёт', s.open_tickets],
   ].map(([label, value]) => `
     <div class="card" style="margin:0;padding:14px">
@@ -271,4 +272,131 @@ async function loadNotices() {
       </div>
     </div>`;
   }).join('');
+}
+
+
+// ---------------------------------------------------------------- финансы
+
+// Отчёт для владельца: сколько пришло, что не прошло и дотянет ли месяц
+// до цели. Сырые уведомления платёжного сервиса -- внизу, в "Техническом":
+// они нужны, только когда оплата сломалась.
+const rub = (value) => `${Math.round(value).toLocaleString('ru-RU')} ₽`;
+const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн',
+  'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+const monthName = (key, long) => {
+  const [year, month] = key.split('-').map(Number);
+  return long
+    ? new Date(year, month - 1, 1).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
+    : MONTHS[month - 1];
+};
+
+async function loadFinance(month = '') {
+  const response = await fetch(`/api/admin/finance?month=${encodeURIComponent(month)}`);
+  if (!response.ok) return;
+  const data = await response.json();
+  const s = data.summary;
+
+  const select = $('financeMonth');
+  select.innerHTML = [...data.months].reverse().map((m) =>
+    `<option value="${m.month}" ${m.month === data.month ? 'selected' : ''}>
+      ${monthName(m.month, true)}</option>`).join('');
+  select.onchange = () => { financeShowAll = false; loadFinance(select.value); };
+
+  const tile = (label, value, sub = '') => `
+    <div class="fin-tile"><div class="label">${label}</div>
+      <div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
+  $('financeTiles').innerHTML = [
+    tile('Выручка', rub(s.revenue), `за ${monthName(data.month, true)}`),
+    tile('Чистыми', rub(s.net), s.commission ? `комиссия ${rub(s.commission)}` : 'комиссия не пришла'),
+    tile('Оплачено', s.paid, `платящих: ${s.payers}`),
+    tile('Не прошло', s.failed, s.pending ? `ещё ждут оплаты: ${s.pending}` : ''),
+    tile('Средний чек', s.paid ? rub(s.avgCheck) : '—'),
+    tile('За всё время', rub(data.allTimeRevenue)),
+  ].join('');
+
+  // Прогноз -- только для текущего месяца: по темпу с его начала.
+  if (data.forecast) {
+    const f = data.forecast;
+    const share = Math.min(100, (f.projected / data.goal) * 100);
+    $('financeGoal').innerHTML = `<div class="fin-goal">
+      <div class="fin-track" role="progressbar" aria-valuemin="0" aria-valuemax="${data.goal}"
+        aria-valuenow="${Math.round(f.projected)}"><div class="fill" style="width:${share}%"></div></div>
+      <div class="text">Прогноз на месяц: <b>${rub(f.projected)}</b> из ${rub(data.goal)}
+        (${share.toFixed(share < 10 ? 1 : 0)}%) — по темпу за ${f.daysPassed} из ${f.daysInMonth} дней.
+        ${s.revenue < data.goal
+          ? `До цели в этом месяце: <b>${rub(data.goal - s.revenue)}</b>.` : '<b>Цель достигнута.</b>'}
+      </div></div>`;
+  } else {
+    $('financeGoal').innerHTML = '';
+  }
+
+  drawRevenue(data.months, data.month);
+
+  const plans = Object.entries(s.byPlan);
+  $('financePlans').textContent = plans.length
+    ? plans.map(([name, p]) => `${name}: ${p.count} на ${rub(p.sum)}`).join(' · ')
+    : '';
+  const marks = { paid: ['ok', '✓'], failed: ['bad', '✕'], pending: ['muted', '…'] };
+  // Первые 20 -- остальные по кнопке: когда платежей станут сотни,
+  // бесконечный список закроет всё, что ниже.
+  const LIMIT = 20;
+  const shown = financeShowAll ? data.payments : data.payments.slice(0, LIMIT);
+  const more = data.payments.length - shown.length;
+  $('financeRows').innerHTML = (data.payments.length
+    ? shown.map((p) => {
+      const [cls, icon] = marks[p.state];
+      return `<div class="fin-row">
+        <span class="when">${new Date(p.when * 1000).toLocaleString('ru-RU',
+          { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+        <span class="who" title="${escapeHtml(p.who)}">${escapeHtml(p.who)}</span>
+        <span class="what">${p.what}</span>
+        <span class="amount">${rub(p.amount)}</span>
+        <span class="${cls}">${icon} ${p.status}</span></div>`;
+    }).join('')
+    : '<p class="muted">Платежей в этом месяце не было.</p>')
+    + (more > 0 ? `<button id="financeMore" style="margin-top:12px">Показать все (ещё ${more})</button>` : '');
+  if (more > 0) {
+    $('financeMore').onclick = () => { financeShowAll = true; loadFinance(data.month); };
+  }
+}
+let financeShowAll = false;
+
+// Столбцы выручки за 12 месяцев. Одна серия -- без легенды, заголовок её
+// называет. Подписаны только лучший и выбранный месяц, остальное -- по
+// наведению; клик по столбцу открывает месяц.
+function drawRevenue(months, selected) {
+  const box = $('financeChart');
+  const max = Math.max(...months.map((m) => m.revenue), 1);
+  const best = months.reduce((a, b) => (b.revenue > a.revenue ? b : a));
+  box.innerHTML = `<div class="fin-chart">
+    <div class="fin-bars">${months.map((m) => {
+      const label = m.month === selected || (m === best && m.revenue > 0) ? rub(m.revenue) : '';
+      return `<div class="fin-col ${m.month === selected ? 'on' : ''}" data-month="${m.month}"
+        tabindex="0" role="button" aria-label="${monthName(m.month, true)}: ${rub(m.revenue)}">
+        <div class="top">${m.revenue > 0 ? label : ''}</div>
+        <div class="fin-bar" style="height:${(m.revenue / max) * 100 * 0.82}%"></div></div>`;
+    }).join('')}</div>
+    <div class="fin-months">${months.map((m) =>
+      `<span class="${m.month === selected ? 'on' : ''}">${monthName(m.month)}</span>`).join('')}</div>
+    <div class="fin-tip"></div></div>`;
+
+  const chart = box.querySelector('.fin-chart');
+  const tip = box.querySelector('.fin-tip');
+  box.querySelectorAll('.fin-col').forEach((col) => {
+    const m = months.find((x) => x.month === col.dataset.month);
+    const show = () => {
+      tip.innerHTML = `<b>${monthName(m.month, true)}</b><br>Выручка: ${rub(m.revenue)}
+        <br><span class="muted">оплачено ${m.paid} · не прошло ${m.failed}</span>`;
+      tip.style.display = 'block';
+      const left = col.offsetLeft + col.offsetWidth / 2 - tip.offsetWidth / 2;
+      tip.style.left = `${Math.max(0, Math.min(left, chart.offsetWidth - tip.offsetWidth))}px`;
+      tip.style.top = '0px';
+    };
+    col.onmouseenter = show;
+    col.onfocus = show;
+    col.onmouseleave = () => { tip.style.display = 'none'; };
+    col.onblur = () => { tip.style.display = 'none'; };
+    col.onclick = () => { financeShowAll = false; loadFinance(m.month); };
+    col.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') loadFinance(m.month); };
+  });
 }

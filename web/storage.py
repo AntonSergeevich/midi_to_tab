@@ -166,6 +166,11 @@ class Storage:
         payment_columns = {row["name"] for row in conn.execute("PRAGMA table_info(payments)")}
         if "plan" not in payment_columns:
             conn.execute("ALTER TABLE payments ADD COLUMN plan TEXT NOT NULL DEFAULT 'month'")
+        # Комиссия платёжного сервиса, рублей: приходит в уведомлении об
+        # оплате. Без неё в отчёте видна только выручка, а не то, что
+        # остаётся на руках.
+        if "commission" not in payment_columns:
+            conn.execute("ALTER TABLE payments ADD COLUMN commission REAL NOT NULL DEFAULT 0")
 
         job_columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
         if "progress" not in job_columns:
@@ -781,6 +786,23 @@ class Storage:
                 (since,),
             ).fetchall()
         return {f"{row['plan']}/{row['status']}": row["n"] for row in rows}
+
+    def payments_since(self, since: float) -> list[dict]:
+        """Платежи всех пользователей с момента since, новые сверху -- для отчёта."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT p.created_at, p.amount, p.status, p.plan, p.commission,"
+                "       p.user_id, u.email"
+                " FROM payments p LEFT JOIN users u ON u.id = p.user_id"
+                " WHERE p.created_at >= ? ORDER BY p.created_at DESC",
+                (since,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def set_commission(self, payment_id: str, commission: float) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE payments SET commission = ? WHERE id = ?",
+                         (commission, payment_id))
 
     def user_payments(self, user_id: str, limit: int = 20) -> list[dict]:
         """Платежи человека, новые сверху -- чтобы он сам видел, дошли ли деньги."""

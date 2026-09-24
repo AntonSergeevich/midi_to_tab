@@ -1339,3 +1339,64 @@ def test_no_route_is_registered_twice(tmp_path, monkeypatch):
                 duplicates.append(key)
             seen.add(key)
     assert not duplicates, f"путь объявлен дважды: {duplicates}"
+
+
+def test_admin_finance_report_counts_money_by_month(tmp_path, monkeypatch):
+    """
+    Финансовый отчёт владельца: выручка и чистыми за месяц, прошедшие и
+    не прошедшие платежи, помесячная раскладка и прогноз текущего месяца.
+    Считается только оплаченное -- неудачная попытка не выручка.
+    """
+    import sqlite3
+    import sys
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        client.post("/api/auth/register",
+                    data={"email": "owner@naslux.ru", "password": "длинный-пароль-9"})
+        store = app_module.storage
+        owner = store.user_by_email("owner@naslux.ru")
+        store.set_flags(owner.id, is_admin=True)
+
+        buyer = store.ensure_user(None)
+        for deal, amount, plan in (("a", 19.0, "single"), ("b", 50.0, "topup"),
+                                   ("c", 199.0, "month"), ("old", 199.0, "month")):
+            store.create_payment(buyer.id, amount, deal, plan=plan)
+        for deal in ("a", "b", "old"):
+            store.mark_paid_once(store.payment_by_provider(deal)["id"])
+        store.set_payment_status(store.payment_by_provider("c")["id"], "failed")
+        store.set_commission(store.payment_by_provider("b")["id"], 1.75)
+
+        # Один оплаченный платёж -- в прошлом месяце
+        now = datetime.now(ZoneInfo("Europe/Moscow"))
+        prev = (now.year - 1, 12) if now.month == 1 else (now.year, now.month - 1)
+        prev_ts = datetime(prev[0], prev[1], 15, tzinfo=ZoneInfo("Europe/Moscow")).timestamp()
+        with sqlite3.connect(store.path) as conn:
+            conn.execute("UPDATE payments SET created_at = ? WHERE provider_id = 'old'",
+                         (prev_ts,))
+
+        data = client.get("/api/admin/finance").json()
+        s = data["summary"]
+        assert s["revenue"] == 69.0
+        assert s["commission"] == 1.75 and s["net"] == 67.25
+        assert s["paid"] == 2 and s["failed"] == 1 and s["payers"] == 1
+        assert data["forecast"]["projected"] >= s["revenue"]
+        assert len(data["months"]) == 12
+        assert data["months"][-2]["revenue"] == 199.0
+        assert {p["state"] for p in data["payments"]} == {"paid", "failed"}
+
+        prev_key = f"{prev[0]:04d}-{prev[1]:02d}"
+        old = client.get(f"/api/admin/finance?month={prev_key}").json()
+        assert old["summary"]["revenue"] == 199.0 and old["forecast"] is None
+
+        # Не владельцу отчёт не отдаётся
+        other = TestClient(app_module.app)
+        assert other.get("/api/admin/finance").status_code == 403
