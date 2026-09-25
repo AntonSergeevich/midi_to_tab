@@ -65,6 +65,8 @@ def main() -> None:
                         "aggressive drums, distorted bass, powerful male vocals")
     parser.add_argument("--lyrics", default="")
     parser.add_argument("--steps", type=int, default=0)
+    parser.add_argument("--extra", default="",
+                        help='JSON поверх задания, напр. {"variants": 2, "raw": {"shift": 3}}')
     parser.add_argument("--out", default="results")
     args = parser.parse_args()
 
@@ -90,6 +92,8 @@ def main() -> None:
                          weirdness=float(parts[2]))
         if len(parts) > 3 and parts[3].strip() == "turbo":
             job_input["engine"] = "turbo"
+    if args.extra:
+        job_input.update(json.loads(args.extra))
     if args.steps:
         job_input["steps"] = args.steps
     status = run(endpoint, headers, job_input)

@@ -15,6 +15,9 @@ on:
       knobs:
         description: "restyle: влияние песни,влияние стиля,странность[,turbo] -- напр. 0.35,0.6,0.3 (пусто -- по strength на turbo)"
         default: ""
+      extra:
+        description: 'JSON поверх задания воркеру, напр. {"variants": 2, "raw": {"shift": 3}}'
+        default: ""
       track:
         description: Партия для enrich/extract/complete
         default: drums
@@ -42,6 +45,7 @@ jobs:
       MODE: ${{ inputs.mode }}
       STRENGTH: ${{ inputs.strength }}
       KNOBS: ${{ inputs.knobs }}
+      EXTRA: ${{ inputs.extra }}
       TRACK: ${{ inputs.track }}
       PROMPT: ${{ inputs.prompt }}
       SECONDS_: ${{ inputs.seconds }}
@@ -63,7 +67,7 @@ jobs:
           python scripts/runpod_endpoint.py
       - name: Задача
         run: |
-          python scripts/worker_test.py source.mp3 --mode "$MODE" --strength "$STRENGTH" --knobs "$KNOBS" \
+          python scripts/worker_test.py source.mp3 --mode "$MODE" --strength "$STRENGTH" --knobs "$KNOBS" --extra "$EXTRA" \
             --track "$TRACK" --prompt "$PROMPT" --seconds "$SECONDS_" --out results
       - name: В ветку test-results
         if: always()

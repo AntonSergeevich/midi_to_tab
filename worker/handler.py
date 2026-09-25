@@ -33,7 +33,11 @@ import runpod
 
 PORT = int(os.environ.get("ACESTEP_API_PORT", "8901"))
 BASE = f"http://127.0.0.1:{PORT}"
-TURBO, FULL = "acestep-v15-turbo", "acestep-v15-base"
+# SFT -- модель для переделки (её советуют авторы ACE-Step для Remix),
+# base -- для дописывания и вытаскивания партий (lego/complete/extract).
+# turbo лежит в образе (без него сервер считает комплект неполным и
+# качает всё заново), но в видеопамять не грузится.
+SFT, FULL = "acestep-v15-sft", "acestep-v15-base"
 TRACKS = {"woodwinds", "brass", "fx", "synth", "strings", "percussion",
           "keyboard", "guitar", "bass", "drums", "backing_vocals", "vocals"}
 MAX_SECONDS = 600
@@ -102,7 +106,7 @@ def fetch_source(job_input, workdir):
 
 
 def ace_step(body):
-    """Отдать задачу серверу ACE-Step, дождаться, вернуть (mp3, сведения)."""
+    """Отдать задачу серверу ACE-Step, дождаться, вернуть ([mp3...], сведения)."""
     start_server()
     task = _request("/release_task", body, timeout=120)
     task_id = (task.get("data") or {}).get("task_id")
@@ -121,8 +125,8 @@ def ace_step(body):
         # загружена, -- и вместо дописывания получилась бы переделка.
         if body.get("model") and info.get("dit_model") and info["dit_model"] != body["model"]:
             raise RuntimeError(f"сервер взял {info['dit_model']} вместо {body['model']}")
-        return to_mp3(_request(info["file"], timeout=300)), {
-            k: info.get(k) for k in ("dit_model", "seed_value", "metas")}
+        audios = [to_mp3(_request(item["file"], timeout=300)) for item in result if item.get("file")]
+        return audios, {k: info.get(k) for k in ("dit_model", "seed_value", "metas")}
 
 
 def to_mp3(wav: bytes, bitrate: str = "320k") -> bytes:
@@ -152,34 +156,61 @@ def knob(job_input, name, default):
         return default
 
 
+KEY_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+MAJOR = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
+MINOR = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
+
+
+def tempo_and_key(path):
+    """Темп и тональность исходника. Без них модель получает «N/A» и
+    ведёт гармонию и ритм сама -- отсюда каша вместо песни."""
+    import librosa
+    import numpy as np
+
+    y, sr = librosa.load(path, sr=22050, mono=True, duration=240)
+    tempo = float(np.atleast_1d(librosa.beat.beat_track(y=y, sr=sr)[0])[0])
+    harmonic = librosa.effects.harmonic(y)
+    profile = librosa.feature.chroma_cqt(y=harmonic, sr=sr).mean(axis=1)
+    best = max(((float(np.corrcoef(profile, np.roll(w, k))[0, 1]), k, name)
+                for k in range(12) for w, name in ((MAJOR, "major"), (MINOR, "minor"))))
+    return int(round(tempo)), f"{KEY_NAMES[best[1]]} {best[2]}"
+
+
 def restyle(job_input, source):
-    """Переделка в стиль. Три крутилки, как в Suno (все 0..1):
+    """Переделка в стиль по рецепту авторов ACE-Step для Remix: модель SFT,
+    сила следования исходнику около 0.5, «удержание мелодии» 0.1-0.25,
+    темп и тональность исходника. Три крутилки (0..1), как в Suno:
 
-    audio_influence -- влияние загруженной песни: сколько оригинала сохранить
-                       (audio_cover_strength);
-    style_influence -- влияние стиля: насколько строго следовать описанию
-                       (guidance_scale 3..12; работает только в base);
-    weirdness       -- странность: доля шагов на сильном шуме (shift 1..5) и,
-                       от середины шкалы, стохастический сэмплер (sde).
+    audio_influence -- влияние загруженной песни: audio_cover_strength
+                       0.1..1 и удержание мелодии 0.1..0.25 вместе с ним;
+    style_influence -- влияние стиля: guidance 5..9 (7 -- умолчание модели);
+    weirdness       -- странность: shift 2.5..4, с 0.75 -- sde-сэмплер.
 
-    engine=turbo -- быстрый режим на turbo: 8 шагов, стиль и странность он
-    не слушает (guidance и shift turbo игнорирует).
+    Шкалы нарочно узкие: за их пределами гармония разваливается -- так
+    и вышло на первой версии, где guidance доходил до 12, а удержания
+    мелодии не было вовсе. variants -- сколько версий сделать (1..4):
+    авторы советуют выбирать из нескольких, а не ждать одной удачной.
     """
-    audio = knob(job_input, "audio_influence", knob(job_input, "strength", 0.35))
-    style = knob(job_input, "style_influence", 0.6)
+    audio = knob(job_input, "audio_influence", knob(job_input, "strength", 0.5))
+    style = knob(job_input, "style_influence", 0.5)
     weird = knob(job_input, "weirdness", 0.3)
+    bpm, key = tempo_and_key(source)
     body = {**common(job_input, source), "task_type": "cover",
-            "audio_cover_strength": max(0.05, audio)}
-    if job_input.get("engine") == "turbo":
-        body.update(model=TURBO, inference_steps=int(job_input.get("steps") or 8))
-    else:
-        body.update(model=FULL, inference_steps=int(job_input.get("steps") or 32),
-                    guidance_scale=round(3 + 9 * style, 2), shift=round(1 + 4 * weird, 2),
-                    infer_method="sde" if weird >= 0.5 else "ode")
-    audio_bytes, info = ace_step(body)
-    info["knobs"] = {"audio_influence": audio, "style_influence": style, "weirdness": weird,
-                     "engine": body["model"]}
-    return [("restyle.mp3", audio_bytes)], info
+            "model": FULL if job_input.get("engine") == "base" else SFT,
+            "audio_cover_strength": round(0.1 + 0.9 * audio, 3),
+            "cover_noise_strength": round(0.1 + 0.15 * audio, 3),
+            "guidance_scale": round(5 + 4 * style, 2), "shift": round(2.5 + 1.5 * weird, 2),
+            "infer_method": "sde" if weird >= 0.75 else "ode",
+            "inference_steps": int(job_input.get("steps") or 50),
+            "bpm": bpm, "key_scale": key, "time_signature": "4",
+            "batch_size": max(1, min(4, int(job_input.get("variants") or 2)))}
+    # Для подбора настроек из тестов: любые поля ACE-Step поверх рецепта.
+    body.update(job_input.get("raw") or {})
+    audios, info = ace_step(body)
+    info["settings"] = {k: body.get(k) for k in (
+        "model", "audio_cover_strength", "cover_noise_strength", "guidance_scale", "shift",
+        "infer_method", "inference_steps", "bpm", "key_scale", "batch_size")}
+    return [(f"restyle_{i + 1}.mp3", a) for i, a in enumerate(audios)], info
 
 
 def enrich(job_input, source, task_type):
@@ -191,8 +222,8 @@ def enrich(job_input, source, task_type):
             "track_name": track, "track_classes": [track], "global_caption": prompt,
             "inference_steps": int(job_input.get("steps") or 32),
             "guidance_scale": float(job_input.get("guidance") or 7.0)}
-    audio, info = ace_step(body)
-    return [(f"{task_type}_{track}.mp3", audio)], info
+    audios, info = ace_step(body)
+    return [(f"{task_type}_{track}.mp3", audios[0])], info
 
 
 def stems(job_input, source, workdir):
