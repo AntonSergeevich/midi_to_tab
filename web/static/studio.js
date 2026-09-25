@@ -34,17 +34,19 @@ function showMode() {
 function updateStart() {
   if (!info) return;
   const price = info.services[mode].price;
-  const enough = info.unlimited || info.balance >= price;
+  const byPack = ['restyle', 'enrich'].includes(mode) && info.studioCredits > 0;
+  const enough = info.unlimited || byPack || info.balance >= price;
   $('start').disabled = !info.ready || !file || !enough;
   $('start').textContent = info.unlimited ? 'Запустить'
-    : `Запустить за ${rub(price)}`;
+    : byPack ? `Запустить · из пакета, осталось ${info.studioCredits}`
+      : `Запустить за ${rub(price)}`;
   if (!info.ready) {
     $('msg').textContent = info.why;
   } else if (!file) {
     $('msg').textContent = 'Выберите трек.';
   } else if (!enough) {
-    $('msg').innerHTML = `На балансе ${rub(info.balance)} — <a href="/pricing">пополните</a>, `
-      + `чтобы запустить.`;
+    $('msg').innerHTML = `На балансе ${rub(info.balance)} — <a href="/pricing">пополните</a> `
+      + 'или возьмите пакет генераций, чтобы запустить.';
   } else {
     $('msg').textContent = mode === 'stems' ? 'Обычно 1–3 минуты.'
       : 'Обычно 3–10 минут: нейросеть пишет трек заново. Страницу можно закрыть.';
@@ -100,7 +102,8 @@ function renderJobs(jobs) {
 async function load() {
   info = await (await fetch('/api/studio')).json();
   $('account').textContent = info.registered ? info.email : 'Вход';
-  $('balance').textContent = info.unlimited ? 'Безлимит' : `Баланс: ${rub(info.balance)}`;
+  $('balance').textContent = info.unlimited ? 'Безлимит' : `Баланс: ${rub(info.balance)}`
+    + (info.studioCredits > 0 ? ` · генераций: ${info.studioCredits}` : '');
   $('balance').className = info.unlimited || info.balance > 0 ? 'badge pro' : 'badge';
   if (!info.ready) {
     $('notReady').style.display = '';

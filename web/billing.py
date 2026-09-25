@@ -38,6 +38,12 @@ TOPUP_MAX_RUB = 10000.0
 PLANS = {
     "month": {"price": PRICE_RUB, "title": f"Подписка на {PERIOD_DAYS} дней", "credits": 0},
     "single": {"price": PRICE_SINGLE_RUB, "title": "Один трек", "credits": 1},
+    # Пакеты Студии: генерации на видеокарте (переделка в стиль, дописать
+    # партию) дешевле, чем поштучно с баланса (49 ₽): 39 и 33 ₽ за штуку.
+    "studio10": {"price": 390.0, "title": "Студия: 10 генераций", "credits": 0,
+                 "studio_credits": 10},
+    "studio30": {"price": 990.0, "title": "Студия: 30 генераций", "credits": 0,
+                 "studio_credits": 30},
 }
 
 
@@ -155,7 +161,9 @@ def apply_plan(storage: Storage, user_id: str, plan: str, amount: float | None =
         storage.add_balance(user_id, amount or 0.0)
         return
     spec = PLANS.get(plan, PLANS["month"])
-    if spec["credits"]:
+    if spec.get("studio_credits"):
+        storage.add_studio_credits(user_id, spec["studio_credits"])
+    elif spec["credits"]:
         storage.add_credits(user_id, spec["credits"])
     else:
         grant_subscription(storage, user_id)

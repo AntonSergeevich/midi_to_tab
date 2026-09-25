@@ -839,6 +839,9 @@ def pricing_page() -> HTMLResponse:
         "priceSingle": f"{billing.PRICE_SINGLE_RUB:.0f}",
         "topupMin": f"{billing.TOPUP_MIN_RUB:.0f}",
         "topupMax": f"{billing.TOPUP_MAX_RUB:.0f}",
+        "studio10": f"{billing.PLANS['studio10']['price']:.0f}",
+        "studio30": f"{billing.PLANS['studio30']['price']:.0f}",
+        "studioSingle": f"{studio.SERVICES['restyle'].price:.0f}",
     })
 
 
@@ -883,6 +886,7 @@ def api_me(request: Request):
     payload["mailReady"] = mailer.available()[0]
     payload["isAdmin"] = user.is_admin
     payload["unlimited"] = user.unlimited
+    payload["studioCredits"] = user.studio_credits
     payload["lyricsReady"] = lyrics_mod.available()[0]
     payload["lyricsModels"] = list(lyrics_mod.MODELS)
     payload["lyricsLanguages"] = list(lyrics_mod.LANGUAGES)
@@ -1255,6 +1259,7 @@ def api_studio(request: Request):
         "presets": {k: v[0] for k, v in studio.PRESETS.items()},
         "tracks": studio.TRACKS,
         "balance": user.balance, "unlimited": user.unlimited, "registered": user.registered,
+        "studioCredits": user.studio_credits,
         "email": user.email, "maxMb": MAX_UPLOAD_MB, "maxSeconds": studio.MAX_SECONDS,
         "jobs": [_studio_job_payload(j) for j in storage.studio_jobs(user.id)],
     })
@@ -1289,9 +1294,11 @@ async def api_studio_start(
     if mode == "enrich" and track not in studio.TRACKS:
         raise HTTPException(400, "Выберите партию, которую дописать")
     style = prompt.strip()[:500] or studio.PRESETS.get(preset, studio.PRESETS["numetal"])[1]
-    if not user.unlimited and user.balance < service.price:
+    by_pack = mode in studio.PACK_MODES and user.studio_credits > 0
+    if not user.unlimited and not by_pack and user.balance < service.price:
         raise HTTPException(402, f"{service.title} стоит {service.price:.0f} ₽, на балансе "
-                                 f"{user.balance:.0f} ₽. Пополните баланс на странице тарифов.")
+                                 f"{user.balance:.0f} ₽. Пополните баланс или возьмите пакет "
+                                 "генераций на странице тарифов.")
 
     clamp = lambda v: max(0.0, min(1.0, float(v)))  # noqa: E731
     knobs = {"audio_influence": clamp(audio_influence),
@@ -1329,7 +1336,12 @@ def _studio_charge_and_submit(request: Request, user, job_id: str, service, fold
     settings = dict(job.settings or {})
     # Списываем до запуска и одним атомарным запросом: два параллельных
     # запуска не должны потратить одни и те же деньги дважды.
-    if not user.unlimited:
+    if not user.unlimited and worker_input["mode"] in studio.PACK_MODES \
+            and storage.spend_studio_credit(user.id):
+        # Генерация из пакета: деньги не трогаем, при сбое вернём генерацию.
+        settings["charged_credit"] = True
+        storage.update_job(job_id, settings=settings, counted=True)
+    elif not user.unlimited:
         if not storage.spend_balance(user.id, service.price):
             shutil.rmtree(folder, ignore_errors=True)
             storage.update_job(job_id, status="error", error="Не хватило денег на балансе")
@@ -1503,7 +1515,8 @@ def _start_payment(request: Request, user, amount: float, title: str, plan: str)
     return {"paymentUrl": url, "paymentId": created.get("id"), "plan": plan}
 
 
-PLAN_TITLES = {"single": "один трек", "month": "подписка на месяц", "topup": "пополнение баланса"}
+PLAN_TITLES = {"single": "один трек", "month": "подписка на месяц", "topup": "пополнение баланса",
+               "studio10": "Студия: 10 генераций", "studio30": "Студия: 30 генераций"}
 PAYMENT_STATUSES = {"succeeded": "оплачен", "pending": "ожидает оплаты",
                     "failed": "не прошёл", "canceled": "отменён"}
 

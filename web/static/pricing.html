@@ -54,6 +54,19 @@
              placeholder="Сумма, ₽" style="width:140px">
     </div>
   </div>
+  <h2 style="margin:6px 0 10px">Студия — переделка песни нейросетью</h2>
+  <p class="muted" style="margin:0 0 12px">Поштучно — {{studioSingle}} ₽ с баланса. Пакетом дешевле:
+    генерации не сгорают, и если генерация не получилась, она возвращается в пакет.</p>
+  <div class="choices" style="margin-bottom:18px">
+    <button class="choice" type="button" data-plan="studio10">
+      <b>{{studio10}} ₽ — 10 генераций</b>
+      <small>39 ₽ за переделку в стиль или дописанную партию</small>
+    </button>
+    <button class="choice" type="button" data-plan="studio30">
+      <b>{{studio30}} ₽ — 30 генераций</b>
+      <small>33 ₽ за генерацию — для тех, кто пробует много стилей</small>
+    </button>
+  </div>
   <button id="pay" class="choice" type="button"
           style="display:none;text-align:center;font-weight:600;margin-bottom:18px">
     Оплатить

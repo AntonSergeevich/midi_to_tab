@@ -50,6 +50,10 @@ SERVICES = {
     "stems": Service("Разделение на партии", 19.0),
 }
 
+# Что можно оплатить генерацией из пакета (billing.PLANS studio10/30);
+# разделение на партии дешёвое и идёт только с баланса.
+PACK_MODES = ("restyle", "enrich")
+
 # Готовые стили -- подсказки для нейросети на английском: так её учили.
 PRESETS = {
     "numetal": ("Nu-metal", "nu metal, heavy downtuned 7-string guitars, aggressive drums, "
@@ -249,9 +253,15 @@ class StudioRunner:
         if job is None:
             return
         charged = float((job.settings or {}).get("charged") or 0)
-        if charged and job.counted:
+        by_pack = bool((job.settings or {}).get("charged_credit"))
+        note = ""
+        if job.counted and by_pack:
+            self.storage.add_studio_credits(job.user_id, 1)
+            self.storage.update_job(job_id, counted=False)
+            note = " Генерацию вернули в пакет."
+        elif job.counted and charged:
             self.storage.add_balance(job.user_id, charged)
             self.storage.update_job(job_id, counted=False)
-        note = f" Списанные {charged:.0f} ₽ вернули на баланс." if charged else ""
+            note = f" Списанные {charged:.0f} ₽ вернули на баланс."
         self.storage.update_job(job_id, status="error", stage="", error=(
             f"Не получилось: {reason[:300]}.{note}"))

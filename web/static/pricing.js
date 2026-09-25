@@ -95,10 +95,9 @@ function updatePayLabel() {
   if (selectedPlan === 'topup') {
     const amount = parseFloat($('amount').value || '0');
     pay.textContent = amount > 0 ? `Оплатить ${amount} ₽` : 'Оплатить';
-  } else if (selectedPlan === 'single') {
-    pay.textContent = `Оплатить ${$('plans').children[0].querySelector('b').textContent}`;
-  } else if (selectedPlan === 'month') {
-    pay.textContent = `Оплатить ${$('plans').children[1].querySelector('b').textContent}`;
+  } else {
+    const tile = document.querySelector(`[data-plan="${selectedPlan}"] b`);
+    pay.textContent = `Оплатить ${tile.textContent}`;
   }
 }
 

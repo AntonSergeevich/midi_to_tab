@@ -116,6 +116,7 @@ class User:
     note: str = ""               # кто это -- видно только в админке
     credits: int = 0             # оплаченные поштучно треки
     balance: float = 0.0         # пополненный баланс, рублей -- списывается за разбор
+    studio_credits: int = 0      # генерации Студии из купленного пакета
     password_hash: str | None = None
     registered_at: float | None = None
 
@@ -185,6 +186,7 @@ class Storage:
             ("password_hash", "TEXT"),
             ("registered_at", "REAL"),
             ("balance", "REAL NOT NULL DEFAULT 0"),
+            ("studio_credits", "INTEGER NOT NULL DEFAULT 0"),
         ):
             if column not in existing:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
@@ -247,6 +249,7 @@ class Storage:
             note=row["note"] or "",
             credits=row["credits"] or 0,
             balance=row["balance"] or 0.0,
+            studio_credits=row["studio_credits"] or 0,
             password_hash=row["password_hash"],
             registered_at=row["registered_at"],
         )
@@ -256,6 +259,19 @@ class Storage:
             conn.execute(
                 "UPDATE users SET credits = credits + ? WHERE id = ?", (count, user_id)
             )
+
+    def add_studio_credits(self, user_id: str, count: int) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE users SET studio_credits = studio_credits + ? WHERE id = ?",
+                         (count, user_id))
+
+    def spend_studio_credit(self, user_id: str) -> bool:
+        """Списать одну генерацию из пакета Студии -- атомарно, как spend_credit."""
+        with self._connect() as conn:
+            changed = conn.execute(
+                "UPDATE users SET studio_credits = studio_credits - 1"
+                " WHERE id = ? AND studio_credits > 0", (user_id,)).rowcount
+        return bool(changed)
 
     def spend_credit(self, user_id: str) -> bool:
         """
@@ -649,6 +665,7 @@ class Storage:
             note=row["note"],
             credits=row["credits"],
             balance=row["balance"] if "balance" in row.keys() else 0.0,
+            studio_credits=(row["studio_credits"] or 0) if "studio_credits" in row.keys() else 0,
             password_hash=row["password_hash"] if "password_hash" in row.keys() else None,
             registered_at=row["registered_at"] if "registered_at" in row.keys() else None,
         )

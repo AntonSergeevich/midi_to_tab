@@ -219,3 +219,36 @@ def test_split_finished_restyle_into_stems(studio_app):
     assert type(client)(app_module.app).get(source).content == b"new-version"
     listed = {j["id"]: j for j in client.get("/api/studio").json()["jobs"]}
     assert listed[child]["title"].endswith("новой версии")
+
+
+def test_studio_pack_is_credited_spent_first_and_refunded(studio_app, monkeypatch):
+    """Пакет генераций: зачисляется по оплате, тратится раньше баланса, при сбое возвращается."""
+    app_module, client, user, submitted = studio_app
+    from web import billing
+
+    billing.apply_plan(app_module.storage, user.id, "studio10")
+    app_module.storage.add_balance(user.id, 100)
+    assert app_module.storage.user(user.id).studio_credits == 10
+
+    job_id = _start(client).json()["jobId"]
+    assert app_module.storage.user(user.id).studio_credits == 9
+    assert app_module.storage.user(user.id).balance == pytest.approx(100)   # деньги не тронуты
+
+    # Разделение на партии из пакета не берётся -- только с баланса
+    _start(client, mode="stems")
+    assert app_module.storage.user(user.id).studio_credits == 9
+    assert app_module.storage.user(user.id).balance == pytest.approx(81)
+
+    runner = app_module.studio.StudioRunner(app_module.storage, app_module.DATA_DIR)
+    runner._fail(job_id, "видеокарта упала")
+    assert app_module.storage.user(user.id).studio_credits == 10
+    assert "вернули в пакет" in app_module.storage.job(job_id).error
+    assert app_module.storage.user(user.id).balance == pytest.approx(81)
+
+
+def test_pack_lets_start_without_balance(studio_app):
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_studio_credits(user.id, 1)
+    assert _start(client, mode="enrich", track="bass").status_code == 200
+    assert _start(client).status_code == 402          # пакет кончился, баланса нет
+    assert client.get("/api/studio").json()["studioCredits"] == 0
