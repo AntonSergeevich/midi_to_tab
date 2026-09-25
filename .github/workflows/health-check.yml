@@ -13,6 +13,18 @@ jobs:
   health:
     runs-on: ubuntu-latest
     steps:
+      # Без токена: жив ли сайт и отвечает ли Студия. Даже если секрет
+      # пропал из настроек, падение сайта отсюда будет видно.
+      - name: Сайт и Студия отвечают
+        run: |
+          set -euo pipefail
+          for path in / /studio /api/studio; do
+            code="$(curl -sS -o /tmp/page -w '%{http_code}' "https://naslux.ru$path")"
+            echo "$path -> HTTP $code"
+            [ "$code" = 200 ] || { echo "::error::$path ответил HTTP $code"; exit 1; }
+          done
+          jq -c '{ready, why, services}' /tmp/page
+
       - name: GET /api/health
         run: |
           set -euo pipefail
