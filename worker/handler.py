@@ -145,13 +145,41 @@ def common(job_input, source):
     }
 
 
+def knob(job_input, name, default):
+    try:
+        return min(max(float(job_input.get(name, default)), 0.0), 1.0)
+    except (TypeError, ValueError):
+        return default
+
+
 def restyle(job_input, source):
-    strength = min(max(float(job_input.get("strength", 0.35)), 0.0), 1.0)
-    body = {**common(job_input, source), "task_type": "cover", "model": TURBO,
-            "audio_cover_strength": strength,
-            "inference_steps": int(job_input.get("steps") or 8)}
-    audio, info = ace_step(body)
-    return [("restyle.mp3", audio)], info
+    """Переделка в стиль. Три крутилки, как в Suno (все 0..1):
+
+    audio_influence -- влияние загруженной песни: сколько оригинала сохранить
+                       (audio_cover_strength);
+    style_influence -- влияние стиля: насколько строго следовать описанию
+                       (guidance_scale 3..12; работает только в base);
+    weirdness       -- странность: доля шагов на сильном шуме (shift 1..5) и,
+                       от середины шкалы, стохастический сэмплер (sde).
+
+    engine=turbo -- быстрый режим на turbo: 8 шагов, стиль и странность он
+    не слушает (guidance и shift turbo игнорирует).
+    """
+    audio = knob(job_input, "audio_influence", knob(job_input, "strength", 0.35))
+    style = knob(job_input, "style_influence", 0.6)
+    weird = knob(job_input, "weirdness", 0.3)
+    body = {**common(job_input, source), "task_type": "cover",
+            "audio_cover_strength": max(0.05, audio)}
+    if job_input.get("engine") == "turbo":
+        body.update(model=TURBO, inference_steps=int(job_input.get("steps") or 8))
+    else:
+        body.update(model=FULL, inference_steps=int(job_input.get("steps") or 32),
+                    guidance_scale=round(3 + 9 * style, 2), shift=round(1 + 4 * weird, 2),
+                    infer_method="sde" if weird >= 0.5 else "ode")
+    audio_bytes, info = ace_step(body)
+    info["knobs"] = {"audio_influence": audio, "style_influence": style, "weirdness": weird,
+                     "engine": body["model"]}
+    return [("restyle.mp3", audio_bytes)], info
 
 
 def enrich(job_input, source, task_type):

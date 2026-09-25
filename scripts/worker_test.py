@@ -58,6 +58,8 @@ def main() -> None:
     parser.add_argument("--mode", default="restyle")
     parser.add_argument("--seconds", type=int, default=60)
     parser.add_argument("--strength", type=float, default=0.3)
+    parser.add_argument("--knobs", default="",
+                        help="влияние песни,влияние стиля,странность[,turbo] -- например 0.35,0.6,0.3")
     parser.add_argument("--track", default="drums")
     parser.add_argument("--prompt", default="nu metal, heavy downtuned 7-string guitars, "
                         "aggressive drums, distorted bass, powerful male vocals")
@@ -82,6 +84,12 @@ def main() -> None:
     job_input = {"mode": args.mode, "audio_b64": base64.b64encode(audio).decode(),
                  "prompt": args.prompt, "lyrics": args.lyrics, "strength": args.strength,
                  "track": args.track, "bitrate": 128}
+    if args.knobs:
+        parts = args.knobs.split(",")
+        job_input.update(audio_influence=float(parts[0]), style_influence=float(parts[1]),
+                         weirdness=float(parts[2]))
+        if len(parts) > 3 and parts[3].strip() == "turbo":
+            job_input["engine"] = "turbo"
     if args.steps:
         job_input["steps"] = args.steps
     status = run(endpoint, headers, job_input)

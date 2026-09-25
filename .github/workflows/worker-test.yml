@@ -12,6 +12,9 @@ on:
       strength:
         description: Сила сохранения оригинала для restyle (0..1, меньше -- дальше от оригинала)
         default: "0.3"
+      knobs:
+        description: "restyle: влияние песни,влияние стиля,странность[,turbo] -- напр. 0.35,0.6,0.3 (пусто -- по strength на turbo)"
+        default: ""
       track:
         description: Партия для enrich/extract/complete
         default: drums
@@ -38,6 +41,7 @@ jobs:
       # Поля формы -- через окружение, а не подстановкой в текст скрипта.
       MODE: ${{ inputs.mode }}
       STRENGTH: ${{ inputs.strength }}
+      KNOBS: ${{ inputs.knobs }}
       TRACK: ${{ inputs.track }}
       PROMPT: ${{ inputs.prompt }}
       SECONDS_: ${{ inputs.seconds }}
@@ -59,7 +63,7 @@ jobs:
           python scripts/runpod_endpoint.py
       - name: Задача
         run: |
-          python scripts/worker_test.py source.mp3 --mode "$MODE" --strength "$STRENGTH" \
+          python scripts/worker_test.py source.mp3 --mode "$MODE" --strength "$STRENGTH" --knobs "$KNOBS" \
             --track "$TRACK" --prompt "$PROMPT" --seconds "$SECONDS_" --out results
       - name: В ветку test-results
         if: always()
