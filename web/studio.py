@@ -31,6 +31,7 @@ from .storage import Storage
 
 RUNPOD_API = "https://api.runpod.ai/v2"
 RUNPOD_REST = "https://rest.runpod.io/v1"
+USER_AGENT = "naslux-studio/1.0 (+https://naslux.ru)"
 WORKER_NAME = "naslux-worker"
 POLL_SECONDS = 10
 JOB_TIMEOUT = 45 * 60
@@ -90,8 +91,12 @@ def call(method: str, url: str, body: dict | None = None, timeout: int = 60) -> 
     """Запрос к RunPod. Только стандартная библиотека: на сервере сайта
     нет лишних пакетов, и ради пары запросов их ставить не стоит."""
     data = json.dumps(body).encode() if body is not None else None
+    # Свой User-Agent обязателен: перед API RunPod стоит Cloudflare, и
+    # стандартный «Python-urllib/3.x» он отбивает с 403 «error code: 1010»
+    # (так и сломалось на первом живом запуске с сайта).
     request = urllib.request.Request(url, data=data, method=method, headers={
-        "Authorization": f"Bearer {api_key()}", "Content-Type": "application/json"})
+        "Authorization": f"Bearer {api_key()}", "Content-Type": "application/json",
+        "User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read()

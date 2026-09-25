@@ -550,3 +550,14 @@ footer.legal a:hover { color: var(--accent); }
 .lyrics-wrap.full .lyrics-bar .muted { flex: 1; }
 .lyrics-wrap.full textarea { flex: 1; resize: none; font-size: 16px; line-height: 1.5; max-width: 900px; width: 100%; margin: 0 auto; }
 @media (max-width: 640px) { .knobs { grid-template-columns: 1fr; } }
+.studio-promo {
+  display: flex; flex-direction: column; gap: 6px; text-align: left; text-decoration: none;
+  max-width: 640px; margin: 18px auto 0; padding: 16px 18px; border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(217,154,78,.16), rgba(217,154,78,.04));
+  border: 1px solid var(--accent); color: var(--text);
+  transition: transform .18s, background .18s;
+}
+.studio-promo:hover { transform: translateY(-2px); background: rgba(217,154,78,.2); }
+.studio-promo b { font-size: 16px; }
+.studio-promo-tag { font-size: 12px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; }
+.studio-promo-go { color: var(--accent); font-weight: 600; font-size: 14px; }

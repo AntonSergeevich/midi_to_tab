@@ -252,3 +252,29 @@ def test_pack_lets_start_without_balance(studio_app):
     assert _start(client, mode="enrich", track="bass").status_code == 200
     assert _start(client).status_code == 402          # пакет кончился, баланса нет
     assert client.get("/api/studio").json()["studioCredits"] == 0
+
+
+def test_runpod_requests_carry_own_user_agent(studio_app, monkeypatch):
+    """Cloudflare перед RunPod отбивает «Python-urllib» кодом 1010 -- нужен свой User-Agent."""
+    app_module, _client, _user, _submitted = studio_app
+    studio = app_module.studio
+    seen = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return b'{"id": "x"}'
+
+    def urlopen(request, timeout=60):
+        seen.update({k.lower(): v for k, v in request.header_items()})
+        return _Response()
+
+    monkeypatch.setattr(studio.urllib.request, "urlopen", urlopen)
+    assert studio.call("POST", "https://api.runpod.ai/v2/ep/run", {"input": {}}) == {"id": "x"}
+    assert "python-urllib" not in seen["user-agent"].lower()
+    assert seen["user-agent"].startswith("naslux")
