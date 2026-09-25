@@ -31,7 +31,7 @@ jobs:
           git init -q results && cd results
           git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
           git fetch -q --depth 1 origin test-results && git checkout -q FETCH_HEAD || git checkout -q --orphan test-results
-          mkdir -p "$RUN_ID" && cp -r ../incoming/*/* "${{ inputs.run_id }}/"
+          mkdir -p "$RUN_ID" && cp -r ../incoming/*/* "$RUN_ID/"
           git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
           git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com commit -q -m "Артефакты прогона $RUN_ID"
           git push -q origin HEAD:refs/heads/test-results

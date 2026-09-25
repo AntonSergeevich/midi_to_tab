@@ -744,11 +744,31 @@ class Storage:
         return [j for j in (self.job(r["id"]) for r in rows) if j]
 
     def root_jobs(self, user_id: str, limit: int = 60) -> list[Job]:
-        """Только сами треки, без порождённых ими заданий на табы."""
+        """Только сами треки, без порождённых ими заданий на табы и без Студии."""
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT id FROM jobs WHERE user_id = ?"
                 " AND json_extract(settings, '$.parent') IS NULL"
+                " AND json_extract(settings, '$.kind') IS NULL"
+                " ORDER BY created_at DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+        return [j for j in (self.job(r["id"]) for r in rows) if j]
+
+    def unfinished_studio_jobs(self) -> list[Job]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM jobs WHERE json_extract(settings, '$.kind') = 'studio'"
+                " AND status IN ('queued', 'running')"
+            ).fetchall()
+        return [j for j in (self.job(r["id"]) for r in rows) if j]
+
+    def studio_jobs(self, user_id: str, limit: int = 30) -> list[Job]:
+        """Задачи Студии: переделки, дописанные партии, разделения на GPU."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM jobs WHERE user_id = ?"
+                " AND json_extract(settings, '$.kind') = 'studio'"
                 " ORDER BY created_at DESC LIMIT ?",
                 (user_id, limit),
             ).fetchall()

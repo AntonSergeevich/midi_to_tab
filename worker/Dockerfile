@@ -42,7 +42,7 @@ RUN uv pip install --python .venv/bin/python hf_transfer \
     && python -c "from acestep.model_downloader import download_main_model as m, download_submodel as s, check_main_model_exists as c; \
 print(m(prefer_source='huggingface')); print(s('acestep-v15-base', prefer_source='huggingface')); assert c()" \
     && python -c "from demucs.pretrained import get_model; get_model('htdemucs_6s')" \
-    && du -sh /app/checkpoints/* /root/.cache/torch
+    && du -sh /app/checkpoints/* /root/.cache/*
 
 # Обе модели грузятся при старте воркера, а не на первом запросе: иначе
 # ACE-Step молча подменяет незагруженную вторую модель основной.

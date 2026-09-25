@@ -30,7 +30,7 @@ from midi2tab import audiochords, audioin, lyrics as lyrics_mod, separate
 from midi2tab.timing import GRIDS
 from midi2tab.tuning import TUNINGS
 
-from . import auth, billing, mailer, support
+from . import auth, billing, mailer, studio, support
 from . import jobs as jobs_module
 from .jobs import JobRunner
 from .storage import Storage
@@ -143,6 +143,9 @@ async def lifespan(_app: FastAPI):
     # Прогреваем numba внутри librosa заранее: иначе первый пользователь
     # ждёт в разы дольше остальных, пока компилируются функции.
     audiochords.prewarm()
+    resumed = studio_runner.resume()
+    if resumed:
+        print(f"  Студия: продолжаем следить за задачами — {resumed}")
     port = _running_port()
     print()
     print("  NASLUX запущен. Откройте в браузере:")
@@ -154,10 +157,12 @@ async def lifespan(_app: FastAPI):
     print()
     yield
     runner.shutdown()
+    studio_runner.shutdown()
 
 
 storage = Storage(os.path.join(DATA_DIR, "app.db"))
 runner = JobRunner(storage, DATA_DIR)
+studio_runner = studio.StudioRunner(storage, DATA_DIR)
 app = FastAPI(title="NASLUX", lifespan=lifespan)
 
 if not SECRET:
@@ -1212,6 +1217,179 @@ def api_file(job_id: str, kind: str):
     title = (parent or job).filename
     stem = (job.settings or {}).get("stem", "")
     return FileResponse(path, filename=download_name(title, stem, Path(path).suffix))
+
+
+# ------------------------------------------------------------------ студия
+
+@app.get("/studio", response_class=HTMLResponse)
+def studio_page() -> HTMLResponse:
+    return page("studio.html")
+
+
+def _studio_job_payload(job) -> dict:
+    settings = job.settings or {}
+    result = job.result or {}
+    return {
+        "id": job.id, "name": job.filename, "at": job.created_at, "status": job.status,
+        "stage": job.stage, "progress": job.progress, "error": job.error,
+        "mode": settings.get("mode"), "title": settings.get("title"),
+        "charged": settings.get("charged", 0),
+        "files": [{**f, "url": f"/api/studio/file/{job.id}/{f['name']}"}
+                  for f in result.get("files") or []],
+    }
+
+
+@app.get("/api/studio")
+def api_studio(request: Request):
+    user = current_user(request)
+    ready, why = studio.available()
+    response = JSONResponse({
+        "ready": ready, "why": why,
+        "services": {k: {"title": v.title, "price": v.price} for k, v in studio.SERVICES.items()},
+        "presets": {k: v[0] for k, v in studio.PRESETS.items()},
+        "tracks": studio.TRACKS,
+        "balance": user.balance, "unlimited": user.unlimited, "registered": user.registered,
+        "email": user.email, "maxMb": MAX_UPLOAD_MB, "maxSeconds": studio.MAX_SECONDS,
+        "jobs": [_studio_job_payload(j) for j in storage.studio_jobs(user.id)],
+    })
+    attach_cookie(response, user.id)
+    return response
+
+
+@app.post("/api/studio")
+async def api_studio_start(
+    request: Request,
+    file: UploadFile = File(...),
+    mode: str = Form("restyle"),
+    preset: str = Form("numetal"),
+    prompt: str = Form(""),
+    lyrics: str = Form(""),
+    strength: float = Form(0.35),
+    track: str = Form("drums"),
+    language: str = Form("ru"),
+):
+    user = current_user(request)
+    ready, why = studio.available()
+    if not ready:
+        raise HTTPException(503, why)
+    service = studio.SERVICES.get(mode)
+    if service is None:
+        raise HTTPException(400, "Неизвестная услуга")
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in ALLOWED or suffix in (".mid", ".midi"):
+        raise HTTPException(400, "Нужен аудиофайл: mp3, wav, flac, ogg, m4a")
+    if mode == "enrich" and track not in studio.TRACKS:
+        raise HTTPException(400, "Выберите партию, которую дописать")
+    style = prompt.strip()[:500] or studio.PRESETS.get(preset, studio.PRESETS["numetal"])[1]
+    if not user.unlimited and user.balance < service.price:
+        raise HTTPException(402, f"{service.title} стоит {service.price:.0f} ₽, на балансе "
+                                 f"{user.balance:.0f} ₽. Пополните баланс на странице тарифов.")
+
+    settings = {"kind": "studio", "mode": mode, "title": service.title, "preset": preset,
+                "strength": strength, "track": track, "charged": 0}
+    job = storage.create_job(user.id, file.filename or "track", settings)
+    folder = studio_runner.folder(job.id)
+    os.makedirs(folder, exist_ok=True)
+    source = os.path.join(folder, f"source{suffix}")
+    size, limit = 0, MAX_UPLOAD_MB * 1024 * 1024
+    with open(source, "wb") as out:
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > limit:
+                out.close()
+                shutil.rmtree(folder, ignore_errors=True)
+                storage.update_job(job.id, status="error", error="Файл слишком большой")
+                raise HTTPException(413, f"Файл больше {MAX_UPLOAD_MB} МБ")
+            out.write(chunk)
+
+    # Списываем до запуска и одним атомарным запросом: два параллельных
+    # запуска не должны потратить одни и те же деньги дважды.
+    if not user.unlimited:
+        if not storage.spend_balance(user.id, service.price):
+            shutil.rmtree(folder, ignore_errors=True)
+            storage.update_job(job.id, status="error", error="Не хватило денег на балансе")
+            raise HTTPException(402, "Не хватило денег на балансе — пополните и попробуйте снова")
+        settings["charged"] = service.price
+        storage.update_job(job.id, settings=settings, counted=True)
+
+    base = str(request.base_url).rstrip("/")
+    studio_runner.submit(job.id, {
+        "mode": mode, "prompt": style, "lyrics": lyrics.strip()[:5000],
+        "strength": max(0.0, min(1.0, strength)), "track": track,
+        "language": language if language in ("ru", "en") else "ru",
+        "seconds": studio.MAX_SECONDS,
+        "audio_url": studio.link(base, SECRET, job.id, "source"),
+        "upload_url": studio.link(base, SECRET, job.id, "upload"),
+    })
+    response = JSONResponse({"jobId": job.id})
+    attach_cookie(response, user.id)
+    return response
+
+
+def _studio_link_job(job_id: str, purpose: str, e: int, s: str):
+    if not studio.check_link(SECRET, job_id, purpose, e, s):
+        raise HTTPException(403, "Ссылка недействительна")
+    job = storage.job(job_id)
+    if not job or (job.settings or {}).get("kind") != "studio":
+        raise HTTPException(404, "Задача не найдена")
+    return job
+
+
+@app.get("/api/studio/source/{job_id}")
+def api_studio_source(job_id: str, e: int = 0, s: str = ""):
+    """Исходник для воркера -- по подписанной ссылке, без куки."""
+    _studio_link_job(job_id, "source", e, s)
+    found = [f for f in os.listdir(studio_runner.folder(job_id)) if f.startswith("source.")]
+    if not found:
+        raise HTTPException(404, "Исходник не найден")
+    return FileResponse(os.path.join(studio_runner.folder(job_id), found[0]))
+
+
+@app.post("/api/studio/upload/{job_id}")
+async def api_studio_upload(job_id: str, request: Request, e: int = 0, s: str = ""):
+    """Результат от воркера -- по подписанной ссылке, по файлу за запрос."""
+    _studio_link_job(job_id, "upload", e, s)
+    name = studio.safe_file_name(request.headers.get("x-file-name", ""))
+    if not name:
+        raise HTTPException(400, "Недопустимое имя файла")
+    target = os.path.join(studio_runner.folder(job_id), name)
+    size, limit = 0, 200 * 1024 * 1024
+    with open(target, "wb") as out:
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > limit:
+                out.close()
+                os.remove(target)
+                raise HTTPException(413, "Слишком большой файл")
+            out.write(chunk)
+    return {"ok": True, "bytes": size}
+
+
+@app.get("/api/studio/file/{job_id}/{name}")
+def api_studio_file(job_id: str, name: str, request: Request):
+    user = current_user(request)
+    job = storage.job(job_id)
+    safe = studio.safe_file_name(name)
+    if not job or job.user_id != user.id or not safe:
+        raise HTTPException(404, "Файл не найден")
+    path = os.path.join(studio_runner.folder(job_id), safe)
+    if not os.path.isfile(path):
+        raise HTTPException(404, "Файл не найден")
+    label = studio.label_of((job.settings or {}).get("mode", ""), safe)
+    return FileResponse(path, filename=download_name(job.filename, label, ".mp3"))
+
+
+@app.delete("/api/studio/{job_id}")
+def api_studio_delete(job_id: str, request: Request):
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id or (job.settings or {}).get("kind") != "studio":
+        raise HTTPException(404, "Задача не найдена")
+    if job.status in ("queued", "running"):
+        raise HTTPException(409, "Задача ещё выполняется")
+    shutil.rmtree(studio_runner.folder(job_id), ignore_errors=True)
+    storage.delete_job(job_id)
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ оплата

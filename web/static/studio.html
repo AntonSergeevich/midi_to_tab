@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15161c">
+<title>NASLUX — Студия</title>
+<meta name="description" content="Переделайте свой трек в другой стиль, допишите партию или разделите песню на инструменты — нейросетью на видеокарте.">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
+    <div style="display:flex;gap:14px;align-items:center">
+      <a href="/studio">Студия</a>
+      <a href="/library">Мои треки</a>
+      <a href="/pricing">Тарифы</a>
+      <a href="/account" id="account" class="who">Вход</a>
+      <a href="/pricing" id="balance" class="badge">загрузка…</a>
+    </div>
+  </header>
+
+  <section class="hero">
+    <h1>Студия</h1>
+    <p class="lead">
+      Сыграли песню под гитару — нейросеть переделает её в nu-metal, рок или
+      акустику с вашим текстом. Или допишет барабаны и бас. Или разложит любой
+      трек на вокал, гитару, бас, барабаны и клавиши.
+    </p>
+    <p class="muted" id="notReady" style="display:none"></p>
+  </section>
+
+  <div class="card">
+    <h2>1. Что сделать</h2>
+    <div class="choices studio-modes" id="modes" style="margin-top:12px">
+      <button class="choice selected" type="button" data-mode="restyle">
+        <b>Переделать в стиль</b><small data-price="restyle" data-desc="новый жанр с вашим текстом"></small>
+      </button>
+      <button class="choice" type="button" data-mode="enrich">
+        <b>Дописать партию</b><small data-price="enrich" data-desc="барабаны, бас, гитара поверх записи"></small>
+      </button>
+      <button class="choice" type="button" data-mode="stems">
+        <b>Разделить на партии</b><small data-price="stems" data-desc="вокал, гитара, бас, барабаны отдельно"></small>
+      </button>
+    </div>
+  </div>
+
+  <div class="drop" id="drop" style="margin-bottom:18px">
+    <b id="dropTitle">2. Перетащите трек сюда</b>
+    <small id="dropHint">или нажмите, чтобы выбрать · mp3, wav, flac, ogg, m4a · до 10 минут</small>
+    <input type="file" id="file" hidden accept=".mp3,.wav,.flac,.ogg,.m4a,.aiff,.aif">
+  </div>
+
+  <div class="card" id="options">
+    <h2>3. Настройки</h2>
+    <div id="styleBox">
+      <div class="muted" style="margin:10px 0 8px">Стиль</div>
+      <div class="presets" id="presets"></div>
+      <label class="field" style="margin-top:12px">
+        <span>Или опишите своими словами (лучше по-английски): жанр, инструменты, вокал</span>
+        <input type="text" id="prompt" maxlength="500"
+               placeholder="например: nu metal, 7-string guitars, rap verses, heavy chorus">
+      </label>
+    </div>
+    <div id="trackBox" style="display:none">
+      <label class="field" style="margin-top:12px">
+        <span>Какую партию дописать</span>
+        <select id="track"></select>
+      </label>
+    </div>
+    <div id="strengthBox">
+      <label class="field" style="margin-top:14px">
+        <span>Насколько переделать: <b id="strengthText"></b></span>
+        <input type="range" id="strength" min="0" max="100" value="65" style="width:100%;accent-color:var(--accent)">
+      </label>
+      <div class="muted" style="display:flex;justify-content:space-between">
+        <span>ближе к оригиналу</span><span>смелее, дальше от оригинала</span>
+      </div>
+    </div>
+    <div id="lyricsBox">
+      <label class="field" style="margin-top:14px">
+        <span>Текст песни — нейросеть споёт его в новой версии (можно оставить пустым)</span>
+        <textarea id="lyrics" rows="6" maxlength="5000"
+                  placeholder="[Куплет]&#10;Первая строка&#10;Вторая строка&#10;&#10;[Припев]&#10;..."></textarea>
+      </label>
+      <label class="field" style="margin-top:10px;max-width:220px">
+        <span>Язык вокала</span>
+        <select id="language"><option value="ru">Русский</option><option value="en">Английский</option></select>
+      </label>
+    </div>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:18px">
+      <button class="primary" id="start" disabled>Запустить</button>
+      <span class="muted" id="msg"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Мои работы</h2>
+    <div id="jobs" class="muted" style="margin-top:10px">Пока пусто.</div>
+  </div>
+
+  <footer class="legal">
+    <a href="/privacy">Политика конфиденциальности</a>
+    <a href="/offer">Оферта</a>
+    <span>© NASLUX</span>
+  </footer>
+</div>
+<script src="/static/studio.js"></script>
+<script src="/static/consent.js"></script>
+</body>
+</html>

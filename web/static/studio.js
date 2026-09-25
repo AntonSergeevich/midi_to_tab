@@ -1,0 +1,187 @@
+// Студия: переделка трека в другой стиль, дописывание партии и разделение
+// на партии нейросетями на видеокарте (RunPod). Деньги списываются с
+// баланса при запуске и возвращаются, если задача не удалась.
+
+const $ = (id) => document.getElementById(id);
+let info = null;
+let mode = 'restyle';
+let preset = 'numetal';
+let file = null;
+let polling = null;
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const rub = (n) => `${Math.round(n)} ₽`;
+
+// Ползунок «насколько переделать» -- обратная величина к силе сохранения
+// оригинала, которую ждёт нейросеть: 65% переделки = 0.35 оригинала.
+function strength() {
+  return Math.min(0.95, Math.max(0.05, 1 - $('strength').value / 100));
+}
+
+function strengthText() {
+  const v = Number($('strength').value);
+  $('strengthText').textContent = v < 35 ? 'чуть-чуть' : v < 60 ? 'заметно'
+    : v < 80 ? 'сильно' : 'почти заново';
+}
+
+function showMode() {
+  document.querySelectorAll('#modes .choice').forEach((b) =>
+    b.classList.toggle('selected', b.dataset.mode === mode));
+  $('styleBox').style.display = mode === 'stems' ? 'none' : '';
+  $('strengthBox').style.display = mode === 'restyle' ? '' : 'none';
+  $('lyricsBox').style.display = mode === 'restyle' ? '' : 'none';
+  $('trackBox').style.display = mode === 'enrich' ? '' : 'none';
+  updateStart();
+}
+
+function updateStart() {
+  if (!info) return;
+  const price = info.services[mode].price;
+  const enough = info.unlimited || info.balance >= price;
+  $('start').disabled = !info.ready || !file || !enough;
+  $('start').textContent = info.unlimited ? 'Запустить'
+    : `Запустить за ${rub(price)}`;
+  if (!info.ready) {
+    $('msg').textContent = info.why;
+  } else if (!file) {
+    $('msg').textContent = 'Выберите трек.';
+  } else if (!enough) {
+    $('msg').innerHTML = `На балансе ${rub(info.balance)} — <a href="/pricing">пополните</a>, `
+      + `чтобы запустить.`;
+  } else {
+    $('msg').textContent = mode === 'stems' ? 'Обычно 1–3 минуты.'
+      : 'Обычно 3–10 минут: нейросеть пишет трек заново. Страницу можно закрыть.';
+  }
+}
+
+function pickFile(chosen) {
+  if (!chosen) return;
+  file = chosen;
+  $('dropTitle').textContent = chosen.name;
+  $('dropHint').textContent = `${(chosen.size / 1048576).toFixed(1)} МБ · нажмите, чтобы выбрать другой`;
+  updateStart();
+}
+
+function renderJobs(jobs) {
+  if (!jobs.length) {
+    $('jobs').textContent = 'Пока пусто.';
+    return;
+  }
+  $('jobs').className = '';
+  $('jobs').innerHTML = jobs.map((j) => {
+    const when = new Date(j.at * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
+    let body = '';
+    if (j.status === 'done') {
+      body = j.files.map((f) => `
+        <div class="studio-file">
+          <div class="muted">${esc(f.label)}</div>
+          <audio controls preload="none" src="${f.url}"></audio>
+          <a href="${f.url}" download>Скачать</a>
+        </div>`).join('');
+    } else if (j.status === 'error') {
+      body = `<div class="bad">${esc(j.error)}</div>`;
+    } else {
+      body = `<div class="muted">${esc(j.stage || 'В очереди')}</div>
+        <div class="bar done"><i style="width:${Math.max(4, j.progress)}%"></i></div>`;
+    }
+    const del = j.status === 'done' || j.status === 'error'
+      ? `<button class="del" data-del="${j.id}" title="Удалить">✕</button>` : '';
+    return `<div class="studio-job">
+      <div style="display:flex;gap:10px;align-items:baseline">
+        <b style="flex:1;min-width:0;overflow-wrap:anywhere">${esc(j.title)} · ${esc(j.name)}</b>
+        <span class="muted">${when}</span>${del}
+      </div>${body}</div>`;
+  }).join('');
+}
+
+async function load() {
+  info = await (await fetch('/api/studio')).json();
+  $('account').textContent = info.registered ? info.email : 'Вход';
+  $('balance').textContent = info.unlimited ? 'Безлимит' : `Баланс: ${rub(info.balance)}`;
+  $('balance').className = info.unlimited || info.balance > 0 ? 'badge pro' : 'badge';
+  if (!info.ready) {
+    $('notReady').style.display = '';
+    $('notReady').textContent = info.why;
+  }
+  document.querySelectorAll('[data-price]').forEach((el) => {
+    const s = info.services[el.dataset.price];
+    el.textContent = info.unlimited ? el.dataset.desc : `${rub(s.price)} · ${el.dataset.desc}`;
+  });
+  if (!$('presets').children.length) {
+    $('presets').innerHTML = Object.entries(info.presets).map(([key, title]) =>
+      `<button type="button" class="preset${key === preset ? ' selected' : ''}" data-preset="${key}">${esc(title)}</button>`).join('');
+    $('track').innerHTML = Object.entries(info.tracks).map(([key, title]) =>
+      `<option value="${key}">${esc(title)}</option>`).join('');
+  }
+  renderJobs(info.jobs);
+  updateStart();
+  const busy = info.jobs.some((j) => j.status === 'queued' || j.status === 'running');
+  clearTimeout(polling);
+  if (busy) polling = setTimeout(load, 5000);
+}
+
+$('modes').addEventListener('click', (e) => {
+  const button = e.target.closest('[data-mode]');
+  if (!button) return;
+  mode = button.dataset.mode;
+  showMode();
+});
+
+$('presets').addEventListener('click', (e) => {
+  const button = e.target.closest('[data-preset]');
+  if (!button) return;
+  preset = button.dataset.preset;
+  $('prompt').value = '';
+  document.querySelectorAll('#presets .preset').forEach((b) =>
+    b.classList.toggle('selected', b === button));
+});
+
+$('strength').addEventListener('input', strengthText);
+
+const drop = $('drop');
+drop.addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', () => pickFile($('file').files[0]));
+drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', (e) => {
+  e.preventDefault();
+  drop.classList.remove('over');
+  pickFile(e.dataTransfer.files[0]);
+});
+
+$('start').addEventListener('click', async () => {
+  if (!file) return;
+  const form = new FormData();
+  form.append('file', file);
+  form.append('mode', mode);
+  form.append('preset', preset);
+  form.append('prompt', $('prompt').value);
+  form.append('lyrics', $('lyrics').value);
+  form.append('strength', strength());
+  form.append('track', $('track').value);
+  form.append('language', $('language').value);
+  $('start').disabled = true;
+  $('msg').textContent = 'Загружаем трек…';
+  const response = await fetch('/api/studio', { method: 'POST', body: form });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    $('msg').innerHTML = error.detail || 'Не получилось запустить.';
+    $('start').disabled = false;
+    return;
+  }
+  $('msg').textContent = 'Запущено — результат появится ниже.';
+  await load();
+  $('jobs').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+$('jobs').addEventListener('click', async (e) => {
+  const button = e.target.closest('[data-del]');
+  if (!button || !confirm('Удалить эту работу вместе с файлами?')) return;
+  await fetch(`/api/studio/${button.dataset.del}`, { method: 'DELETE' });
+  load();
+});
+
+strengthText();
+showMode();
+load();
