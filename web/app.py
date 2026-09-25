@@ -990,9 +990,10 @@ async def api_upload(
 
 
 @app.get("/api/job/{job_id}")
-def api_job(job_id: str):
+def api_job(job_id: str, request: Request):
+    user = current_user(request)
     job = storage.job(job_id)
-    if not job:
+    if not job or job.user_id != user.id:
         raise HTTPException(404, "Задание не найдено")
     payload = {
         "id": job.id,
@@ -1196,10 +1197,11 @@ def api_delete_job(job_id: str, request: Request):
 
 
 @app.get("/api/file/{job_id}/part/{stem_key}")
-def api_part_file(job_id: str, stem_key: str):
+def api_part_file(job_id: str, stem_key: str, request: Request):
     """Аудио одной партии -- его слушают в плеере."""
+    user = current_user(request)
     job = storage.job(job_id)
-    if not job or not job.result:
+    if not job or job.user_id != user.id or not job.result:
         raise HTTPException(404, "Файл не готов")
     path = (job.result.get("paths") or {}).get("parts", {}).get(stem_key)
     if not path or not os.path.isfile(path):
@@ -1210,9 +1212,10 @@ def api_part_file(job_id: str, stem_key: str):
 
 
 @app.get("/api/file/{job_id}/{kind}")
-def api_file(job_id: str, kind: str):
+def api_file(job_id: str, kind: str, request: Request):
+    user = current_user(request)
     job = storage.job(job_id)
-    if not job or not job.result:
+    if not job or job.user_id != user.id or not job.result:
         raise HTTPException(404, "Файл не готов")
     path = (job.result.get("paths") or {}).get(kind)
     if not path or not os.path.isfile(path):

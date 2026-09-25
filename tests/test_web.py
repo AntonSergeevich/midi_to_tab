@@ -880,6 +880,52 @@ def test_tabs_and_lyrics_refuse_someone_else_s_job(tmp_path, monkeypatch):
         assert owner_tabs.status_code == 200
 
 
+def test_job_status_and_downloads_refuse_someone_else_s_job_id(tmp_path, monkeypatch):
+    """
+    `/api/job/{id}`, `/api/file/{id}/{kind}` и `/api/file/{id}/part/{stem}`
+    отдавали результат разбора и файлы (табы, MIDI, GP5, аудио партий) по
+    одному только job_id, ни разу не сверяя его с текущим пользователем --
+    в отличие от `/tabs`, `/lyrics`, `/separate` и удаления, где эта
+    проверка уже стоит (см. test_tabs_and_lyrics_refuse_someone_else_s_job).
+    Тот же job_id, что утекает в Referer при скачивании, открывал чужой
+    оплаченный результат и файлы кому угодно.
+    """
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    gp5_path = tmp_path / "song.gp5"
+    gp5_path.write_bytes(b"fake gp5")
+    part_path = tmp_path / "guitar.wav"
+    part_path.write_bytes(b"fake wav")
+
+    with TestClient(app_module.app) as client:
+        owner = app_module.storage.ensure_user(None)
+        job = app_module.storage.create_job(owner.id, "песня.mp3", {})
+        app_module.storage.update_job(
+            job.id, status="done",
+            result={"isMidi": False, "chords": [], "parts": [{"key": "guitar", "label": "Гитара"}],
+                    "paths": {"gp5": str(gp5_path), "parts": {"guitar": str(part_path)}}},
+        )
+
+        stranger = app_module.storage.ensure_user(None)
+        client.cookies.set("uid", app_module.signer.dumps(stranger.id))
+
+        assert client.get(f"/api/job/{job.id}").status_code == 404
+        assert client.get(f"/api/file/{job.id}/gp5").status_code == 404
+        assert client.get(f"/api/file/{job.id}/part/guitar").status_code == 404
+
+        client.cookies.set("uid", app_module.signer.dumps(owner.id))
+        assert client.get(f"/api/job/{job.id}").status_code == 200
+        assert client.get(f"/api/file/{job.id}/gp5").status_code == 200
+        assert client.get(f"/api/file/{job.id}/part/guitar").status_code == 200
+
+
 def test_pages_carry_a_build_stamp(tmp_path, monkeypatch):
     """
     Самая коварная поломка при обновлении -- смешанный кеш.
