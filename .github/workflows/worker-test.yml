@@ -1,0 +1,77 @@
+name: Живой тест GPU-воркера (RunPod)
+
+# Идёт на серверах GitHub: у облачной сессии Claude доступ к api.runpod.ai
+# закрыт. Результаты кладутся в ветку test-results (папка = номер прогона):
+# хранилище артефактов из сессии тоже недоступно, а github.com -- да.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: restyle / enrich / extract / complete / stems
+        default: restyle
+      strength:
+        description: Сила сохранения оригинала для restyle (0..1, меньше -- дальше от оригинала)
+        default: "0.3"
+      track:
+        description: Партия для enrich/extract/complete
+        default: drums
+      prompt:
+        description: Стиль
+        default: "nu metal, heavy downtuned 7-string guitars, aggressive drums, distorted bass, powerful male vocals"
+      seconds:
+        default: "60"
+      image:
+        description: Тег образа (пусто -- latest)
+        default: ""
+      audio_url:
+        default: https://raw.githubusercontent.com/AntonSergeevich/vibe_track/claude/nu-metal-track-transformer-kf2j2n/we_angel.mp3
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      # Поля формы -- через окружение, а не подстановкой в текст скрипта.
+      MODE: ${{ inputs.mode }}
+      STRENGTH: ${{ inputs.strength }}
+      TRACK: ${{ inputs.track }}
+      PROMPT: ${{ inputs.prompt }}
+      SECONDS_: ${{ inputs.seconds }}
+      TAG: ${{ inputs.image }}
+      AUDIO_URL: ${{ inputs.audio_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Зависимости и исходник
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q requests
+          curl -sSfL "$AUDIO_URL" -o source.mp3
+      - name: Эндпоинт (создать или обновить образ)
+        run: |
+          export WORKER_IMAGE="ghcr.io/antonsergeevich/naslux-worker:${TAG:-latest}"
+          python scripts/runpod_endpoint.py
+      - name: Задача
+        run: |
+          python scripts/worker_test.py source.mp3 --mode "$MODE" --strength "$STRENGTH" \
+            --track "$TRACK" --prompt "$PROMPT" --seconds "$SECONDS_" --out results
+      - name: В ветку test-results
+        if: always()
+        run: |
+          [ -n "$(ls -A results 2>/dev/null)" ] || exit 0
+          dir="worker-${{ github.run_id }}"
+          git clone -q --depth 1 --branch test-results \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
+          mkdir -p "out/$dir" && cp results/* "out/$dir/"
+          cd out
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "Воркер: $MODE, прогон ${{ github.run_id }}"
+          git push -q origin HEAD:test-results
+          echo "Файлы: test-results/$dir"

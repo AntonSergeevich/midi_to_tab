@@ -18,10 +18,12 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      RUN_ID: ${{ inputs.run_id }}
     steps:
       - uses: actions/download-artifact@v4
         with:
-          run-id: ${{ inputs.run_id }}
+          run-id: ${{ env.RUN_ID }}
           github-token: ${{ github.token }}
           path: incoming
       - name: Коммит в test-results
@@ -29,8 +31,8 @@ jobs:
           git init -q results && cd results
           git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
           git fetch -q --depth 1 origin test-results && git checkout -q FETCH_HEAD || git checkout -q --orphan test-results
-          mkdir -p "${{ inputs.run_id }}" && cp -r ../incoming/*/* "${{ inputs.run_id }}/"
+          mkdir -p "$RUN_ID" && cp -r ../incoming/*/* "${{ inputs.run_id }}/"
           git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
-          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com commit -q -m "Артефакты прогона ${{ inputs.run_id }}"
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com commit -q -m "Артефакты прогона $RUN_ID"
           git push -q origin HEAD:refs/heads/test-results
-          ls -la "${{ inputs.run_id }}"
+          ls -la "$RUN_ID"
