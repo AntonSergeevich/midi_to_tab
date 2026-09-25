@@ -37,7 +37,8 @@ def test_start_charges_balance_and_passes_signed_links(studio_app):
     app_module, client, user, submitted = studio_app
     app_module.storage.add_balance(user.id, 100)
 
-    response = _start(client, lyrics="Строка", strength="0.3", preset="rock")
+    response = _start(client, lyrics="Строка", audio_influence="0.3", style_influence="0.8",
+                      weirdness="0.5", preset="rock")
     assert response.status_code == 200, response.text
     job_id = response.json()["jobId"]
 
@@ -47,7 +48,9 @@ def test_start_charges_balance_and_passes_signed_links(studio_app):
     [(sent_id, data)] = submitted
     assert sent_id == job_id
     assert data["mode"] == "restyle" and data["lyrics"] == "Строка"
-    assert data["strength"] == pytest.approx(0.3)
+    assert data["audio_influence"] == pytest.approx(0.3)
+    assert data["style_influence"] == pytest.approx(0.8)
+    assert data["weirdness"] == pytest.approx(0.5)
     assert "alternative rock" in data["prompt"]
     assert f"/api/studio/source/{job_id}?e=" in data["audio_url"]
     assert f"/api/studio/upload/{job_id}?e=" in data["upload_url"]
@@ -192,3 +195,27 @@ def test_other_user_cannot_download_or_delete(studio_app):
     client.cookies.set("uid", app_module.signer.dumps(stranger.id))
     assert client.get(f"/api/studio/file/{job_id}/bass.mp3").status_code == 404
     assert client.delete(f"/api/studio/{job_id}").status_code == 404
+
+
+def test_split_finished_restyle_into_stems(studio_app):
+    """Готовую переделку можно разделить на партии, не загружая её заново."""
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_balance(user.id, 100)
+    job_id = _start(client).json()["jobId"]
+    with open(f"{app_module.studio_runner.folder(job_id)}/restyle.mp3", "wb") as f:
+        f.write(b"new-version")
+
+    # Пока переделка не готова -- делить нечего
+    assert client.post(f"/api/studio/{job_id}/stems").status_code == 404
+    app_module.storage.update_job(job_id, status="done", result={
+        "files": [{"name": "restyle.mp3", "label": "Новая версия"}]})
+
+    response = client.post(f"/api/studio/{job_id}/stems")
+    assert response.status_code == 200, response.text
+    child = response.json()["jobId"]
+    assert app_module.storage.user(user.id).balance == pytest.approx(100 - 49 - 19)
+    assert submitted[-1][0] == child and submitted[-1][1]["mode"] == "stems"
+    source = submitted[-1][1]["audio_url"].split("testserver", 1)[1]
+    assert type(client)(app_module.app).get(source).content == b"new-version"
+    listed = {j["id"]: j for j in client.get("/api/studio").json()["jobs"]}
+    assert listed[child]["title"].endswith("новой версии")

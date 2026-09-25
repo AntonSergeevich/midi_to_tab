@@ -536,3 +536,17 @@ footer.legal a:hover { color: var(--accent); }
 @media (max-width: 640px) {
   .studio-modes { grid-template-columns: 1fr; }
 }
+.knobs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 14px; }
+.knob input[type=range] { width: 100%; accent-color: var(--accent); }
+.knob small { display: block; margin-top: 2px; }
+.knob b { color: var(--accent); }
+.lyrics-head { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin: 14px 0 6px; }
+.lyrics-bar { display: none; }
+.lyrics-wrap.full {
+  position: fixed; inset: 0; z-index: 50; background: var(--bg, #15161c);
+  display: flex; flex-direction: column; padding: 14px 16px; gap: 10px;
+}
+.lyrics-wrap.full .lyrics-bar { display: flex; gap: 12px; align-items: center; }
+.lyrics-wrap.full .lyrics-bar .muted { flex: 1; }
+.lyrics-wrap.full textarea { flex: 1; resize: none; font-size: 16px; line-height: 1.5; max-width: 900px; width: 100%; margin: 0 auto; }
+@media (max-width: 640px) { .knobs { grid-template-columns: 1fr; } }

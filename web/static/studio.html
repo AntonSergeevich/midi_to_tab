@@ -71,20 +71,38 @@
       </label>
     </div>
     <div id="strengthBox">
-      <label class="field" style="margin-top:14px">
-        <span>Насколько переделать: <b id="strengthText"></b></span>
-        <input type="range" id="strength" min="0" max="100" value="65" style="width:100%;accent-color:var(--accent)">
-      </label>
-      <div class="muted" style="display:flex;justify-content:space-between">
-        <span>ближе к оригиналу</span><span>смелее, дальше от оригинала</span>
+      <div class="knobs">
+        <label class="field knob">
+          <span>Влияние загруженной песни <b id="audioVal"></b></span>
+          <input type="range" id="audioKnob" min="0" max="100" value="35">
+          <small class="muted">меньше — дальше от оригинала, больше — ближе к нему</small>
+        </label>
+        <label class="field knob">
+          <span>Влияние стиля <b id="styleVal"></b></span>
+          <input type="range" id="styleKnob" min="0" max="100" value="60">
+          <small class="muted">насколько строго держаться выбранного жанра и описания</small>
+        </label>
+        <label class="field knob">
+          <span>Странность <b id="weirdVal"></b></span>
+          <input type="range" id="weirdKnob" min="0" max="100" value="30">
+          <small class="muted">выше — смелее и неожиданнее, ниже — предсказуемее</small>
+        </label>
       </div>
     </div>
     <div id="lyricsBox">
-      <label class="field" style="margin-top:14px">
-        <span>Текст песни — нейросеть споёт его в новой версии (можно оставить пустым)</span>
-        <textarea id="lyrics" rows="6" maxlength="5000"
+      <div class="lyrics-head">
+        <span class="muted">Текст песни — нейросеть споёт его. Без текста выйдет инструментал.</span>
+        <button type="button" id="lyricsExpand">Развернуть</button>
+      </div>
+      <div class="lyrics-wrap" id="lyricsWrap">
+        <div class="lyrics-bar">
+          <b>Текст песни</b>
+          <span class="muted" id="lyricsCount"></span>
+          <button type="button" class="primary" id="lyricsDone">Готово</button>
+        </div>
+        <textarea id="lyrics" rows="7" maxlength="5000"
                   placeholder="[Куплет]&#10;Первая строка&#10;Вторая строка&#10;&#10;[Припев]&#10;..."></textarea>
-      </label>
+      </div>
       <label class="field" style="margin-top:10px;max-width:220px">
         <span>Язык вокала</span>
         <select id="language"><option value="ru">Русский</option><option value="en">Английский</option></select>

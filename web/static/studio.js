@@ -13,16 +13,12 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const rub = (n) => `${Math.round(n)} ₽`;
 
-// Ползунок «насколько переделать» -- обратная величина к силе сохранения
-// оригинала, которую ждёт нейросеть: 65% переделки = 0.35 оригинала.
-function strength() {
-  return Math.min(0.95, Math.max(0.05, 1 - $('strength').value / 100));
-}
+// Три крутилки, как в Suno: значения 0..1 уходят воркеру как есть, а
+// что они значат для нейросети -- решает он (worker/handler.py, restyle).
+const knobs = { audioKnob: 'audioVal', styleKnob: 'styleVal', weirdKnob: 'weirdVal' };
 
-function strengthText() {
-  const v = Number($('strength').value);
-  $('strengthText').textContent = v < 35 ? 'чуть-чуть' : v < 60 ? 'заметно'
-    : v < 80 ? 'сильно' : 'почти заново';
+function knobText() {
+  Object.entries(knobs).forEach(([input, out]) => { $(out).textContent = `${$(input).value}%`; });
 }
 
 function showMode() {
@@ -81,6 +77,10 @@ function renderJobs(jobs) {
           <audio controls preload="none" src="${f.url}"></audio>
           <a href="${f.url}" download>Скачать</a>
         </div>`).join('');
+      if (j.mode !== 'stems') {
+        body += `<button type="button" data-split="${j.id}" style="margin-top:10px">`
+          + 'Разделить эту версию на партии</button>';
+      }
     } else if (j.status === 'error') {
       body = `<div class="bad">${esc(j.error)}</div>`;
     } else {
@@ -139,7 +139,7 @@ $('presets').addEventListener('click', (e) => {
     b.classList.toggle('selected', b === button));
 });
 
-$('strength').addEventListener('input', strengthText);
+Object.keys(knobs).forEach((id) => $(id).addEventListener('input', knobText));
 
 const drop = $('drop');
 drop.addEventListener('click', () => $('file').click());
@@ -160,7 +160,9 @@ $('start').addEventListener('click', async () => {
   form.append('preset', preset);
   form.append('prompt', $('prompt').value);
   form.append('lyrics', $('lyrics').value);
-  form.append('strength', strength());
+  form.append('audio_influence', $('audioKnob').value / 100);
+  form.append('style_influence', $('styleKnob').value / 100);
+  form.append('weirdness', $('weirdKnob').value / 100);
   form.append('track', $('track').value);
   form.append('language', $('language').value);
   $('start').disabled = true;
@@ -177,13 +179,46 @@ $('start').addEventListener('click', async () => {
   $('jobs').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
+// Текст песни во весь экран: в узком поле длинный текст не отредактировать.
+function lyricsFull(open) {
+  $('lyricsWrap').classList.toggle('full', open);
+  document.body.style.overflow = open ? 'hidden' : '';
+  if (open) $('lyrics').focus();
+}
+function lyricsCount() {
+  const lines = $('lyrics').value.split('\n').filter((l) => l.trim()).length;
+  $('lyricsCount').textContent = `строк: ${lines} · символов: ${$('lyrics').value.length} из 5000`;
+}
+$('lyricsExpand').addEventListener('click', () => lyricsFull(true));
+$('lyricsDone').addEventListener('click', () => lyricsFull(false));
+$('lyrics').addEventListener('input', lyricsCount);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('lyricsWrap').classList.contains('full')) lyricsFull(false);
+});
+
 $('jobs').addEventListener('click', async (e) => {
+  const split = e.target.closest('[data-split]');
+  if (split) {
+    const price = info.unlimited ? '' : ` за ${rub(info.services.stems.price)}`;
+    if (!confirm(`Разделить эту версию на партии${price}?`)) return;
+    split.disabled = true;
+    const response = await fetch(`/api/studio/${split.dataset.split}/stems`, { method: 'POST' });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      alert((error.detail || 'Не получилось запустить').replace(/<[^>]+>/g, ''));
+      split.disabled = false;
+      return;
+    }
+    load();
+    return;
+  }
   const button = e.target.closest('[data-del]');
   if (!button || !confirm('Удалить эту работу вместе с файлами?')) return;
   await fetch(`/api/studio/${button.dataset.del}`, { method: 'DELETE' });
   load();
 });
 
-strengthText();
+knobText();
 showMode();
 load();
+lyricsCount();

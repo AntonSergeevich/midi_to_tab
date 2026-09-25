@@ -1236,7 +1236,8 @@ def _studio_job_payload(job) -> dict:
     return {
         "id": job.id, "name": job.filename, "at": job.created_at, "status": job.status,
         "stage": job.stage, "progress": job.progress, "error": job.error,
-        "mode": settings.get("mode"), "title": settings.get("title"),
+        "mode": settings.get("mode"),
+        "title": settings.get("title", "") + (" · новой версии" if settings.get("from") else ""),
         "charged": settings.get("charged", 0),
         "files": files,
         # Файлы Студии уборка удаляет через 14 дней (deploy/cleanup.py)
@@ -1269,7 +1270,9 @@ async def api_studio_start(
     preset: str = Form("numetal"),
     prompt: str = Form(""),
     lyrics: str = Form(""),
-    strength: float = Form(0.35),
+    audio_influence: float = Form(0.35),
+    style_influence: float = Form(0.6),
+    weirdness: float = Form(0.3),
     track: str = Form("drums"),
     language: str = Form("ru"),
 ):
@@ -1290,8 +1293,11 @@ async def api_studio_start(
         raise HTTPException(402, f"{service.title} стоит {service.price:.0f} ₽, на балансе "
                                  f"{user.balance:.0f} ₽. Пополните баланс на странице тарифов.")
 
+    clamp = lambda v: max(0.0, min(1.0, float(v)))  # noqa: E731
+    knobs = {"audio_influence": clamp(audio_influence),
+             "style_influence": clamp(style_influence), "weirdness": clamp(weirdness)}
     settings = {"kind": "studio", "mode": mode, "title": service.title, "preset": preset,
-                "strength": strength, "track": track, "charged": 0}
+                **knobs, "track": track, "charged": 0}
     job = storage.create_job(user.id, file.filename or "track", settings)
     folder = studio_runner.folder(job.id)
     os.makedirs(folder, exist_ok=True)
@@ -1307,28 +1313,67 @@ async def api_studio_start(
                 raise HTTPException(413, f"Файл больше {MAX_UPLOAD_MB} МБ")
             out.write(chunk)
 
+    _studio_charge_and_submit(request, user, job.id, service, folder, {
+        "mode": mode, "prompt": style, "lyrics": lyrics.strip()[:5000], **knobs,
+        "track": track, "language": language if language in ("ru", "en") else "ru",
+    })
+    response = JSONResponse({"jobId": job.id})
+    attach_cookie(response, user.id)
+    return response
+
+
+def _studio_charge_and_submit(request: Request, user, job_id: str, service, folder: str,
+                              worker_input: dict) -> None:
+    """Списать деньги и отдать задачу воркеру: общая часть всех запусков Студии."""
+    job = storage.job(job_id)
+    settings = dict(job.settings or {})
     # Списываем до запуска и одним атомарным запросом: два параллельных
     # запуска не должны потратить одни и те же деньги дважды.
     if not user.unlimited:
         if not storage.spend_balance(user.id, service.price):
             shutil.rmtree(folder, ignore_errors=True)
-            storage.update_job(job.id, status="error", error="Не хватило денег на балансе")
+            storage.update_job(job_id, status="error", error="Не хватило денег на балансе")
             raise HTTPException(402, "Не хватило денег на балансе — пополните и попробуйте снова")
         settings["charged"] = service.price
-        storage.update_job(job.id, settings=settings, counted=True)
+        storage.update_job(job_id, settings=settings, counted=True)
 
     base = str(request.base_url).rstrip("/")
-    studio_runner.submit(job.id, {
-        "mode": mode, "prompt": style, "lyrics": lyrics.strip()[:5000],
-        "strength": max(0.0, min(1.0, strength)), "track": track,
-        "language": language if language in ("ru", "en") else "ru",
-        "seconds": studio.MAX_SECONDS,
-        "audio_url": studio.link(base, SECRET, job.id, "source"),
-        "upload_url": studio.link(base, SECRET, job.id, "upload"),
+    studio_runner.submit(job_id, {
+        **worker_input, "seconds": studio.MAX_SECONDS,
+        "audio_url": studio.link(base, SECRET, job_id, "source"),
+        "upload_url": studio.link(base, SECRET, job_id, "upload"),
     })
-    response = JSONResponse({"jobId": job.id})
-    attach_cookie(response, user.id)
-    return response
+
+
+@app.post("/api/studio/{job_id}/stems")
+def api_studio_split_result(job_id: str, request: Request):
+    """Разделить на партии уже готовую переделку -- без повторной загрузки."""
+    user = current_user(request)
+    parent = storage.job(job_id)
+    if (not parent or parent.user_id != user.id
+            or (parent.settings or {}).get("kind") != "studio" or parent.status != "done"):
+        raise HTTPException(404, "Готовая работа не найдена")
+    files = [f for f in (parent.result or {}).get("files") or []
+             if os.path.isfile(os.path.join(studio_runner.folder(job_id), f["name"]))]
+    if not files:
+        raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
+    ready, why = studio.available()
+    if not ready:
+        raise HTTPException(503, why)
+    service = studio.SERVICES["stems"]
+    if not user.unlimited and user.balance < service.price:
+        raise HTTPException(402, f"{service.title} стоит {service.price:.0f} ₽, на балансе "
+                                 f"{user.balance:.0f} ₽. Пополните баланс на странице тарифов.")
+    title = f"{(parent.settings or {}).get('title', '')}: {parent.filename}"
+    job = storage.create_job(user.id, parent.filename, {
+        "kind": "studio", "mode": "stems", "title": service.title, "from": job_id,
+        "charged": 0})
+    folder = studio_runner.folder(job.id)
+    os.makedirs(folder, exist_ok=True)
+    shutil.copyfile(os.path.join(studio_runner.folder(job_id), files[0]["name"]),
+                    os.path.join(folder, "source.mp3"))
+    _studio_charge_and_submit(request, user, job.id, service, folder, {"mode": "stems"})
+    return {"jobId": job.id, "from": title}
 
 
 def _studio_link_job(job_id: str, purpose: str, e: int, s: str):
