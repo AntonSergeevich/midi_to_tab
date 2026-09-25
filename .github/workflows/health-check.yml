@@ -25,6 +25,20 @@ jobs:
           done
           jq -c '{ready, why, services}' /tmp/page
 
+      # Тем же кодом, что и сайт (web/studio.py): запросы к RunPod уже
+      # падали на Cloudflare из-за User-Agent, а снаружи это видно не было.
+      - uses: actions/checkout@v4
+      - name: RunPod принимает запросы Студии
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          from web import studio
+          endpoint = studio.endpoint_id()
+          print("эндпоинт", endpoint)
+          print(studio.call("GET", f"{studio.RUNPOD_API}/{endpoint}/health"))
+          PY
+
       - name: GET /api/health
         run: |
           set -euo pipefail
