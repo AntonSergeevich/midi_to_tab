@@ -121,8 +121,14 @@ def ace_step(body):
         # загружена, -- и вместо дописывания получилась бы переделка.
         if body.get("model") and info.get("dit_model") and info["dit_model"] != body["model"]:
             raise RuntimeError(f"сервер взял {info['dit_model']} вместо {body['model']}")
-        return _request(info["file"], timeout=300), {
+        return to_mp3(_request(info["file"], timeout=300)), {
             k: info.get(k) for k in ("dit_model", "seed_value", "metas")}
+
+
+def to_mp3(wav: bytes, bitrate: str = "320k") -> bytes:
+    return subprocess.run(["ffmpeg", "-v", "error", "-i", "pipe:0", "-b:a", bitrate,
+                           "-f", "mp3", "pipe:1"], input=wav, capture_output=True,
+                          check=True).stdout
 
 
 def common(job_input, source):
@@ -131,7 +137,9 @@ def common(job_input, source):
         "prompt": job_input.get("prompt") or "", "lyrics": job_input.get("lyrics") or "",
         "vocal_language": job_input.get("language") or "ru",
         "thinking": False, "use_cot_caption": False, "use_cot_language": False,
-        "batch_size": 1, "audio_format": "mp3",
+        # wav, а не mp3: своё mp3 у ACE-Step ~128 кбит/с -- для музыки мало,
+        # кодируем сами в 320 (to_mp3).
+        "batch_size": 1, "audio_format": "wav",
         "use_random_seed": job_input.get("seed") in (None, -1, ""),
         "seed": job_input.get("seed") if job_input.get("seed") not in (None, "") else -1,
     }
