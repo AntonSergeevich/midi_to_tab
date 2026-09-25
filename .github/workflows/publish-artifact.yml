@@ -1,0 +1,36 @@
+name: Выложить артефакт в ветку test-results
+
+# Облачной сессии Claude закрыто хранилище артефактов (Azure blob), а
+# github.com открыт. Этот workflow кладёт файлы артефакта из указанного
+# прогона в отдельную ветку test-results -- без повторной платной генерации.
+# Автодеплой слушает только основную ветку, так что сайт не трогается.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: ID прогона, из которого взять артефакт
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: incoming
+      - name: Коммит в test-results
+        run: |
+          git init -q results && cd results
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          git fetch -q --depth 1 origin test-results && git checkout -q FETCH_HEAD || git checkout -q --orphan test-results
+          mkdir -p "${{ inputs.run_id }}" && cp -r ../incoming/*/* "${{ inputs.run_id }}/"
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com commit -q -m "Артефакты прогона ${{ inputs.run_id }}"
+          git push -q origin HEAD:refs/heads/test-results
+          ls -la "${{ inputs.run_id }}"
