@@ -119,6 +119,8 @@ def main() -> int:
 
     sweep(DATA_DIR / "uploads", keep_uploads, "Загрузки")
     sweep_stems(DATA_DIR / "results", keep_stems)
+    # Студия: исходник и результаты GPU-обработки (переделки, стемы).
+    sweep(DATA_DIR / "studio", keep_stems, "Студия")
 
     after = free_ratio(DATA_DIR)
     print(f"Стало свободно: {after * 100:.0f}%")

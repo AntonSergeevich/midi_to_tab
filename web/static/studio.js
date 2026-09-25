@@ -72,7 +72,9 @@ function renderJobs(jobs) {
   $('jobs').innerHTML = jobs.map((j) => {
     const when = new Date(j.at * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
     let body = '';
-    if (j.status === 'done') {
+    if (j.expired) {
+      body = '<div class="muted">Файлы удалены по сроку хранения — 14 дней.</div>';
+    } else if (j.status === 'done') {
       body = j.files.map((f) => `
         <div class="studio-file">
           <div class="muted">${esc(f.label)}</div>

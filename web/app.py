@@ -1229,13 +1229,18 @@ def studio_page() -> HTMLResponse:
 def _studio_job_payload(job) -> dict:
     settings = job.settings or {}
     result = job.result or {}
+    folder = studio_runner.folder(job.id)
+    files = [{**f, "url": f"/api/studio/file/{job.id}/{f['name']}"}
+             for f in result.get("files") or []
+             if os.path.isfile(os.path.join(folder, f["name"]))]
     return {
         "id": job.id, "name": job.filename, "at": job.created_at, "status": job.status,
         "stage": job.stage, "progress": job.progress, "error": job.error,
         "mode": settings.get("mode"), "title": settings.get("title"),
         "charged": settings.get("charged", 0),
-        "files": [{**f, "url": f"/api/studio/file/{job.id}/{f['name']}"}
-                  for f in result.get("files") or []],
+        "files": files,
+        # Файлы Студии уборка удаляет через 14 дней (deploy/cleanup.py)
+        "expired": job.status == "done" and not files,
     }
 
 
