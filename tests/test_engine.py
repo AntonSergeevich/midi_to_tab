@@ -704,6 +704,35 @@ def test_shapes_follow_the_tuning():
     assert shapes_for("D", drop_d, 1)[0].frets == (0, 0, 0, 2, 3, 2)
 
 
+def test_ascii_tab_names_strings_by_the_tuning_not_the_string_count():
+    """
+    Подписи струн в .txt-табе брались из словаря, ключом в котором было
+    ЧИСЛО струн, -- а не сам строй. У Drop D, DADGAD, Open D/G и
+    пониженных строёв те же 6 струн, что у стандартного, и печатались
+    подписи "e B G D A E" вместо настоящих названий нижней струны. У
+    укулеле (4 струны) печатались подписи БАСА (G D A E) вместо
+    настоящих A E C G.
+    """
+    from midi2tab.asciiout import _labels
+    from midi2tab.tuning import TUNINGS, Fretboard
+
+    assert _labels(Fretboard(TUNINGS["Стандартный (EADGBE)"])) == list("eBGDAE")
+
+    drop_d = Fretboard(TUNINGS["Drop D (DADGBE)"])
+    assert _labels(drop_d) == ["E", "B", "G", "D", "A", "D"]
+
+    dadgad = Fretboard(TUNINGS["DADGAD"])
+    assert _labels(dadgad) == ["D", "A", "G", "D", "A", "D"]
+
+    ukulele = Fretboard(TUNINGS["Укулеле (GCEA)"])
+    assert _labels(ukulele) == ["A", "E", "C", "G"]
+
+    # Каподастр сдвигает лады, а не название струны -- Drop D с каподастром
+    # на втором ладу всё равно подписан как D, не как E.
+    assert _labels(Fretboard(TUNINGS["Drop D (DADGBE)"], capo=2)) == \
+        ["E", "B", "G", "D", "A", "D"]
+
+
 def test_chords_are_not_shifted_by_a_bar():
     """
     Разметка не должна отставать от музыки.

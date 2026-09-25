@@ -5,21 +5,29 @@ from __future__ import annotations
 from .gp5out import Span
 from .tuning import Fretboard, NOTE_NAMES
 
+# Только для строёв, где название струны -- устоявшееся сокращение, а не
+# просто нота: строй определяет ИМЯ, не число струн -- у Drop D и обычного
+# строя одинаково 6 струн, но нижняя называется по-разному. Раньше словарь
+# был ключом по числу струн, и Drop D, DADGAD, Open D/G, пониженные строи
+# и укулеле (тоже 4 струны, как бас) печатались с именами СТАНДАРТНОГО
+# строя/баса -- неверные подписи струн в каждом экспортированном .txt-табе.
 STRING_LABELS = {
-    6: ("e", "B", "G", "D", "A", "E"),
-    7: ("e", "B", "G", "D", "A", "E", "B"),
-    4: ("G", "D", "A", "E"),
-    5: ("G", "D", "A", "E", "B"),
+    "Стандартный (EADGBE)": ("e", "B", "G", "D", "A", "E"),
+    "7 струн (BEADGBE)": ("e", "B", "G", "D", "A", "E", "B"),
+    "Бас 4 струны (EADG)": ("G", "D", "A", "E"),
+    "Бас 5 струн (BEADG)": ("G", "D", "A", "E", "B"),
 }
 
 
 def _labels(board: Fretboard) -> list[str]:
-    preset = STRING_LABELS.get(board.string_count)
+    preset = STRING_LABELS.get(board.tuning.name)
     if preset:
         return list(preset)
-    # запасной вариант: назвать струны по фактической высоте, сверху вниз
+    # запасной вариант: назвать струны по фактической высоте открытой
+    # струны САМОГО СТРОЯ (без каподастра -- он лады сдвигает, а не
+    # переименовывает струну), сверху вниз.
     return [
-        NOTE_NAMES[board.open_pitch(i) % 12]
+        NOTE_NAMES[board.tuning.open_pitches[i] % 12]
         for i in range(board.string_count - 1, -1, -1)
     ]
 
