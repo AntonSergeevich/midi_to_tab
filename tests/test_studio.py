@@ -218,7 +218,7 @@ def test_split_finished_restyle_into_stems(studio_app):
     source = submitted[-1][1]["audio_url"].split("testserver", 1)[1]
     assert type(client)(app_module.app).get(source).content == b"new-version"
     listed = {j["id"]: j for j in client.get("/api/studio").json()["jobs"]}
-    assert listed[child]["title"].endswith("новой версии")
+    assert listed[child]["title"].endswith("новая версия")
 
 
 def test_studio_pack_is_credited_spent_first_and_refunded(studio_app, monkeypatch):
@@ -278,3 +278,27 @@ def test_runpod_requests_carry_own_user_agent(studio_app, monkeypatch):
     assert studio.call("POST", "https://api.runpod.ai/v2/ep/run", {"input": {}}) == {"id": "x"}
     assert "python-urllib" not in seen["user-agent"].lower()
     assert seen["user-agent"].startswith("naslux")
+
+
+def test_two_variants_are_labelled_and_split_separately(studio_app):
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_balance(user.id, 100)
+    job_id = _start(client).json()["jobId"]
+    assert submitted[0][1]["variants"] == 2
+    folder = app_module.studio_runner.folder(job_id)
+    for n in (1, 2):
+        with open(f"{folder}/restyle_{n}.mp3", "wb") as f:
+            f.write(f"v{n}".encode())
+    app_module.storage.update_job(job_id, status="done", result={
+        "files": [{"name": f"restyle_{n}.mp3", "label": app_module.studio.label_of("restyle", f"restyle_{n}.mp3")}
+                  for n in (1, 2)],
+        "settings": {"bpm": 136, "key_scale": "G major"}})
+    listed = client.get("/api/studio").json()["jobs"][0]
+    assert [f["label"] for f in listed["files"]] == ["Вариант 1", "Вариант 2"]
+    assert (listed["bpm"], listed["key"]) == (136, "G major")
+
+    child = client.post(f"/api/studio/{job_id}/stems", data={"file": "restyle_2.mp3"}).json()["jobId"]
+    source = submitted[-1][1]["audio_url"].split("testserver", 1)[1]
+    assert type(client)(app_module.app).get(source).content == b"v2"
+    titles = {j["id"]: j["title"] for j in client.get("/api/studio").json()["jobs"]}
+    assert titles[child].endswith("вариант 2")

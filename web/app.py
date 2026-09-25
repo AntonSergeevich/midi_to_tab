@@ -1241,8 +1241,11 @@ def _studio_job_payload(job) -> dict:
         "id": job.id, "name": job.filename, "at": job.created_at, "status": job.status,
         "stage": job.stage, "progress": job.progress, "error": job.error,
         "mode": settings.get("mode"),
-        "title": settings.get("title", "") + (" · новой версии" if settings.get("from") else ""),
+        "title": settings.get("title", "") + (
+            f" · {settings.get('variant', 'новой версии').lower()}" if settings.get("from") else ""),
         "charged": settings.get("charged", 0),
+        "bpm": (result.get("settings") or {}).get("bpm"),
+        "key": (result.get("settings") or {}).get("key_scale"),
         "files": files,
         # Файлы Студии уборка удаляет через 14 дней (deploy/cleanup.py)
         "expired": job.status == "done" and not files,
@@ -1275,8 +1278,8 @@ async def api_studio_start(
     preset: str = Form("numetal"),
     prompt: str = Form(""),
     lyrics: str = Form(""),
-    audio_influence: float = Form(0.35),
-    style_influence: float = Form(0.6),
+    audio_influence: float = Form(0.5),
+    style_influence: float = Form(0.5),
     weirdness: float = Form(0.3),
     track: str = Form("drums"),
     language: str = Form("ru"),
@@ -1322,6 +1325,9 @@ async def api_studio_start(
 
     _studio_charge_and_submit(request, user, job.id, service, folder, {
         "mode": mode, "prompt": style, "lyrics": lyrics.strip()[:5000], **knobs,
+        # Две версии за раз: авторы ACE-Step советуют выбирать из
+        # нескольких, а GPU на вторую тратит секунды.
+        "variants": 2,
         "track": track, "language": language if language in ("ru", "en") else "ru",
     })
     response = JSONResponse({"jobId": job.id})
@@ -1358,7 +1364,7 @@ def _studio_charge_and_submit(request: Request, user, job_id: str, service, fold
 
 
 @app.post("/api/studio/{job_id}/stems")
-def api_studio_split_result(job_id: str, request: Request):
+def api_studio_split_result(job_id: str, request: Request, file: str = Form("")):
     """Разделить на партии уже готовую переделку -- без повторной загрузки."""
     user = current_user(request)
     parent = storage.job(job_id)
@@ -1366,7 +1372,8 @@ def api_studio_split_result(job_id: str, request: Request):
             or (parent.settings or {}).get("kind") != "studio" or parent.status != "done"):
         raise HTTPException(404, "Готовая работа не найдена")
     files = [f for f in (parent.result or {}).get("files") or []
-             if os.path.isfile(os.path.join(studio_runner.folder(job_id), f["name"]))]
+             if os.path.isfile(os.path.join(studio_runner.folder(job_id), f["name"]))
+             and (not file or f["name"] == file)]
     if not files:
         raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
     ready, why = studio.available()
@@ -1377,9 +1384,10 @@ def api_studio_split_result(job_id: str, request: Request):
         raise HTTPException(402, f"{service.title} стоит {service.price:.0f} ₽, на балансе "
                                  f"{user.balance:.0f} ₽. Пополните баланс на странице тарифов.")
     title = f"{(parent.settings or {}).get('title', '')}: {parent.filename}"
+    variant = studio.label_of((parent.settings or {}).get("mode", ""), files[0]["name"])
     job = storage.create_job(user.id, parent.filename, {
         "kind": "studio", "mode": "stems", "title": service.title, "from": job_id,
-        "charged": 0})
+        "variant": variant, "charged": 0})
     folder = studio_runner.folder(job.id)
     os.makedirs(folder, exist_ok=True)
     shutil.copyfile(os.path.join(studio_runner.folder(job_id), files[0]["name"]),

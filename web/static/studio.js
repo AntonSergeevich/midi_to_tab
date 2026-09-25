@@ -49,7 +49,7 @@ function updateStart() {
       + 'или возьмите пакет генераций, чтобы запустить.';
   } else {
     $('msg').textContent = mode === 'stems' ? 'Обычно 1–3 минуты.'
-      : 'Обычно 3–10 минут: нейросеть пишет трек заново. Страницу можно закрыть.';
+      : 'Сделаем две версии — выберите лучшую. Обычно 2–5 минут, страницу можно закрыть.';
   }
 }
 
@@ -73,16 +73,15 @@ function renderJobs(jobs) {
     if (j.expired) {
       body = '<div class="muted">Файлы удалены по сроку хранения — 14 дней.</div>';
     } else if (j.status === 'done') {
-      body = j.files.map((f) => `
+      const meta = j.bpm ? `<div class="muted">Исходник: ${j.bpm} BPM · ${esc(j.key || '')}</div>` : '';
+      body = meta + j.files.map((f) => `
         <div class="studio-file">
           <div class="muted">${esc(f.label)}</div>
           <audio controls preload="none" src="${f.url}"></audio>
           <a href="${f.url}" download>Скачать</a>
+          ${j.mode === 'stems' ? '' : `<button type="button" class="split" data-split="${j.id}"
+            data-file="${esc(f.name)}">Разделить на партии</button>`}
         </div>`).join('');
-      if (j.mode !== 'stems') {
-        body += `<button type="button" data-split="${j.id}" style="margin-top:10px">`
-          + 'Разделить эту версию на партии</button>';
-      }
     } else if (j.status === 'error') {
       body = `<div class="bad">${esc(j.error)}</div>`;
     } else {
@@ -205,7 +204,10 @@ $('jobs').addEventListener('click', async (e) => {
     const price = info.unlimited ? '' : ` за ${rub(info.services.stems.price)}`;
     if (!confirm(`Разделить эту версию на партии${price}?`)) return;
     split.disabled = true;
-    const response = await fetch(`/api/studio/${split.dataset.split}/stems`, { method: 'POST' });
+    const form = new FormData();
+    form.append('file', split.dataset.file || '');
+    const response = await fetch(`/api/studio/${split.dataset.split}/stems`,
+      { method: 'POST', body: form });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       alert((error.detail || 'Не получилось запустить').replace(/<[^>]+>/g, ''));

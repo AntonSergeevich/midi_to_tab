@@ -163,7 +163,8 @@ def label_of(mode: str, name: str) -> str:
         return STEM_LABELS.get(stem, stem)
     if mode == "enrich":
         return "С дописанной партией"
-    return "Новая версия"
+    number = stem.rsplit("_", 1)[-1]
+    return f"Вариант {number}" if number.isdigit() else "Новая версия"
 
 
 # ------------------------------------------------------------------ задачи
@@ -250,6 +251,8 @@ class StudioRunner:
         self.storage.update_job(job_id, status="done", stage="Готово", progress=100, result={
             "files": files,
             "gpuSeconds": round((status.get("executionTime") or 0) / 1000, 1),
+            # С чем работала нейросеть: темп, тональность, модель, крутилки.
+            "settings": (output.get("info") or {}).get("settings") or {},
             "waitSeconds": round((status.get("delayTime") or 0) / 1000, 1),
         })
 

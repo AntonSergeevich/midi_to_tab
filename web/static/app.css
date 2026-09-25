@@ -561,3 +561,4 @@ footer.legal a:hover { color: var(--accent); }
 .studio-promo b { font-size: 16px; }
 .studio-promo-tag { font-size: 12px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; }
 .studio-promo-go { color: var(--accent); font-weight: 600; font-size: 14px; }
+.studio-file .split { grid-column: 1 / -1; justify-self: start; font-size: 13px; padding: 6px 10px; }
