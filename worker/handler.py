@@ -161,6 +161,49 @@ MAJOR = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
 MINOR = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
 
 
+def _chroma(y, sr):
+    import librosa
+    import numpy as np
+
+    c = librosa.feature.chroma_cqt(y=librosa.effects.harmonic(y), sr=sr, hop_length=4096)
+    return c / (np.linalg.norm(c, axis=0, keepdims=True) + 1e-9)
+
+
+def _key_of(chroma):
+    import numpy as np
+
+    profile = chroma.mean(axis=1)
+    best = max(((float(np.corrcoef(profile, np.roll(w, k))[0, 1]), k, name)
+                for k in range(12) for w, name in ((MAJOR, "major"), (MINOR, "minor"))))
+    return best[1], best[2]
+
+
+def same_scale(a, b) -> bool:
+    """Та же тональность или параллельная по звукоряду: G major = E minor."""
+    (ta, ma), (tb, mb) = a, b
+    if ma == mb:
+        return ta == tb
+    major, minor = (ta, tb) if ma == "major" else (tb, ta)
+    return (major + 9) % 12 == minor
+
+
+def harmony_score(source_chroma, source_key, audio_bytes) -> float:
+    """Насколько версия держит гармонию исходника: сходство хромаграмм по
+    времени (0..1) и бонус за ту же тональность. На пробах старые версии
+    («каша») давали 0.49-0.66, новые -- 0.77-0.84; отбор по этой мере
+    отсекает версии, которые уехали в чужую тональность."""
+    import io
+
+    import librosa
+    import numpy as np
+
+    y, sr = librosa.load(io.BytesIO(audio_bytes), sr=22050, mono=True, duration=240)
+    out = _chroma(y, sr)
+    n = min(source_chroma.shape[1], out.shape[1])
+    similarity = float((source_chroma[:, :n] * out[:, :n]).sum(axis=0).mean())
+    return similarity + (0.05 if same_scale(_key_of(out), source_key) else 0.0)
+
+
 def tempo_and_key(path):
     """Темп и тональность исходника. Без них модель получает «N/A» и
     ведёт гармонию и ритм сама -- отсюда каша вместо песни."""
@@ -169,11 +212,9 @@ def tempo_and_key(path):
 
     y, sr = librosa.load(path, sr=22050, mono=True, duration=240)
     tempo = float(np.atleast_1d(librosa.beat.beat_track(y=y, sr=sr)[0])[0])
-    harmonic = librosa.effects.harmonic(y)
-    profile = librosa.feature.chroma_cqt(y=harmonic, sr=sr).mean(axis=1)
-    best = max(((float(np.corrcoef(profile, np.roll(w, k))[0, 1]), k, name)
-                for k in range(12) for w, name in ((MAJOR, "major"), (MINOR, "minor"))))
-    return int(round(tempo)), f"{KEY_NAMES[best[1]]} {best[2]}"
+    chroma = _chroma(y, sr)
+    key = _key_of(chroma)
+    return int(round(tempo)), f"{KEY_NAMES[key[0]]} {key[1]}", chroma, key
 
 
 def restyle(job_input, source):
@@ -194,7 +235,8 @@ def restyle(job_input, source):
     audio = knob(job_input, "audio_influence", knob(job_input, "strength", 0.5))
     style = knob(job_input, "style_influence", 0.5)
     weird = knob(job_input, "weirdness", 0.3)
-    bpm, key = tempo_and_key(source)
+    bpm, key, source_chroma, source_key = tempo_and_key(source)
+    variants = max(1, min(4, int(job_input.get("variants") or 2)))
     body = {**common(job_input, source), "task_type": "cover",
             "model": FULL if job_input.get("engine") == "base" else SFT,
             "audio_cover_strength": round(0.1 + 0.9 * audio, 3),
@@ -202,11 +244,22 @@ def restyle(job_input, source):
             "guidance_scale": round(5 + 4 * style, 2), "shift": round(2.5 + 1.5 * weird, 2),
             "infer_method": "sde" if weird >= 0.75 else "ode",
             "inference_steps": int(job_input.get("steps") or 50),
-            "bpm": bpm, "key_scale": key, "time_signature": "4",
-            "batch_size": max(1, min(4, int(job_input.get("variants") or 2)))}
+            "bpm": bpm, "key_scale": key, "time_signature": "4", "batch_size": 2}
     # Для подбора настроек из тестов: любые поля ACE-Step поверх рецепта.
     body.update(job_input.get("raw") or {})
-    audios, info = ace_step(body)
+    # Версий делаем вдвое больше, чем отдаём, и оставляем те, что лучше
+    # держат гармонию исходника: при одних и тех же настройках одна версия
+    # выходит отличной, другая уезжает в чужую тональность (на пробах --
+    # 68% и 1% совпадения аккордов с оригиналом). Партиями по две -- так
+    # длинный трек помещается в видеопамять.
+    audios, info = [], {}
+    while len(audios) < variants * 2:
+        batch, info = ace_step(body)
+        audios += batch
+    scored = sorted(((harmony_score(source_chroma, source_key, a), a) for a in audios),
+                    key=lambda pair: pair[0], reverse=True)
+    info["scores"] = [round(score, 3) for score, _ in scored]
+    audios = [a for _, a in scored[:variants]]
     info["settings"] = {k: body.get(k) for k in (
         "model", "audio_cover_strength", "cover_noise_strength", "guidance_scale", "shift",
         "infer_method", "inference_steps", "bpm", "key_scale", "batch_size")}
