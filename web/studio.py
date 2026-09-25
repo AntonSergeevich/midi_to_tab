@@ -18,13 +18,14 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import re
 import time
+import urllib.error
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-
-import requests
 
 from .storage import Storage
 
@@ -81,6 +82,21 @@ STATES = {
 }
 
 
+def call(method: str, url: str, body: dict | None = None, timeout: int = 60) -> dict:
+    """Запрос к RunPod. Только стандартная библиотека: на сервере сайта
+    нет лишних пакетов, и ради пары запросов их ставить не стоит."""
+    data = json.dumps(body).encode() if body is not None else None
+    request = urllib.request.Request(url, data=data, method=method, headers={
+        "Authorization": f"Bearer {api_key()}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read()
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f"RunPod ответил {error.code}: "
+                           f"{error.read()[:300].decode(errors='replace')}") from error
+    return json.loads(raw or b"{}")
+
+
 def api_key() -> str:
     return os.environ.get("RUNPOD_API_KEY", "")
 
@@ -100,10 +116,8 @@ def endpoint_id() -> str:
     if configured:
         return configured
     if "id" not in _endpoint_cache:
-        response = requests.get(f"{RUNPOD_REST}/endpoints", timeout=30,
-                                headers={"Authorization": f"Bearer {api_key()}"})
-        response.raise_for_status()
-        found = [e for e in response.json() if e.get("name", "").startswith(WORKER_NAME)]
+        found = [e for e in call("GET", f"{RUNPOD_REST}/endpoints")
+                 if e.get("name", "").startswith(WORKER_NAME)]
         if not found:
             raise RuntimeError(f"На RunPod нет эндпоинта {WORKER_NAME}")
         _endpoint_cache["id"] = found[0]["id"]
@@ -176,7 +190,6 @@ class StudioRunner:
         self.pool.shutdown(wait=False, cancel_futures=True)
 
     def _run(self, job_id: str) -> None:
-        headers = {"Authorization": f"Bearer {api_key()}"}
         try:
             job = self.storage.job(job_id)
             settings = dict(job.settings or {})
@@ -185,16 +198,13 @@ class StudioRunner:
                 endpoint = endpoint_id()
                 self.storage.update_job(job_id, status="running",
                                         stage="Отправляем на видеокарту", progress=3)
-                response = requests.post(f"{RUNPOD_API}/{endpoint}/run", headers=headers,
-                                         json={"input": settings["input"]}, timeout=60)
-                response.raise_for_status()
-                remote = {"endpoint": endpoint, "id": response.json()["id"]}
+                started = call("POST", f"{RUNPOD_API}/{endpoint}/run", {"input": settings["input"]})
+                remote = {"endpoint": endpoint, "id": started["id"]}
                 settings["remote"] = remote
                 self.storage.update_job(job_id, settings=settings)
             endpoint, remote_id = remote["endpoint"], remote["id"]
             while True:
-                status = requests.get(f"{RUNPOD_API}/{endpoint}/status/{remote_id}",
-                                      headers=headers, timeout=60).json()
+                status = call("GET", f"{RUNPOD_API}/{endpoint}/status/{remote_id}")
                 state = status.get("status")
                 if state in STATES:
                     elapsed = time.time() - job.created_at
@@ -203,8 +213,7 @@ class StudioRunner:
                     self.storage.update_job(job_id, status="running", stage=STATES[state],
                                             progress=min(90, 5 + elapsed / 6))
                     if elapsed > JOB_TIMEOUT:
-                        requests.post(f"{RUNPOD_API}/{endpoint}/cancel/{remote_id}",
-                                      headers=headers, timeout=60)
+                        call("POST", f"{RUNPOD_API}/{endpoint}/cancel/{remote_id}", {})
                         raise RuntimeError("видеокарта не справилась за отведённое время")
                     time.sleep(POLL_SECONDS)
                     continue

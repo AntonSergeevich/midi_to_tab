@@ -103,33 +103,15 @@ def test_worker_links_need_valid_signature(studio_app):
     assert anonymous.get(upload_path.replace("/upload/", "/source/")).status_code == 403
 
 
-class _FakeResponse:
-    def __init__(self, payload):
-        self.payload = payload
-        self.text = "{}"
-
-    def json(self):
-        return self.payload
-
-    def raise_for_status(self):
-        pass
-
-
 def _fake_runpod(monkeypatch, studio, final):
     calls = []
-
-    def post(url, **kwargs):
-        calls.append(("POST", url, kwargs.get("json")))
-        return _FakeResponse({"id": "remote1"})
-
     states = iter([{"status": "IN_QUEUE"}, final])
 
-    def get(url, **kwargs):
-        calls.append(("GET", url, None))
-        return _FakeResponse(next(states))
+    def call(method, url, body=None, timeout=60):
+        calls.append((method, url, body))
+        return {"id": "remote1"} if method == "POST" else next(states)
 
-    monkeypatch.setattr(studio.requests, "post", post)
-    monkeypatch.setattr(studio.requests, "get", get)
+    monkeypatch.setattr(studio, "call", call)
     monkeypatch.setattr(studio, "POLL_SECONDS", 0)
     return calls
 
