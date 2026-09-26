@@ -1,0 +1,61 @@
+name: Живой тест Mureka (remix и разделение)
+
+# Тем же кодом, что на сайте (web/studio.py). Результаты -- в ветку
+# test-results/mureka-<номер прогона>. Нужен секрет MUREKA_API_KEY.
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Сколько секунд исходника отправить
+        default: "60"
+      what:
+        description: "all / remix / stems"
+        default: all
+      audio_url:
+        default: https://raw.githubusercontent.com/AntonSergeevich/vibe_track/claude/nu-metal-track-transformer-kf2j2n/we_angel.mp3
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MUREKA_API_KEY: ${{ secrets.MUREKA_API_KEY }}
+      SECONDS_: ${{ inputs.seconds }}
+      WHAT: ${{ inputs.what }}
+      AUDIO_URL: ${{ inputs.audio_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Исходник
+        run: |
+          [ -n "$MUREKA_API_KEY" ] || { echo "::error::Секрет MUREKA_API_KEY не задан"; exit 1; }
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          curl -sSfL "$AUDIO_URL" -o full.mp3
+          ffmpeg -v error -i full.mp3 -t "$SECONDS_" -c copy source.mp3
+      - name: Mureka
+        run: |
+          flags=""
+          [ "$WHAT" = remix ] && flags="--skip-stems"
+          [ "$WHAT" = stems ] && flags="--skip-remix"
+          python scripts/mureka_test.py source.mp3 --out results $flags
+          rm -f results/for_mureka.mp3
+          (cd results && for z in *.zip; do [ -f "$z" ] && unzip -l "$z"; done) || true
+      - name: В ветку test-results
+        if: always()
+        run: |
+          [ -n "$(ls -A results 2>/dev/null)" ] || exit 0
+          dir="mureka-${{ github.run_id }}"
+          git clone -q --depth 1 --branch test-results \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
+          mkdir -p "out/$dir" && cp results/* "out/$dir/"
+          cd out
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "Mureka: прогон ${{ github.run_id }}"
+          git push -q origin HEAD:test-results
+          echo "Файлы: test-results/$dir"

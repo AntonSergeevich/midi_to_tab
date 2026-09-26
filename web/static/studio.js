@@ -35,7 +35,9 @@ function showMode() {
   document.querySelectorAll('#modes .choice').forEach((b) =>
     b.classList.toggle('selected', b.dataset.mode === mode));
   $('styleBox').style.display = mode === 'stems' ? 'none' : '';
-  $('strengthBox').style.display = mode === 'restyle' ? '' : 'none';
+  // У Mureka крутилок нет -- стилем управляет описание, мелодией -- текст.
+  const knobsHere = mode === 'restyle' && !(info && info.restyleEngine === 'mureka');
+  $('strengthBox').style.display = knobsHere ? '' : 'none';
   $('lyricsBox').style.display = mode === 'restyle' ? '' : 'none';
   $('trackBox').style.display = mode === 'enrich' ? '' : 'none';
   updateStart();
@@ -46,7 +48,9 @@ function updateStart() {
   const price = info.services[mode].price;
   const byPack = ['restyle', 'enrich'].includes(mode) && info.studioCredits > 0;
   const enough = info.unlimited || byPack || info.balance >= price;
-  $('start').disabled = !info.ready || !file || !enough;
+  const needLyrics = mode === 'restyle' && info.restyleEngine === 'mureka'
+    && !$('lyrics').value.trim();
+  $('start').disabled = !info.ready || !file || !enough || needLyrics;
   $('start').textContent = info.unlimited ? 'Запустить'
     : byPack ? `Запустить · из пакета, осталось ${info.studioCredits}`
       : `Запустить за ${rub(price)}`;
@@ -54,6 +58,8 @@ function updateStart() {
     $('msg').textContent = info.why;
   } else if (!file) {
     $('msg').textContent = 'Выберите трек.';
+  } else if (needLyrics) {
+    $('msg').textContent = 'Вставьте текст песни — по нему нейросеть споёт новую версию.';
   } else if (!enough) {
     $('msg').innerHTML = `На балансе ${rub(info.balance)} — <a href="/pricing">пополните</a> `
       + 'или возьмите пакет генераций, чтобы запустить.';
@@ -239,7 +245,7 @@ function lyricsCount() {
 }
 $('lyricsExpand').addEventListener('click', () => lyricsFull(true));
 $('lyricsDone').addEventListener('click', () => lyricsFull(false));
-$('lyrics').addEventListener('input', lyricsCount);
+$('lyrics').addEventListener('input', () => { lyricsCount(); updateStart(); });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && $('lyricsWrap').classList.contains('full')) lyricsFull(false);
 });

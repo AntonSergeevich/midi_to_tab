@@ -1266,7 +1266,8 @@ def api_studio(request: Request):
         "tracks": studio.TRACKS,
         "balance": user.balance, "unlimited": user.unlimited, "registered": user.registered,
         "studioCredits": user.studio_credits,
-        "restyleOpen": studio.RESTYLE_OPEN or user.unlimited,
+        "restyleOpen": studio.restyle_open() or user.unlimited,
+        "restyleEngine": studio.restyle_engine(),
         "email": user.email, "maxMb": MAX_UPLOAD_MB, "maxSeconds": studio.MAX_SECONDS,
         "jobs": [_studio_job_payload(j) for j in storage.studio_jobs(user.id)],
     })
@@ -1295,9 +1296,16 @@ async def api_studio_start(
     service = studio.SERVICES.get(mode)
     if service is None:
         raise HTTPException(400, "Неизвестная услуга")
-    if mode == "restyle" and not (studio.RESTYLE_OPEN or user.unlimited):
+    engine = studio.restyle_engine() if mode == "restyle" else "runpod"
+    if mode == "restyle" and not (studio.restyle_open() or user.unlimited):
         raise HTTPException(409, "Переделка в другой стиль переезжает на новый движок и скоро "
                                  "вернётся. Разделение на партии и дописывание партии работают.")
+    if engine == "runpod" and not studio.api_key():
+        raise HTTPException(503, "Эта услуга ещё не подключена: нет ключа RunPod на сервере")
+    if engine == "mureka" and not lyrics.strip():
+        # remix у Mureka требует текст: мелодию она сохраняет и поёт по нему.
+        raise HTTPException(400, "Для переделки нужен текст песни — нейросеть сохраняет мелодию "
+                                 "и поёт по тексту. Вставьте его в поле «Текст песни».")
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED or suffix in (".mid", ".midi"):
         raise HTTPException(400, "Нужен аудиофайл: mp3, wav, flac, ogg, m4a")
@@ -1314,7 +1322,7 @@ async def api_studio_start(
     knobs = {"audio_influence": clamp(audio_influence),
              "style_influence": clamp(style_influence), "weirdness": clamp(weirdness)}
     settings = {"kind": "studio", "mode": mode, "title": service.title, "preset": preset,
-                **knobs, "track": track, "charged": 0}
+                **knobs, "track": track, "charged": 0, "engine": engine}
     job = storage.create_job(user.id, file.filename or "track", settings)
     folder = studio_runner.folder(job.id)
     os.makedirs(folder, exist_ok=True)

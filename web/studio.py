@@ -21,9 +21,12 @@ import hmac
 import json
 import os
 import re
+import shutil
+import subprocess
 import time
 import urllib.error
 import urllib.request
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -53,9 +56,16 @@ SERVICES = {
 
 # Переделка в стиль на ACE-Step не дотягивает до качества, за которое
 # можно брать деньги (живые пробы владельца: то каша, то почти один в один
-# с оригиналом). Пока выбирается движок, она открыта только безлимитным --
-# для проб; разделение и дописывание партии работают и продаются.
+# с оригиналом). Переделку делает Mureka (официальный API): на «Земле в
+# иллюминаторе» она сменила инструменты, сохранив мелодию и гармонию, --
+# а Suno ту же песню не пропустил вовсе. Без ключа Mureka переделка
+# открыта только безлимитным -- на старом движке, для проб.
 RESTYLE_OPEN = False
+MUREKA_API = "https://api.mureka.ai"
+MUREKA_UPLOAD_LIMIT = 10 * 1024 * 1024
+MUREKA_MAX_SECONDS = 350       # remix принимает 10..350 с
+MUREKA_STATES = {"preparing": "Готовим трек", "queued": "В очереди у Mureka",
+                 "running": "Нейросеть переделывает трек", "streaming": "Дописываем версии"}
 
 # Что можно оплатить генерацией из пакета (billing.PLANS studio10/30);
 # разделение на партии дешёвое и идёт только с баланса.
@@ -116,10 +126,82 @@ def api_key() -> str:
     return os.environ.get("RUNPOD_API_KEY", "")
 
 
+def mureka_key() -> str:
+    return os.environ.get("MUREKA_API_KEY", "")
+
+
+def restyle_engine() -> str:
+    return "mureka" if mureka_key() else "runpod"
+
+
+def restyle_open() -> bool:
+    return bool(mureka_key()) or RESTYLE_OPEN
+
+
 def available() -> tuple[bool, str]:
-    if not api_key():
+    if not api_key() and not mureka_key():
         return False, "Студия ещё не подключена: нет ключа RunPod на сервере"
     return True, ""
+
+
+def mureka_call(method: str, path: str, body: dict | None = None, timeout: int = 60) -> dict:
+    data = json.dumps(body).encode() if body is not None else None
+    request = urllib.request.Request(f"{MUREKA_API}{path}", data=data, method=method, headers={
+        "Authorization": f"Bearer {mureka_key()}", "Content-Type": "application/json",
+        "User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read() or b"{}")
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f"Mureka ответила {error.code}: "
+                           f"{error.read()[:300].decode(errors='replace')}") from error
+
+
+def mureka_upload(path: str, purpose: str) -> str:
+    """POST /v1/files/upload -- multipart, поле file и purpose; возвращает id."""
+    boundary = uuid.uuid4().hex
+    with open(path, "rb") as f:
+        content = f.read()
+    name = os.path.basename(path)
+    body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\n"
+            f"{purpose}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
+            f"filename=\"{name}\"\r\nContent-Type: audio/mpeg\r\n\r\n").encode() \
+        + content + f"\r\n--{boundary}--\r\n".encode()
+    request = urllib.request.Request(f"{MUREKA_API}/v1/files/upload", data=body, method="POST",
+                                     headers={"Authorization": f"Bearer {mureka_key()}",
+                                              "Content-Type": f"multipart/form-data; boundary={boundary}",
+                                              "User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=300) as response:
+            uploaded = json.loads(response.read() or b"{}")
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f"Mureka не приняла файл ({error.code}): "
+                           f"{error.read()[:300].decode(errors='replace')}") from error
+    if not uploaded.get("id"):
+        raise RuntimeError(f"Mureka не вернула id файла: {str(uploaded)[:200]}")
+    return uploaded["id"]
+
+
+def mureka_source(source: str, folder: str) -> str:
+    """Трек под условия remix: mp3/m4a, до 10 МБ и до 350 секунд.
+
+    ffmpeg на сервере есть (deploy/install.sh): режем и кодируем в mp3
+    192 кбит/с -- 350 секунд выходят в ~8.4 МБ. Без ffmpeg годится только
+    исходник, который и так подходит."""
+    target = os.path.join(folder, "for_mureka.mp3")
+    if shutil.which("ffmpeg"):
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", source, "-t", str(MUREKA_MAX_SECONDS),
+                        "-ac", "2", "-b:a", "192k", target], check=True, timeout=300)
+        return target
+    if source.lower().endswith((".mp3", ".m4a")) and os.path.getsize(source) <= MUREKA_UPLOAD_LIMIT:
+        return source
+    raise RuntimeError("трек нужно перекодировать в mp3 до 10 МБ, а ffmpeg на сервере нет")
+
+
+def download(url: str, target: str) -> None:
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(request, timeout=300) as response, open(target, "wb") as out:
+        shutil.copyfileobj(response, out)
 
 
 _endpoint_cache: dict[str, str] = {}
@@ -206,6 +288,10 @@ class StudioRunner:
         self.pool.shutdown(wait=False, cancel_futures=True)
 
     def _run(self, job_id: str) -> None:
+        job = self.storage.job(job_id)
+        if job and (job.settings or {}).get("engine") == "mureka":
+            self._run_mureka(job_id)
+            return
         try:
             job = self.storage.job(job_id)
             settings = dict(job.settings or {})
@@ -238,6 +324,61 @@ class StudioRunner:
                     raise RuntimeError(output.get("error") or status.get("error") or state)
                 break
             self._finish(job_id, output, status)
+        except Exception as error:  # noqa: BLE001 -- любая ошибка -> деньги назад
+            self._fail(job_id, str(error))
+
+    def _run_mureka(self, job_id: str) -> None:
+        """Переделка через Mureka: загрузка (purpose=remix) -> song/remix ->
+        опрос song/query -> скачать версии. Задача Mureka запоминается в
+        самой задаче сайта: после рестарта опрос продолжается, а не
+        заказывается новая (и не оплачивается дважды)."""
+        try:
+            job = self.storage.job(job_id)
+            settings = dict(job.settings or {})
+            task_input = settings.get("input") or {}
+            folder = self.folder(job_id)
+            remote = settings.get("remote")
+            if not remote:
+                self.storage.update_job(job_id, status="running", stage="Отправляем в Mureka",
+                                        progress=3)
+                source = next(os.path.join(folder, f) for f in sorted(os.listdir(folder))
+                              if f.startswith("source."))
+                upload_id = mureka_upload(mureka_source(source, folder), "remix")
+                started = mureka_call("POST", "/v1/song/remix", {
+                    "upload_audio_id": upload_id, "prompt": task_input.get("prompt", "")[:1024],
+                    "lyrics": task_input.get("lyrics", "")[:5000], "n": 2})
+                if not started.get("id"):
+                    raise RuntimeError(f"Mureka не приняла задачу: {str(started)[:200]}")
+                remote = {"engine": "mureka", "id": started["id"]}
+                settings["remote"] = remote
+                self.storage.update_job(job_id, settings=settings)
+            while True:
+                status = mureka_call("GET", f"/v1/song/query/{remote['id']}")
+                state = status.get("status")
+                if state in MUREKA_STATES:
+                    elapsed = time.time() - job.created_at
+                    self.storage.update_job(job_id, status="running", stage=MUREKA_STATES[state],
+                                            progress=min(90, 5 + elapsed / 3))
+                    if elapsed > JOB_TIMEOUT:
+                        raise RuntimeError("Mureka не справилась за отведённое время")
+                    time.sleep(POLL_SECONDS)
+                    continue
+                if state != "succeeded":
+                    raise RuntimeError(status.get("failed_reason") or state or "нет ответа")
+                break
+            files = []
+            for number, choice in enumerate(status.get("choices") or [], 1):
+                url = choice.get("url")
+                if not url:
+                    continue
+                name = f"restyle_{number}.mp3"
+                download(url, os.path.join(folder, name))
+                files.append({"name": name, "label": label_of("restyle", name)})
+            if not files:
+                raise RuntimeError("Mureka закончила, но не отдала ни одной версии")
+            self.storage.update_job(job_id, status="done", stage="Готово", progress=100, result={
+                "files": files, "engine": "mureka", "model": status.get("model"),
+                "seconds": (status.get("finished_at") or 0) - (status.get("created_at") or 0)})
         except Exception as error:  # noqa: BLE001 -- любая ошибка -> деньги назад
             self._fail(job_id, str(error))
 

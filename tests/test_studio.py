@@ -317,3 +317,87 @@ def test_restyle_closed_for_regular_users_open_for_unlimited(studio_app, monkeyp
     app_module.storage.set_flags(user.id, unlimited=True)
     assert client.get("/api/studio").json()["restyleOpen"] is True
     assert _start(client).status_code == 200
+
+
+def test_restyle_goes_to_mureka_and_needs_lyrics(studio_app, monkeypatch):
+    """С ключом Mureka переделка идёт к ней; без текста песни не запускается."""
+    app_module, client, user, submitted = studio_app
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setattr(app_module.studio, "RESTYLE_OPEN", False)
+    app_module.storage.add_balance(user.id, 100)
+    info = client.get("/api/studio").json()
+    assert info["restyleOpen"] is True and info["restyleEngine"] == "mureka"
+
+    assert _start(client).status_code == 400                       # без текста
+    response = _start(client, lyrics="[Куплет]\nЗемля в иллюминаторе")
+    assert response.status_code == 200, response.text
+    job = app_module.storage.job(response.json()["jobId"])
+    assert job.settings["engine"] == "mureka"
+
+
+def test_mureka_runner_uploads_remixes_and_downloads(studio_app, monkeypatch):
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    app_module.storage.add_balance(user.id, 100)
+    job_id = _start(client, lyrics="Строка").json()["jobId"]
+    app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings,
+                                                    "input": submitted[0][1]})
+    calls = []
+    states = iter([{"status": "running"},
+                   {"status": "succeeded", "model": "mureka-9", "choices": [
+                       {"url": "https://cdn.mureka.ai/a.mp3"}, {"url": "https://cdn.mureka.ai/b.mp3"}]}])
+
+    def mureka_call(method, path, body=None, timeout=60):
+        calls.append((method, path, body))
+        return {"id": "task7"} if method == "POST" else next(states)
+
+    monkeypatch.setattr(studio, "mureka_call", mureka_call)
+    monkeypatch.setattr(studio, "mureka_source", lambda source, folder: source)
+    monkeypatch.setattr(studio, "mureka_upload", lambda path, purpose: calls.append(
+        ("UPLOAD", purpose, path.rsplit("/", 1)[-1])) or "up1")
+    monkeypatch.setattr(studio, "download", lambda url, target: open(target, "wb").write(url.encode()))
+    monkeypatch.setattr(studio, "POLL_SECONDS", 0)
+
+    runner = studio.StudioRunner(app_module.storage, app_module.DATA_DIR)
+    runner._run(job_id)
+
+    job = app_module.storage.job(job_id)
+    assert job.status == "done", job.error
+    assert calls[0] == ("UPLOAD", "remix", "source.mp3")
+    assert calls[1][1] == "/v1/song/remix"
+    assert calls[1][2]["upload_audio_id"] == "up1" and calls[1][2]["lyrics"] == "Строка"
+    assert calls[1][2]["n"] == 2 and "nu metal" in calls[1][2]["prompt"]
+    assert [f["label"] for f in job.result["files"]] == ["Вариант 1", "Вариант 2"]
+    assert job.settings["remote"] == {"engine": "mureka", "id": "task7"}
+    assert client.get(f"/api/studio/file/{job_id}/restyle_2.mp3").content == b"https://cdn.mureka.ai/b.mp3"
+
+
+def test_mureka_failure_refunds(studio_app, monkeypatch):
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    app_module.storage.add_balance(user.id, 100)
+    job_id = _start(client, lyrics="Строка").json()["jobId"]
+    app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings,
+                                                    "input": submitted[0][1]})
+    monkeypatch.setattr(studio, "mureka_source", lambda source, folder: source)
+    monkeypatch.setattr(studio, "mureka_upload", lambda path, purpose: "up1")
+
+    def mureka_call(method, path, body=None, timeout=60):
+        return {"id": "t"} if method == "POST" else {"status": "failed", "failed_reason": "copyright"}
+
+    monkeypatch.setattr(studio, "mureka_call", mureka_call)
+    studio.StudioRunner(app_module.storage, app_module.DATA_DIR)._run(job_id)
+    job = app_module.storage.job(job_id)
+    assert job.status == "error" and "copyright" in job.error
+    assert app_module.storage.user(user.id).balance == pytest.approx(100)
+
+
+def test_stems_need_runpod_even_with_mureka(studio_app, monkeypatch):
+    app_module, client, user, submitted = studio_app
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.delenv("RUNPOD_API_KEY")
+    app_module.storage.add_balance(user.id, 100)
+    assert _start(client, mode="stems").status_code == 503
+    assert _start(client, lyrics="Строка").status_code == 200
