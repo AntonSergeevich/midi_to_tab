@@ -1,0 +1,70 @@
+<!doctype html><html lang="en" style="height:100%"><head><meta charset="UTF-8"><link rel="icon" id="header_favicon" type="image/svg+xml" href="/favicon.ico"><link rel="apple-touch-icon-precomposed" href="/favicon512.png"><meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"><meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0"><meta id="meta_viewport" name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>Mureka API Platform</title><meta name="keywords" id="meta_keywords" content="AI song generator,AI song maker,AI music generator free,AI music creator,AI lyrics generator,AI composer,AI music production tool,AI vocal generator,AI rap generator,Create ai music,AI make music,Best AI song generator online,Free AI lyrics generator for songs,AI tool to create custom songs,AI-powered songwriting assistant,How to generate songs using AI,AI music and lyrics generator free"><meta name="description" id="meta_description" content="AI music generator that transforms your lyrics and prompts into fully produced songs, all unlimited and royalty-free!"><meta name="robots" content="index, follow"><link rel="canonical" href="https://platform.mureka.ai/"><script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Mureka API Platform","applicationCategory":"MusicApplication","description":"AI music generator that transforms your lyrics and prompts into fully produced songs, all unlimited and royalty-free!","url":"https://platform.mureka.ai/"}</script><script>window.globalThis = window;</script><script src="https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js"></script><script async defer="defer" crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js#xfbml=1&version=v22.0&appId=499881203044191"></script><script>;(function (w, d, s, l, i) {
+        w[l] = w[l] || []
+        w[l].push({ "gtm.start": new Date().getTime(), event: "gtm.js" })
+        var f = d.getElementsByTagName(s)[0],
+          j = d.createElement(s),
+          dl = l != "dataLayer" ? "&l=" + l : ""
+        j.async = true
+        j.src = "https://www.googletagmanager.com/gtm.js?id=" + i + dl
+        f.parentNode.insertBefore(j, f)
+      })(window, document, "script", "dataLayer", "GTM-W2BXHKQX")</script><meta name="appleid-signin-client-id" content="ai.mureka.service"><meta name="appleid-signin-scope" content="name email"><meta name="appleid-signin-use-popup" content="false"><meta name="appleid-signin-redirect-uri" content="https://www.mureka.ai/create"><style>body{overflow:hidden;height:100%}#app{background:#fff;overflow:hidden;height:100%}</style><script type="module" crossorigin src="/static/js/index-D_PGvwS9.js"></script><link rel="modulepreload" crossorigin href="/static/js/@vue-DwY7OVf-.js"><link rel="modulepreload" crossorigin href="/static/js/ali-oss-5wMOwvYL.js"><link rel="modulepreload" crossorigin href="/static/js/@firebase-QWQAc3F_.js"><link rel="modulepreload" crossorigin href="/static/js/vondor-CkIdij4p.js"><link rel="modulepreload" crossorigin href="/static/js/element-plus-CXPwceVn.js"><link rel="modulepreload" crossorigin href="/static/js/vue-i18n-CCRYFgQl.js"><link rel="modulepreload" crossorigin href="/static/js/axios-BhTbhqQQ.js"><link rel="modulepreload" crossorigin href="/static/js/vue-router-B4NcBQq-.js"><link rel="modulepreload" crossorigin href="/static/js/components-BnROe40C.js"><link rel="stylesheet" crossorigin href="/static/css/vondor-DRISEGy1.css"><link rel="stylesheet" crossorigin href="/static/css/element-plus-DG20rE43.css"><link rel="stylesheet" crossorigin href="/static/css/components-CL8TcStC.css"><link rel="stylesheet" crossorigin href="/static/css/index-Btf9CXIr.css"></head><body style="height:100%" data-theme="themegreen"><noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-W2BXHKQX" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript><div id="app" style="height:100%"></div><script>function initMurekaApp() {
+        if (
+          window.navigator?.userAgent?.toLocaleLowerCase().indexOf("mureka") >
+          -1
+        ) {
+          document.body.classList.add("mureka-app");
+        }
+      }
+      function init() {
+        initMurekaApp();
+      }
+      // init();
+      window.addEventListener("load", init);
+      window.addEventListener("DOMContentLoaded", initMurekaApp);
+
+      // 监听屏幕方向变化
+      window.addEventListener("orientationchange", function () {
+        switch (window.screen.orientation?.type) {
+          case "landscape-primary":
+            console.log("横屏，设备顶部在正常位置");
+            break;
+          case "landscape-secondary":
+            console.log("横屏，设备顶部被旋转到底部");
+            break;
+          case "portrait-primary":
+            console.log("竖屏，设备顶部在正常位置");
+            break;
+          case "portrait-secondary":
+            console.log("竖屏，设备顶部被旋转到底部");
+            break;
+          default:
+            console.log(
+              "The orientation API isn't supported in this browser :("
+            );
+        }
+      });
+      // 监听窗口大小变化, 重新设置body高度，解决部分安卓浏览器导航栏高度变化导致的页面高度混乱的问题
+      window.addEventListener("resize", function () {
+        document.body.style.height = window.innerHeight + "px";
+        initMurekaApp();
+      });
+
+      // 监听全局错误
+      window.addEventListener("error", function (event) {
+        // 输出错误的详细信息
+        console.error("发生错误:", event.message);
+        console.error(
+          "错误位置: 文件 -",
+          event.filename,
+          " 行号 -",
+          event.lineno,
+          " 列号 -",
+          event.colno
+        );
+
+        // 如果有错误对象，输出调用栈
+        if (event.error) {
+          console.error("错误对象:", event.error);
+          console.trace(); // 打印堆栈追踪
+        }
+      });</script></body></html>

@@ -1,0 +1,9 @@
+200 https://platform.mureka.ai/docs/api/operations/post-v1-files-upload.html
+200 https://platform.mureka.ai/docs/api/operations/post-v1-song-generate.html
+200 https://platform.mureka.ai/docs/api/operations/post-v1-song-stem.html
+200 https://platform.mureka.ai/docs/
+200 https://platform.mureka.ai/sitemap.xml
+200 https://platform.mureka.ai/pricing
+404 https://platform.mureka.ai/docs/api/operations/get-v1-song-query-task_id.html
+200 https://platform.mureka.ai/openapi.json
+404 https://platform.mureka.ai/docs/openapi.json
