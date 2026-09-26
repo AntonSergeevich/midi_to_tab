@@ -1,0 +1,13 @@
+200 https://platform.mureka.ai/docs/assets/api_operations_post-v1-song-generate.md.DeNIDAE0.lean.js
+200 https://platform.mureka.ai/docs/assets/api_operations_post-v1-song-remix.md.Cq1by2YX.lean.js
+200 https://platform.mureka.ai/docs/assets/api_operations_post-v1-video-generate.md.TKVyIOab.lean.js
+200 https://platform.mureka.ai/docs/assets/api_operations_post-v1-lyrics-video-generate.md.ijjHLDke.lean.js
+200 https://platform.mureka.ai/docs/assets/api_operations_post-v1-song-transcribe.md.ymHAyuIh.lean.js
+200 https://platform.mureka.ai/docs/assets/api_operations_post-v1-song-describe.md.Atll2bpx.lean.js
+200 https://platform.mureka.ai/docs/assets/api_operations_post-v1-song-region-edit.md.DKcxVKYR.lean.js
+200 https://platform.mureka.ai/docs/assets/api_operations_post-v1-track-generate.md.Uo_IbAlX.lean.js
+200 https://platform.mureka.ai/docs/assets/api_operations_post-v1-song-easy-generate.md.D9CN4fma.lean.js
+200 https://platform.mureka.ai/docs/assets/en_changelog.md.2bCWgBgc.lean.js
+200 https://platform.mureka.ai/docs/assets/api_operations_post-v1-instrumental-generate.md.1fPEc-4s.lean.js
+200 https://platform.mureka.ai/docs/assets/api_operations_post-v1-files-upload.md.CsH-s9KC.lean.js
+200 https://platform.mureka.ai/pricing
