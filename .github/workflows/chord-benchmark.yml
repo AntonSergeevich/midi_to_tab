@@ -1,0 +1,59 @@
+name: Точность аккордов на GuitarSet
+
+# Автоматический замер распознавания аккордов NASLUX: GuitarSet (Zenodo
+# 3371780, CC BY 4.0) -- записи живой гитары с точной разметкой аккордов.
+# Метрики MIREX (mir_eval): root, majmin, sevenths. Таблица по каждой
+# записи -- в ветку test-results/chords-<номер прогона>.
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: Сколько записей (0 -- все 180 аккомпанементов)
+        default: "60"
+
+permissions:
+  contents: write
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      LIMIT: ${{ inputs.limit }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Зависимости
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q -r requirements.txt -r requirements-audio.txt
+      - name: GuitarSet
+        run: |
+          base=https://zenodo.org/records/3371780/files
+          curl -sSfL "$base/annotation.zip?download=1" -o annotation.zip
+          curl -sSfL "$base/audio_mono-mic.zip?download=1" -o audio.zip
+          mkdir -p gs/annotation gs/audio
+          unzip -q -o annotation.zip -d gs/annotation
+          unzip -q -o audio.zip -d gs/audio
+          # Архивы бывают с папкой внутри -- собираем файлы в одно место
+          find gs/annotation -name '*.jams' -exec mv -t gs/annotation {} + 2>/dev/null || true
+          find gs/audio -name '*.wav' -exec mv -t gs/audio {} + 2>/dev/null || true
+          ls gs/annotation | head -3; ls gs/audio | wc -l
+      - name: Замер
+        run: python -u scripts/chord_benchmark.py --audio gs/audio --annotations gs/annotation --limit "$LIMIT" --out results/chords.csv
+      - name: В ветку test-results
+        if: always()
+        run: |
+          [ -f results/chords.csv ] || exit 0
+          dir="chords-${{ github.run_id }}"
+          git clone -q --depth 1 --branch test-results \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
+          mkdir -p "out/$dir" && cp results/* "out/$dir/"
+          cd out
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "Аккорды: прогон ${{ github.run_id }}"
+          git push -q origin HEAD:test-results
+          echo "Файлы: test-results/$dir"
