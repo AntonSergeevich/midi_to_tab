@@ -16,6 +16,7 @@ API = "https://rest.runpod.io/v1"
 NAME = "naslux-relay"
 IMAGE = os.environ.get("RELAY_IMAGE", "ghcr.io/antonsergeevich/naslux-worker:relay")
 headers = {"Authorization": f"Bearer {os.environ['RUNPOD_API_KEY']}"}
+CHEAPEST_GPUS = ["NVIDIA RTX 2000 Ada Generation", "NVIDIA RTX A4000", "NVIDIA RTX A4500"]
 ENV = {"MUREKA_API_KEY": os.environ["MUREKA_API_KEY"]}
 
 
@@ -42,9 +43,8 @@ def main() -> None:
     template = next((t for t in call("GET", "/templates") if t.get("name") == NAME), None)
     endpoint = next((e for e in call("GET", "/endpoints") if e.get("name", "").startswith(NAME)),
                     None)
-    if endpoint is not None and endpoint.get("gpuTypeIds"):
-        # Первый раз RunPod создал его на видеокарте: шаблон был в категории NVIDIA,
-        # и поля CPU он пропустил. Ретранслятору видеокарта не нужна -- пересоздаём.
+    if endpoint is not None and template is not None and template.get("category") != "CPU":
+        # Первый раз шаблон создался в категории NVIDIA -- пересоздаём как CPU.
         call("DELETE", f"/endpoints/{endpoint['id']}")
         endpoint = None
         if template is not None:
@@ -62,6 +62,11 @@ def main() -> None:
             "cpuFlavorIds": ["cpu3c", "cpu3g", "cpu5c"], "vcpuCount": 2,
             "workersMin": 0, "workersMax": 3, "idleTimeout": 20,
             "executionTimeoutMs": 900000})
+    if endpoint.get("gpuTypeIds") and endpoint["gpuTypeIds"] != CHEAPEST_GPUS:
+        # REST API RunPod создаёт эндпоинт на видеокарте, даже когда просишь CPU.
+        # Ретранслятору хватит самой дешёвой: секунды работы на песню -- копейки.
+        endpoint = call("PATCH", f"/endpoints/{endpoint['id']}",
+                        json={"gpuTypeIds": CHEAPEST_GPUS, "idleTimeout": 20})
     print("RELAY_ENDPOINT", endpoint["id"], "GPU" if endpoint.get("gpuTypeIds") else "CPU")
 
 
