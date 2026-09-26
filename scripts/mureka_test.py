@@ -27,6 +27,9 @@ def main() -> None:
     parser.add_argument("--skip-stems", action="store_true")
     parser.add_argument("--create", action="store_true",
                         help="ещё сочинить текст (lyrics/generate) и песню с нуля (song/generate)")
+    parser.add_argument("--track", action="store_true",
+                        help="track/generate: новая аранжировка под вокал (целиком и по --vocals)")
+    parser.add_argument("--vocals", default="", help="вокал, выделенный Demucs, mp3")
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
@@ -105,6 +108,41 @@ def main() -> None:
             target = os.path.join(args.out, f"generate_{number}.mp3")
             studio.download(choice["url"], target)
         spent("песня с нуля (2 версии)", mark)
+
+    if args.track:
+        # Аранжировка под вокал оригинала: мелодия и голос не меняются, меняется всё вокруг.
+        def track(path, name):
+            nonlocal_mark = studio.mureka_call("GET", "/v1/account/billing").get("total_spending") or 0
+            started = time.time()
+            upload_id = studio.mureka_upload(path, "audio")
+            task = studio.mureka_call("POST", "/v1/track/generate", {
+                "generate_type": "Instrumental", "upload_audio_id": upload_id,
+                "prompt": args.prompt})
+            print(f"track/generate ({name}):", task)
+            while True:
+                time.sleep(5)
+                status = studio.mureka_call("GET", f"/v1/song/query/{task['id']}")
+                if status.get("status") not in studio.MUREKA_STATES:
+                    break
+            print(f"  за {time.time() - started:.0f} с: {status.get('status')}, модель "
+                  f"{status.get('model')}, вариантов {len(status.get('choices') or [])}, "
+                  f"{status.get('failed_reason') or ''}")
+            files = []
+            for number, choice in enumerate(status.get("choices") or [], 1):
+                target = os.path.join(args.out, f"track_{name}_{number}.mp3")
+                studio.download(choice["url"], target)
+                files.append(target)
+                print(f"  {target}: {(choice.get('duration') or 0) / 1000:.0f} с, ключи {sorted(choice)}")
+            spent(f"track/generate {name}", nonlocal_mark)
+            return files
+
+        track(source, "full")
+        if args.vocals:
+            for number, backing in enumerate(track(args.vocals, "vocals"), 1):
+                mixed = os.path.join(args.out, f"track_mix_{number}.mp3")
+                os.system(f'ffmpeg -v error -y -i "{args.vocals}" -i "{backing}" -filter_complex '
+                          f'"[0:a][1:a]amix=inputs=2:duration=longest:normalize=0" -b:a 192k "{mixed}"')
+                print("  сведено:", mixed)
 
     billing = studio.mureka_call("GET", "/v1/account/billing")
     print("Баланс после:", billing.get("balance"), "центов, потрачено всего:",

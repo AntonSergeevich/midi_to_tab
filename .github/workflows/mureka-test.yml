@@ -9,7 +9,7 @@ on:
         description: Сколько секунд исходника отправить
         default: "60"
       what:
-        description: "all / remix / stems / everything (ещё текст и песня с нуля)"
+        description: "all / remix / stems / everything (ещё текст и песня с нуля) / track (аранжировка под вокал)"
         default: all
       audio_url:
         default: https://raw.githubusercontent.com/AntonSergeevich/vibe_track/claude/nu-metal-track-transformer-kf2j2n/we_angel.mp3
@@ -44,6 +44,12 @@ jobs:
           [ "$WHAT" = remix ] && flags="--skip-stems"
           [ "$WHAT" = stems ] && flags="--skip-remix"
           [ "$WHAT" = everything ] && flags="--create"
+          if [ "$WHAT" = track ]; then
+            pip install -q demucs torchaudio soundfile
+            python -m demucs --two-stems=vocals -n htdemucs -o sep source.mp3
+            ffmpeg -v error -y -i sep/htdemucs/source/vocals.wav -b:a 192k vocals.mp3
+            flags="--skip-remix --skip-stems --track --vocals vocals.mp3"
+          fi
           python -u scripts/mureka_test.py source.mp3 --out results $flags
           rm -f results/for_mureka.mp3
           (cd results && for z in *.zip; do [ -f "$z" ] && unzip -l "$z"; done) || true
