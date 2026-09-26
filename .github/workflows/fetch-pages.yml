@@ -1,0 +1,41 @@
+name: Скачать страницы документации в ветку test-results
+
+# У облачной сессии Claude исходящий доступ к части сайтов закрыт (например,
+# документация API Mureka), у серверов GitHub -- нет. Страницы кладутся в
+# test-results/pages-<номер прогона>, чтобы их можно было прочитать.
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: Адреса через пробел
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    env:
+      URLS: ${{ inputs.urls }}
+    steps:
+      - name: Скачать и выложить
+        run: |
+          dir="pages-${{ github.run_id }}"
+          git clone -q --depth 1 --branch test-results \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
+          mkdir -p "out/$dir"
+          i=0
+          for url in $URLS; do
+            i=$((i+1))
+            name="$(printf '%02d' $i)-$(echo "$url" | sed 's#https\?://##; s#[^A-Za-z0-9._-]#_#g' | cut -c1-120)"
+            code=$(curl -sSL -A "Mozilla/5.0" -o "out/$dir/$name" -w '%{http_code}' "$url" || echo fail)
+            echo "$code $url"
+            echo "$code $url" >> "out/$dir/index.txt"
+          done
+          cd out
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "Страницы: прогон ${{ github.run_id }}"
+          git push -q origin HEAD:test-results
+          echo "Файлы: test-results/$dir"
