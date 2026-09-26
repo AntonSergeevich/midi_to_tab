@@ -19,6 +19,7 @@ def studio_app(tmp_path, monkeypatch):
 
     import web.app as app_module
 
+    monkeypatch.setattr(app_module.studio, "RESTYLE_OPEN", True)
     submitted = []
     monkeypatch.setattr(app_module.studio_runner, "submit",
                         lambda job_id, data: submitted.append((job_id, data)))
@@ -302,3 +303,17 @@ def test_two_variants_are_labelled_and_split_separately(studio_app):
     assert type(client)(app_module.app).get(source).content == b"v2"
     titles = {j["id"]: j["title"] for j in client.get("/api/studio").json()["jobs"]}
     assert titles[child].endswith("вариант 2")
+
+
+def test_restyle_closed_for_regular_users_open_for_unlimited(studio_app, monkeypatch):
+    app_module, client, user, submitted = studio_app
+    monkeypatch.setattr(app_module.studio, "RESTYLE_OPEN", False)
+    app_module.storage.add_balance(user.id, 100)
+    assert client.get("/api/studio").json()["restyleOpen"] is False
+    assert _start(client).status_code == 409
+    assert app_module.storage.user(user.id).balance == pytest.approx(100)
+    assert _start(client, mode="stems").status_code == 200
+
+    app_module.storage.set_flags(user.id, unlimited=True)
+    assert client.get("/api/studio").json()["restyleOpen"] is True
+    assert _start(client).status_code == 200

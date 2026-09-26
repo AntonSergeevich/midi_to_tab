@@ -1266,6 +1266,7 @@ def api_studio(request: Request):
         "tracks": studio.TRACKS,
         "balance": user.balance, "unlimited": user.unlimited, "registered": user.registered,
         "studioCredits": user.studio_credits,
+        "restyleOpen": studio.RESTYLE_OPEN or user.unlimited,
         "email": user.email, "maxMb": MAX_UPLOAD_MB, "maxSeconds": studio.MAX_SECONDS,
         "jobs": [_studio_job_payload(j) for j in storage.studio_jobs(user.id)],
     })
@@ -1294,6 +1295,9 @@ async def api_studio_start(
     service = studio.SERVICES.get(mode)
     if service is None:
         raise HTTPException(400, "Неизвестная услуга")
+    if mode == "restyle" and not (studio.RESTYLE_OPEN or user.unlimited):
+        raise HTTPException(409, "Переделка в другой стиль переезжает на новый движок и скоро "
+                                 "вернётся. Разделение на партии и дописывание партии работают.")
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED or suffix in (".mid", ".midi"):
         raise HTTPException(400, "Нужен аудиофайл: mp3, wav, flac, ogg, m4a")

@@ -21,6 +21,16 @@ function knobText() {
   Object.entries(knobs).forEach(([input, out]) => { $(out).textContent = `${$(input).value}%`; });
 }
 
+// Пока переделка закрыта (studio.RESTYLE_OPEN), её кнопка видна, но
+// неактивна: человек видит, что она будет, и выбирает то, что работает.
+function lockRestyle() {
+  if (!info || info.restyleOpen) return;
+  const button = document.querySelector('[data-mode="restyle"]');
+  button.disabled = true;
+  button.querySelector('small').textContent = 'скоро — переезжает на новый движок';
+  if (mode === 'restyle') { mode = 'stems'; showMode(); }
+}
+
 function showMode() {
   document.querySelectorAll('#modes .choice').forEach((b) =>
     b.classList.toggle('selected', b.dataset.mode === mode));
@@ -154,6 +164,7 @@ async function load() {
       `<option value="${key}">${esc(title)}</option>`).join('');
   }
   renderJobs(info.jobs);
+  lockRestyle();
   updateStart();
   const busy = info.jobs.some((j) => j.status === 'queued' || j.status === 'running');
   clearTimeout(polling);
