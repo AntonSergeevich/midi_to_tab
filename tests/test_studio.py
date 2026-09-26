@@ -401,3 +401,37 @@ def test_stems_need_runpod_even_with_mureka(studio_app, monkeypatch):
     app_module.storage.add_balance(user.id, 100)
     assert _start(client, mode="stems").status_code == 503
     assert _start(client, lyrics="Строка").status_code == 200
+
+
+def test_mureka_waits_when_concurrency_limit_is_busy(studio_app, monkeypatch):
+    """429 от Mureka (занят единственный слот Trial) -- ждать, а не падать."""
+    import io
+    import urllib.error
+
+    app_module, _client, _user, _submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setattr(studio, "POLL_SECONDS", 0)
+    answers = iter([urllib.error.HTTPError("u", 429, "busy", {}, io.BytesIO(b"limit")), b'{"id": "t1"}'])
+
+    class _Response:
+        def __init__(self, raw):
+            self.raw = raw
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return self.raw
+
+    def urlopen(request, timeout=60):
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return _Response(answer)
+
+    monkeypatch.setattr(studio.urllib.request, "urlopen", urlopen)
+    assert studio.mureka_call("POST", "/v1/song/remix", {"n": 2}) == {"id": "t1"}

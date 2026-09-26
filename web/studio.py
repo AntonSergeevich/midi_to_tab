@@ -144,17 +144,27 @@ def available() -> tuple[bool, str]:
     return True, ""
 
 
+MUREKA_BUSY_WAIT = 20 * 60     # сколько ждать своей очереди при занятом лимите
+
+
 def mureka_call(method: str, path: str, body: dict | None = None, timeout: int = 60) -> dict:
+    """Запрос к Mureka. 429 -- занят лимит одновременных запросов (на тарифе
+    Trial он один): второй клиент не получает ошибку, а ждёт своей очереди."""
     data = json.dumps(body).encode() if body is not None else None
-    request = urllib.request.Request(f"{MUREKA_API}{path}", data=data, method=method, headers={
-        "Authorization": f"Bearer {mureka_key()}", "Content-Type": "application/json",
-        "User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read() or b"{}")
-    except urllib.error.HTTPError as error:
-        raise RuntimeError(f"Mureka ответила {error.code}: "
-                           f"{error.read()[:300].decode(errors='replace')}") from error
+    deadline = time.time() + MUREKA_BUSY_WAIT
+    while True:
+        request = urllib.request.Request(f"{MUREKA_API}{path}", data=data, method=method, headers={
+            "Authorization": f"Bearer {mureka_key()}", "Content-Type": "application/json",
+            "User-Agent": USER_AGENT})
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read() or b"{}")
+        except urllib.error.HTTPError as error:
+            detail = error.read()[:300].decode(errors="replace")
+            if error.code == 429 and time.time() < deadline:
+                time.sleep(POLL_SECONDS)
+                continue
+            raise RuntimeError(f"Mureka ответила {error.code}: {detail}") from error
 
 
 def mureka_upload(path: str, purpose: str) -> str:
