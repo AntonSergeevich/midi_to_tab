@@ -61,41 +61,76 @@ function pickFile(chosen) {
   updateStart();
 }
 
+function jobHtml(j) {
+  const when = new Date(j.at * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
+  let body = '';
+  if (j.expired) {
+    body = '<div class="muted">Файлы удалены по сроку хранения — 14 дней.</div>';
+  } else if (j.status === 'done') {
+    const meta = j.bpm ? `<div class="muted">Исходник: ${j.bpm} BPM · ${esc(j.key || '')}</div>` : '';
+    body = meta + j.files.map((f) => `
+      <div class="studio-file">
+        <div class="muted">${esc(f.label)}</div>
+        <audio controls preload="none" src="${f.url}"></audio>
+        <a href="${f.url}" download>Скачать</a>
+        ${j.mode === 'stems' ? '' : `<button type="button" class="split" data-split="${j.id}"
+          data-file="${esc(f.name)}">Разделить на партии</button>`}
+      </div>`).join('');
+  } else if (j.status === 'error') {
+    body = `<div class="bad">${esc(j.error)}</div>`;
+  } else {
+    body = `<div class="muted" data-stage>${esc(j.stage || 'В очереди')}</div>
+      <div class="bar done"><i data-progress style="width:${Math.max(4, j.progress)}%"></i></div>`;
+  }
+  const del = j.status === 'done' || j.status === 'error'
+    ? `<button class="del" data-del="${j.id}" title="Удалить">✕</button>` : '';
+  return `<div style="display:flex;gap:10px;align-items:baseline">
+      <b style="flex:1;min-width:0;overflow-wrap:anywhere">${esc(j.title)} · ${esc(j.name)}</b>
+      <span class="muted">${when}</span>${del}
+    </div>${body}`;
+}
+
+// Список обновляется раз в несколько секунд, пока что-то считается. Раньше
+// он каждый раз пересобирался целиком -- вместе с плеерами, и песня,
+// которую человек слушал, обрывалась на каждом шаге полоски прогресса.
+// Теперь карточка пересобирается, только когда у неё сменился статус или
+// набор файлов, а ход задачи двигает одну полоску.
 function renderJobs(jobs) {
+  const box = $('jobs');
   if (!jobs.length) {
-    $('jobs').textContent = 'Пока пусто.';
+    box.className = 'muted';
+    box.textContent = 'Пока пусто.';
     return;
   }
-  $('jobs').className = '';
-  $('jobs').innerHTML = jobs.map((j) => {
-    const when = new Date(j.at * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
-    let body = '';
-    if (j.expired) {
-      body = '<div class="muted">Файлы удалены по сроку хранения — 14 дней.</div>';
-    } else if (j.status === 'done') {
-      const meta = j.bpm ? `<div class="muted">Исходник: ${j.bpm} BPM · ${esc(j.key || '')}</div>` : '';
-      body = meta + j.files.map((f) => `
-        <div class="studio-file">
-          <div class="muted">${esc(f.label)}</div>
-          <audio controls preload="none" src="${f.url}"></audio>
-          <a href="${f.url}" download>Скачать</a>
-          ${j.mode === 'stems' ? '' : `<button type="button" class="split" data-split="${j.id}"
-            data-file="${esc(f.name)}">Разделить на партии</button>`}
-        </div>`).join('');
-    } else if (j.status === 'error') {
-      body = `<div class="bad">${esc(j.error)}</div>`;
-    } else {
-      body = `<div class="muted">${esc(j.stage || 'В очереди')}</div>
-        <div class="bar done"><i style="width:${Math.max(4, j.progress)}%"></i></div>`;
+  if (box.classList.contains('muted')) {
+    box.className = '';
+    box.textContent = '';
+  }
+  const seen = new Set();
+  let previous = null;
+  jobs.forEach((j) => {
+    seen.add(j.id);
+    const key = [j.status, j.expired, j.error, j.files.map((f) => f.name).join()].join('|');
+    let card = box.querySelector(`[data-job="${j.id}"]`);
+    if (!card || card.dataset.key !== key) {
+      const fresh = document.createElement('div');
+      fresh.className = 'studio-job';
+      fresh.dataset.job = j.id;
+      fresh.dataset.key = key;
+      fresh.innerHTML = jobHtml(j);
+      if (card) card.replaceWith(fresh); else box.insertBefore(fresh, previous ? previous.nextSibling : box.firstChild);
+      card = fresh;
+    } else if (j.status === 'queued' || j.status === 'running') {
+      const stage = card.querySelector('[data-stage]');
+      const bar = card.querySelector('[data-progress]');
+      if (stage) stage.textContent = j.stage || 'В очереди';
+      if (bar) bar.style.width = `${Math.max(4, j.progress)}%`;
     }
-    const del = j.status === 'done' || j.status === 'error'
-      ? `<button class="del" data-del="${j.id}" title="Удалить">✕</button>` : '';
-    return `<div class="studio-job">
-      <div style="display:flex;gap:10px;align-items:baseline">
-        <b style="flex:1;min-width:0;overflow-wrap:anywhere">${esc(j.title)} · ${esc(j.name)}</b>
-        <span class="muted">${when}</span>${del}
-      </div>${body}</div>`;
-  }).join('');
+    previous = card;
+  });
+  box.querySelectorAll('[data-job]').forEach((card) => {
+    if (!seen.has(card.dataset.job)) card.remove();
+  });
 }
 
 async function load() {
