@@ -1,0 +1,2 @@
+200 https://naslux.ru/static/studio.js
+200 https://naslux.ru/static/app.css
