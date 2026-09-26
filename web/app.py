@@ -842,6 +842,7 @@ def pricing_page() -> HTMLResponse:
         "studio10": f"{billing.PLANS['studio10']['price']:.0f}",
         "studio30": f"{billing.PLANS['studio30']['price']:.0f}",
         "studioSingle": f"{studio.SERVICES['restyle'].price:.0f}",
+        "studioCreate": f"{studio.SERVICES['create'].price:.0f}",
     })
 
 
@@ -1250,6 +1251,8 @@ def _studio_job_payload(job) -> dict:
         "bpm": (result.get("settings") or {}).get("bpm"),
         "key": (result.get("settings") or {}).get("key_scale"),
         "files": files,
+        "from": settings.get("from"),
+        "lyrics": result.get("lyrics") or settings.get("lyrics") or "",
         # Файлы Студии уборка удаляет через 14 дней (deploy/cleanup.py)
         "expired": job.status == "done" and not files,
     }
@@ -1261,7 +1264,9 @@ def api_studio(request: Request):
     ready, why = studio.available()
     response = JSONResponse({
         "ready": ready, "why": why,
-        "services": {k: {"title": v.title, "price": v.price} for k, v in studio.SERVICES.items()},
+        "services": {k: {"title": v.title, "price": v.price, "pack": studio.PACK_COST.get(k, 0)}
+                     for k, v in studio.SERVICES.items()},
+        "createOpen": studio.restyle_engine() == "mureka",
         "presets": {k: v[0] for k, v in studio.PRESETS.items()},
         "tracks": studio.TRACKS,
         "balance": user.balance, "unlimited": user.unlimited, "registered": user.registered,
@@ -1278,8 +1283,9 @@ def api_studio(request: Request):
 @app.post("/api/studio")
 async def api_studio_start(
     request: Request,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
     mode: str = Form("restyle"),
+    title: str = Form(""),
     preset: str = Form("numetal"),
     prompt: str = Form(""),
     lyrics: str = Form(""),
@@ -1297,23 +1303,27 @@ async def api_studio_start(
     service = studio.SERVICES.get(mode)
     if service is None:
         raise HTTPException(400, "Неизвестная услуга")
-    engine = studio.restyle_engine() if mode == "restyle" else "runpod"
+    engine = studio.restyle_engine() if mode in ("restyle", "create") else "runpod"
+    if mode == "create" and engine != "mureka":
+        raise HTTPException(503, "Песни с нуля пишет Mureka, а она на сервере не подключена")
     if mode == "restyle" and not (studio.restyle_open() or user.unlimited):
         raise HTTPException(409, "Переделка в другой стиль переезжает на новый движок и скоро "
                                  "вернётся. Разделение на партии и дописывание партии работают.")
     if engine == "runpod" and not studio.api_key():
         raise HTTPException(503, "Эта услуга ещё не подключена: нет ключа RunPod на сервере")
-    if engine == "mureka" and not lyrics.strip():
+    if mode == "restyle" and engine == "mureka" and not lyrics.strip():
         # remix у Mureka требует текст: мелодию она сохраняет и поёт по нему.
         raise HTTPException(400, "Для переделки нужен текст песни — нейросеть сохраняет мелодию "
                                  "и поёт по тексту. Вставьте его в поле «Текст песни».")
-    suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in ALLOWED or suffix in (".mid", ".midi"):
+    if mode == "create" and not (prompt.strip() or lyrics.strip() or preset in studio.PRESETS):
+        raise HTTPException(400, "Опишите песню или выберите стиль")
+    suffix = Path((file.filename if file else "") or "").suffix.lower()
+    if mode != "create" and (file is None or suffix not in ALLOWED or suffix in (".mid", ".midi")):
         raise HTTPException(400, "Нужен аудиофайл: mp3, wav, flac, ogg, m4a")
     if mode == "enrich" and track not in studio.TRACKS:
         raise HTTPException(400, "Выберите партию, которую дописать")
     style = prompt.strip()[:500] or studio.PRESETS.get(preset, studio.PRESETS["numetal"])[1]
-    by_pack = mode in studio.PACK_MODES and user.studio_credits > 0
+    by_pack = mode in studio.PACK_MODES and user.studio_credits >= studio.PACK_COST[mode]
     if not user.unlimited and not by_pack and user.balance < service.price:
         raise HTTPException(402, f"{service.title} стоит {service.price:.0f} ₽, на балансе "
                                  f"{user.balance:.0f} ₽. Пополните баланс или возьмите пакет "
@@ -1324,13 +1334,15 @@ async def api_studio_start(
              "style_influence": clamp(style_influence), "weirdness": clamp(weirdness)}
     settings = {"kind": "studio", "mode": mode, "title": service.title, "preset": preset,
                 **knobs, "track": track, "charged": 0, "engine": engine}
-    job = storage.create_job(user.id, file.filename or "track", settings)
+    name = (file.filename if file else "") or (title.strip()[:80] or
+                                                 studio.PRESETS.get(preset, ("Песня",))[0])
+    job = storage.create_job(user.id, name, settings)
     folder = studio_runner.folder(job.id)
     os.makedirs(folder, exist_ok=True)
     source = os.path.join(folder, f"source{suffix}")
     size, limit = 0, MAX_UPLOAD_MB * 1024 * 1024
-    with open(source, "wb") as out:
-        while chunk := await file.read(1024 * 1024):
+    with open(source, "wb") if file else open(os.devnull, "wb") as out:
+        while file and (chunk := await file.read(1024 * 1024)):
             size += len(chunk)
             if size > limit:
                 out.close()
@@ -1373,10 +1385,10 @@ def _studio_charge_and_submit(request: Request, user, job_id: str, service, fold
     settings = dict(job.settings or {})
     # Списываем до запуска и одним атомарным запросом: два параллельных
     # запуска не должны потратить одни и те же деньги дважды.
-    if not user.unlimited and worker_input["mode"] in studio.PACK_MODES \
-            and storage.spend_studio_credit(user.id):
-        # Генерация из пакета: деньги не трогаем, при сбое вернём генерацию.
-        settings["charged_credit"] = True
+    cost = studio.PACK_COST.get(worker_input["mode"], 0)
+    if not user.unlimited and cost and storage.spend_studio_credit(user.id, cost):
+        # Генерации из пакета: деньги не трогаем, при сбое вернём их в пакет.
+        settings["charged_credit"] = cost
         storage.update_job(job_id, settings=settings, counted=True)
     elif not user.unlimited:
         if not storage.spend_balance(user.id, service.price):
@@ -1391,6 +1403,8 @@ def _studio_charge_and_submit(request: Request, user, job_id: str, service, fold
         **worker_input, "seconds": studio.MAX_SECONDS,
         "audio_url": studio.link(base, SECRET, job_id, "source"),
         "upload_url": studio.link(base, SECRET, job_id, "upload"),
+        # Ужатый под Mureka трек -- его забирает ретранслятор (relay/).
+        "mureka_url": studio.link(base, SECRET, job_id, "mureka"),
     })
 
 
@@ -1427,6 +1441,41 @@ def api_studio_split_result(job_id: str, request: Request, file: str = Form(""))
     return {"jobId": job.id, "from": title}
 
 
+@app.post("/api/studio/{job_id}/tabs")
+def api_studio_to_tabs(job_id: str, request: Request, file: str = Form("")):
+    """Готовую песню или партию Студии -- в обычный разбор NASLUX: табы, аккорды, MIDI."""
+    user = current_user(request)
+    parent = storage.job(job_id)
+    if (not parent or parent.user_id != user.id
+            or (parent.settings or {}).get("kind") != "studio" or parent.status != "done"):
+        raise HTTPException(404, "Готовая работа не найдена")
+    names = [f["name"] for f in (parent.result or {}).get("files") or []]
+    source = os.path.join(studio_runner.folder(job_id), file)
+    if file not in names or not os.path.isfile(source):
+        raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
+    access = billing.check_access(user)
+    if not access.allowed:
+        raise HTTPException(402, access.reason)
+    label = studio.label_of((parent.settings or {}).get("mode", ""), file)
+    whole = (parent.settings or {}).get("mode") != "stems"
+    job = storage.create_job(user.id, f"{parent.filename} — {label}", {
+        "capo": 0, "tempo": 0, "minChord": 0.9,
+        "vocabulary": audiochords.DEFAULT_VOCABULARY, "separate": whole,
+        "model": separate.DEFAULT_MODEL, "quality": separate.DEFAULT_QUALITY,
+        "removeGhosts": True, "maxPolyphony": 0, "studio": job_id})
+    upload_dir = os.path.join(DATA_DIR, "uploads", job.id)
+    os.makedirs(upload_dir, exist_ok=True)
+    target = os.path.join(upload_dir, f"{safe_stem(file)}{Path(file).suffix.lower()}")
+    shutil.copyfile(source, target)
+    if not billing.consume(storage, user):
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        storage.update_job(job.id, status="error", error="Лимит разборов уже израсходован")
+        raise HTTPException(402, "Лимит разборов уже израсходован — пополните баланс на странице тарифов.")
+    storage.update_job(job.id, counted=True)
+    runner.submit_analysis(job.id, target)
+    return {"jobId": job.id}
+
+
 def _studio_link_job(job_id: str, purpose: str, e: int, s: str):
     if not studio.check_link(SECRET, job_id, purpose, e, s):
         raise HTTPException(403, "Ссылка недействительна")
@@ -1444,6 +1493,40 @@ def api_studio_source(job_id: str, e: int = 0, s: str = ""):
     if not found:
         raise HTTPException(404, "Исходник не найден")
     return FileResponse(os.path.join(studio_runner.folder(job_id), found[0]))
+
+
+@app.get("/api/studio/mureka/{job_id}")
+def api_studio_mureka_source(job_id: str, e: int = 0, s: str = ""):
+    """Трек, ужатый под условия Mureka (mp3 до 10 МБ и 350 с), -- для ретранслятора."""
+    _studio_link_job(job_id, "mureka", e, s)
+    path = os.path.join(studio_runner.folder(job_id), "for_mureka.mp3")
+    if not os.path.isfile(path):
+        raise HTTPException(404, "Трек ещё не подготовлен")
+    return FileResponse(path, media_type="audio/mpeg")
+
+
+_lyrics_calls: dict[str, list[float]] = {}
+
+
+@app.post("/api/studio/lyrics")
+def api_studio_lyrics(request: Request, prompt: str = Form(...)):
+    """Сочинить текст песни по описанию (Mureka lyrics/generate). Бесплатно:
+    стоит нам доли цента, -- но не больше LYRICS_PER_DAY раз в сутки."""
+    user = current_user(request)
+    if studio.restyle_engine() != "mureka":
+        raise HTTPException(503, "Сочинение текста пока не подключено")
+    if not prompt.strip():
+        raise HTTPException(400, "Опишите, о чём песня")
+    now = time.time()
+    recent = [t for t in _lyrics_calls.get(user.id, []) if now - t < 86400]
+    if len(recent) >= studio.LYRICS_PER_DAY and not user.unlimited:
+        raise HTTPException(429, "На сегодня текстов достаточно — попробуйте завтра")
+    _lyrics_calls[user.id] = [*recent, now]
+    try:
+        answer = studio.mureka_call("POST", "/v1/lyrics/generate", {"prompt": prompt.strip()[:500]})
+    except RuntimeError as error:
+        raise HTTPException(502, f"Не получилось сочинить текст: {error}") from error
+    return {"title": answer.get("title", ""), "lyrics": answer.get("lyrics", "")}
 
 
 @app.post("/api/studio/upload/{job_id}")

@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#15161c">
 <title>NASLUX — Студия</title>
-<meta name="description" content="Переделайте свой трек в другой стиль, допишите партию или разделите песню на инструменты — нейросетью на видеокарте.">
+<meta name="description" content="Песня с нуля по описанию и тексту, переделка вашего трека в другой стиль, разделение на партии — нейросетью.">
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css">
 </head>
-<body>
-<div class="wrap">
+<body class="studio-page">
+<div class="wrap wide">
   <header class="top">
     <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
     <div style="display:flex;gap:14px;align-items:center">
@@ -22,114 +22,106 @@
     </div>
   </header>
 
-  <section class="hero">
-    <h1>Студия</h1>
-    <p class="lead">
-      Сыграли песню под гитару — нейросеть переделает её в nu-metal, рок или
-      акустику с вашим текстом. Или допишет барабаны и бас. Или разложит любой
-      трек на вокал, гитару, бас, барабаны и клавиши.
-    </p>
-    <p class="muted" id="notReady" style="display:none"></p>
-  </section>
-
-  <div class="card">
-    <h2>1. Что сделать</h2>
-    <div class="choices studio-modes" id="modes" style="margin-top:12px">
-      <button class="choice selected" type="button" data-mode="restyle">
-        <b>Переделать в стиль</b><small data-price="restyle" data-desc="новый жанр с вашим текстом"></small>
-      </button>
-      <button class="choice" type="button" data-mode="enrich">
-        <b>Дописать партию</b><small data-price="enrich" data-desc="барабаны, бас, гитара поверх записи"></small>
-      </button>
-      <button class="choice" type="button" data-mode="stems">
-        <b>Разделить на партии</b><small data-price="stems" data-desc="вокал, гитара, бас, барабаны отдельно"></small>
-      </button>
-    </div>
-  </div>
-
-  <div class="drop" id="drop" style="margin-bottom:18px">
-    <b id="dropTitle">2. Перетащите трек сюда</b>
-    <small id="dropHint">или нажмите, чтобы выбрать · mp3, wav, flac, ogg, m4a · до 10 минут</small>
-    <input type="file" id="file" hidden accept=".mp3,.wav,.flac,.ogg,.m4a,.aiff,.aif">
-  </div>
-
-  <div class="card" id="options">
-    <h2>3. Настройки</h2>
-    <div id="styleBox">
-      <div class="muted" style="margin:10px 0 8px">Стиль</div>
-      <div class="presets" id="presets"></div>
-      <label class="field" style="margin-top:12px">
-        <span>Или опишите своими словами (лучше по-английски): жанр, инструменты, вокал</span>
-        <input type="text" id="prompt" maxlength="500"
-               placeholder="например: nu metal, 7-string guitars, rap verses, heavy chorus">
-      </label>
-    </div>
-    <div id="trackBox" style="display:none">
-      <label class="field" style="margin-top:12px">
-        <span>Какую партию дописать</span>
-        <select id="track"></select>
-      </label>
-    </div>
-    <div id="strengthBox">
-      <div class="knobs">
-        <label class="field knob">
-          <span>Влияние загруженной песни <b id="audioVal"></b></span>
-          <input type="range" id="audioKnob" min="0" max="100" value="50">
-          <small class="muted">меньше — дальше от оригинала, больше — ближе к нему</small>
-        </label>
-        <label class="field knob">
-          <span>Влияние стиля <b id="styleVal"></b></span>
-          <input type="range" id="styleKnob" min="0" max="100" value="50">
-          <small class="muted">насколько строго держаться выбранного жанра и описания</small>
-        </label>
-        <label class="field knob">
-          <span>Странность <b id="weirdVal"></b></span>
-          <input type="range" id="weirdKnob" min="0" max="100" value="30">
-          <small class="muted">выше — смелее и неожиданнее, ниже — предсказуемее</small>
-        </label>
-        <label class="field knob">
-          <span>Удержание мелодии <b id="melodyVal"></b></span>
-          <input type="range" id="melodyKnob" min="0" max="100" value="0">
-          <small class="muted">0 — партии переписаны целиком; выше — ближе к мелодии, но слышен оригинал</small>
-        </label>
+  <div class="studio-app">
+    <!-- ЛЕВО: что сделать -->
+    <aside class="st-panel" id="panel">
+      <div class="st-tabs" id="modes" role="tablist">
+        <button type="button" data-mode="create" class="on">Создать</button>
+        <button type="button" data-mode="restyle">Переделать</button>
+        <button type="button" data-mode="stems">Партии</button>
+        <button type="button" data-mode="enrich">Дописать</button>
       </div>
-    </div>
-    <div id="lyricsBox">
-      <div class="lyrics-head">
-        <span class="muted">Текст песни — нейросеть споёт его в новой версии. Для переделки в стиль обязателен.</span>
-        <button type="button" id="lyricsExpand">Развернуть</button>
+      <p class="st-hint" id="modeHint"></p>
+
+      <div class="st-drop" id="drop" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+        <div><b id="dropTitle">Загрузите трек</b><small id="dropHint">mp3, wav, flac, ogg, m4a · до 6 минут</small></div>
+        <input type="file" id="file" hidden accept=".mp3,.wav,.flac,.ogg,.m4a,.aiff,.aif">
       </div>
-      <div class="lyrics-wrap" id="lyricsWrap">
-        <div class="lyrics-bar">
-          <b>Текст песни</b>
-          <span class="muted" id="lyricsCount"></span>
-          <button type="button" class="primary" id="lyricsDone">Готово</button>
+
+      <label class="st-field" id="titleBox">
+        <span>Название</span>
+        <input type="text" id="title" maxlength="80" placeholder="например: С днём рождения, Саша">
+      </label>
+
+      <div id="styleBox">
+        <div class="st-label">Стиль</div>
+        <div class="presets" id="presets"></div>
+        <input type="text" id="prompt" maxlength="500" class="st-input"
+               placeholder="или своими словами: жанр, настроение, инструменты, голос">
+      </div>
+
+      <div id="trackBox" hidden>
+        <label class="st-field"><span>Какую партию дописать</span><select id="track"></select></label>
+      </div>
+
+      <div id="lyricsBox">
+        <div class="st-label st-labelrow">
+          <span>Текст песни <em id="lyricsNote" class="muted"></em></span>
+          <span class="st-tools">
+            <button type="button" class="icon-btn" id="lyricsAi" title="Сочинить текст нейросетью">
+              <svg viewBox="0 0 24 24"><path d="m12 3 1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3Zm6 11 .9 2.1 2.1.9-2.1.9L18 20l-.9-2.1L15 17l2.1-.9L18 14Z"/></svg>
+              <span>Сочинить</span>
+            </button>
+            <button type="button" class="icon-btn" id="lyricsExpand" title="Развернуть на весь экран">
+              <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+            </button>
+          </span>
         </div>
-        <textarea id="lyrics" rows="7" maxlength="5000"
-                  placeholder="[Куплет]&#10;Первая строка&#10;Вторая строка&#10;&#10;[Припев]&#10;..."></textarea>
+        <div class="st-ai" id="aiBox" hidden>
+          <input type="text" id="aiPrompt" maxlength="500" class="st-input"
+                 placeholder="о чём песня: поздравление маме с юбилеем, весело">
+          <button type="button" class="primary" id="aiGo">Сочинить</button>
+        </div>
+        <div class="lyrics-wrap" id="lyricsWrap">
+          <div class="lyrics-bar">
+            <b>Текст песни</b>
+            <span class="muted" id="lyricsCount"></span>
+            <button type="button" class="primary" id="lyricsDone">Готово</button>
+          </div>
+          <textarea id="lyrics" rows="8" maxlength="5000"
+                    placeholder="[Куплет]&#10;Первая строка&#10;Вторая строка&#10;&#10;[Припев]&#10;…"></textarea>
+        </div>
+        <label class="check" id="instrumentalBox"><input type="checkbox" id="instrumental"> Без слов — инструментал</label>
       </div>
-      <label class="field" style="margin-top:10px;max-width:220px">
-        <span>Язык вокала</span>
-        <select id="language"><option value="ru">Русский</option><option value="en">Английский</option></select>
-      </label>
-    </div>
-    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:18px">
-      <button class="primary" id="start" disabled>Запустить</button>
-      <span class="muted" id="msg"></span>
-    </div>
-  </div>
 
-  <div class="card">
-    <h2>Мои работы</h2>
-    <div id="jobs" class="muted" style="margin-top:10px">Пока пусто.</div>
-  </div>
+      <div id="strengthBox" hidden>
+        <div class="knobs">
+          <label class="field knob"><span>Влияние песни <b id="audioVal"></b></span>
+            <input type="range" id="audioKnob" min="0" max="100" value="50"></label>
+          <label class="field knob"><span>Влияние стиля <b id="styleVal"></b></span>
+            <input type="range" id="styleKnob" min="0" max="100" value="50"></label>
+          <label class="field knob"><span>Странность <b id="weirdVal"></b></span>
+            <input type="range" id="weirdKnob" min="0" max="100" value="30"></label>
+          <label class="field knob"><span>Удержание мелодии <b id="melodyVal"></b></span>
+            <input type="range" id="melodyKnob" min="0" max="100" value="0"></label>
+        </div>
+      </div>
 
-  <footer class="legal">
-    <a href="/privacy">Политика конфиденциальности</a>
-    <a href="/offer">Оферта</a>
-    <span>© NASLUX</span>
-  </footer>
+      <div class="st-go">
+        <button class="primary st-start" id="start" disabled>Создать</button>
+        <p class="muted" id="msg"></p>
+      </div>
+    </aside>
+
+    <!-- ПРАВО: треки и страница трека -->
+    <section class="st-library">
+      <div id="listView">
+        <div class="st-libhead"><h2>Мои треки</h2><span class="muted" id="count"></span></div>
+        <div id="jobs" class="st-list"><p class="muted">Здесь появятся ваши песни.</p></div>
+      </div>
+      <div id="detailView" hidden></div>
+    </section>
+  </div>
 </div>
+
+<!-- Плеер: один на страницу -- музыка не прерывается при обновлении списка -->
+<div class="st-player" id="player" hidden>
+  <button type="button" class="play-btn" id="playerToggle" aria-label="Пауза"></button>
+  <div class="st-player-info"><b id="playerTitle"></b><small id="playerSub" class="muted"></small></div>
+  <audio id="audio" controls preload="none"></audio>
+</div>
+
 <script src="/static/studio.js"></script>
 <script src="/static/consent.js"></script>
 </body>

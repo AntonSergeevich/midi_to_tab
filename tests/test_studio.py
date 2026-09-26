@@ -36,7 +36,7 @@ def _start(client, mode="restyle", **extra):
 
 def test_start_charges_balance_and_passes_signed_links(studio_app):
     app_module, client, user, submitted = studio_app
-    app_module.storage.add_balance(user.id, 100)
+    app_module.storage.add_balance(user.id, 150)
 
     response = _start(client, lyrics="Строка", audio_influence="0.3", style_influence="0.8",
                       weirdness="0.5", preset="rock")
@@ -45,7 +45,7 @@ def test_start_charges_balance_and_passes_signed_links(studio_app):
 
     assert app_module.storage.user(user.id).balance == pytest.approx(51)
     job = app_module.storage.job(job_id)
-    assert job.settings["charged"] == 49 and job.counted
+    assert job.settings["charged"] == 99 and job.counted
     [(sent_id, data)] = submitted
     assert sent_id == job_id
     assert data["mode"] == "restyle" and data["lyrics"] == "Строка"
@@ -55,6 +55,7 @@ def test_start_charges_balance_and_passes_signed_links(studio_app):
     assert "alternative rock" in data["prompt"]
     assert f"/api/studio/source/{job_id}?e=" in data["audio_url"]
     assert f"/api/studio/upload/{job_id}?e=" in data["upload_url"]
+    assert f"/api/studio/mureka/{job_id}?e=" in data["mureka_url"]
 
 
 def test_start_refuses_without_money_and_keeps_balance(studio_app):
@@ -201,7 +202,7 @@ def test_other_user_cannot_download_or_delete(studio_app):
 def test_split_finished_restyle_into_stems(studio_app):
     """Готовую переделку можно разделить на партии, не загружая её заново."""
     app_module, client, user, submitted = studio_app
-    app_module.storage.add_balance(user.id, 100)
+    app_module.storage.add_balance(user.id, 150)
     job_id = _start(client).json()["jobId"]
     with open(f"{app_module.studio_runner.folder(job_id)}/restyle.mp3", "wb") as f:
         f.write(b"new-version")
@@ -214,7 +215,7 @@ def test_split_finished_restyle_into_stems(studio_app):
     response = client.post(f"/api/studio/{job_id}/stems")
     assert response.status_code == 200, response.text
     child = response.json()["jobId"]
-    assert app_module.storage.user(user.id).balance == pytest.approx(100 - 49 - 19)
+    assert app_module.storage.user(user.id).balance == pytest.approx(150 - 99 - 19)
     assert submitted[-1][0] == child and submitted[-1][1]["mode"] == "stems"
     source = submitted[-1][1]["audio_url"].split("testserver", 1)[1]
     assert type(client)(app_module.app).get(source).content == b"new-version"
@@ -232,12 +233,12 @@ def test_studio_pack_is_credited_spent_first_and_refunded(studio_app, monkeypatc
     assert app_module.storage.user(user.id).studio_credits == 10
 
     job_id = _start(client).json()["jobId"]
-    assert app_module.storage.user(user.id).studio_credits == 9
+    assert app_module.storage.user(user.id).studio_credits == 8              # переделка -- 2
     assert app_module.storage.user(user.id).balance == pytest.approx(100)   # деньги не тронуты
 
     # Разделение на партии из пакета не берётся -- только с баланса
     _start(client, mode="stems")
-    assert app_module.storage.user(user.id).studio_credits == 9
+    assert app_module.storage.user(user.id).studio_credits == 8
     assert app_module.storage.user(user.id).balance == pytest.approx(81)
 
     runner = app_module.studio.StudioRunner(app_module.storage, app_module.DATA_DIR)
@@ -283,7 +284,7 @@ def test_runpod_requests_carry_own_user_agent(studio_app, monkeypatch):
 
 def test_two_variants_are_labelled_and_split_separately(studio_app):
     app_module, client, user, submitted = studio_app
-    app_module.storage.add_balance(user.id, 100)
+    app_module.storage.add_balance(user.id, 150)
     job_id = _start(client).json()["jobId"]
     assert submitted[0][1]["variants"] == 2
     folder = app_module.studio_runner.folder(job_id)
@@ -324,6 +325,7 @@ def test_restyle_goes_to_mureka_and_needs_lyrics(studio_app, monkeypatch):
     app_module, client, user, submitted = studio_app
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
     monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
+    monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
     monkeypatch.setattr(app_module.studio, "RESTYLE_OPEN", False)
     app_module.storage.add_balance(user.id, 100)
     info = client.get("/api/studio").json()
@@ -341,6 +343,7 @@ def test_mureka_runner_uploads_remixes_and_downloads(studio_app, monkeypatch):
     studio = app_module.studio
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
     monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
+    monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
     app_module.storage.add_balance(user.id, 100)
     job_id = _start(client, lyrics="Строка").json()["jobId"]
     app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings,
@@ -371,7 +374,7 @@ def test_mureka_runner_uploads_remixes_and_downloads(studio_app, monkeypatch):
     assert calls[1][2]["upload_audio_id"] == "up1" and calls[1][2]["lyrics"] == "Строка"
     assert calls[1][2]["n"] == 2 and "nu metal" in calls[1][2]["prompt"]
     assert [f["label"] for f in job.result["files"]] == ["Вариант 1", "Вариант 2"]
-    assert job.settings["remote"] == {"engine": "mureka", "id": "task7"}
+    assert job.settings["remote"] == {"engine": "mureka", "id": "task7", "kind": "song"}
     assert client.get(f"/api/studio/file/{job_id}/restyle_2.mp3").content == b"https://cdn.mureka.ai/b.mp3"
 
 
@@ -380,6 +383,7 @@ def test_mureka_failure_refunds(studio_app, monkeypatch):
     studio = app_module.studio
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
     monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
+    monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
     app_module.storage.add_balance(user.id, 100)
     job_id = _start(client, lyrics="Строка").json()["jobId"]
     app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings,
@@ -401,6 +405,7 @@ def test_stems_need_runpod_even_with_mureka(studio_app, monkeypatch):
     app_module, client, user, submitted = studio_app
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
     monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
+    monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
     monkeypatch.delenv("RUNPOD_API_KEY")
     app_module.storage.add_balance(user.id, 100)
     assert _start(client, mode="stems").status_code == 503
@@ -416,6 +421,7 @@ def test_mureka_waits_when_concurrency_limit_is_busy(studio_app, monkeypatch):
     studio = app_module.studio
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
     monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
+    monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
     monkeypatch.setattr(studio, "POLL_SECONDS", 0)
     answers = iter([urllib.error.HTTPError("u", 429, "busy", {}, io.BytesIO(b"limit")), b'{"id": "t1"}'])
 
@@ -450,6 +456,7 @@ def test_mureka_429_about_money_fails_at_once(studio_app, monkeypatch):
     studio = app_module.studio
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
     monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
+    monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
     calls = []
 
     def urlopen(request, timeout=60):
@@ -465,7 +472,7 @@ def test_mureka_429_about_money_fails_at_once(studio_app, monkeypatch):
 def test_runpod_restyle_uses_v2_recipe_by_default(studio_app):
     """Без подмешивания исходника (удержание 0) и с силой исходника = крутилке."""
     app_module, client, user, submitted = studio_app
-    app_module.storage.add_balance(user.id, 200)
+    app_module.storage.add_balance(user.id, 300)
     assert _start(client, audio_influence="0.5").status_code == 200
     assert submitted[-1][1]["raw"] == {"audio_cover_strength": 0.5, "cover_noise_strength": 0.0}
     assert _start(client, audio_influence="0.7", melody="0.4").status_code == 200
@@ -474,12 +481,14 @@ def test_runpod_restyle_uses_v2_recipe_by_default(studio_app):
     assert "raw" not in submitted[-1][1]
 
 
-def test_mureka_key_alone_does_not_switch_restyle_engine(studio_app, monkeypatch):
-    """Ключ Mureka на сервере без явной настройки -- переделка остаётся на RunPod."""
+def test_engine_follows_mureka_key_unless_forced_to_runpod(studio_app, monkeypatch):
+    """Ключ Mureka на сервере -- переделка идёт к ней; NASLUX_RESTYLE_ENGINE=runpod -- назад."""
     app_module, client, user, submitted = studio_app
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
     monkeypatch.delenv("NASLUX_RESTYLE_ENGINE", raising=False)
-    app_module.storage.add_balance(user.id, 100)
+    assert client.get("/api/studio").json()["restyleEngine"] == "mureka"
+    monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "runpod")
+    app_module.storage.add_balance(user.id, 150)
     assert client.get("/api/studio").json()["restyleEngine"] == "runpod"
     job_id = _start(client).json()["jobId"]            # без текста -- для RunPod можно
     assert app_module.storage.job(job_id).settings["engine"] == "runpod"
@@ -490,3 +499,147 @@ def test_html_error_page_is_shortened_to_its_title(studio_app):
     page = '<!doctype html><html lang="en"><head><title>Service unavailable | Mureka</title>'
     assert app_module.studio.short_error(page) == "страница «Service unavailable | Mureka»"
     assert app_module.studio.short_error('{"error": "x"}') == '{"error": "x"}'
+
+
+def _mureka_direct(monkeypatch, studio, answers):
+    """Подменить вызовы Mureka: answers -- ответы на GET query по очереди."""
+    calls = []
+    queue = iter(answers)
+
+    def mureka_call(method, path, body=None, timeout=60):
+        calls.append((method, path, body))
+        return {"id": "t9"} if method == "POST" else next(queue)
+
+    monkeypatch.setattr(studio, "mureka_call", mureka_call)
+    monkeypatch.setattr(studio, "download", lambda url, target: open(target, "wb").write(url.encode()))
+    monkeypatch.setattr(studio, "POLL_SECONDS", 0)
+    return calls
+
+
+def _create(client, **extra):
+    return client.post("/api/studio", data={"mode": "create", **extra})
+
+
+def test_create_song_from_scratch_without_file(studio_app, monkeypatch):
+    """Песня с нуля: без файла; с текстом -- song/generate на mureka-9, 2 версии."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
+    app_module.storage.add_balance(user.id, 100)
+    response = _create(client, title="Для Саши", prompt="pop rock, birthday", lyrics="[Verse]\nС днём")
+    assert response.status_code == 200, response.text
+    job_id = response.json()["jobId"]
+    assert app_module.storage.user(user.id).balance == pytest.approx(51)
+    job = app_module.storage.job(job_id)
+    assert job.filename == "Для Саши" and job.settings["engine"] == "mureka"
+    app_module.storage.update_job(job_id, settings={**job.settings, "input": submitted[-1][1]})
+
+    calls = _mureka_direct(monkeypatch, studio, [
+        {"status": "succeeded", "choices": [{"url": "https://cdn/1.mp3", "duration": 95000},
+                                            {"url": "https://cdn/2.mp3"}]}])
+    studio.StudioRunner(app_module.storage, app_module.DATA_DIR)._run(job_id)
+    job = app_module.storage.job(job_id)
+    assert job.status == "done", job.error
+    assert calls[0][1] == "/v1/song/generate"
+    assert calls[0][2]["model"] == "mureka-9" and calls[0][2]["n"] == 2
+    assert calls[1][1] == "/v1/song/query/t9"
+    assert [f["name"] for f in job.result["files"]] == ["create_1.mp3", "create_2.mp3"]
+    assert job.result["files"][0]["label"] == "Вариант 1" and job.result["files"][0]["seconds"] == 95
+
+
+def test_create_without_lyrics_is_instrumental(studio_app, monkeypatch):
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
+    app_module.storage.set_flags(user.id, unlimited=True)
+    job_id = _create(client, preset="lofi").json()["jobId"]
+    job = app_module.storage.job(job_id)
+    app_module.storage.update_job(job_id, settings={**job.settings, "input": submitted[-1][1]})
+    calls = _mureka_direct(monkeypatch, studio, [{"status": "succeeded",
+                                                   "choices": [{"url": "https://cdn/i.mp3"}]}])
+    studio.StudioRunner(app_module.storage, app_module.DATA_DIR)._run(job_id)
+    assert calls[0][1] == "/v1/instrumental/generate" and "lo-fi" in calls[0][2]["prompt"]
+    assert calls[1][1] == "/v1/instrumental/query/t9"
+    assert app_module.storage.job(job_id).status == "done"
+
+
+def test_create_needs_mureka(studio_app, monkeypatch):
+    app_module, client, user, submitted = studio_app
+    monkeypatch.delenv("MUREKA_API_KEY", raising=False)
+    app_module.storage.add_balance(user.id, 100)
+    assert _create(client, prompt="rock").status_code == 503
+    assert client.get("/api/studio").json()["createOpen"] is False
+
+
+def test_restyle_pack_refund_returns_two(studio_app, monkeypatch):
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_studio_credits(user.id, 2)
+    job_id = _start(client).json()["jobId"]
+    assert app_module.storage.user(user.id).studio_credits == 0
+    assert app_module.storage.job(job_id).settings["charged_credit"] == 2
+    app_module.studio.StudioRunner(app_module.storage, app_module.DATA_DIR)._fail(job_id, "сбой")
+    assert app_module.storage.user(user.id).studio_credits == 2
+
+
+def test_lyrics_are_written_by_mureka_with_daily_limit(studio_app, monkeypatch):
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    asked = []
+    monkeypatch.setattr(studio, "mureka_call", lambda method, path, body=None, timeout=60: (
+        asked.append((path, body)) or {"title": "С днём рождения", "lyrics": "[Verse]\nЭй"}))
+    monkeypatch.setattr(studio, "LYRICS_PER_DAY", 2)
+    first = client.post("/api/studio/lyrics", data={"prompt": "поздравление для Саши"})
+    assert first.status_code == 200 and first.json()["title"] == "С днём рождения"
+    assert asked[0] == ("/v1/lyrics/generate", {"prompt": "поздравление для Саши"})
+    assert client.post("/api/studio/lyrics", data={"prompt": "ещё"}).status_code == 200
+    assert client.post("/api/studio/lyrics", data={"prompt": "и ещё"}).status_code == 429
+
+
+def test_relay_route_for_upload_and_results(studio_app, monkeypatch):
+    """Через ретранслятор: загрузка по подписанной ссылке, результаты -- на адрес загрузки."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.delenv("NASLUX_MUREKA_DIRECT", raising=False)
+    tasks = []
+
+    def relay_run(task, timeout=900):
+        tasks.append(task)
+        if task["op"] == "upload":
+            return {"ok": True, "json": {"id": "up5"}}
+        return {"ok": True, "bytes": 3}
+
+    monkeypatch.setattr(studio, "relay_run", relay_run)
+    task_input = {"mureka_url": "https://naslux.ru/api/studio/mureka/j?e=1&s=x",
+                  "upload_url": "https://naslux.ru/api/studio/upload/j?e=1&s=y"}
+    assert studio.mureka_upload_for(task_input, "/tmp/x.mp3", "remix") == "up5"
+    studio.fetch_result(task_input, "https://cdn.mureka.ai/a.mp3", "/tmp", "restyle_1.mp3")
+    assert tasks[0] == {"op": "upload", "source_url": task_input["mureka_url"],
+                        "purpose": "remix", "filename": "track.mp3"}
+    assert tasks[1] == {"op": "fetch", "url": "https://cdn.mureka.ai/a.mp3",
+                        "upload_url": task_input["upload_url"], "name": "restyle_1.mp3"}
+
+
+def test_studio_version_goes_to_tabs_and_midi(studio_app, monkeypatch):
+    """Готовая версия из Студии уходит в обычный разбор: табы, аккорды, MIDI."""
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_balance(user.id, 150)
+    job_id = _start(client).json()["jobId"]
+    folder = app_module.studio_runner.folder(job_id)
+    with open(f"{folder}/restyle_1.mp3", "wb") as f:
+        f.write(b"song")
+    app_module.storage.update_job(job_id, status="done", result={
+        "files": [{"name": "restyle_1.mp3", "label": "Вариант 1"}]})
+    started = []
+    monkeypatch.setattr(app_module.runner, "submit_analysis", lambda jid, path: started.append((jid, path)))
+
+    assert client.post(f"/api/studio/{job_id}/tabs", data={"file": "../app.db"}).status_code == 409
+    response = client.post(f"/api/studio/{job_id}/tabs", data={"file": "restyle_1.mp3"})
+    assert response.status_code == 200
+    tab_job = app_module.storage.job(response.json()["jobId"])
+    assert tab_job.settings["separate"] is True and tab_job.settings["studio"] == job_id
+    assert open(started[0][1], "rb").read() == b"song"
+    assert "Вариант 1" in tab_job.filename

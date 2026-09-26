@@ -265,12 +265,13 @@ class Storage:
             conn.execute("UPDATE users SET studio_credits = studio_credits + ? WHERE id = ?",
                          (count, user_id))
 
-    def spend_studio_credit(self, user_id: str) -> bool:
-        """Списать одну генерацию из пакета Студии -- атомарно, как spend_credit."""
+    def spend_studio_credit(self, user_id: str, count: int = 1) -> bool:
+        """Списать генерации из пакета Студии -- атомарно, как spend_credit:
+        либо все count сразу, либо ни одной."""
         with self._connect() as conn:
             changed = conn.execute(
-                "UPDATE users SET studio_credits = studio_credits - 1"
-                " WHERE id = ? AND studio_credits > 0", (user_id,)).rowcount
+                "UPDATE users SET studio_credits = studio_credits - ?"
+                " WHERE id = ? AND studio_credits >= ?", (count, user_id, count)).rowcount
         return bool(changed)
 
     def spend_credit(self, user_id: str) -> bool:
