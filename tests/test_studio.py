@@ -13,6 +13,7 @@ def studio_app(tmp_path, monkeypatch):
     monkeypatch.setenv("MIDI2TAB_SECRET", "test-secret")
     monkeypatch.setenv("RUNPOD_API_KEY", "rp-test")
     monkeypatch.setenv("NASLUX_WORKER_ENDPOINT", "ep1")
+    monkeypatch.setenv("NASLUX_COVERS", "0")
     for name in [m for m in sys.modules if m.startswith("web.")]:
         del sys.modules[name]
     from fastapi.testclient import TestClient
@@ -664,3 +665,111 @@ def test_relay_forgets_deleted_endpoint(monkeypatch):
     monkeypatch.setattr(studio, "call", fake_call)
     assert studio.relay_run({"op": "call"})["ok"] is True
     assert studio._relay_cache["id"] == "new"
+
+
+def test_create_passes_voice_to_mureka(studio_app, monkeypatch):
+    """Голос: мужской/женский -- параметр gender и слова в описании; дуэт -- только словами."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
+    app_module.storage.add_balance(user.id, 200)
+    assert client.get("/api/studio").json()["voices"]["duet"] == "Дуэт"
+    for voice, gender in (("female", "female"), ("duet", None), ("robot", None)):
+        job_id = _create(client, prompt="pop", lyrics="[Verse]\nЛя", voice=voice).json()["jobId"]
+        job = app_module.storage.job(job_id)
+        app_module.storage.update_job(job_id, settings={**job.settings, "input": submitted[-1][1]})
+        calls = _mureka_direct(monkeypatch, studio, [
+            {"status": "succeeded", "choices": [{"url": "https://cdn/1.mp3"}]}])
+        studio.StudioRunner(app_module.storage, app_module.DATA_DIR)._run(job_id)
+        body = calls[0][2]
+        assert body.get("gender") == gender
+        if voice == "duet":
+            assert "male and female vocals" in body["prompt"]
+        if voice == "robot":
+            assert body["prompt"] == "pop"
+
+
+def test_keep_vocals_restyle_separates_arranges_and_mixes(studio_app, monkeypatch):
+    """«Сохранить мой голос»: текст не нужен; Demucs -> вокал, Mureka track/generate
+    две аранжировки по очереди, сведение с голосом, минусы в результате."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
+    monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
+    app_module.storage.add_balance(user.id, 150)
+    response = _start(client, keep_vocals="true", preset="numetal")
+    assert response.status_code == 200, response.text
+    job_id = response.json()["jobId"]
+    job = app_module.storage.job(job_id)
+    assert job.settings["keepVocals"] is True and submitted[-1][1]["keep_vocals"] is True
+    app_module.storage.update_job(job_id, settings={**job.settings, "input": submitted[-1][1]})
+    folder = app_module.studio_runner.folder(job_id)
+
+    runpod_calls = []
+
+    def runpod(method, url, body=None, timeout=60):
+        runpod_calls.append((method, url, body))
+        if method == "POST":
+            return {"id": "rp1"}
+        for name in ("vocals", "drums", "bass"):  # воркер присылает партии в папку
+            open(f"{folder}/{name}.mp3", "wb").write(name.encode())
+        return {"status": "COMPLETED", "output": {"ok": True}}
+
+    monkeypatch.setattr(studio, "call", runpod)
+    monkeypatch.setattr(studio, "endpoint_id", lambda: "ep1")
+    uploads, mixes = [], []
+    monkeypatch.setattr(studio, "mureka_audio", lambda source, folder: uploads.append(source))
+    monkeypatch.setattr(studio, "mureka_upload", lambda path, purpose: uploads.append(purpose) or "upV")
+    monkeypatch.setattr(studio, "mix_vocals", lambda v, b, t: mixes.append((v, b)) or open(t, "wb").write(b"mix"))
+    calls = _mureka_direct(monkeypatch, studio, [
+        {"status": "succeeded", "choices": [{"url": "https://cdn/b1.mp3"}]},
+        {"status": "succeeded", "choices": [{"url": "https://cdn/b2.mp3"}]}])
+
+    studio.StudioRunner(app_module.storage, app_module.DATA_DIR)._run(job_id)
+    job = app_module.storage.job(job_id)
+    assert job.status == "done", job.error
+    assert runpod_calls[0][2]["input"]["mode"] == "stems"
+    assert uploads[-1] == "audio"
+    posts = [c for c in calls if c[0] == "POST"]
+    assert len(posts) == 2 and all(c[1] == "/v1/track/generate" for c in posts)
+    assert posts[0][2]["generate_type"] == "Instrumental" and posts[0][2]["upload_audio_id"] == "upV"
+    assert [f["label"] for f in job.result["files"]] == [
+        "Вариант 1", "Вариант 2", "Минус 1 — без голоса", "Минус 2 — без голоса"]
+    assert len(mixes) == 2 and mixes[0][0].endswith("vocals.mp3")
+    import os
+    assert not os.path.exists(f"{folder}/drums.mp3")          # лишние партии убраны
+    listed = client.get("/api/studio").json()["jobs"][0]
+    assert listed["keepVocals"] is True
+
+
+def test_cover_is_drawn_alongside_and_served(studio_app, monkeypatch):
+    """Обложка: заказывается на эндпоинте naslux-cover с названием, текстом и стилем;
+    пришедший cover.jpg отдаётся картинкой и попадает в список треков."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("NASLUX_COVERS", "1")
+    monkeypatch.setenv("NASLUX_COVER_ENDPOINT", "cov1")
+    sent = []
+
+    def runpod(method, url, body=None, timeout=60):
+        sent.append((url, body))
+        return {"status": "COMPLETED", "output": {"ok": True}}
+
+    monkeypatch.setattr(studio, "call", runpod)
+    assert studio.make_cover({"upload_url": "https://site/up"}, "Земляне - Трава.mp3",
+                             "[Verse]\nСтрока", "nu metal", 7) is True
+    assert sent[0][0].endswith("/cov1/runsync")
+    assert sent[0][1]["input"]["title"] == "Земляне - Трава.mp3"
+    assert sent[0][1]["input"]["upload_url"] == "https://site/up"
+
+    app_module.storage.add_balance(user.id, 100)
+    job_id = _start(client, mode="stems").json()["jobId"]
+    folder = app_module.studio_runner.folder(job_id)
+    open(f"{folder}/cover.jpg", "wb").write(b"\xff\xd8jpeg")
+    listed = client.get("/api/studio").json()["jobs"][0]
+    assert listed["cover"] == f"/api/studio/file/{job_id}/cover.jpg"
+    response = client.get(listed["cover"])
+    assert response.headers["content-type"] == "image/jpeg" and response.content == b"\xff\xd8jpeg"
+    assert studio.safe_file_name("../cover.jpg") is None

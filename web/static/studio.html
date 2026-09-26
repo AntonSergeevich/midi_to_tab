@@ -51,6 +51,18 @@
                placeholder="или своими словами: жанр, настроение, инструменты, голос">
       </div>
 
+      <label class="check st-keep" id="keepBox" hidden>
+        <input type="checkbox" id="keepVocals">
+        <span><b>Сохранить мой голос и мелодию</b>
+          <small>Нейросеть напишет новую аранжировку под ваш вокал — мелодия и слова останутся
+            точно как в оригинале. Текст вставлять не нужно. Плюс минусовки без голоса.</small></span>
+      </label>
+
+      <div id="voiceBox">
+        <div class="st-label">Голос</div>
+        <div class="presets" id="voices"></div>
+      </div>
+
       <div id="trackBox" hidden>
         <label class="st-field"><span>Какую партию дописать</span><select id="track"></select></label>
       </div>

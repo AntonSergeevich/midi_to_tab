@@ -6,6 +6,7 @@ const $ = (id) => document.getElementById(id);
 let info = null;
 let mode = 'create';
 let preset = 'numetal';
+let voice = '';
 let file = null;
 let polling = null;
 let openJob = null;         // id трека, чья страница открыта
@@ -35,11 +36,12 @@ const MODE = {
 const MODE_ICON = { create: '✦', restyle: '↻', stems: '≡', enrich: '+' };
 
 // Обложка трека: свой градиент для каждого id -- чтобы список не был серым.
-function cover(id, big) {
+function cover(j, big) {
   let h = 0;
-  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  for (const ch of j.id) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  const art = j.cover ? `<img src="${j.cover}" alt="" loading="lazy">` : '';
   return `<div class="st-cover${big ? ' big' : ''}" style="background:linear-gradient(135deg,
-    hsl(${h} 70% 45%), hsl(${(h + 60) % 360} 70% 30%))"></div>`;
+    hsl(${h} 70% 45%), hsl(${(h + 60) % 360} 70% 30%))">${art}</div>`;
 }
 
 // ------------------------------------------------------------ левая панель
@@ -58,7 +60,10 @@ function showMode() {
   $('titleBox').hidden = mode !== 'create';
   $('styleBox').hidden = mode === 'stems';
   $('trackBox').hidden = mode !== 'enrich';
-  $('lyricsBox').hidden = !['create', 'restyle'].includes(mode);
+  const keep = mode === 'restyle' && mureka && $('keepVocals').checked;
+  $('keepBox').hidden = !(mode === 'restyle' && mureka);
+  $('voiceBox').hidden = !['create', 'restyle'].includes(mode) || !mureka || keep;
+  $('lyricsBox').hidden = !['create', 'restyle'].includes(mode) || keep;
   $('instrumentalBox').hidden = mode !== 'create';
   $('strengthBox').hidden = !(mode === 'restyle' && !mureka);
   $('lyricsNote').textContent = mode === 'restyle' && mureka ? '— обязателен' : '';
@@ -78,7 +83,7 @@ function updateStart() {
   else if (mode === 'create' && !info.createOpen) problem = 'Песни с нуля скоро появятся.';
   else if (mode === 'restyle' && !info.restyleOpen) problem = 'Переделка скоро вернётся.';
   else if (mode !== 'create' && !file) problem = 'Загрузите трек.';
-  else if (mode === 'restyle' && mureka && !lyrics) problem = 'Вставьте или сочините текст песни.';
+  else if (mode === 'restyle' && mureka && !lyrics && !$('keepVocals').checked) problem = 'Вставьте текст песни или отметьте «Сохранить мой голос».';
   else if (mode === 'create' && !lyrics && !$('instrumental').checked) problem = 'Добавьте текст или отметьте «инструментал».';
   else if (!enough) problem = `На балансе ${rub(info.balance)} — <a href="/pricing">пополните</a> или возьмите пакет.`;
   $('start').disabled = Boolean(problem);
@@ -150,7 +155,7 @@ function renderList(jobs) {
   $('jobs').innerHTML = top.map((j) => {
     const first = j.status === 'done' && j.files[0];
     return `<div class="st-row" data-open="${j.id}">
-      ${cover(j.id)}<span class="st-mode">${MODE_ICON[j.mode] || ''}</span>
+      ${cover(j)}<span class="st-mode">${MODE_ICON[j.mode] || ''}</span>
       <div class="st-row-main"><b>${esc(j.name)}</b>${statusLine(j)}</div>
       ${first ? playButton(first, j.name) : ''}
     </div>`;
@@ -161,7 +166,7 @@ function renderDetail(jobs) {
   const j = jobs.find((x) => x.id === openJob);
   if (!j) { closeDetail(); return; }
   const children = jobs.filter((x) => x.from === j.id);
-  const meta = [MODE[j.mode] ? MODE[j.mode].title : j.title,
+  const meta = [MODE[j.mode] ? MODE[j.mode].title : j.title, j.keepVocals ? 'с вашим голосом' : '',
     j.bpm ? `${j.bpm} BPM` : '', j.key || ''].filter(Boolean).join(' · ');
   const versions = j.status === 'done' ? j.files.map((f) => `
     <div class="st-version">
@@ -173,7 +178,7 @@ function renderDetail(jobs) {
         data-file="${esc(f.name)}" title="Табы, аккорды и MIDI">${ICON.tabs}</button>
       ${j.mode === 'stems' ? '' : `<button type="button" class="icon-btn" data-split="${j.id}"
         data-file="${esc(f.name)}" title="Разделить на партии">${ICON.split}</button>`}
-    </div>`).join('') : `<div class="st-version">${statusLine(j)}</div>`;
+    </div>`).join('') : `<div class="st-version"><div class="st-row-main">${statusLine(j)}</div></div>`;
   const parts = children.map((c) => `
     <div class="st-sub"><div class="st-label">Партии · ${esc((c.title.split('·')[1] || '').trim())}</div>
       ${c.status === 'done' ? c.files.map((f) => `
@@ -182,14 +187,14 @@ function renderDetail(jobs) {
           <a class="icon-btn" href="${f.url}" download title="Скачать">${ICON.download}</a>
           <button type="button" class="icon-btn" data-tabs="${c.id}"
         data-file="${esc(f.name)}" title="Табы, аккорды и MIDI">${ICON.tabs}</button>
-        </div>`).join('') : `<div class="st-version">${statusLine(c)}</div>`}
+        </div>`).join('') : `<div class="st-version"><div class="st-row-main">${statusLine(c)}</div></div>`}
     </div>`).join('');
   const lyrics = j.lyrics ? `<details class="st-lyrics"><summary>Текст песни</summary>
     <pre>${esc(j.lyrics)}</pre></details>` : '';
   $('detailView').innerHTML = `
     <div class="st-dhead">
       <button type="button" class="icon-btn" id="back" title="Назад">${ICON.back}</button>
-      ${cover(j.id, true)}
+      ${cover(j, true)}
       <div class="st-row-main"><h2>${esc(j.name)}</h2><span class="muted">${esc(meta)}</span></div>
       ${['done', 'error'].includes(j.status)
     ? `<button type="button" class="icon-btn" data-del="${j.id}" title="Удалить">${ICON.trash}</button>` : ''}
@@ -213,6 +218,8 @@ async function load() {
   if (!$('presets').children.length) {
     $('presets').innerHTML = Object.entries(info.presets).map(([key, title]) =>
       `<button type="button" class="preset${key === preset ? ' selected' : ''}" data-preset="${key}">${esc(title)}</button>`).join('');
+    $('voices').innerHTML = Object.entries(info.voices || {}).map(([key, title]) =>
+      `<button type="button" class="preset${key === voice ? ' selected' : ''}" data-voice="${key}">${esc(title)}</button>`).join('');
     $('track').innerHTML = Object.entries(info.tracks).map(([key, title]) =>
       `<option value="${key}">${esc(title)}</option>`).join('');
     showMode();
@@ -223,6 +230,9 @@ async function load() {
   clearTimeout(polling);
   if (info.jobs.some((j) => j.status === 'queued' || j.status === 'running')) {
     polling = setTimeout(load, 5000);
+  } else if (info.jobs.some((j) => j.status === 'done' && !j.cover
+      && ['create', 'restyle'].includes(j.mode) && Date.now() / 1000 - j.at < 900)) {
+    polling = setTimeout(load, 15000);  // обложка ещё рисуется
   }
 }
 
@@ -267,6 +277,12 @@ $('presets').addEventListener('click', (e) => {
   $('prompt').value = '';
   document.querySelectorAll('#presets .preset').forEach((x) => x.classList.toggle('selected', x === b));
 });
+$('voices').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-voice]');
+  if (!b) return;
+  voice = b.dataset.voice;
+  document.querySelectorAll('#voices .preset').forEach((x) => x.classList.toggle('selected', x === b));
+});
 ['audioKnob', 'styleKnob', 'weirdKnob', 'melodyKnob'].forEach((id) => $(id).addEventListener('input', knobText));
 $('drop').addEventListener('click', () => $('file').click());
 $('file').addEventListener('change', () => pickFile($('file').files[0]));
@@ -278,6 +294,7 @@ $('drop').addEventListener('drop', (e) => {
   pickFile(e.dataTransfer.files[0]);
 });
 $('lyrics').addEventListener('input', () => { lyricsCount(); updateStart(); });
+$('keepVocals').addEventListener('change', showMode);
 $('instrumental').addEventListener('change', () => {
   $('lyrics').disabled = $('instrumental').checked;
   updateStart();
@@ -326,6 +343,8 @@ $('start').addEventListener('click', async () => {
   form.append('weirdness', $('weirdKnob').value / 100);
   form.append('melody', $('melodyKnob').value / 100);
   form.append('track', $('track').value);
+  form.append('voice', voice);
+  form.append('keep_vocals', mode === 'restyle' && $('keepVocals').checked);
   $('start').disabled = true;
   $('msg').textContent = mode === 'create' ? 'Отправляем…' : 'Загружаем трек…';
   const response = await fetch('/api/studio', { method: 'POST', body: form });

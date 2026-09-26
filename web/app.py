@@ -1252,6 +1252,9 @@ def _studio_job_payload(job) -> dict:
         "key": (result.get("settings") or {}).get("key_scale"),
         "files": files,
         "from": settings.get("from"),
+        "keepVocals": bool(settings.get("keepVocals")),
+        "cover": f"/api/studio/file/{job.id}/cover.jpg"
+                 if os.path.isfile(os.path.join(folder, "cover.jpg")) else None,
         "lyrics": result.get("lyrics") or settings.get("lyrics") or "",
         # Файлы Студии уборка удаляет через 14 дней (deploy/cleanup.py)
         "expired": job.status == "done" and not files,
@@ -1269,6 +1272,7 @@ def api_studio(request: Request):
         "createOpen": studio.restyle_engine() == "mureka",
         "presets": {k: v[0] for k, v in studio.PRESETS.items()},
         "tracks": studio.TRACKS,
+        "voices": {k: v[0] for k, v in studio.VOICES.items()},
         "balance": user.balance, "unlimited": user.unlimited, "registered": user.registered,
         "studioCredits": user.studio_credits,
         "restyleOpen": studio.restyle_open() or user.unlimited,
@@ -1295,6 +1299,8 @@ async def api_studio_start(
     melody: float = Form(0.0),
     track: str = Form("drums"),
     language: str = Form("ru"),
+    voice: str = Form(""),
+    keep_vocals: bool = Form(False),
 ):
     user = current_user(request)
     ready, why = studio.available()
@@ -1311,7 +1317,8 @@ async def api_studio_start(
                                  "вернётся. Разделение на партии и дописывание партии работают.")
     if engine == "runpod" and not studio.api_key():
         raise HTTPException(503, "Эта услуга ещё не подключена: нет ключа RunPod на сервере")
-    if mode == "restyle" and engine == "mureka" and not lyrics.strip():
+    keep_vocals = keep_vocals and mode == "restyle" and engine == "mureka"
+    if mode == "restyle" and engine == "mureka" and not keep_vocals and not lyrics.strip():
         # remix у Mureka требует текст: мелодию она сохраняет и поёт по нему.
         raise HTTPException(400, "Для переделки нужен текст песни — нейросеть сохраняет мелодию "
                                  "и поёт по тексту. Вставьте его в поле «Текст песни».")
@@ -1332,8 +1339,10 @@ async def api_studio_start(
     clamp = lambda v: max(0.0, min(1.0, float(v)))  # noqa: E731
     knobs = {"audio_influence": clamp(audio_influence),
              "style_influence": clamp(style_influence), "weirdness": clamp(weirdness)}
+    voice = voice if voice in studio.VOICES else ""
     settings = {"kind": "studio", "mode": mode, "title": service.title, "preset": preset,
-                **knobs, "track": track, "charged": 0, "engine": engine}
+                **knobs, "track": track, "charged": 0, "engine": engine, "voice": voice,
+                "keepVocals": keep_vocals}
     name = (file.filename if file else "") or (title.strip()[:80] or
                                                  studio.PRESETS.get(preset, ("Песня",))[0])
     job = storage.create_job(user.id, name, settings)
@@ -1359,6 +1368,7 @@ async def api_studio_start(
         **(_runpod_restyle_recipe(knobs["audio_influence"], clamp(melody))
            if mode == "restyle" and engine == "runpod" else {}),
         "track": track, "language": language if language in ("ru", "en") else "ru",
+        "voice": voice, "keep_vocals": keep_vocals,
     })
     response = JSONResponse({"jobId": job.id})
     attach_cookie(response, user.id)
@@ -1559,6 +1569,9 @@ def api_studio_file(job_id: str, name: str, request: Request):
     path = os.path.join(studio_runner.folder(job_id), safe)
     if not os.path.isfile(path):
         raise HTTPException(404, "Файл не найден")
+    if safe == "cover.jpg":
+        return FileResponse(path, media_type="image/jpeg",
+                            headers={"Cache-Control": "private, max-age=86400"})
     label = studio.label_of((job.settings or {}).get("mode", ""), safe)
     return FileResponse(path, filename=download_name(job.filename, label, ".mp3"))
 

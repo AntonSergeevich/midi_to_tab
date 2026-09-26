@@ -730,3 +730,9 @@ header.top > div > .badge { margin-left: 8px; text-decoration: none; }
   header.top > div > a[href="/studio"]::before, header.top > div > a[href="/library"]::before,
   header.top > div > a[href="/pricing"]:not(.badge)::before { width: 18px; height: 18px; }
 }
+.st-keep { align-items: flex-start; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); cursor: pointer; }
+.st-keep input { margin-top: 3px; flex: none; }
+.st-keep b { display: block; }
+.st-keep small { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 2px; }
+.st-cover { overflow: hidden; }
+.st-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }

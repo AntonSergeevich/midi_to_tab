@@ -24,6 +24,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -79,7 +80,13 @@ MUREKA_STATES = {"preparing": "Готовим трек", "queued": "В очер�
 # списывает три. Разделение дешёвое и идёт только с баланса.
 PACK_COST = {"create": 1, "restyle": 2, "enrich": 1}
 PACK_MODES = tuple(PACK_COST)
-MUREKA_SONG_MODEL = "mureka-9"   # $0.045 за версию; auto может взять дорогую 9.5
+MUREKA_SONG_MODEL = "mureka-9"
+KEEP_VARIANTS = 2  # аранжировок под голос оригинала за одну переделку
+# Голос: у song/generate есть параметр gender (male/female); дуэта в нём нет,
+# его, как и голос для переделки (у remix параметра нет), просим в описании.
+VOICES = {"": ("Любой", ""), "male": ("Мужской", "male vocals"),
+          "female": ("Женский", "female vocals"),
+          "duet": ("Дуэт", "duet, male and female vocals")}   # $0.045 за версию; auto может взять дорогую 9.5
 LYRICS_PER_DAY = 30              # бесплатное сочинение текста -- с ограничением
 
 # Готовые стили -- подсказки для нейросети на английском: так её учили.
@@ -172,6 +179,46 @@ def relay_endpoint_id() -> str:
             raise RuntimeError(f"На RunPod нет ретранслятора {RELAY_NAME}")
         _relay_cache["id"] = found[0]["id"]
     return _relay_cache["id"]
+
+
+COVER_NAME = "naslux-cover"
+_cover_cache: dict[str, str] = {}
+
+
+def cover_endpoint_id() -> str:
+    configured = os.environ.get("NASLUX_COVER_ENDPOINT", "")
+    if configured:
+        return configured
+    if "id" not in _cover_cache:
+        found = [e for e in call("GET", f"{RUNPOD_REST}/endpoints")
+                 if e.get("name", "").startswith(COVER_NAME)]
+        if not found:
+            raise RuntimeError(f"На RunPod нет эндпоинта {COVER_NAME}")
+        _cover_cache["id"] = found[0]["id"]
+    return _cover_cache["id"]
+
+
+def make_cover(task_input: dict, title: str, lyrics: str, style: str, seed: int) -> bool:
+    """Обложка к песне (cover/handler.py на RunPod): cover.jpg приходит в папку
+    задачи по ссылке загрузки. Обложка -- украшение: любая ошибка -> False,
+    песня от этого не страдает."""
+    if not api_key() or not task_input.get("upload_url") \
+            or os.environ.get("NASLUX_COVERS", "1") == "0":
+        return False
+    try:
+        endpoint = cover_endpoint_id()
+        job = call("POST", f"{RUNPOD_API}/{endpoint}/runsync", {"input": {
+            "title": title[:120], "lyrics": lyrics[:1500], "style": style[:200], "seed": seed,
+            "upload_url": task_input["upload_url"]}}, timeout=180)
+        started = time.time()
+        while job.get("status") in ("IN_QUEUE", "IN_PROGRESS") and time.time() - started < 600:
+            time.sleep(5)
+            job = call("GET", f"{RUNPOD_API}/{endpoint}/status/{job['id']}")
+        return bool((job.get("output") or {}).get("ok"))
+    except Exception as error:  # noqa: BLE001
+        print(f"обложка не получилась: {error}", file=sys.stderr, flush=True)
+        _cover_cache.pop("id", None)
+        return False
 
 
 def relay_run(task: dict, timeout: int = 900) -> dict:
@@ -322,6 +369,23 @@ def mureka_source(source: str, folder: str) -> str:
     raise RuntimeError("трек нужно перекодировать в mp3 до 10 МБ, а ffmpeg на сервере нет")
 
 
+def mureka_audio(source: str, folder: str) -> str:
+    """Вокал для track/generate (purpose audio: mp3 до 10 МБ): моно 128 кбит/с --
+    это ~5.8 МБ даже на 6 минутах."""
+    target = os.path.join(folder, "for_mureka.mp3")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", source, "-t", str(MUREKA_MAX_SECONDS),
+                    "-ac", "1", "-b:a", "128k", target], check=True, timeout=300)
+    return target
+
+
+def mix_vocals(vocals: str, backing: str, target: str) -> None:
+    """Голос поверх новой аранжировки: без нормализации amix (иначе оба тише
+    вдвое), длина -- по голосу."""
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", vocals, "-i", backing, "-filter_complex",
+                    "[0:a][1:a]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95",
+                    "-b:a", "256k", target], check=True, timeout=300)
+
+
 def download(url: str, target: str) -> None:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=300) as response, open(target, "wb") as out:
@@ -365,7 +429,9 @@ def check_link(secret: str, job_id: str, purpose: str, expires: int, signature: 
 
 
 def safe_file_name(name: str) -> str | None:
-    """Имя файла от воркера: только простое имя mp3, без путей."""
+    """Имя файла от воркера: только простое имя mp3 (или обложка), без путей."""
+    if name == "cover.jpg":
+        return name
     return name if re.fullmatch(r"[A-Za-z0-9_.-]{1,80}\.mp3", name or "") else None
 
 
@@ -375,7 +441,9 @@ def label_of(mode: str, name: str) -> str:
         return STEM_LABELS.get(stem, stem)
     if mode == "enrich":
         return "С дописанной партией"
-    number = stem.rsplit("_", 1)[-1]  # restyle_2 / create_2
+    number = stem.rsplit("_", 1)[-1]  # restyle_2 / create_2 / backing_2
+    if stem.startswith("backing_"):
+        return f"Минус {number} — без голоса"
     return f"Вариант {number}" if number.isdigit() else "Новая версия"
 
 
@@ -451,18 +519,149 @@ class StudioRunner:
         except Exception as error:  # noqa: BLE001 -- любая ошибка -> деньги назад
             self._fail(job_id, str(error))
 
+    def _mureka_wait(self, job_id: str, kind: str, task_id: str, created_at: float,
+                     stage: str = "") -> dict:
+        """Опрос задачи Mureka до конца; ход -- в задачу сайта."""
+        while True:
+            status = mureka_call("GET", f"/v1/{kind}/query/{task_id}")
+            state = status.get("status")
+            if state not in MUREKA_STATES:
+                if state != "succeeded":
+                    raise RuntimeError(status.get("failed_reason") or state or "нет ответа")
+                return status
+            elapsed = time.time() - created_at
+            self.storage.update_job(job_id, status="running", stage=stage or MUREKA_STATES[state],
+                                    progress=min(90, 5 + elapsed / 3))
+            if elapsed > JOB_TIMEOUT:
+                raise RuntimeError("Mureka не справилась за отведённое время")
+            time.sleep(POLL_SECONDS)
+
+    def _start_cover(self, job_id: str) -> None:
+        """Обложка рисуется параллельно с музыкой -- к готовой песне она уже есть."""
+        job = self.storage.job(job_id)
+        settings = job.settings or {}
+        if settings.get("coverAsked") or os.path.isfile(os.path.join(self.folder(job_id), "cover.jpg")):
+            return
+        self.storage.update_job(job_id, settings={**settings, "coverAsked": True})
+        task_input = settings.get("input") or {}
+        threading.Thread(target=make_cover, daemon=True, args=(
+            task_input, job.filename, task_input.get("lyrics", ""), task_input.get("prompt", ""),
+            int(job_id[:8], 16))).start()
+
+    def _separate_vocals(self, job_id: str, settings: dict) -> str:
+        """Вокал исходника -- Demucs на нашем воркере (режим stems): партии
+        приходят в папку задачи по ссылке загрузки, нужна из них одна."""
+        folder = self.folder(job_id)
+        vocals = os.path.join(folder, "vocals.mp3")
+        if os.path.isfile(vocals):
+            return vocals
+        remote = settings.get("vocals_remote")
+        if not remote:
+            endpoint = endpoint_id()
+            started = call("POST", f"{RUNPOD_API}/{endpoint}/run",
+                           {"input": {**settings["input"], "mode": "stems"}})
+            remote = settings["vocals_remote"] = {"endpoint": endpoint, "id": started["id"]}
+            self.storage.update_job(job_id, settings=settings)
+        created = self.storage.job(job_id).created_at
+        while True:
+            status = call("GET", f"{RUNPOD_API}/{remote['endpoint']}/status/{remote['id']}")
+            state = status.get("status")
+            if state not in STATES:
+                break
+            elapsed = time.time() - created
+            self.storage.update_job(job_id, status="running", stage="Выделяем ваш голос",
+                                    progress=min(40, 3 + elapsed / 4))
+            if elapsed > JOB_TIMEOUT:
+                raise RuntimeError("видеокарта не справилась за отведённое время")
+            time.sleep(POLL_SECONDS)
+        if state != "COMPLETED" or not (status.get("output") or {}).get("ok") \
+                or not os.path.isfile(vocals):
+            raise RuntimeError("не получилось выделить голос: "
+                               f"{(status.get('output') or {}).get('error') or state}")
+        return vocals
+
+    def _run_keep_vocals(self, job_id: str) -> None:
+        """Переделка с голосом оригинала. Remix Mureka перепевает песню сам и
+        может увести мелодию припева; здесь мелодия и голос остаются точно
+        как были: Demucs выделяет вокал, Mureka track/generate пишет под него
+        новую аранжировку (две по очереди: на пробном тарифе одна задача
+        за раз), сервер сводит вокал с каждой. Минусы тоже отдаём."""
+        try:
+            job = self.storage.job(job_id)
+            settings = dict(job.settings or {})
+            task_input = settings.get("input") or {}
+            folder = self.folder(job_id)
+            self._start_cover(job_id)
+            settings = dict(self.storage.job(job_id).settings or {})
+            vocals = self._separate_vocals(job_id, settings)
+            state = settings.get("keep") or {"ids": []}
+            for number in range(1, KEEP_VARIANTS + 1):
+                backing = f"backing_{number}.mp3"
+                if os.path.isfile(os.path.join(folder, backing)):
+                    continue
+                stage = f"Mureka пишет аранжировку {number} из {KEEP_VARIANTS}"
+                if len(state["ids"]) < number:
+                    self.storage.update_job(job_id, status="running", stage=stage)
+                    if not state.get("upload"):
+                        mureka_audio(vocals, folder)
+                        state["upload"] = mureka_upload_for(
+                            task_input, os.path.join(folder, "for_mureka.mp3"), "audio")
+                    started = mureka_call("POST", "/v1/track/generate", {
+                        "generate_type": "Instrumental", "upload_audio_id": state["upload"],
+                        "prompt": task_input.get("prompt", "")[:1024]})
+                    if not started.get("id"):
+                        raise RuntimeError(f"Mureka не приняла задачу: {str(started)[:200]}")
+                    state["ids"].append(started["id"])
+                    settings["keep"] = state
+                    self.storage.update_job(job_id, settings=settings)
+                status = self._mureka_wait(job_id, "song", state["ids"][number - 1],
+                                           job.created_at, stage)
+                choice = next((c for c in status.get("choices") or [] if c.get("url")), None)
+                if not choice:
+                    raise RuntimeError("Mureka закончила, но аранжировка до сайта не дошла")
+                fetch_result(task_input, choice["url"], folder, backing)
+            self.storage.update_job(job_id, status="running", stage="Сводим голос с аранжировкой",
+                                    progress=95)
+            files = []
+            for number in range(1, KEEP_VARIANTS + 1):
+                backing = os.path.join(folder, f"backing_{number}.mp3")
+                if not os.path.isfile(backing):
+                    continue
+                name = f"restyle_{number}.mp3"
+                mix_vocals(vocals, backing, os.path.join(folder, name))
+                files.append({"name": name, "label": label_of("restyle", name)})
+            if not files:
+                raise RuntimeError("Mureka закончила, но аранжировки до сайта не дошли")
+            files += [{"name": f"backing_{n}.mp3", "label": label_of("restyle", f"backing_{n}.mp3")}
+                      for n in range(1, KEEP_VARIANTS + 1)
+                      if os.path.isfile(os.path.join(folder, f"backing_{n}.mp3"))]
+            # Остальные партии Demucs и файл для Mureka больше не нужны.
+            for name in os.listdir(folder):
+                if name.endswith(".mp3") and name not in {f["name"] for f in files} \
+                        and name != "vocals.mp3" and not name.startswith("source."):
+                    os.remove(os.path.join(folder, name))
+            self.storage.update_job(job_id, status="done", stage="Готово", progress=100, result={
+                "files": files, "engine": "mureka", "keepVocals": True})
+        except Exception as error:  # noqa: BLE001 -- любая ошибка -> деньги назад
+            self._fail(job_id, str(error))
+
     def _run_mureka(self, job_id: str) -> None:
         """Задача Mureka: переделка (files/upload -> song/remix) или песня с
         нуля (song/generate с текстом, instrumental/generate без него), опрос
         до готовности, результат -- в папку задачи. Задача Mureka хранится
         в задаче сайта: после рестарта опрос продолжается, а не заказывается
         и не оплачивается новая."""
+        job = self.storage.job(job_id)
+        if ((job.settings or {}).get("input") or {}).get("keep_vocals"):
+            self._run_keep_vocals(job_id)
+            return
         try:
-            job = self.storage.job(job_id)
             settings = dict(job.settings or {})
             task_input = settings.get("input") or {}
             mode = settings.get("mode", "restyle")
             folder = self.folder(job_id)
+            self._start_cover(job_id)
+            settings = dict(self.storage.job(job_id).settings or {})
             remote = settings.get("remote")
             if not remote:
                 self.storage.update_job(job_id, status="running", stage="Отправляем в Mureka",
@@ -470,21 +669,8 @@ class StudioRunner:
                 remote = self._mureka_start(mode, task_input, folder)
                 settings["remote"] = remote
                 self.storage.update_job(job_id, settings=settings)
-            kind = remote.get("kind", "song")
-            while True:
-                status = mureka_call("GET", f"/v1/{kind}/query/{remote['id']}")
-                state = status.get("status")
-                if state in MUREKA_STATES:
-                    elapsed = time.time() - job.created_at
-                    self.storage.update_job(job_id, status="running", stage=MUREKA_STATES[state],
-                                            progress=min(90, 5 + elapsed / 3))
-                    if elapsed > JOB_TIMEOUT:
-                        raise RuntimeError("Mureka не справилась за отведённое время")
-                    time.sleep(POLL_SECONDS)
-                    continue
-                if state != "succeeded":
-                    raise RuntimeError(status.get("failed_reason") or state or "нет ответа")
-                break
+            status = self._mureka_wait(job_id, remote.get("kind", "song"), remote["id"],
+                                       job.created_at)
             prefix = "create" if mode == "create" else "restyle"
             files = []
             for number, choice in enumerate(status.get("choices") or [], 1):
@@ -505,16 +691,19 @@ class StudioRunner:
             self._fail(job_id, str(error))
 
     def _mureka_start(self, mode: str, task_input: dict, folder: str) -> dict:
-        prompt = task_input.get("prompt", "")[:1024]
+        voice = task_input.get("voice", "")
+        prompt = ", ".join(p for p in (task_input.get("prompt", ""),
+                                       VOICES.get(voice, ("", ""))[1]) if p)[:1024]
         lyrics = task_input.get("lyrics", "")[:5000]
         if mode == "create":
             if lyrics.strip():
                 started = mureka_call("POST", "/v1/song/generate", {
-                    "lyrics": lyrics, "prompt": prompt, "model": MUREKA_SONG_MODEL, "n": 2})
+                    "lyrics": lyrics, "prompt": prompt, "model": MUREKA_SONG_MODEL, "n": 2,
+                    **({"gender": voice} if voice in ("male", "female") else {})})
                 kind = "song"
             else:
                 started = mureka_call("POST", "/v1/instrumental/generate", {
-                    "prompt": prompt, "model": MUREKA_SONG_MODEL, "n": 2})
+                    "prompt": task_input.get("prompt", "")[:1024], "model": MUREKA_SONG_MODEL, "n": 2})
                 kind = "instrumental"
         else:
             source = next(os.path.join(folder, f) for f in sorted(os.listdir(folder))
