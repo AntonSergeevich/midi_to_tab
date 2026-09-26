@@ -25,6 +25,8 @@ def main() -> None:
     parser.add_argument("--out", default="results")
     parser.add_argument("--skip-remix", action="store_true")
     parser.add_argument("--skip-stems", action="store_true")
+    parser.add_argument("--create", action="store_true",
+                        help="ещё сочинить текст (lyrics/generate) и песню с нуля (song/generate)")
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
@@ -35,6 +37,8 @@ def main() -> None:
 
     source = studio.mureka_source(args.audio, args.out)
     print(f"Исходник для Mureka: {os.path.getsize(source) / 1e6:.1f} МБ")
+
+    mark = billing.get("total_spending") or 0
 
     if not args.skip_remix:
         lyrics = Path(args.lyrics_file).read_text() if args.lyrics_file else \
@@ -58,6 +62,9 @@ def main() -> None:
             studio.download(choice["url"], target)
             print(f"  {target}: {os.path.getsize(target) / 1e6:.1f} МБ, "
                   f"{(choice.get('duration') or 0) / 1000:.0f} с")
+        now = studio.mureka_call("GET", "/v1/account/billing").get("total_spending") or 0
+        print(f"  -> remix (2 версии): списано {(now - mark) / 100:.3f} $")
+        mark = now
 
     if not args.skip_stems:
         started = time.time()
@@ -68,6 +75,36 @@ def main() -> None:
         for key, name in (("zip_url", "stems.zip"), ("midi_zip_url", "midi.zip")):
             if stems.get(key):
                 studio.download(stems[key], os.path.join(args.out, name))
+        now = studio.mureka_call("GET", "/v1/account/billing").get("total_spending") or 0
+        print(f"  -> разделение: списано {(now - mark) / 100:.3f} $")
+        mark = now
+
+    def spent(label, before):
+        now = studio.mureka_call("GET", "/v1/account/billing").get("total_spending") or 0
+        print(f"  -> {label}: списано {(now - before) / 100:.3f} $", flush=True)
+        return now
+
+    if args.create:
+        mark = studio.mureka_call("GET", "/v1/account/billing").get("total_spending") or 0
+        text = studio.mureka_call("POST", "/v1/lyrics/generate", {
+            "prompt": "весёлое поздравление с днём рождения для друга Саши, поп-рок"})
+        print("текст:", text.get("title"), "|", (text.get("lyrics") or "")[:300].replace("\n", " / "))
+        mark = spent("сочинение текста", mark)
+        started = time.time()
+        task = studio.mureka_call("POST", "/v1/song/generate", {
+            "lyrics": text.get("lyrics") or "[Verse]\nС днём рождения", "model": "mureka-9",
+            "prompt": "pop rock, upbeat, male vocal, birthday", "n": 2})
+        while True:
+            time.sleep(5)
+            status = studio.mureka_call("GET", f"/v1/song/query/{task['id']}")
+            if status.get("status") not in studio.MUREKA_STATES:
+                break
+        print(f"песня с нуля за {time.time() - started:.0f} с: {status.get('status')}, "
+              f"модель {status.get('model')}")
+        for number, choice in enumerate(status.get("choices") or [], 1):
+            target = os.path.join(args.out, f"generate_{number}.mp3")
+            studio.download(choice["url"], target)
+        spent("песня с нуля (2 версии)", mark)
 
     billing = studio.mureka_call("GET", "/v1/account/billing")
     print("Баланс после:", billing.get("balance"), "центов, потрачено всего:",
