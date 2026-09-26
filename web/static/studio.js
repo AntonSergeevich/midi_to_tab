@@ -103,8 +103,19 @@ function lyricsCount() {
   $('lyricsCount').textContent = `строк: ${lines} · ${$('lyrics').value.length} из 5000`;
 }
 
+// На весь экран окно текста выносится прямо в <body>: внутри «липкой»
+// панели оно оставалось в её слое, и список треков рисовался поверх.
+let lyricsHome = null;
 function lyricsFull(open) {
-  $('lyricsWrap').classList.toggle('full', open);
+  const wrap = $('lyricsWrap');
+  if (open && !lyricsHome) {
+    lyricsHome = [wrap.parentNode, wrap.nextSibling];
+    document.body.appendChild(wrap);
+  } else if (!open && lyricsHome) {
+    lyricsHome[0].insertBefore(wrap, lyricsHome[1]);
+    lyricsHome = null;
+  }
+  wrap.classList.toggle('full', open);
   document.body.style.overflow = open ? 'hidden' : '';
   if (open) $('lyrics').focus();
 }

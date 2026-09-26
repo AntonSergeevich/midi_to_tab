@@ -546,7 +546,7 @@ footer.legal a:hover { color: var(--accent); }
   position: fixed; inset: 0; z-index: 50; background: var(--bg, #15161c);
   display: flex; flex-direction: column; padding: 14px 16px; gap: 10px;
 }
-.lyrics-wrap.full .lyrics-bar { display: flex; gap: 12px; align-items: center; }
+.lyrics-wrap.full .lyrics-bar { display: flex; gap: 12px; align-items: center; max-width: 900px; width: 100%; margin: 0 auto; }
 .lyrics-wrap.full .lyrics-bar .muted { flex: 1; }
 .lyrics-wrap.full textarea { flex: 1; resize: none; font-size: 16px; line-height: 1.5; max-width: 900px; width: 100%; margin: 0 auto; }
 @media (max-width: 640px) { .knobs { grid-template-columns: 1fr; } }
@@ -683,3 +683,50 @@ footer.legal a:hover { color: var(--accent); }
   .st-dhead h2 { font-size: 18px; }
 }
 .studio-app [hidden] { display: none !important; }
+
+/* ---------------- меню в шапке: таблетки с иконками ---------------- */
+
+header.top > div > a:not(.badge) {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 13px; border-radius: 999px; font-size: 14px; font-weight: 500;
+  color: var(--muted); text-decoration: none; border: 1px solid transparent;
+  transition: color .15s, background .15s, border-color .15s;
+}
+header.top > div > a:not(.badge):hover { color: var(--text); background: var(--panel-hi); }
+header.top > div > a[aria-current="page"] {
+  color: var(--accent); background: rgba(217,154,78,.1); border-color: rgba(217,154,78,.35);
+}
+header.top > div > a[href="/studio"]::before,
+header.top > div > a[href="/library"]::before,
+header.top > div > a[href="/pricing"]:not(.badge)::before,
+header.top > div > a.who::before {
+  content: ""; width: 16px; height: 16px; flex: none; background: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat;
+}
+header.top > div > a[href="/studio"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12 3 1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z'/%3E%3Cpath d='M18 15v5M15.5 17.5h5'/%3E%3C/svg%3E");
+}
+header.top > div > a[href="/library"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 18V5l12-2v13'/%3E%3Ccircle cx='6' cy='18' r='3'/%3E%3Ccircle cx='18' cy='16' r='3'/%3E%3C/svg%3E");
+}
+header.top > div > a[href="/pricing"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z'/%3E%3Ccircle cx='7.5' cy='7.5' r='1.5'/%3E%3C/svg%3E");
+}
+header.top > div > a.who {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21a8 8 0 0 1 16 0'/%3E%3C/svg%3E");
+  display: inline-flex; max-width: 240px; overflow: hidden; text-overflow: ellipsis;
+  background: var(--panel); border-color: var(--border);
+}
+header.top > div { gap: 4px !important; }
+header.top > div > .badge { margin-left: 8px; text-decoration: none; }
+@media (max-width: 720px) {
+  header.top > div > a:not(.badge) { padding: 6px 10px; font-size: 13px; gap: 5px; }
+  header.top > div > a.who { max-width: 34vw; }
+}
+@media (max-width: 420px) {
+  /* На узком экране у пунктов меню остаются только иконки, кроме почты */
+  header.top > div > a[href="/studio"], header.top > div > a[href="/library"],
+  header.top > div > a[href="/pricing"]:not(.badge) { font-size: 0; gap: 0; padding: 8px 10px; }
+  header.top > div > a[href="/studio"]::before, header.top > div > a[href="/library"]::before,
+  header.top > div > a[href="/pricing"]:not(.badge)::before { width: 18px; height: 18px; }
+}
