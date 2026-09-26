@@ -23,6 +23,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -144,7 +145,9 @@ def available() -> tuple[bool, str]:
     return True, ""
 
 
-MUREKA_BUSY_WAIT = 20 * 60     # сколько ждать своей очереди при занятом лимите
+MUREKA_BUSY_WAIT = int(os.environ.get("MUREKA_BUSY_WAIT", 20 * 60))  # ждать очереди, с
+MUREKA_NOT_BUSY = ("balance", "quota", "credit", "insufficient", "recharge", "payment",
+                   "余额", "额度")
 
 
 def mureka_call(method: str, path: str, body: dict | None = None, timeout: int = 60) -> dict:
@@ -161,7 +164,12 @@ def mureka_call(method: str, path: str, body: dict | None = None, timeout: int =
                 return json.loads(response.read() or b"{}")
         except urllib.error.HTTPError as error:
             detail = error.read()[:300].decode(errors="replace")
-            if error.code == 429 and time.time() < deadline:
+            # 429 бывает и не про занятость: кончились деньги или квота --
+            # тогда ждать бессмысленно, падаем сразу (деньги клиенту вернутся).
+            money = any(word in detail.lower() for word in MUREKA_NOT_BUSY)
+            if error.code == 429 and not money and time.time() < deadline:
+                print(f"[mureka] {path}: 429, ждём очереди -- {detail[:150]}",
+                      file=sys.stderr, flush=True)
                 time.sleep(POLL_SECONDS)
                 continue
             raise RuntimeError(f"Mureka ответила {error.code}: {detail}") from error

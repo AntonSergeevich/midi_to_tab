@@ -25,6 +25,7 @@ jobs:
       MUREKA_API_KEY: ${{ secrets.MUREKA_API_KEY || secrets.MUREKA_API_KEY2 }}
       SECONDS_: ${{ inputs.seconds }}
       WHAT: ${{ inputs.what }}
+      MUREKA_BUSY_WAIT: "90"
       AUDIO_URL: ${{ inputs.audio_url }}
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +43,7 @@ jobs:
           flags=""
           [ "$WHAT" = remix ] && flags="--skip-stems"
           [ "$WHAT" = stems ] && flags="--skip-remix"
-          python scripts/mureka_test.py source.mp3 --out results $flags
+          python -u scripts/mureka_test.py source.mp3 --out results $flags
           rm -f results/for_mureka.mp3
           (cd results && for z in *.zip; do [ -f "$z" ] && unzip -l "$z"; done) || true
       - name: В ветку test-results

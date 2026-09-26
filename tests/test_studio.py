@@ -435,3 +435,22 @@ def test_mureka_waits_when_concurrency_limit_is_busy(studio_app, monkeypatch):
 
     monkeypatch.setattr(studio.urllib.request, "urlopen", urlopen)
     assert studio.mureka_call("POST", "/v1/song/remix", {"n": 2}) == {"id": "t1"}
+
+
+def test_mureka_429_about_money_fails_at_once(studio_app, monkeypatch):
+    import io
+    import urllib.error
+
+    app_module, _client, _user, _submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    calls = []
+
+    def urlopen(request, timeout=60):
+        calls.append(1)
+        raise urllib.error.HTTPError("u", 429, "x", {}, io.BytesIO(b'{"error":"insufficient balance"}'))
+
+    monkeypatch.setattr(studio.urllib.request, "urlopen", urlopen)
+    with pytest.raises(RuntimeError, match="insufficient balance"):
+        studio.mureka_call("GET", "/v1/account/billing")
+    assert len(calls) == 1
