@@ -1,0 +1,95 @@
+name: Обучение нейросети аккордов
+
+# scripts/chordnet: синтетика (FluidSynth, свободные звуковые банки) +
+# GuitarSet (CC BY 4.0) -> CRNN -> замер majmin на гитаристе, которого
+# модель не слышала, рядом со старым разбором. Модель (ONNX) и отчёт --
+# в ветку test-results/chordnet-<номер прогона>.
+on:
+  workflow_dispatch:
+    inputs:
+      steps:
+        description: Шагов обучения
+        default: "8000"
+      synth:
+        description: Синтетических записей по 30 с
+        default: "2400"
+      test_player:
+        description: Гитарист GuitarSet для проверки (00..05)
+        default: "05"
+
+permissions:
+  contents: write
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      STEPS: ${{ inputs.steps }}
+      SYNTH: ${{ inputs.synth }}
+      PLAYER: ${{ inputs.test_player }}
+    steps:
+      - name: Освободить место
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Зависимости
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fluidsynth fluid-soundfont-gm timgm6mb-soundfont
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q -r requirements.txt -r requirements-audio.txt pretty_midi onnx
+          ls /usr/share/sounds/sf2/
+      - name: GuitarSet
+        run: |
+          base=https://zenodo.org/records/3371780/files
+          mkdir -p gs/annotation gs/audio_mono-mic gs/audio_mono-pickup_mix
+          curl -sSfL "$base/annotation.zip?download=1" -o annotation.zip
+          unzip -q -o annotation.zip -d gs/annotation
+          find gs/annotation -mindepth 2 -name '*.jams' -exec mv -t gs/annotation {} +
+          for part in audio_mono-mic audio_mono-pickup_mix; do
+            curl -sSfL "$base/$part.zip?download=1" -o "$part.zip"
+            unzip -q -o "$part.zip" -d "gs/$part"
+            find "gs/$part" -mindepth 2 -name '*.wav' -exec mv -t "gs/$part" {} +
+            rm "$part.zip"
+          done
+          ls gs/audio_mono-mic | wc -l; ls gs/audio_mono-pickup_mix | wc -l
+      - name: Синтетика
+        run: |
+          fonts=$(ls /usr/share/sounds/sf2/*.sf2 | grep -v default)
+          per=$(( SYNTH / 4 ))
+          for i in 1 2 3 4; do
+            python -u scripts/chordnet/synth.py --count "$per" --seed "$i" --prefix "synth$i" \
+              --out synth --soundfonts $fonts > "synth$i.log" 2>&1 &
+          done
+          wait
+          tail -n 1 synth*.log; ls synth/*.wav | wc -l; du -sh synth
+      - name: Признаки
+        run: |
+          python -u scripts/chordnet/prepare.py --guitarset gs/audio_mono-mic gs/audio_mono-pickup_mix \
+            --annotations gs/annotation --synth synth --out data --delete-synth
+          du -sh data
+      - name: Обучение и замер
+        run: |
+          mkdir -p results
+          python -u scripts/chordnet/train.py --data data --annotations gs/annotation \
+            --test-audio gs/audio_mono-mic --test-player "$PLAYER" --steps "$STEPS" --baseline \
+            --export results/chordnet.onnx --report results/report.json 2>&1 | tee results/train.log
+      - name: В ветку test-results
+        if: always()
+        run: |
+          [ -n "$(ls -A results 2>/dev/null)" ] || exit 0
+          dir="chordnet-${{ github.run_id }}"
+          git clone -q --depth 1 --branch test-results \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
+          mkdir -p "out/$dir" && cp results/* "out/$dir/"
+          cd out
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "Нейросеть аккордов: прогон ${{ github.run_id }}"
+          git push -q origin HEAD:test-results
+          echo "Файлы: test-results/$dir"
