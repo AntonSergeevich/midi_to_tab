@@ -323,6 +323,7 @@ def test_restyle_goes_to_mureka_and_needs_lyrics(studio_app, monkeypatch):
     """С ключом Mureka переделка идёт к ней; без текста песни не запускается."""
     app_module, client, user, submitted = studio_app
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
     monkeypatch.setattr(app_module.studio, "RESTYLE_OPEN", False)
     app_module.storage.add_balance(user.id, 100)
     info = client.get("/api/studio").json()
@@ -339,6 +340,7 @@ def test_mureka_runner_uploads_remixes_and_downloads(studio_app, monkeypatch):
     app_module, client, user, submitted = studio_app
     studio = app_module.studio
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
     app_module.storage.add_balance(user.id, 100)
     job_id = _start(client, lyrics="Строка").json()["jobId"]
     app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings,
@@ -377,6 +379,7 @@ def test_mureka_failure_refunds(studio_app, monkeypatch):
     app_module, client, user, submitted = studio_app
     studio = app_module.studio
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
     app_module.storage.add_balance(user.id, 100)
     job_id = _start(client, lyrics="Строка").json()["jobId"]
     app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings,
@@ -397,6 +400,7 @@ def test_mureka_failure_refunds(studio_app, monkeypatch):
 def test_stems_need_runpod_even_with_mureka(studio_app, monkeypatch):
     app_module, client, user, submitted = studio_app
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
     monkeypatch.delenv("RUNPOD_API_KEY")
     app_module.storage.add_balance(user.id, 100)
     assert _start(client, mode="stems").status_code == 503
@@ -411,6 +415,7 @@ def test_mureka_waits_when_concurrency_limit_is_busy(studio_app, monkeypatch):
     app_module, _client, _user, _submitted = studio_app
     studio = app_module.studio
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
     monkeypatch.setattr(studio, "POLL_SECONDS", 0)
     answers = iter([urllib.error.HTTPError("u", 429, "busy", {}, io.BytesIO(b"limit")), b'{"id": "t1"}'])
 
@@ -444,6 +449,7 @@ def test_mureka_429_about_money_fails_at_once(studio_app, monkeypatch):
     app_module, _client, _user, _submitted = studio_app
     studio = app_module.studio
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
     calls = []
 
     def urlopen(request, timeout=60):
@@ -466,3 +472,21 @@ def test_runpod_restyle_uses_v2_recipe_by_default(studio_app):
     assert submitted[-1][1]["raw"] == {"audio_cover_strength": 0.7, "cover_noise_strength": 0.1}
     assert _start(client, mode="stems").status_code == 200
     assert "raw" not in submitted[-1][1]
+
+
+def test_mureka_key_alone_does_not_switch_restyle_engine(studio_app, monkeypatch):
+    """Ключ Mureka на сервере без явной настройки -- переделка остаётся на RunPod."""
+    app_module, client, user, submitted = studio_app
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.delenv("NASLUX_RESTYLE_ENGINE", raising=False)
+    app_module.storage.add_balance(user.id, 100)
+    assert client.get("/api/studio").json()["restyleEngine"] == "runpod"
+    job_id = _start(client).json()["jobId"]            # без текста -- для RunPod можно
+    assert app_module.storage.job(job_id).settings["engine"] == "runpod"
+
+
+def test_html_error_page_is_shortened_to_its_title(studio_app):
+    app_module, *_ = studio_app
+    page = '<!doctype html><html lang="en"><head><title>Service unavailable | Mureka</title>'
+    assert app_module.studio.short_error(page) == "страница «Service unavailable | Mureka»"
+    assert app_module.studio.short_error('{"error": "x"}') == '{"error": "x"}'

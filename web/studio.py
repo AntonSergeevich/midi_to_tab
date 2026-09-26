@@ -119,7 +119,7 @@ def call(method: str, url: str, body: dict | None = None, timeout: int = 60) -> 
             raw = response.read()
     except urllib.error.HTTPError as error:
         raise RuntimeError(f"RunPod ответил {error.code}: "
-                           f"{error.read()[:300].decode(errors='replace')}") from error
+                           f"{short_error(error.read()[:2000].decode(errors='replace'))}") from error
     return json.loads(raw or b"{}")
 
 
@@ -132,11 +132,27 @@ def mureka_key() -> str:
 
 
 def restyle_engine() -> str:
-    return "mureka" if mureka_key() else "runpod"
+    """Mureka -- только по явной настройке NASLUX_RESTYLE_ENGINE=mureka.
+
+    Один ключ в окружении -- не повод: 26.09 ключ на сервере появился, а
+    денег на счету Mureka не было, и переделки молча ушли туда и упали.
+    Вдобавок с российского сервера Mureka отвечает 403 «Service
+    unavailable» (с серверов GitHub тот же ключ работает) -- напрямую
+    с naslux.ru её не вызвать."""
+    wanted = os.environ.get("NASLUX_RESTYLE_ENGINE", "runpod").strip().lower()
+    return "mureka" if wanted == "mureka" and mureka_key() else "runpod"
 
 
 def restyle_open() -> bool:
-    return bool(mureka_key()) or RESTYLE_OPEN
+    return restyle_engine() == "mureka" or RESTYLE_OPEN
+
+
+def short_error(detail: str) -> str:
+    """Ответ сервиса -- в короткую строку: вместо HTML-страницы её заголовок."""
+    if "<html" in detail.lower() or "<!doctype" in detail.lower():
+        title = re.search(r"<title>(.*?)</title>", detail, re.I | re.S)
+        return f"страница «{title.group(1).strip()}»" if title else "HTML-страница вместо ответа"
+    return detail[:300]
 
 
 def available() -> tuple[bool, str]:
@@ -172,7 +188,7 @@ def mureka_call(method: str, path: str, body: dict | None = None, timeout: int =
                       file=sys.stderr, flush=True)
                 time.sleep(POLL_SECONDS)
                 continue
-            raise RuntimeError(f"Mureka ответила {error.code}: {detail}") from error
+            raise RuntimeError(f"Mureka ответила {error.code}: {short_error(detail)}") from error
 
 
 def mureka_upload(path: str, purpose: str) -> str:
@@ -194,7 +210,7 @@ def mureka_upload(path: str, purpose: str) -> str:
             uploaded = json.loads(response.read() or b"{}")
     except urllib.error.HTTPError as error:
         raise RuntimeError(f"Mureka не приняла файл ({error.code}): "
-                           f"{error.read()[:300].decode(errors='replace')}") from error
+                           f"{short_error(error.read()[:2000].decode(errors='replace'))}") from error
     if not uploaded.get("id"):
         raise RuntimeError(f"Mureka не вернула id файла: {str(uploaded)[:200]}")
     return uploaded["id"]
