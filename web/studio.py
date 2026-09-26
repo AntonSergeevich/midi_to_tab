@@ -178,7 +178,15 @@ def relay_run(task: dict, timeout: int = 900) -> dict:
     """Операция ретранслятора: runsync, а если не успел -- опрос статуса."""
     endpoint = relay_endpoint_id()
     started = time.time()
-    job = call("POST", f"{RUNPOD_API}/{endpoint}/runsync", {"input": task}, timeout=180)
+    try:
+        job = call("POST", f"{RUNPOD_API}/{endpoint}/runsync", {"input": task}, timeout=180)
+    except RuntimeError as error:
+        # Ретранслятор пересоздали -- у него новый id: забыть старый и найти заново.
+        if "ответил 404" not in str(error) or "id" not in _relay_cache:
+            raise
+        _relay_cache.pop("id", None)
+        endpoint = relay_endpoint_id()
+        job = call("POST", f"{RUNPOD_API}/{endpoint}/runsync", {"input": task}, timeout=180)
     while job.get("status") in ("IN_QUEUE", "IN_PROGRESS"):
         if time.time() - started > timeout:
             raise RuntimeError("ретранслятор не ответил вовремя")

@@ -643,3 +643,24 @@ def test_studio_version_goes_to_tabs_and_midi(studio_app, monkeypatch):
     assert tab_job.settings["separate"] is True and tab_job.settings["studio"] == job_id
     assert open(started[0][1], "rb").read() == b"song"
     assert "Вариант 1" in tab_job.filename
+
+
+def test_relay_forgets_deleted_endpoint(monkeypatch):
+    """Ретранслятор пересоздали на RunPod -- старый id отвечает 404, берём новый."""
+    from web import studio
+
+    monkeypatch.delenv("NASLUX_RELAY_ENDPOINT", raising=False)
+    monkeypatch.setitem(studio._relay_cache, "id", "old")
+    calls = []
+
+    def fake_call(method, url, body=None, timeout=60):
+        calls.append(url)
+        if url.endswith("/endpoints"):
+            return [{"id": "new", "name": "naslux-relay"}]
+        if "/old/" in url:
+            raise RuntimeError("RunPod ответил 404: not found")
+        return {"status": "COMPLETED", "output": {"ok": True}}
+
+    monkeypatch.setattr(studio, "call", fake_call)
+    assert studio.relay_run({"op": "call"})["ok"] is True
+    assert studio._relay_cache["id"] == "new"

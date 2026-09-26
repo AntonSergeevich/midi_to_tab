@@ -40,21 +40,29 @@ def call(method, path, **kwargs):
 
 def main() -> None:
     template = next((t for t in call("GET", "/templates") if t.get("name") == NAME), None)
+    endpoint = next((e for e in call("GET", "/endpoints") if e.get("name", "").startswith(NAME)),
+                    None)
+    if endpoint is not None and endpoint.get("gpuTypeIds"):
+        # Первый раз RunPod создал его на видеокарте: шаблон был в категории NVIDIA,
+        # и поля CPU он пропустил. Ретранслятору видеокарта не нужна -- пересоздаём.
+        call("DELETE", f"/endpoints/{endpoint['id']}")
+        endpoint = None
+        if template is not None:
+            call("DELETE", f"/templates/{template['id']}")
+            template = None
     if template is None:
         template = call("POST", "/templates", json={
-            "name": NAME, "imageName": IMAGE, "isServerless": True,
+            "name": NAME, "imageName": IMAGE, "isServerless": True, "category": "CPU",
             "containerDiskInGb": 5, "env": ENV})
     else:
         call("PATCH", f"/templates/{template['id']}", json={"imageName": IMAGE, "env": ENV})
-    endpoint = next((e for e in call("GET", "/endpoints") if e.get("name", "").startswith(NAME)),
-                    None)
     if endpoint is None:
         endpoint = call("POST", "/endpoints", json={
             "name": NAME, "templateId": template["id"], "computeType": "CPU",
             "cpuFlavorIds": ["cpu3c", "cpu3g", "cpu5c"], "vcpuCount": 2,
-            "workersMin": 0, "workersMax": 3, "idleTimeout": 60,
+            "workersMin": 0, "workersMax": 3, "idleTimeout": 20,
             "executionTimeoutMs": 900000})
-    print("RELAY_ENDPOINT", endpoint["id"])
+    print("RELAY_ENDPOINT", endpoint["id"], "GPU" if endpoint.get("gpuTypeIds") else "CPU")
 
 
 if __name__ == "__main__":
