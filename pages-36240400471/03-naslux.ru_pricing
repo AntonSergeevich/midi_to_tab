@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15161c">
+<title>NASLUX — тарифы</title>
+<meta name="description" content="Две бесплатные песни, потом 19 ₽ за трек или 199 ₽ в месяц без ограничений.">
+<link rel="icon" href="/static/favicon.svg?v=6ab7b290" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css?v=6ab7b290">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a href="/" class="brand"><img src="/static/logo.svg?v=6ab7b290" alt="" width="76" height="24"><span>NASLUX</span></a>
+    <div style="display:flex;gap:14px;align-items:center">
+      <a href="/studio">Студия</a>
+      <a href="/library">Мои треки</a>
+      <a href="/pricing">Тарифы</a>
+      <a href="/account" id="account" class="who">Вход</a>
+      <a href="/pricing" id="access" class="badge">загрузка…</a>
+    </div>
+  </header>
+
+  <section class="hero">
+    <h1>Сколько это стоит</h1>
+    <p class="lead" id="state">Первые две песни — бесплатно, платить за них не нужно.</p>
+  </section>
+
+  <!-- Кнопки отдаются сразу вместе со страницей: пока грузились через
+       запрос, человек секунду видел пустоту на месте главного, за чем
+       он сюда и пришёл. Цены подставляет сервер из тех же констант,
+       что считают оплату, -- разойтись они не могут. -->
+  <!-- Выбор в два шага: сначала отмечаете вариант, потом отдельной
+       кнопкой подтверждаете и уходите на оплату. Раньше клик по любому
+       варианту сразу перекидывал на оплату -- невозможно было передумать
+       или сначала вписать сумму пополнения. -->
+  <div class="choices" id="plans" style="margin-bottom:12px">
+    <button class="choice" type="button" data-plan="single">
+      <b>19 ₽ — один трек</b>
+      <small>разово, без подписки. Разобрали песню — и всё</small>
+    </button>
+    <button class="choice" type="button" data-plan="month">
+      <b>199 ₽ — месяц без ограничений</b>
+      <small>сколько угодно песен 30 дней. Выгоднее с одиннадцатого трека</small>
+    </button>
+  </div>
+  <div class="choice" role="button" tabindex="0" data-plan="topup" id="topupChoice" style="margin-bottom:18px">
+    <b>Пополнить баланс</b>
+    <small>любая сумма от 50 до 10000 ₽ — тратится по 19 ₽ за трек
+      ровно в тот момент, когда начинаете разбор, а не при пополнении</small>
+    <div id="topupAmount" style="display:none;margin-top:10px">
+      <input type="number" id="amount" min="50" max="10000" step="1"
+             placeholder="Сумма, ₽" style="width:140px">
+    </div>
+  </div>
+  <h2 style="margin:6px 0 10px">Студия — песни нейросетью</h2>
+  <p class="muted" style="margin:0 0 12px">Песня с нуля по вашему тексту и стилю — 49 ₽,
+    переделка вашей песни в другой стиль — 99 ₽, каждый раз две версии на выбор.
+    Пакетом дешевле: песня с нуля — 1 генерация, переделка — 2. Генерации не сгорают, а если
+    не получилось — возвращаются в пакет.</p>
+  <div class="choices" style="margin-bottom:18px">
+    <button class="choice" type="button" data-plan="studio10">
+      <b>390 ₽ — 10 генераций</b>
+      <small>10 песен с нуля или 5 переделок — 39 ₽ за генерацию</small>
+    </button>
+    <button class="choice" type="button" data-plan="studio30">
+      <b>990 ₽ — 30 генераций</b>
+      <small>33 ₽ за генерацию — песня с нуля за 33 ₽, переделка за 66 ₽</small>
+    </button>
+  </div>
+  <button id="pay" class="choice" type="button"
+          style="display:none;text-align:center;font-weight:600;margin-bottom:18px">
+    Оплатить
+  </button>
+  <p id="msg" class="muted" style="margin:0 0 24px"></p>
+
+  <div class="card">
+    <h2>Что входит в любой тариф</h2>
+    <div class="grid" style="margin-top:12px">
+      <div><b>Аккорды всей песни</b><div class="muted">с тональностью и бегущей лентой</div></div>
+      <div><b>Аппликатуры</b><div class="muted">как ставить каждый аккорд, под ваш строй</div></div>
+      <div><b>Разделение на партии</b><div class="muted">гитара, бас, барабаны, вокал отдельно</div></div>
+      <div><b>Табы и MIDI</b><div class="muted">Guitar Pro, текстовые табы, MIDI-файл</div></div>
+      <div><b>Текст песни</b><div class="muted">распознаётся по вокальной партии</div></div>
+      <div><b>Метроном и замедление</b><div class="muted">по найденным долям, а не по среднему темпу</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Вопросы</h2>
+    <p><b>Подписка продлевается сама?</b><br>
+      <span class="muted">Нет. Через 30 дней она просто закончится — списаний без вашего
+      участия не будет.</span></p>
+    <p><b>Что выгоднее?</b><br>
+      <span class="muted">Разовая покупка — если разбираете песню изредка. Подписка
+      окупается с одиннадцатого трека в месяц.</span></p>
+    <p><b>Если разбор не получился?</b><br>
+      <span class="muted">Оплата возвращается или трек восстанавливается на счёт —
+      по вашему выбору. Напишите через форму в кабинете.</span></p>
+    <p><b>Треки остаются?</b><br>
+      <span class="muted">Да, в «Моих треках»: со всеми табами, MIDI и текстом.
+      Удалить можно в любой момент.</span></p>
+    <p><b>Как оплатить из России?</b><br>
+      <span class="muted">Напрямую российской картой, в рублях — без VPN,
+      иностранной карты и оплаты через посредников.</span></p>
+  </div>
+
+  <footer class="legal">
+    <a href="/privacy">Политика конфиденциальности</a>
+    <a href="/offer">Оферта</a>
+    <span>© NASLUX</span>
+  </footer>
+</div>
+<script src="/static/pricing.js?v=6ab7b290"></script>
+<script src="/static/consent.js?v=6ab7b290"></script>
+</body>
+</html>
