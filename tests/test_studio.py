@@ -454,3 +454,15 @@ def test_mureka_429_about_money_fails_at_once(studio_app, monkeypatch):
     with pytest.raises(RuntimeError, match="insufficient balance"):
         studio.mureka_call("GET", "/v1/account/billing")
     assert len(calls) == 1
+
+
+def test_runpod_restyle_uses_v2_recipe_by_default(studio_app):
+    """Без подмешивания исходника (удержание 0) и с силой исходника = крутилке."""
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_balance(user.id, 200)
+    assert _start(client, audio_influence="0.5").status_code == 200
+    assert submitted[-1][1]["raw"] == {"audio_cover_strength": 0.5, "cover_noise_strength": 0.0}
+    assert _start(client, audio_influence="0.7", melody="0.4").status_code == 200
+    assert submitted[-1][1]["raw"] == {"audio_cover_strength": 0.7, "cover_noise_strength": 0.1}
+    assert _start(client, mode="stems").status_code == 200
+    assert "raw" not in submitted[-1][1]

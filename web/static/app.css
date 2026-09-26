@@ -536,7 +536,7 @@ footer.legal a:hover { color: var(--accent); }
 @media (max-width: 640px) {
   .studio-modes { grid-template-columns: 1fr; }
 }
-.knobs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 14px; }
+.knobs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 14px; }
 .knob input[type=range] { width: 100%; accent-color: var(--accent); }
 .knob small { display: block; margin-top: 2px; }
 .knob b { color: var(--accent); }

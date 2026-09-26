@@ -15,7 +15,7 @@ const rub = (n) => `${Math.round(n)} ₽`;
 
 // Три крутилки, как в Suno: значения 0..1 уходят воркеру как есть, а
 // что они значат для нейросети -- решает он (worker/handler.py, restyle).
-const knobs = { audioKnob: 'audioVal', styleKnob: 'styleVal', weirdKnob: 'weirdVal' };
+const knobs = { audioKnob: 'audioVal', styleKnob: 'styleVal', weirdKnob: 'weirdVal', melodyKnob: 'melodyVal' };
 
 function knobText() {
   Object.entries(knobs).forEach(([input, out]) => { $(out).textContent = `${$(input).value}%`; });
@@ -217,6 +217,7 @@ $('start').addEventListener('click', async () => {
   form.append('audio_influence', $('audioKnob').value / 100);
   form.append('style_influence', $('styleKnob').value / 100);
   form.append('weirdness', $('weirdKnob').value / 100);
+  form.append('melody', $('melodyKnob').value / 100);
   form.append('track', $('track').value);
   form.append('language', $('language').value);
   $('start').disabled = true;

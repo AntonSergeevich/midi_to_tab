@@ -1286,6 +1286,7 @@ async def api_studio_start(
     audio_influence: float = Form(0.5),
     style_influence: float = Form(0.5),
     weirdness: float = Form(0.3),
+    melody: float = Form(0.0),
     track: str = Form("drums"),
     language: str = Form("ru"),
 ):
@@ -1343,11 +1344,26 @@ async def api_studio_start(
         # Две версии за раз: авторы ACE-Step советуют выбирать из
         # нескольких, а GPU на вторую тратит секунды.
         "variants": 2,
+        **(_runpod_restyle_recipe(knobs["audio_influence"], clamp(melody))
+           if mode == "restyle" and engine == "runpod" else {}),
         "track": track, "language": language if language in ("ru", "en") else "ru",
     })
     response = JSONResponse({"jobId": job.id})
     attach_cookie(response, user.id)
     return response
+
+
+def _runpod_restyle_recipe(audio_influence: float, melody: float) -> dict:
+    """Рецепт переделки на RunPod поверх умолчаний воркера (поле raw).
+
+    Живые пробы владельца на we_angel: с подмешиванием исходного звука
+    (cover_noise_strength, «удержание мелодии») новые инструменты звучали
+    поверх оригинала; без него -- как переписанные партии, и лучшей
+    вышла версия с силой исходника 0.5 (nomix_v2). Поэтому удержание по
+    умолчанию 0, а человек может добавить его сам (0..0.25) -- ближе к
+    мелодии ценой того самого наложения."""
+    return {"raw": {"audio_cover_strength": round(max(0.1, audio_influence), 3),
+                    "cover_noise_strength": round(0.25 * melody, 3)}}
 
 
 def _studio_charge_and_submit(request: Request, user, job_id: str, service, folder: str,
