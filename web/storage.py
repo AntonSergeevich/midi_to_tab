@@ -190,9 +190,16 @@ class Storage:
             # Вход через российские сервисы (149-ФЗ, ст. 8 ч. 10): id у Яндекса и VK
             ("yandex_id", "TEXT"),
             ("vk_id", "TEXT"),
+            # Приветственные кредиты Студии уже выданы
+            ("welcome_given", "INTEGER NOT NULL DEFAULT 0"),
         ):
             if column not in existing:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
+        # Кредиты Студии стали мельче в 10 раз (песня -- 10 кредитов, а не 1):
+        # уже купленные генерации пересчитываем один раз, никто не теряет.
+        if "credit_scale" not in existing:
+            conn.execute("ALTER TABLE users ADD COLUMN credit_scale INTEGER NOT NULL DEFAULT 10")
+            conn.execute("UPDATE users SET studio_credits = studio_credits * 10")
 
         # Починка данных после ошибки с уведомлением "заказ создан": оно
         # приходило запоздалым повтором ПОСЛЕ "оплачено" и перетирало
@@ -262,6 +269,13 @@ class Storage:
             conn.execute(
                 "UPDATE users SET credits = credits + ? WHERE id = ?", (count, user_id)
             )
+
+    def give_welcome(self, user_id: str, count: int) -> bool:
+        """Приветственные кредиты -- один раз на учётную запись."""
+        with self._connect() as conn:
+            done = conn.execute("UPDATE users SET studio_credits = studio_credits + ?, welcome_given = 1"
+                                " WHERE id = ? AND welcome_given = 0", (count, user_id)).rowcount
+        return bool(done)
 
     def add_studio_credits(self, user_id: str, count: int) -> None:
         with self._connect() as conn:
@@ -774,6 +788,16 @@ class Storage:
                 (parent_id,),
             ).fetchall()
         return [j for j in (self.job(r["id"]) for r in rows) if j]
+
+    def jobs_today(self, user_id: str) -> int:
+        """Сколько разборов (не Студии) человек запустил за последние сутки."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM jobs WHERE user_id = ? AND created_at > ?"
+                " AND json_extract(settings, '$.kind') IS NULL"
+                " AND json_extract(settings, '$.parent') IS NULL",
+                (user_id, time.time() - 86400)).fetchone()
+        return int(row["n"])
 
     def root_jobs(self, user_id: str, limit: int = 60) -> list[Job]:
         """Только сами треки, без порождённых ими заданий на табы и без Студии."""

@@ -122,8 +122,8 @@ $('reset').onclick = () => {
 };
 
 function blocked() {
+  // Аккорды бесплатны всегда -- блокируем только партии и табы
   $('modeParts').disabled = true;
-  $('modeChords').disabled = true;
   if (!me.paymentReady) {
     $('msg').innerHTML =
       `<span class="bad">${me.reason}</span> Оплата пока не подключена.`;
@@ -135,14 +135,15 @@ function blocked() {
   // оплату по первому касанию и можно было передумать.
   $('msg').innerHTML = `
     <div class="bad" style="margin-bottom:12px">${me.reason}</div>
+    <p class="muted" style="margin:0 0 12px">Аккорды — бесплатно всегда. Партии, табы и MIDI — по тарифу:</p>
     <div class="choices" id="blockedPlans">
       <button class="choice" type="button" data-plan="single">
         <b>${me.priceSingle} ₽ — один трек</b>
         <small>разово, без подписки</small>
       </button>
       <button class="choice" type="button" data-plan="month">
-        <b>${me.price} ₽ — месяц без ограничений</b>
-        <small>выгоднее с одиннадцатого трека</small>
+        <b>${me.price} ₽ — «Музыкант» на месяц</b>
+        <small>партии, табы и MIDI без лимита + 50 кредитов Студии</small>
       </button>
     </div>
     <button id="blockedPay" class="choice" type="button"
@@ -257,7 +258,8 @@ function watch(jobId, button) {
       clearInterval(timer);
       hide('progress');
       if (button) button.classList.remove('busy');
-      [$('modeParts'), $('modeChords')].forEach((b) => (b.disabled = false));
+      $('modeChords').disabled = false;
+  if (me.allowed) $('modeParts').disabled = false;
       $('msg').innerHTML = `<span class="bad">${job.error}</span>`;
     }
   }, 1200);

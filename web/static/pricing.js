@@ -49,20 +49,17 @@ async function load() {
     badge.textContent += ` · ${me.balance} ₽`;
   }
 
-  const state = me.unlimited
-    ? 'У вас безлимитный доступ — платить не нужно. Ниже показано то, что видят остальные.'
-    : me.subscribed
-      ? `Подписка активна до ${date(me.paidUntil)}. Можно продлить заранее — дни прибавятся к остатку.`
-      : me.credits > 0
-        ? `Оплачено треков: ${me.credits}. Докупить можно в любой момент.`
-        : me.balance > 0
-          ? `На балансе: ${me.balance} ₽. Спишется по ${me.priceSingle} ₽, когда начнёте разбор песни.`
-          : me.freeLeft > 0
-            ? `Бесплатных песен осталось: ${me.freeLeft} из ${me.freeSongs}. Платить пока не нужно.`
-            : 'Бесплатные песни закончились. Дальше — разово, по подписке или с баланса.';
-  $('state').textContent = me.balance > 0 && (me.unlimited || me.subscribed || me.credits > 0)
-    ? `${state} На балансе: ${me.balance} ₽.`
-    : state;
+  // Что у человека уже есть -- одной строкой: подписка, кредиты, деньги
+  const have = [
+    me.unlimited ? 'безлимитный доступ' : '',
+    me.subscribed ? `подписка до ${date(me.paidUntil)}` : '',
+    me.studioCredits > 0 ? `кредитов Студии: ${me.studioCredits}` : '',
+    me.credits > 0 ? `оплачено разборов: ${me.credits}` : '',
+    me.balance > 0 ? `на балансе ${me.balance} ₽` : '',
+  ].filter(Boolean);
+  $('state').textContent = have.length
+    ? `У вас: ${have.join(', ')}. Аккорды — бесплатно всегда.`
+    : 'Аккорды любой песни — бесплатно. За регистрацию — 20 кредитов Студии: две песни на пробу.';
 
   if (!me.paymentReady) {
     $('msg').innerHTML =

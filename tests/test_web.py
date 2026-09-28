@@ -1536,3 +1536,38 @@ def test_admin_finance_report_counts_money_by_month(tmp_path, monkeypatch):
         # Не владельцу отчёт не отдаётся
         other = TestClient(app_module.app)
         assert other.get("/api/admin/finance").status_code == 403
+
+
+def test_chords_are_free_parts_and_tabs_charge_once(tmp_path, monkeypatch):
+    """Аккорды -- бесплатно даже без проб и денег; партии/табы списывают разбор один раз."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    started = []
+    monkeypatch.setattr(app_module.runner, "submit_analysis", lambda jid, path: started.append(jid))
+    monkeypatch.setattr(app_module.runner, "submit_separation", lambda jid: started.append(jid))
+    monkeypatch.setattr(app_module.separate, "available", lambda: (True, ""))
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+        for _ in range(app_module.billing.FREE_SONGS):          # пробы кончились
+            app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+        upload = lambda sep: client.post("/api/upload", data={"separate_track": sep},  # noqa: E731
+                                         files={"file": ("song.mp3", b"ID3data", "audio/mpeg")})
+        assert upload("false").status_code == 200               # аккорды -- бесплатно
+        assert upload("true").status_code == 402                # партии -- нет
+        job_id = started[0]
+        app_module.storage.update_job(job_id, status="done", result={"paths": {"parts": {"full": "x"}}})
+        # партии для бесплатного разбора: без денег -- отказ, с балансом -- одно списание
+        assert client.post(f"/api/job/{job_id}/separate").status_code == 402
+        app_module.storage.add_balance(user.id, 100)
+        assert client.post(f"/api/job/{job_id}/separate").status_code == 200
+        assert app_module.storage.user(user.id).balance == 100 - app_module.billing.PRICE_SINGLE_RUB
+        assert app_module.storage.job(job_id).counted

@@ -15,6 +15,12 @@ let playing = null;         // url, который сейчас в плеере
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const rub = (n) => `${Math.round(n)} ₽`;
+const plural = (n, one, few, many) => {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  return m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? few : many;
+};
 const time = (s) => (s ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '');
 
 const ICON = {
@@ -108,7 +114,7 @@ function showMode() {
 function updateStart() {
   if (!info) return;
   const service = info.services[mode];
-  const packCost = service.pack || 0;
+  const packCost = (mode === 'restyle' && $('keepVocals').checked ? service.packKeep : service.pack) || 0;
   const byPack = packCost && info.studioCredits >= packCost;
   const enough = info.unlimited || byPack || info.balance >= service.price;
   const lyrics = $('lyrics').value.trim();
@@ -126,7 +132,7 @@ function updateStart() {
   needPay = !problem && !enough;
   $('start').disabled = Boolean(problem);
   const price = info.unlimited ? '' : byPack
-    ? ` · ${packCost} ${packCost === 1 ? 'генерация' : 'генерации'} из пакета` : ` · ${rub(service.price)}`;
+    ? ` · ${packCost} ${plural(packCost, 'кредит', 'кредита', 'кредитов')}` : ` · ${rub(service.price)}`;
   $('start').textContent = needPay ? `Оплатить и ${MODE[mode].button.toLowerCase()}${price}`
     : `${MODE[mode].button}${price}`;
   $('msg').innerHTML = problem || (needPay
@@ -353,7 +359,7 @@ async function load() {
   info = await (await fetch('/api/studio')).json();
   $('account').textContent = info.registered ? info.email : 'Вход';
   $('balance').textContent = info.unlimited ? 'Безлимит' : `Баланс: ${rub(info.balance)}`
-    + (info.studioCredits > 0 ? ` · генераций: ${info.studioCredits}` : '');
+    + (info.studioCredits > 0 ? ` · ${info.studioCredits} ${plural(info.studioCredits, 'кредит', 'кредита', 'кредитов')}` : '');
   $('balance').className = info.unlimited || info.balance > 0 ? 'badge pro' : 'badge';
   if (!$('voices').children.length) {
     const restored = restoreDraft();

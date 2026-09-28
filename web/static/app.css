@@ -830,3 +830,12 @@ header.top > div > .badge { margin-left: 8px; text-decoration: none; }
 .oauth-btn:hover { filter: brightness(1.08); }
 .oauth-or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
 .oauth-or::before, .oauth-or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+
+/* Тарифы: три подписки в ряд, «выгодно» подсвечено */
+.choices.plans3 { grid-template-columns: repeat(3, 1fr); }
+.choice.hot { position: relative; border-color: rgba(217,154,78,.6); background: rgba(217,154,78,.07); }
+.choice .tag { position: absolute; top: -10px; right: 12px; padding: 2px 10px; border-radius: 999px;
+  background: var(--accent); color: #1a1206; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.choice small b { display: inline; font-size: inherit; color: var(--text); margin: 0; }
+.credit-table .grid b { color: var(--accent); font-size: 18px; }
+@media (max-width: 720px) { .choices.plans3 { grid-template-columns: 1fr; } }

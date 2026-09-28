@@ -226,33 +226,46 @@ def test_split_finished_restyle_into_stems(studio_app):
 
 
 def test_studio_pack_is_credited_spent_first_and_refunded(studio_app, monkeypatch):
-    """Пакет генераций: зачисляется по оплате, тратится раньше баланса, при сбое возвращается."""
+    """Кредиты: зачисляются по оплате, тратятся раньше баланса, при сбое возвращаются."""
     app_module, client, user, submitted = studio_app
     from web import billing
 
     billing.apply_plan(app_module.storage, user.id, "studio10")
     app_module.storage.add_balance(user.id, 100)
-    assert app_module.storage.user(user.id).studio_credits == 10
+    assert app_module.storage.user(user.id).studio_credits == 100
 
     job_id = _start(client).json()["jobId"]
-    assert app_module.storage.user(user.id).studio_credits == 8              # переделка -- 2
+    assert app_module.storage.user(user.id).studio_credits == 60             # переделка -- 40
     assert app_module.storage.user(user.id).balance == pytest.approx(100)   # деньги не тронуты
 
-    # Разделение на партии из пакета не берётся -- только с баланса
-    _start(client, mode="stems")
-    assert app_module.storage.user(user.id).studio_credits == 8
-    assert app_module.storage.user(user.id).balance == pytest.approx(81)
+    _start(client, mode="stems")                                            # партии -- 3 кредита
+    assert app_module.storage.user(user.id).studio_credits == 57
+    assert app_module.storage.user(user.id).balance == pytest.approx(100)
 
     runner = app_module.studio.StudioRunner(app_module.storage, app_module.DATA_DIR)
     runner._fail(job_id, "видеокарта упала")
-    assert app_module.storage.user(user.id).studio_credits == 10
+    assert app_module.storage.user(user.id).studio_credits == 97
     assert "вернули в пакет" in app_module.storage.job(job_id).error
-    assert app_module.storage.user(user.id).balance == pytest.approx(81)
+
+
+def test_subscription_plans_grant_days_and_credits(studio_app):
+    """Подписки: дни без лимита на разборы плюс кредиты Студии; допы -- только кредиты."""
+    app_module, client, user, submitted = studio_app
+    from web import billing
+
+    billing.apply_plan(app_module.storage, user.id, "studio_month")
+    fresh = app_module.storage.user(user.id)
+    assert fresh.subscribed and fresh.studio_credits == 300
+    billing.apply_plan(app_module.storage, user.id, "studio30")
+    assert app_module.storage.user(user.id).studio_credits == 600
+    # «Сохранить голос» дешевле remix: 20 кредитов против 40
+    assert app_module.studio.credit_cost("restyle", True) == 20
+    assert app_module.studio.credit_cost("restyle") == 40
 
 
 def test_pack_lets_start_without_balance(studio_app):
     app_module, client, user, submitted = studio_app
-    app_module.storage.add_studio_credits(user.id, 1)
+    app_module.storage.add_studio_credits(user.id, 5)
     assert _start(client, mode="enrich", track="bass").status_code == 200
     assert _start(client).status_code == 402          # пакет кончился, баланса нет
     assert client.get("/api/studio").json()["studioCredits"] == 0
@@ -577,12 +590,12 @@ def test_create_needs_mureka(studio_app, monkeypatch):
 
 def test_restyle_pack_refund_returns_two(studio_app, monkeypatch):
     app_module, client, user, submitted = studio_app
-    app_module.storage.add_studio_credits(user.id, 2)
+    app_module.storage.add_studio_credits(user.id, 40)
     job_id = _start(client).json()["jobId"]
     assert app_module.storage.user(user.id).studio_credits == 0
-    assert app_module.storage.job(job_id).settings["charged_credit"] == 2
+    assert app_module.storage.job(job_id).settings["charged_credit"] == 40
     app_module.studio.StudioRunner(app_module.storage, app_module.DATA_DIR)._fail(job_id, "сбой")
-    assert app_module.storage.user(user.id).studio_credits == 2
+    assert app_module.storage.user(user.id).studio_credits == 40
 
 
 def test_lyrics_are_written_by_mureka_with_daily_limit(studio_app, monkeypatch):

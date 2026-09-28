@@ -40,6 +40,7 @@ from .storage import Storage
 DATA_DIR = os.environ.get("MIDI2TAB_DATA", "data")
 SECRET = os.environ.get("MIDI2TAB_SECRET", "")
 MAX_UPLOAD_MB = int(os.environ.get("MIDI2TAB_MAX_MB", "60"))
+FREE_CHORDS_PER_DAY = 30  # бесплатные разборы аккордов в сутки на человека (защита сервера)
 # Ключ владельца. Первый, кто войдёт с ним, получает права администратора
 # и безлимит. Без ключа админка недоступна вообще -- это безопаснее, чем
 # пароль по умолчанию, который забывают сменить.
@@ -556,6 +557,7 @@ def api_register(request: Request, email: str = Form(...), password: str = Form(
         storage.register(user.id, address, password_hash)
     except ValueError as exc:
         raise HTTPException(409, str(exc))
+    storage.give_welcome(user.id, billing.WELCOME_CREDITS)
 
     response = JSONResponse({"ok": True, "email": address})
     attach_cookie(response, user.id)
@@ -643,6 +645,7 @@ def api_oauth_callback(provider: str, request: Request):
         else:
             email = person["email"] or f"{provider}-{person['id']}@{provider}.id"
             storage.register(visitor.id, email, "oauth$" + secrets.token_hex(16))
+            storage.give_welcome(visitor.id, billing.WELCOME_CREDITS)
             account = storage.user(visitor.id)
     storage.link_provider(account.id, provider, person["id"])
     if visitor.id != account.id and not visitor.registered:
@@ -901,6 +904,9 @@ def pricing_page() -> HTMLResponse:
         "studio30": f"{billing.PLANS['studio30']['price']:.0f}",
         "studioSingle": f"{studio.SERVICES['restyle'].price:.0f}",
         "studioCreate": f"{studio.SERVICES['create'].price:.0f}",
+        "studioMonth": f"{billing.PLANS['studio_month']['price']:.0f}",
+        "proMonth": f"{billing.PLANS['pro_month']['price']:.0f}",
+        "welcome": str(billing.WELCOME_CREDITS),
     })
 
 
@@ -979,11 +985,18 @@ async def api_upload(
     max_polyphony: int = Form(0),
 ):
     user = current_user(request)
+    suffix = Path(file.filename or "").suffix.lower()
+    # Аккорды -- бесплатно и без лимита по деньгам: крючок, ради которого
+    # приходят. Платными остаются партии, табы и MIDI (они и нагружают
+    # сервер); за них списывается, когда человек их попросит.
+    free_chords = not separate_track and suffix not in (".mid", ".midi")
+    if free_chords and storage.jobs_today(user.id) >= FREE_CHORDS_PER_DAY and not user.unlimited:
+        raise HTTPException(429, f"Сегодня уже {FREE_CHORDS_PER_DAY} бесплатных разборов аккордов — "
+                                 "продолжим завтра, или возьмите тариф «Музыкант»")
     access = billing.check_access(user)
-    if not access.allowed:
+    if not free_chords and not access.allowed:
         raise HTTPException(402, access.reason)
 
-    suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED:
         raise HTTPException(
             400, f"Формат {suffix or 'неизвестный'} не поддерживается. Нужен {', '.join(ALLOWED)}"
@@ -1021,6 +1034,12 @@ async def api_upload(
                 storage.update_job(job.id, status="error", error="Файл слишком большой")
                 raise HTTPException(413, f"Файл больше {MAX_UPLOAD_MB} МБ")
             out.write(chunk)
+
+    if free_chords:
+        runner.submit_analysis(job.id, target)
+        response = JSONResponse({"jobId": job.id})
+        attach_cookie(response, user.id)
+        return response
 
     # Пробная песня списывается в момент постановки в очередь, а не по
     # завершении: иначе один и тот же файл можно было бы гонять бесконечно,
@@ -1187,8 +1206,23 @@ def api_separate_later(job_id: str, request: Request):
     ok, why = separate.available()
     if not ok:
         raise HTTPException(503, why)
+    _charge_song_once(user, job)
     runner.submit_separation(job_id)
     return {"ok": True}
+
+
+def _charge_song_once(user, job) -> None:
+    """Трек разобран бесплатно (только аккорды) -- за партии и табы
+    списывается один раз, как за обычный разбор; дальше всё включено."""
+    if job.counted:
+        return
+    access = billing.check_access(user)
+    if not access.allowed:
+        raise HTTPException(402, "Аккорды — бесплатно, а партии, табы и MIDI — по тарифу. "
+                                 + access.reason)
+    if not billing.consume(storage, user):
+        raise HTTPException(402, "Не получилось списать разбор — обновите страницу и попробуйте снова")
+    storage.update_job(job.id, counted=True)
 
 
 @app.post("/api/job/{job_id}/tabs/{stem_key}")
@@ -1216,6 +1250,7 @@ def api_make_tabs(job_id: str, stem_key: str, request: Request):
                 "«Разделить на партии» под списком.",
             )
 
+    _charge_song_once(user, parent)
     child = storage.create_job(
         user.id, f"{parent.filename} — {stem_key}", {"parent": job_id, "stem": stem_key}
     )
@@ -1329,7 +1364,8 @@ def api_studio(request: Request):
     ready, why = studio.available()
     response = JSONResponse({
         "ready": ready, "why": why,
-        "services": {k: {"title": v.title, "price": v.price, "pack": studio.PACK_COST.get(k, 0)}
+        "services": {k: {"title": v.title, "price": v.price, "pack": studio.credit_cost(k),
+                         "packKeep": studio.credit_cost(k, True)}
                      for k, v in studio.SERVICES.items()},
         "createOpen": studio.restyle_engine() == "mureka",
         "presets": {k: v[0] for k, v in studio.PRESETS.items()},
@@ -1411,7 +1447,7 @@ async def api_studio_start(
     style = prompt.strip()[:500] or (studio.PRESETS[preset][1] if preset in studio.PRESETS else "")
     if mode in ("restyle", "enrich") and not style:
         raise HTTPException(400, "Опишите стиль: жанр, настроение, инструменты")
-    by_pack = mode in studio.PACK_MODES and user.studio_credits >= studio.PACK_COST[mode]
+    by_pack = user.studio_credits >= studio.credit_cost(mode, keep_vocals) > 0
     if not user.unlimited and not by_pack and user.balance < service.price:
         raise HTTPException(402, f"{service.title} стоит {service.price:.0f} ₽, на балансе "
                                  f"{user.balance:.0f} ₽. Пополните баланс или возьмите пакет "
@@ -1481,7 +1517,7 @@ def _studio_charge_and_submit(request: Request, user, job_id: str, service, fold
     settings = dict(job.settings or {})
     # Списываем до запуска и одним атомарным запросом: два параллельных
     # запуска не должны потратить одни и те же деньги дважды.
-    cost = studio.PACK_COST.get(worker_input["mode"], 0)
+    cost = studio.credit_cost(worker_input["mode"], bool(worker_input.get("keep_vocals")))
     if not user.unlimited and cost and storage.spend_studio_credit(user.id, cost):
         # Генерации из пакета: деньги не трогаем, при сбое вернём их в пакет.
         settings["charged_credit"] = cost
@@ -1774,8 +1810,9 @@ def _start_payment(request: Request, user, amount: float, title: str, plan: str,
     return {"paymentUrl": url, "paymentId": created.get("id"), "plan": plan}
 
 
-PLAN_TITLES = {"single": "один трек", "month": "подписка на месяц", "topup": "пополнение баланса",
-               "studio10": "Студия: 10 генераций", "studio30": "Студия: 30 генераций"}
+PLAN_TITLES = {"single": "один трек", "month": "«Музыкант» на месяц", "topup": "пополнение баланса",
+               "studio_month": "«Студия» на месяц", "pro_month": "«Про» на месяц",
+               "studio10": "100 кредитов Студии", "studio30": "300 кредитов Студии"}
 PAYMENT_STATUSES = {"succeeded": "оплачен", "pending": "ожидает оплаты",
                     "failed": "не прошёл", "canceled": "отменён"}
 

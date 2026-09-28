@@ -78,8 +78,12 @@ MUREKA_STATES = {"preparing": "Готовим трек", "queued": "В очер�
 # Сколько генераций из пакета (billing.PLANS studio10/30) стоит услуга.
 # Генерация в пакете -- 33-39 ₽; переделка стоит нам ~40 ₽, поэтому
 # списывает три. Разделение дешёвое и идёт только с баланса.
-PACK_COST = {"create": 1, "restyle": 2, "enrich": 1}
-PACK_MODES = tuple(PACK_COST)
+# Цена в кредитах Студии (billing.PLANS): от себестоимости действия.
+CREDIT_COST = {"create": 10, "restyle": 40, "keep": 20, "enrich": 5, "stems": 3}
+
+
+def credit_cost(mode: str, keep_vocals: bool = False) -> int:
+    return CREDIT_COST["keep"] if mode == "restyle" and keep_vocals else CREDIT_COST.get(mode, 0)
 MUREKA_SONG_MODEL = "mureka-9"
 KEEP_VARIANTS = 2  # аранжировок под голос оригинала за одну переделку
 # Голос: у song/generate есть параметр gender (male/female); дуэта в нём нет,
