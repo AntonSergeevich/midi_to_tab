@@ -40,6 +40,18 @@ async function boot() {
     location.replace(nextPage());   // уже вошли -- сразу дальше
     return;
   }
+  // Вход в один клик через российские сервисы (разрешены 149-ФЗ)
+  const oauth = me.oauth || {};
+  if (!me.registered && (oauth.yandex || oauth.vk)) {
+    const next = encodeURIComponent(nextPage());
+    $('oauthBox').hidden = false;
+    [['yandex', 'oauthYandex'], ['vk', 'oauthVk']].forEach(([name, id]) => {
+      $(id).hidden = !oauth[name];
+      $(id).href = `/api/auth/${name}/start?next=${next}`;
+    });
+    const error = new URLSearchParams(location.search).get('oauth_error');
+    if (error) $('oauthError').innerHTML = `<span class="bad">${error.replace(/[<>&]/g, '')}</span>`;
+  }
   if (!me.registered && new URLSearchParams(location.search).get('next')) {
     show('register');               // пришли из Студии или оплаты -- новичок
     $('regMsg').innerHTML = 'Заведите аккаунт за минуту — всё, что вы заполнили, дождётся вас.';

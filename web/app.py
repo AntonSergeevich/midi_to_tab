@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
+import urllib.parse
 import shutil
 import sys
 import time
@@ -30,7 +32,7 @@ from midi2tab import audiochords, audioin, lyrics as lyrics_mod, separate
 from midi2tab.timing import GRIDS
 from midi2tab.tuning import TUNINGS
 
-from . import auth, billing, mailer, studio, support
+from . import auth, billing, mailer, oauth, studio, support
 from . import jobs as jobs_module
 from .jobs import JobRunner
 from .storage import Storage
@@ -596,6 +598,62 @@ def api_login(request: Request, email: str = Form(...), password: str = Form(...
     return response
 
 
+# ------------------------------------------------ вход через Яндекс ID и VK ID
+
+oauth_signer = URLSafeSerializer(SECRET, salt="oauth")
+
+
+@app.get("/api/auth/{provider}/start")
+def api_oauth_start(provider: str, request: Request, next: str = "/library"):  # noqa: A002
+    if not oauth.configured().get(provider):
+        raise HTTPException(404, "Такой вход не подключён")
+    redirect_uri = f"{str(request.base_url).rstrip('/')}/api/auth/{provider}/callback"
+    url, remembered = oauth.start(provider, redirect_uri)
+    response = RedirectResponse(url, status_code=302)
+    response.set_cookie("oauth", oauth_signer.dumps({**remembered, "next": safe_next(next)}),
+                        max_age=600, httponly=True, samesite="lax", secure=request.url.scheme == "https")
+    return response
+
+
+@app.get("/api/auth/{provider}/callback")
+def api_oauth_callback(provider: str, request: Request):
+    """Вернулись от Яндекса или VK: находим или заводим учётную запись.
+
+    Порядок: уже привязанный id сервиса -> та же почта (привязываем) ->
+    новая запись из текущей анонимной (её треки остаются при ней)."""
+    if not oauth.configured().get(provider):
+        raise HTTPException(404, "Такой вход не подключён")
+    try:
+        remembered = oauth_signer.loads(request.cookies.get("oauth", ""))
+    except BadSignature:
+        remembered = {}
+    redirect_uri = f"{str(request.base_url).rstrip('/')}/api/auth/{provider}/callback"
+    try:
+        person = oauth.finish(provider, dict(request.query_params), remembered, redirect_uri)
+    except Exception as error:  # noqa: BLE001 -- любая неудача -> понятное сообщение
+        return RedirectResponse(f"/account?oauth_error={urllib.parse.quote(str(error)[:200])}", 302)
+
+    visitor = current_user(request)
+    account = storage.user_by_provider(provider, person["id"])
+    if account is None and person["email"]:
+        account = storage.user_by_email(person["email"])
+    if account is None:
+        if visitor.registered:
+            account = visitor                 # вошедший привязывает ещё один способ входа
+        else:
+            email = person["email"] or f"{provider}-{person['id']}@{provider}.id"
+            storage.register(visitor.id, email, "oauth$" + secrets.token_hex(16))
+            account = storage.user(visitor.id)
+    storage.link_provider(account.id, provider, person["id"])
+    if visitor.id != account.id and not visitor.registered:
+        storage.move_jobs(visitor.id, account.id)
+        storage.delete_user_if_empty(visitor.id)
+    response = RedirectResponse(remembered.get("next") or "/library", 302)
+    response.delete_cookie("oauth")
+    attach_cookie(response, account.id)
+    return response
+
+
 @app.post("/api/auth/logout")
 def api_logout():
     """Выйти: кука сбрасывается, следующий заход будет анонимным."""
@@ -885,6 +943,7 @@ def api_me(request: Request):
     payload["email"] = user.email
     payload["registered"] = user.registered
     payload["mailReady"] = mailer.available()[0]
+    payload["oauth"] = oauth.configured()
     payload["isAdmin"] = user.is_admin
     payload["unlimited"] = user.unlimited
     payload["studioCredits"] = user.studio_credits

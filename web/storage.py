@@ -187,6 +187,9 @@ class Storage:
             ("registered_at", "REAL"),
             ("balance", "REAL NOT NULL DEFAULT 0"),
             ("studio_credits", "INTEGER NOT NULL DEFAULT 0"),
+            # Вход через российские сервисы (149-ФЗ, ст. 8 ч. 10): id у Яндекса и VK
+            ("yandex_id", "TEXT"),
+            ("vk_id", "TEXT"),
         ):
             if column not in existing:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
@@ -337,6 +340,17 @@ class Storage:
                 )
             except sqlite3.IntegrityError as exc:
                 raise ValueError("Такая почта уже зарегистрирована.") from exc
+
+    def user_by_provider(self, provider: str, provider_id: str) -> User | None:
+        column = {"yandex": "yandex_id", "vk": "vk_id"}[provider]
+        with self._connect() as conn:
+            row = conn.execute(f"SELECT id FROM users WHERE {column} = ?", (provider_id,)).fetchone()
+        return self.user(row["id"]) if row else None
+
+    def link_provider(self, user_id: str, provider: str, provider_id: str) -> None:
+        column = {"yandex": "yandex_id", "vk": "vk_id"}[provider]
+        with self._connect() as conn:
+            conn.execute(f"UPDATE users SET {column} = ? WHERE id = ?", (provider_id, user_id))
 
     def set_password(self, user_id: str, password_hash: str) -> None:
         with self._connect() as conn:

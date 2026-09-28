@@ -302,3 +302,36 @@ def test_admin_rights_need_an_account(client, monkeypatch):
     # таком ключе падал с TypeError -- то есть пятисотой ошибкой вместо
     # входа, и виноватым выглядел бы правильный ключ.
     assert client.post("/api/admin/login", data={"key": "не тот"}).status_code == 403
+
+
+def test_oauth_yandex_creates_account_and_keeps_tracks(tmp_path, monkeypatch):
+    """Вход с Яндекс ID: анонимная запись становится учётной (с почтой Яндекса),
+    второй вход находит её по id Яндекса; без ключей вход не предлагается."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        assert client.get("/api/me").json()["oauth"] == {"yandex": False, "vk": False}
+        assert client.get("/api/auth/yandex/start", follow_redirects=False).status_code == 404
+        monkeypatch.setenv("YANDEX_CLIENT_ID", "cid")
+        monkeypatch.setenv("YANDEX_CLIENT_SECRET", "sec")
+        start = client.get("/api/auth/yandex/start?next=/studio", follow_redirects=False)
+        assert start.status_code == 302 and "oauth.yandex.ru/authorize" in start.headers["location"]
+        state = dict(__import__("urllib.parse").parse.parse_qsl(start.headers["location"].split("?", 1)[1]))["state"]
+        monkeypatch.setattr(app_module.oauth, "_post", lambda url, fields: {"access_token": "t"})
+        monkeypatch.setattr(app_module.oauth, "_get",
+                            lambda url, headers: {"id": 42, "default_email": "Anton@Yandex.ru"})
+        back = client.get(f"/api/auth/yandex/callback?code=c&state={state}", follow_redirects=False)
+        assert back.status_code == 302 and back.headers["location"] == "/studio"
+        me = client.get("/api/me").json()
+        assert me["registered"] and me["email"] == "anton@yandex.ru"
+        # подделанный state -- отказ
+        bad = client.get("/api/auth/yandex/callback?code=c&state=zzz", follow_redirects=False)
+        assert "oauth_error" in bad.headers["location"]
