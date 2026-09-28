@@ -1,0 +1,42 @@
+{
+ "lines_duet_prompt": {
+  "gender": null,
+  "prompt": "pop rock, duet, male and female vocals",
+  "lyrics": "lines",
+  "male": 0.02,
+  "female": 0.98,
+  "timeline": ".F.FFFF?M..FF.FFFFFFFFFFFFFFFFFFFFFF.....FFF.FFFF.FFFFFFFFFFFFFFFFFFFFFFFF.."
+ },
+ "sections_duet_prompt": {
+  "gender": null,
+  "prompt": "pop rock, duet, male and female vocals",
+  "lyrics": "sections",
+  "male": 0.02,
+  "female": 0.98,
+  "timeline": ".FFFFMFF..FFFFFF..FFFF?.FFFFFFFFFFFFF?F.FFFFFF.FFFFFFFF..F.FFFFFFFFFFF.F..."
+ },
+ "lines_gender_female": {
+  "gender": "female",
+  "prompt": "pop rock, duet, male and female vocals",
+  "lyrics": "lines",
+  "male": 0.02,
+  "female": 0.98,
+  "timeline": "...F.FF.FFFFFFFFFFFFFFFFFFFFFFF.F....FFFF.F....FFFFFFFFFFFFFFF..FFMFFFFFFF."
+ },
+ "plain_gender_female": {
+  "gender": "female",
+  "prompt": "pop rock, female vocals",
+  "lyrics": "plain",
+  "male": 0.0,
+  "female": 1.0,
+  "timeline": "..F.FF.FFFFFFFFFFFF.F.FFFFFFFFFFFFFF.F...FFFFFFFF..FFFFFFFF.FFFFFFFFFFFFFFFFFFFFF"
+ },
+ "plain_prompt_female": {
+  "gender": null,
+  "prompt": "pop rock, female vocals",
+  "lyrics": "plain",
+  "male": 0.02,
+  "female": 0.98,
+  "timeline": "...FFF.FF..FFFF.FFFFFFFFFFFFFFFM?...F.FFFFFFFFF..FFFFFFFFFFFFFFFF.....FFFFF.."
+ }
+}
