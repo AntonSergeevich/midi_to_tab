@@ -230,8 +230,8 @@ class App(ttk.Frame):
         # Распознавание
         a = ttk.Frame(nb, padding=12)
         nb.add(a, text="Распознавание")
-        self.var_onset = tk.DoubleVar(value=0.5)
-        self.var_frame = tk.DoubleVar(value=0.3)
+        self.var_onset = tk.DoubleVar(value=0.6)
+        self.var_frame = tk.DoubleVar(value=0.4)
         self.var_minnote = tk.DoubleVar(value=90.0)
         self.var_limit = tk.BooleanVar(value=True)
         self.var_ghosts = tk.BooleanVar(value=True)

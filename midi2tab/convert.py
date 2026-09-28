@@ -38,8 +38,8 @@ class Settings:
     keep_midi: bool = True  # для аудио-входа: сохранить распознанный MIDI
 
     # распознавание аудио
-    onset_threshold: float = 0.5
-    frame_threshold: float = 0.3
+    onset_threshold: float = 0.6   # см. audioin.TranscribeSettings
+    frame_threshold: float = 0.4
     min_note_ms: float = 90.0
     limit_to_range: bool = True
     remove_ghosts: bool = True      # убирать призрачные обертоны

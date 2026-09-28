@@ -37,8 +37,11 @@ os.environ.setdefault("ORT_INTRA_OP_NUM_THREADS", THREADS)
 class TranscribeSettings:
     """Настройки распознавания."""
 
-    onset_threshold: float = 0.5      # порог атаки: выше -> меньше ложных нот
-    frame_threshold: float = 0.3      # порог удержания ноты
+    # Пороги подобраны по эталону GuitarSet (scripts/transcribe_sweep.py, 28.09):
+    # 0.6/0.4 против прежних 0.5/0.3 -- F1 нот соло 0.81 -> 0.86, аккомпанемент
+    # не хуже (0.736 -> 0.739): меньше «призрачных» нот в табах.
+    onset_threshold: float = 0.6      # порог атаки: выше -> меньше ложных нот
+    frame_threshold: float = 0.4      # порог удержания ноты
     min_note_ms: float = 90.0         # короче -- считается шумом
     min_pitch: int | None = None      # ограничение снизу (MIDI)
     max_pitch: int | None = None      # ограничение сверху (MIDI)
