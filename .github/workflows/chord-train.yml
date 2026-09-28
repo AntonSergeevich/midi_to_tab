@@ -14,8 +14,14 @@ on:
         description: Синтетических записей по 30 с
         default: "2400"
       test_player:
-        description: Гитарист GuitarSet для проверки (00..05)
+        description: Гитарист GuitarSet для проверки (00..05), если split=player
         default: "05"
+      split:
+        description: "songs -- проверка на неслышанных песнях (честно), player -- на гитаристе"
+        default: songs
+      fold:
+        description: Какая пятая часть песен проверочная (0..4)
+        default: "0"
 
 permissions:
   contents: write
@@ -28,6 +34,8 @@ jobs:
       STEPS: ${{ inputs.steps }}
       SYNTH: ${{ inputs.synth }}
       PLAYER: ${{ inputs.test_player }}
+      SPLIT: ${{ inputs.split }}
+      FOLD: ${{ inputs.fold }}
     steps:
       - name: Освободить место
         run: |
@@ -77,13 +85,13 @@ jobs:
         run: |
           mkdir -p results
           python -u scripts/chordnet/train.py --data data --annotations gs/annotation \
-            --test-audio gs/audio_mono-mic --test-player "$PLAYER" --steps "$STEPS" --baseline \
+            --test-audio gs/audio_mono-mic --test-player "$PLAYER" --split "$SPLIT" --fold "$FOLD" --steps "$STEPS" --baseline \
             --export results/chordnet.onnx --report results/report.json 2>&1 | tee results/train.log
       - name: В ветку test-results
         if: always()
         run: |
           [ -n "$(ls -A results 2>/dev/null)" ] || exit 0
-          dir="chordnet-${{ github.run_id }}"
+          dir="chordnet-${{ github.run_id }}-$SPLIT$FOLD"
           git clone -q --depth 1 --branch test-results \
             "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
           mkdir -p "out/$dir" && cp results/* "out/$dir/"

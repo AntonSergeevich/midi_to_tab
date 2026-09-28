@@ -69,7 +69,11 @@ def label(root: int, quality: str, extra: str) -> str:
     if quality == "N":
         return "N"
     if extra in ("sus4", "5"):
-        return "X"  # вне словаря maj/min: не учим
+        return "X"  # вне словаря: не учим
+    if extra == "7":
+        return f"{NOTES[root]}:{'7' if quality == 'maj' else 'min7'}"
+    if extra == "maj7":
+        return f"{NOTES[root]}:{'maj7' if quality == 'maj' else 'min7'}"
     return f"{NOTES[root]}:{quality}"
 
 

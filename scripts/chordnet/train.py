@@ -65,6 +65,11 @@ def player(name: str) -> str | None:
     return found.group(1) if found else None
 
 
+def song(name: str) -> str:
+    """gs_..._05_Jazz1-200-B_comp_mic -> Jazz1-200-B (одна и та же песня у всех гитаристов)."""
+    return stem_of(name).split("_")[1]
+
+
 def stem_of(name: str) -> str:
     """gs_<папка>_05_Jazz1-200-B_comp_mic -> 05_Jazz1-200-B_comp_mic."""
     return name[name.index(f"_{player(name)}_") + 1:]
@@ -102,7 +107,7 @@ def score(reference, estimated) -> dict:
     est_int = np.array([[a, b] for a, b, _ in estimated])
     scores = mir_eval.chord.evaluate(ref_int, [l for *_, l in reference],
                                      est_int, [l for *_, l in estimated])
-    return {m: float(scores[m]) for m in ("root", "majmin")}
+    return {m: float(scores[m]) for m in ("root", "majmin", "sevenths")}
 
 
 def main() -> None:
@@ -111,6 +116,10 @@ def main() -> None:
     parser.add_argument("--annotations", default="gs/annotation")
     parser.add_argument("--test-audio", default="gs/audio_mono-mic")
     parser.add_argument("--test-player", default="05")
+    parser.add_argument("--split", default="songs", choices=["songs", "player"],
+                        help="songs -- проверка на песнях, которых модель не слышала ни у кого "
+                             "(честнее: в GuitarSet все гитаристы играют одни и те же 30 песен)")
+    parser.add_argument("--fold", type=int, default=0, help="какая пятая часть песен -- проверочная")
     parser.add_argument("--steps", type=int, default=6000)
     parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--synth-share", type=float, default=0.5)
@@ -123,8 +132,15 @@ def main() -> None:
     torch.manual_seed(0)
 
     items = load(args.data)
-    test = [i for i in items if player(i[0]) == args.test_player and i[0].endswith("_comp_mic")]
-    guitar = [i for i in items if player(i[0]) not in (None, args.test_player)]
+    if args.split == "player":
+        held = lambda name: player(name) == args.test_player  # noqa: E731
+    else:
+        songs = sorted({song(i[0]) for i in items if player(i[0])})
+        test_songs = {s for n, s in enumerate(songs) if n % 5 == args.fold}
+        held = lambda name: song(name) in test_songs  # noqa: E731
+        print("проверочные песни:", sorted(test_songs), flush=True)
+    test = [i for i in items if player(i[0]) and held(i[0]) and i[0].endswith("_comp_mic")]
+    guitar = [i for i in items if player(i[0]) and not held(i[0])]
     synth = [i for i in items if i[0].startswith("synth_")]
     print(f"обучение: GuitarSet {len(guitar)}, синтетика {len(synth)}; проверка: {len(test)}", flush=True)
 
@@ -152,8 +168,8 @@ def main() -> None:
     report = {"steps": args.steps, "train_guitarset": len(guitar), "train_synth": len(synth),
               "files": []}
     penalties = (0.0, 1.0, 2.0, 3.0, 5.0, 8.0)
-    totals = {p: {"root": 0.0, "majmin": 0.0} for p in penalties}
-    base_total = {"root": 0.0, "majmin": 0.0}
+    totals = {p: {"root": 0.0, "majmin": 0.0, "sevenths": 0.0} for p in penalties}
+    base_total = {"root": 0.0, "majmin": 0.0, "sevenths": 0.0}
     weight = 0.0
     for name, x, _ in test:
         stem = stem_of(name)
@@ -189,9 +205,10 @@ def main() -> None:
         report["old"] = {m: v / weight for m, v in base_total.items()}
     best = max(penalties, key=lambda p: totals[p]["majmin"])
     report["best_penalty"] = best
-    print("\nИТОГ majmin:", {p: round(t["majmin"] / weight, 3) for p, t in totals.items()},
-          "| старый разбор:", round(base_total["majmin"] / weight, 3) if args.baseline else "-",
-          flush=True)
+    for metric in ("majmin", "sevenths"):
+        print(f"\nИТОГ {metric}:", {p: round(t[metric] / weight, 3) for p, t in totals.items()},
+              "| старый разбор:", round(base_total[metric] / weight, 3) if args.baseline else "-",
+              flush=True)
     Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=1))
 
     torch.onnx.export(model, torch.zeros(1, 200, common.WINDOW), args.export,

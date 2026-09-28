@@ -1,7 +1,7 @@
 """Общее для обучения нейросети аккордов (scripts/chordnet) и для разбора на
 сайте (midi2tab/chordnet.py): признаки, классы, декодирование.
 
-Классы -- словарь MIREX majmin: 12 мажоров, 12 миноров и «нет аккорда» (N).
+Классы -- словарь MIREX sevenths: мажор, минор, 7, maj7, m7 от 12 тонов и N.
 Признаки -- CQT по 24 полосы на октаву (2 на полутон) с запасом в пол-октавы
 сверху и снизу: при обучении окно из 144 полос сдвигается на 0..11 полутонов,
 и одна запись превращается в двенадцать транспозиций.
@@ -17,8 +17,11 @@ N_BINS = 168                    # 7 октав от C1: 6 рабочих + по 
 WINDOW = 144                    # полос в окне модели (6 октав)
 CENTER = 12                     # сдвиг окна при разборе: середина запаса
 NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-N_CLASS = 24
-CLASSES = [f"{n}:maj" for n in NOTES] + [f"{n}:min" for n in NOTES] + ["N"]
+# Словарь: 5 качеств x 12 тонов + «нет аккорда». Порядок качеств важен:
+# класс = качество * 12 + основной тон.
+QUALITIES = ["maj", "min", "7", "maj7", "min7"]
+N_CLASS = 12 * len(QUALITIES)
+CLASSES = [f"{n}:{q}" for q in QUALITIES for n in NOTES] + ["N"]
 IGNORE = -100
 
 
@@ -53,10 +56,19 @@ def class_of(label: str) -> int:
         return IGNORE
     if root < 0:
         return N_CLASS
+    root = int(root)
     if bitmap[4] and bitmap[7]:
-        return int(root)
+        if bitmap[10] and not bitmap[11]:
+            return 2 * 12 + root          # 7
+        if bitmap[11] and not bitmap[10]:
+            return 3 * 12 + root          # maj7
+        return root                       # maj, maj6, add9...
     if bitmap[3] and bitmap[7]:
-        return 12 + int(root)
+        if bitmap[10] and not bitmap[11]:
+            return 4 * 12 + root          # min7
+        if bitmap[11]:
+            return IGNORE                 # minmaj7 -- редкость, не учим
+        return 12 + root                  # min, min6...
     return IGNORE
 
 
