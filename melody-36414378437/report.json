@@ -1,0 +1,21 @@
+{
+ "self": 1.0,
+ "shuffled": 0.655,
+ "remix:remix_1.mp3": 0.769,
+ "remix:remix_2.mp3": 0.797,
+ "melody_vocals": {
+  "similarity": [
+   0.817,
+   0.685
+  ],
+  "cost_usd": 0.09
+ },
+ "melody_vocals_prompt": "отказ: Mureka ответила 400: {\"error\":{\"message\":\"Invalid Request, Too many control parameters for the generation task.\"},\"trace_id\":\"3fa88be4078862a5672d7c4f7a245306\"}",
+ "melody_midi": {
+  "similarity": [
+   0.763,
+   0.688
+  ],
+  "cost_usd": 0.09
+ }
+}
