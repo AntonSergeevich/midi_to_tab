@@ -675,7 +675,7 @@ def test_create_passes_voice_to_mureka(studio_app, monkeypatch):
     monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
     app_module.storage.add_balance(user.id, 200)
     assert client.get("/api/studio").json()["voices"]["duet"] == "Дуэт"
-    for voice, gender in (("female", "female"), ("duet", None), ("robot", None)):
+    for voice, gender in (("female", "female"), ("duet", "female"), ("robot", None)):
         job_id = _create(client, prompt="pop", lyrics="[Verse]\nЛя", voice=voice).json()["jobId"]
         job = app_module.storage.job(job_id)
         app_module.storage.update_job(job_id, settings={**job.settings, "input": submitted[-1][1]})
@@ -685,7 +685,8 @@ def test_create_passes_voice_to_mureka(studio_app, monkeypatch):
         body = calls[0][2]
         assert body.get("gender") == gender
         if voice == "duet":
-            assert "male and female vocals" in body["prompt"]
+            # дуэт: пометки партий в тексте + gender=female (так Mureka поёт вдвоём)
+            assert "male and female vocals" in body["prompt"] and "(Male) Ля" in body["lyrics"]
         if voice == "robot":
             assert body["prompt"] == "pop"
 
@@ -773,3 +774,14 @@ def test_cover_is_drawn_alongside_and_served(studio_app, monkeypatch):
     response = client.get(listed["cover"])
     assert response.headers["content-type"] == "image/jpeg" and response.content == b"\xff\xd8jpeg"
     assert studio.safe_file_name("../cover.jpg") is None
+
+
+def test_single_voice_strips_duet_marks():
+    """Выбран один голос -- пометки (Male)/(Female) из текста убираются, иначе выйдет дуэт."""
+    from web import studio
+
+    text = "[Verse]\n(Male) Раз\n(Female voice, fast rap) Два\n[Chorus]\n(Together) Три"
+    voice, lyrics, gender = studio.voice_plan("female", text)
+    assert gender == "female" and "(" not in lyrics and "Два" in lyrics
+    assert studio.voice_plan("", text)[2] == "female"          # «любой» с партиями -- дуэт
+    assert studio.voice_plan("", "[Verse]\nРаз")[2] is None    # без партий -- решает Mureka

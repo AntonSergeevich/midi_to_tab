@@ -369,6 +369,50 @@ def mureka_source(source: str, folder: str) -> str:
     raise RuntimeError("трек нужно перекодировать в mp3 до 10 МБ, а ffmpeg на сервере нет")
 
 
+# Пометки голоса в строках текста: (Male), (Female voice, fast rap), (Мужской)...
+VOICE_MARK = re.compile(r"^\s*\((?:[^)]*?)\b(male|female|together|both|duet|мужск\w*|женск\w*|вместе|дуэт)\b[^)]*\)\s*",
+                        re.IGNORECASE)
+
+
+def voice_plan(voice: str, lyrics: str) -> tuple[str, str, str | None]:
+    """Голос для song/generate -> (голос, текст, gender).
+
+    Живые пробы (владелец, 27.09): без gender Mureka поёт мужским голосом,
+    даже если в тексте расписаны партии (Male)/(Female); с gender=female
+    и такой разметкой -- поёт дуэтом. Отсюда:
+      мужской/женский -- чужие пометки из текста убираем, иначе выйдет дуэт;
+      дуэт (и «любой» с расписанными партиями) -- gender=female и пометки,
+      а если их нет, расставляем сами: куплеты по очереди, припев вместе;
+      любой без пометок -- решает Mureka."""
+    marked = any(VOICE_MARK.match(line) for line in lyrics.splitlines())
+    if voice in ("male", "female"):
+        clean = "\n".join(VOICE_MARK.sub("", line) for line in lyrics.splitlines())
+        return voice, clean, voice
+    if voice == "duet" or (voice == "" and marked):
+        return "duet", lyrics if marked else mark_duet(lyrics), "female"
+    return voice, lyrics, None
+
+
+def mark_duet(lyrics: str) -> str:
+    """Расставить партии: куплеты -- по очереди мужской/женский, припев и
+    финал -- вместе, прочее -- как предыдущий куплет."""
+    out, verse, current = [], 0, "(Male)"
+    for line in lyrics.splitlines():
+        head = line.strip().lower()
+        if head.startswith("["):
+            if "chorus" in head or "припев" in head or "outro" in head or "финал" in head:
+                current = "(Together)"
+            elif "verse" in head or "куплет" in head:
+                current = "(Male)" if verse % 2 == 0 else "(Female)"
+                verse += 1
+            out.append(line)
+        elif line.strip():
+            out.append(f"{current} {line.strip()}")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def mureka_audio(source: str, folder: str) -> str:
     """Вокал для track/generate (purpose audio: mp3 до 10 МБ): моно 128 кбит/с --
     это ~5.8 МБ даже на 6 минутах."""
@@ -691,15 +735,15 @@ class StudioRunner:
             self._fail(job_id, str(error))
 
     def _mureka_start(self, mode: str, task_input: dict, folder: str) -> dict:
-        voice = task_input.get("voice", "")
+        voice, lyrics, gender = voice_plan(task_input.get("voice", ""),
+                                           task_input.get("lyrics", "")[:5000])
         prompt = ", ".join(p for p in (task_input.get("prompt", ""),
                                        VOICES.get(voice, ("", ""))[1]) if p)[:1024]
-        lyrics = task_input.get("lyrics", "")[:5000]
         if mode == "create":
             if lyrics.strip():
                 started = mureka_call("POST", "/v1/song/generate", {
                     "lyrics": lyrics, "prompt": prompt, "model": MUREKA_SONG_MODEL, "n": 2,
-                    **({"gender": voice} if voice in ("male", "female") else {})})
+                    **({"gender": gender} if gender else {})})
                 kind = "song"
             else:
                 started = mureka_call("POST", "/v1/instrumental/generate", {
