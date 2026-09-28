@@ -410,6 +410,26 @@ function metronome(beats, downbeats) {
   };
 }
 
+let gainNode = null;
+function volumeGain() {
+  if (gainNode) return gainNode;
+  const Context = window.AudioContext || window.webkitAudioContext;
+  if (!Context) return null;
+  try {
+    const context = new Context();
+    const source = context.createMediaElementSource($('audio'));
+    gainNode = context.createGain();
+    source.connect(gainNode).connect(context.destination);
+    // Контекст можно запустить только по нажатию -- ловим первое
+    const resume = () => { if (context.state === 'suspended') context.resume(); };
+    document.addEventListener('pointerdown', resume, { once: false, passive: true });
+    $('audio').addEventListener('play', resume);
+  } catch (e) {
+    gainNode = null;
+  }
+  return gainNode;
+}
+
 function bindControls() {
   $('play').onclick = () => (clock.paused ? clock.play() : clock.pause());
   clock.onState(() => {
@@ -419,8 +439,18 @@ function bindControls() {
 
   // Громкость запоминается: разбирают песни подолгу, и каждый раз
   // подкручивать ползунок заново -- раздражает.
+  // На iPhone и iPad громкость <audio> из скрипта не меняется вовсе (Safari
+  // держит volume = 1) -- ползунок «не работал». Поэтому звук идёт через
+  // Web Audio: элемент -> усилитель -> выход; усилитель слушается везде.
   const volume = (percent) => {
-    $('audio').volume = Math.max(0, Math.min(1, percent / 100));
+    const level = Math.max(0, Math.min(1, percent / 100));
+    const gain = volumeGain();
+    if (gain) {
+      gain.gain.value = level;
+      $('audio').volume = 1;
+    } else {
+      $('audio').volume = level;
+    }
     $('volValue').textContent = `${percent}%`;
     try { localStorage.setItem('naslux.volume', percent); } catch (e) { /* режим инкогнито */ }
   };

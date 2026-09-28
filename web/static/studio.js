@@ -463,6 +463,7 @@ function startTrack() {
   const audio = $('audio');
   playing = item.url;
   audio.src = item.url;
+  if (Number($('fVolume').value) !== 100 || gainNode) setVolume(Number($('fVolume').value));
   audio.play();
   $('playerTitle').textContent = item.title;
   $('playerSub').textContent = item.sub;
@@ -882,6 +883,27 @@ $('fNext').addEventListener('click', () => step(1));
 ['pOpen', 'pExpand'].forEach((id) => $(id).addEventListener('click', () => fullPlayer(true)));
 $('fClose').addEventListener('click', () => fullPlayer(false));
 $('fLyricsBtn').addEventListener('click', () => { $('fLyrics').hidden = !$('fLyrics').hidden; });
+
+// Громкость через Web Audio: на iPhone громкость <audio> из скрипта не меняется.
+let gainNode = null;
+function setVolume(percent) {
+  const level = Math.max(0, Math.min(1, percent / 100));
+  const Context = window.AudioContext || window.webkitAudioContext;
+  if (!gainNode && Context) {
+    try {
+      const context = new Context();
+      const source = context.createMediaElementSource($('audio'));
+      gainNode = context.createGain();
+      source.connect(gainNode).connect(context.destination);
+      $('audio').addEventListener('play', () => { if (context.state === 'suspended') context.resume(); });
+      if (context.state === 'suspended') context.resume();
+    } catch (error) { gainNode = null; }
+  }
+  if (gainNode) gainNode.gain.value = level; else $('audio').volume = level;
+  try { localStorage.setItem('naslux.volume', percent); } catch (error) { /* инкогнито */ }
+}
+$('fVolume').addEventListener('input', () => setVolume(Number($('fVolume').value)));
+try { $('fVolume').value = parseInt(localStorage.getItem('naslux.volume'), 10) || 100; } catch (error) { /* */ }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('full').hidden) fullPlayer(false); });
 $('pPrev').innerHTML = ICON.prev; $('fPrev').innerHTML = ICON.prev;
 $('pNext').innerHTML = ICON.next; $('fNext').innerHTML = ICON.next;
