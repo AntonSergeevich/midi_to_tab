@@ -121,11 +121,22 @@ def clean(
 
     # 4. Ограничение одновременных голосов: оставляем самые громкие
     if cfg.max_polyphony > 0:
-        by_onset: dict[int, list[NoteEvent]] = {}
-        for note in result:
-            by_onset.setdefault(note.onset // max(1, cfg.ghost_onset_window), []).append(note)
+        # Группировать нужно по близости атак (как в arrange.group_chords),
+        # а не по номеру окна шириной ghost_onset_window от нулевого тика:
+        # фиксированные окна режут один реальный бой по границе -- ноты на
+        # тиках 4-7 при окне 6 попадали в окна 0 и 1 и считались отдельно,
+        # -- а у окна нет причин совпадать с тем, когда сыгран аккорд.
+        ordered = sorted(result, key=lambda n: (n.onset, n.pitch))
+        groups: list[list[NoteEvent]] = []
+        start = 0
+        for note in ordered:
+            if groups and note.onset - start <= cfg.ghost_onset_window:
+                groups[-1].append(note)
+            else:
+                groups.append([note])
+                start = note.onset
         trimmed: list[NoteEvent] = []
-        for group in by_onset.values():
+        for group in groups:
             if len(group) > cfg.max_polyphony:
                 group.sort(key=lambda n: -n.velocity)
                 report.removed_excess += len(group) - cfg.max_polyphony

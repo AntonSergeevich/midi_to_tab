@@ -303,6 +303,26 @@ def test_polyphony_limit_keeps_loudest():
     assert sorted(n.pitch for n in cleaned) == [47, 52]
 
 
+def test_polyphony_limit_groups_a_spread_strum_as_one_chord():
+    """Один реальный бой, атаки слегка разъехались (тики 4..7) -- в пределах
+    ghost_onset_window=6 это одно созвучие. Группировка по фиксированным
+    окнам (onset // window) резала его по границе окна на две пары нот и
+    не находила лишних вовсе."""
+    from midi2tab import cleanup
+
+    notes = [
+        NoteEvent(4, 24, 40, 30),
+        NoteEvent(5, 24, 47, 60),
+        NoteEvent(6, 24, 52, 100),
+        NoteEvent(7, 24, 55, 110),
+    ]
+    cleaned, report = cleanup.clean(
+        notes, cleanup.CleanupSettings(remove_ghosts=False, max_polyphony=2)
+    )
+    assert report.removed_excess == 2
+    assert sorted(n.pitch for n in cleaned) == [52, 55]
+
+
 # ------------------------------------------------------------- прослушивание
 
 
