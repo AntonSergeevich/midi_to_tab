@@ -96,17 +96,30 @@ jobs:
           done
           wait
           tail -n 1 synth*.log; ls synth/*.wav | wc -l; du -sh synth
-      - name: AAM (zenodo 5794629, CC BY 4.0)
+      # Признаки AAM -- в кэш Actions: скачивание 500 песен с Zenodo идёт ~2 часа,
+      # а признаки (CQT + разметка) не меняются, пока не меняется словарь
+      - name: Кэш признаков AAM
         if: inputs.aam != '0'
+        id: aamcache
+        uses: actions/cache@v4
+        with:
+          path: aam_cache
+          key: aam-2001-3000-${{ inputs.aam }}-${{ inputs.vocab }}-feat1
+      - name: AAM (zenodo 5794629, CC BY 4.0)
+        if: inputs.aam != '0' && steps.aamcache.outputs.cache-hit != 'true'
         run: |
           python -u scripts/chordnet/aam.py --count "$AAM" --out aam --block 2001-3000
           du -sh aam
       - name: Признаки
         run: |
-          mkdir -p aam
+          mkdir -p aam data
+          [ -d aam_cache ] && cp aam_cache/*.npz data/ 2>/dev/null || true
           python -u scripts/chordnet/prepare.py --guitarset gs/audio_mono-mic gs/audio_mono-pickup_mix \
             --annotations gs/annotation --synth synth --extra aam --out data --delete-synth
           du -sh data
+          if [ "${{ inputs.aam }}" != "0" ] && [ ! -d aam_cache ]; then
+            mkdir -p aam_cache && cp data/aam_*.npz aam_cache/ && du -sh aam_cache
+          fi
       - name: Обучение и замер
         run: |
           mkdir -p results
