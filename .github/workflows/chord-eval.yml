@@ -13,6 +13,9 @@ on:
       aam:
         description: Песен AAM для проверки
         default: "60"
+      model:
+        description: "Модель из test-results (путь, например chordnet-123-songs0-aam500/chordnet.onnx); пусто -- та, что на сайте"
+        default: ""
 
 permissions:
   contents: write
@@ -23,9 +26,17 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Модель
+        if: inputs.model != ''
+        run: |
+          git fetch -q --depth 1 origin test-results
+          git show "origin/test-results:${{ inputs.model }}" > midi2tab/models/chordnet.onnx
+          ls -la midi2tab/models/chordnet.onnx
       - name: Зависимости
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg

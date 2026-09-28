@@ -200,7 +200,9 @@ def main() -> None:
         print("проверочные песни:", sorted(test_songs), flush=True)
     test = [i for i in items if player(i[0]) and held(i[0]) and i[0].endswith("_comp_mic")]
     guitar = [i for i in items if player(i[0]) and not held(i[0])]
-    synth = [i for i in items if i[0].startswith("synth_")]
+    # synth_* и synth1_*..synth4_* (параллельная генерация): раньше второе не
+    # попадало в обучение -- синтетика молча выпадала
+    synth = [i for i in items if i[0].startswith("synth")]
     aam_all = [i for i in items if i[0].startswith("aam_")]
     # Каждая десятая песня AAM (до 60) -- проверочная, модель её не слышит
     aam_test = aam_all[::10][:60]
