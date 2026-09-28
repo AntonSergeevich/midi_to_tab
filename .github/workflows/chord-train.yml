@@ -34,6 +34,9 @@ on:
       tricks:
         description: "Приёмы: --weights --augment --smoothing 0.05 (пусто -- как раньше)"
         default: "--weights --augment --smoothing 0.05"
+      vocab:
+        description: "Словарь: sevenths (61 класс) или ext (121: ещё sus4, sus2, dim, aug, 6)"
+        default: sevenths
 
 permissions:
   contents: write
@@ -52,6 +55,7 @@ jobs:
       AAM_SHARE: ${{ inputs.aam_share }}
       SYNTH_SHARE: ${{ inputs.synth_share }}
       TRICKS: ${{ inputs.tricks }}
+      CHORDNET_VOCAB: ${{ inputs.vocab }}
     steps:
       - name: Освободить место
         run: |
@@ -114,7 +118,7 @@ jobs:
         if: always()
         run: |
           [ -n "$(ls -A results 2>/dev/null)" ] || exit 0
-          dir="chordnet-${{ github.run_id }}-$SPLIT$FOLD-aam$AAM"
+          dir="chordnet-${{ github.run_id }}-$SPLIT$FOLD-aam$AAM-$CHORDNET_VOCAB"
           git clone -q --depth 1 --branch test-results \
             "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
           mkdir -p "out/$dir" && cp results/* "out/$dir/"

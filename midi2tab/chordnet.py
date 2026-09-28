@@ -10,7 +10,7 @@
 Здесь -- только разбор: те же признаки, что при обучении (не менять одно
 без другого!), прогон через onnxruntime, сглаживание Витерби. Словарь
 берётся из размера выхода модели: 25 классов -- мажор/минор, 61 -- ещё 7,
-maj7 и m7.
+maj7 и m7, 121 -- ещё sus4, sus2, dim, aug и 6.
 """
 from __future__ import annotations
 
@@ -28,8 +28,10 @@ N_BINS = 168
 WINDOW = 144
 CENTER = 12
 NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-QUALITIES = ["maj", "min", "7", "maj7", "min7"]
-SUFFIX = {"maj": "", "min": "m", "7": "7", "maj7": "maj7", "min7": "m7"}
+# Первые пять -- словарь sevenths (61 класс), дальше -- расширенный (121)
+QUALITIES = ["maj", "min", "7", "maj7", "min7", "sus4", "sus2", "dim", "aug", "maj6"]
+SUFFIX = {"maj": "", "min": "m", "7": "7", "maj7": "maj7", "min7": "m7",
+          "sus4": "sus4", "sus2": "sus2", "dim": "dim", "aug": "aug", "maj6": "6"}
 
 
 def available() -> bool:

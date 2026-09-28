@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 SR = 22050
@@ -19,7 +21,11 @@ CENTER = 12                     # сдвиг окна при разборе: с�
 NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 # Словарь: 5 качеств x 12 тонов + «нет аккорда». Порядок качеств важен:
 # класс = качество * 12 + основной тон.
-QUALITIES = ["maj", "min", "7", "maj7", "min7"]
+# CHORDNET_VOCAB=ext -- расширенный словарь: ещё sus4, sus2, dim, aug и 6
+# (121 класс). Первые пять качеств те же, поэтому сайт разбирает обе модели.
+VOCAB = os.environ.get("CHORDNET_VOCAB", "sevenths")
+QUALITIES = ["maj", "min", "7", "maj7", "min7"] + (
+    ["sus4", "sus2", "dim", "aug", "maj6"] if VOCAB == "ext" else [])
 N_CLASS = 12 * len(QUALITIES)
 CLASSES = [f"{n}:{q}" for q in QUALITIES for n in NOTES] + ["N"]
 IGNORE = -100
@@ -57,6 +63,10 @@ def class_of(label: str) -> int:
     if root < 0:
         return N_CLASS
     root = int(root)
+    if VOCAB == "ext":
+        ext = _extended(root, bitmap)
+        if ext is not None:
+            return ext
     if bitmap[4] and bitmap[7]:
         if bitmap[10] and not bitmap[11]:
             return 2 * 12 + root          # 7
@@ -70,6 +80,24 @@ def class_of(label: str) -> int:
             return IGNORE                 # minmaj7 -- редкость, не учим
         return 12 + root                  # min, min6...
     return IGNORE
+
+
+def _extended(root: int, bitmap) -> int | None:
+    """Расширенный словарь: sus4, sus2, dim (и полууменьшённый/уменьшённый
+    септаккорд), aug, мажорный секстаккорд. None -- решает обычная ветка."""
+    q = QUALITIES.index
+    if bitmap[7] and not bitmap[3] and not bitmap[4]:
+        if bitmap[5] and not bitmap[2]:
+            return q("sus4") * 12 + root
+        if bitmap[2] and not bitmap[5]:
+            return q("sus2") * 12 + root
+    if bitmap[3] and bitmap[6] and not bitmap[7]:
+        return q("dim") * 12 + root                 # dim, hdim7, dim7
+    if bitmap[4] and bitmap[8] and not bitmap[7]:
+        return q("aug") * 12 + root
+    if bitmap[4] and bitmap[7] and bitmap[9] and not bitmap[10] and not bitmap[11]:
+        return q("maj6") * 12 + root
+    return None
 
 
 def frame_labels(segments, n_frames: int) -> np.ndarray:

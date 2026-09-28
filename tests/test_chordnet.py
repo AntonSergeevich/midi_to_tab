@@ -60,3 +60,14 @@ def test_key_settles_major_minor_doubt_but_not_confident_chords():
     assert chordnet.with_key(confident, key, strength=2.5)[0].argmax() == d_major
     assert chordnet.with_key(doubtful, key, strength=0.0) is doubtful
     assert chordnet.parallel(2 * 12 + 7) == 4 * 12 + 7 and chordnet.parallel(3 * 12) == 3 * 12
+
+
+def test_extended_vocabulary_names():
+    """121 класс: к пяти качествам добавлены sus4, sus2, dim, aug и 6."""
+    assert chordnet.class_name(5 * 12, 121) == "Csus4"
+    assert chordnet.class_name(6 * 12 + 2, 121) == "Dsus2"
+    assert chordnet.class_name(7 * 12 + 11, 121) == "Bdim"
+    assert chordnet.class_name(8 * 12, 121) == "Caug"
+    assert chordnet.class_name(9 * 12 + 7, 121) == "G6"
+    assert chordnet.class_name(120, 121) == "N"
+    assert chordnet.class_name(2 * 12 + 7, 61) == "G7"          # старые модели -- как раньше

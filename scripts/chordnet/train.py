@@ -162,7 +162,7 @@ def score(reference, estimated) -> dict:
     est_int = np.array([[a, b] for a, b, _ in estimated])
     scores = mir_eval.chord.evaluate(ref_int, [l for *_, l in reference],
                                      est_int, [l for *_, l in estimated])
-    return {m: float(scores[m]) for m in ("root", "majmin", "sevenths")}
+    return {m: float(scores[m]) for m in ("root", "majmin", "sevenths", "mirex")}
 
 
 def main() -> None:
@@ -244,8 +244,8 @@ def main() -> None:
               "train_aam": len(aam), "weights": args.weights, "augment": args.augment,
               "smoothing": args.smoothing, "files": []}
     penalties = (0.0, 1.0, 2.0, 3.0, 5.0, 8.0)
-    totals = {p: {"root": 0.0, "majmin": 0.0, "sevenths": 0.0} for p in penalties}
-    base_total = {"root": 0.0, "majmin": 0.0, "sevenths": 0.0}
+    totals = {p: {"root": 0.0, "majmin": 0.0, "sevenths": 0.0, "mirex": 0.0} for p in penalties}
+    base_total = {"root": 0.0, "majmin": 0.0, "sevenths": 0.0, "mirex": 0.0}
     weight = 0.0
     for name, x, _ in test:
         stem = stem_of(name)
@@ -281,7 +281,7 @@ def main() -> None:
     if args.baseline:
         report["old"] = {m: v / weight for m, v in base_total.items()}
     if aam_test:
-        aam_totals = {p: {"root": 0.0, "majmin": 0.0, "sevenths": 0.0} for p in penalties}
+        aam_totals = {p: {"root": 0.0, "majmin": 0.0, "sevenths": 0.0, "mirex": 0.0} for p in penalties}
         aam_weight = 0.0
         for name, x, y in aam_test:
             reference = reference_from_frames(y)
@@ -297,7 +297,7 @@ def main() -> None:
               flush=True)
     best = max(penalties, key=lambda p: totals[p]["majmin"])
     report["best_penalty"] = best
-    for metric in ("majmin", "sevenths"):
+    for metric in ("majmin", "sevenths", "mirex"):
         print(f"\nИТОГ {metric}:", {p: round(t[metric] / weight, 3) for p, t in totals.items()},
               "| старый разбор:", round(base_total[metric] / weight, 3) if args.baseline else "-",
               flush=True)

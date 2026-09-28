@@ -42,6 +42,14 @@ def chord_tones(root: int, quality: str, extra: str) -> list[int]:
         tones = [0, 7]
     elif extra == "add9":
         tones.append(14)
+    elif extra == "sus2":
+        tones = [0, 2, 7]
+    elif extra == "dim":
+        tones = [0, 3, 6]
+    elif extra == "aug":
+        tones = [0, 4, 8]
+    elif extra == "6":
+        tones = [0, 4, 7, 9]
     return [(root + t) % 12 for t in tones]
 
 
@@ -55,8 +63,8 @@ def progression(rng: random.Random, key: int, mode: str, seconds: float, beat: f
         else:
             step, quality, _ = rng.choices(degrees, weights=[d[2] for d in degrees])[0]
             root = (key + step) % 12
-        extra = rng.choices(["", "7", "maj7", "sus4", "5", "add9"],
-                            weights=[60, 18, 8, 5, 5, 4])[0]
+        extra = rng.choices(["", "7", "maj7", "sus4", "5", "add9", "sus2", "dim", "aug", "6"],
+                            weights=[48, 16, 7, 7, 4, 4, 5, 4, 2, 3])[0]
         if rng.random() < 0.04:
             quality = "N"
         length = rng.choice([1, 2, 2, 4, 4, 4, 4, 8, 8]) * beat
@@ -68,8 +76,13 @@ def progression(rng: random.Random, key: int, mode: str, seconds: float, beat: f
 def label(root: int, quality: str, extra: str) -> str:
     if quality == "N":
         return "N"
-    if extra in ("sus4", "5"):
-        return "X"  # вне словаря: не учим
+    if extra == "5":
+        return "X"  # квинта без терции -- не аккорд словаря, не учим
+    # Подписи Harte; учить ли sus/dim/aug/6 -- решает словарь (common.class_of)
+    if extra in ("sus4", "sus2", "dim", "aug"):
+        return f"{NOTES[root]}:{extra}"
+    if extra == "6":
+        return f"{NOTES[root]}:{'maj6' if quality == 'maj' else 'min6'}"
     if extra == "7":
         return f"{NOTES[root]}:{'7' if quality == 'maj' else 'min7'}"
     if extra == "maj7":
