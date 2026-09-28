@@ -1,7 +1,7 @@
 name: Обучение нейросети аккордов
 
 # scripts/chordnet: синтетика (FluidSynth, свободные звуковые банки) +
-# GuitarSet (CC BY 4.0) -> CRNN -> замер majmin на гитаристе, которого
+# GuitarSet (CC BY 4.0) + AAM (CC BY 4.0, песни из сэмплов живых инструментов) -> CRNN -> замер majmin на гитаристе, которого
 # модель не слышала, рядом со старым разбором. Модель (ONNX) и отчёт --
 # в ветку test-results/chordnet-<номер прогона>.
 on:
@@ -22,6 +22,18 @@ on:
       fold:
         description: Какая пятая часть песен проверочная (0..4)
         default: "0"
+      aam:
+        description: Песен AAM (0 -- без AAM)
+        default: "500"
+      aam_share:
+        description: Доля шагов на AAM
+        default: "0.45"
+      synth_share:
+        description: Доля шагов на синтетику
+        default: "0.15"
+      tricks:
+        description: "Приёмы: --weights --augment --smoothing 0.05 (пусто -- как раньше)"
+        default: "--weights --augment --smoothing 0.05"
 
 permissions:
   contents: write
@@ -36,6 +48,10 @@ jobs:
       PLAYER: ${{ inputs.test_player }}
       SPLIT: ${{ inputs.split }}
       FOLD: ${{ inputs.fold }}
+      AAM: ${{ inputs.aam }}
+      AAM_SHARE: ${{ inputs.aam_share }}
+      SYNTH_SHARE: ${{ inputs.synth_share }}
+      TRICKS: ${{ inputs.tricks }}
     steps:
       - name: Освободить место
         run: |
@@ -50,7 +66,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg fluidsynth fluid-soundfont-gm timgm6mb-soundfont
           pip install -q torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -q -r requirements.txt -r requirements-audio.txt pretty_midi onnx
+          pip install -q -r requirements.txt -r requirements-audio.txt pretty_midi onnx remotezip
           ls /usr/share/sounds/sf2/
       - name: GuitarSet
         run: |
@@ -76,22 +92,29 @@ jobs:
           done
           wait
           tail -n 1 synth*.log; ls synth/*.wav | wc -l; du -sh synth
+      - name: AAM (zenodo 5794629, CC BY 4.0)
+        if: inputs.aam != '0'
+        run: |
+          python -u scripts/chordnet/aam.py --count "$AAM" --out aam --block 2001-3000
+          du -sh aam
       - name: Признаки
         run: |
+          mkdir -p aam
           python -u scripts/chordnet/prepare.py --guitarset gs/audio_mono-mic gs/audio_mono-pickup_mix \
-            --annotations gs/annotation --synth synth --out data --delete-synth
+            --annotations gs/annotation --synth synth --extra aam --out data --delete-synth
           du -sh data
       - name: Обучение и замер
         run: |
           mkdir -p results
           python -u scripts/chordnet/train.py --data data --annotations gs/annotation \
-            --test-audio gs/audio_mono-mic --test-player "$PLAYER" --split "$SPLIT" --fold "$FOLD" --steps "$STEPS" --baseline \
+            --test-audio gs/audio_mono-mic --test-player "$PLAYER" --split "$SPLIT" --fold "$FOLD" --steps "$STEPS" \
+            --aam-share "$AAM_SHARE" --synth-share "$SYNTH_SHARE" $TRICKS \
             --export results/chordnet.onnx --report results/report.json 2>&1 | tee results/train.log
       - name: В ветку test-results
         if: always()
         run: |
           [ -n "$(ls -A results 2>/dev/null)" ] || exit 0
-          dir="chordnet-${{ github.run_id }}-$SPLIT$FOLD"
+          dir="chordnet-${{ github.run_id }}-$SPLIT$FOLD-aam$AAM"
           git clone -q --depth 1 --branch test-results \
             "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
           mkdir -p "out/$dir" && cp results/* "out/$dir/"

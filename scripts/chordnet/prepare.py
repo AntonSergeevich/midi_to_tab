@@ -44,8 +44,9 @@ def main() -> None:
     parser.add_argument("--guitarset", nargs="*", default=[])
     parser.add_argument("--annotations", default="")
     parser.add_argument("--synth", default="")
+    parser.add_argument("--extra", nargs="*", default=[], help="ещё папки в формате синтетики (AAM)")
     parser.add_argument("--out", default="data")
-    parser.add_argument("--delete-synth", action="store_true", help="удалять wav синтетики после разбора")
+    parser.add_argument("--delete-synth", action="store_true", help="удалять звук синтетики и AAM после разбора")
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
     tasks = []
@@ -55,9 +56,16 @@ def main() -> None:
             jams = Path(args.annotations) / (audio.name.split("_comp_")[0] + "_comp.jams")
             tasks.append((str(audio), guitarset_segments(jams),
                           f"{args.out}/gs_{tag}_{audio.stem}.npz", False))
-    if args.synth:
-        for labels in sorted(Path(args.synth).glob("*.json")):
-            tasks.append((str(labels.with_suffix(".wav")), json.loads(labels.read_text()),
+    # Синтетика и AAM: <имя>.json с отрезками рядом с <имя>.wav/.flac
+    for folder in [args.synth, *args.extra]:
+        if not folder:
+            continue
+        for labels in sorted(Path(folder).glob("*.json")):
+            audio = next((labels.with_suffix(ext) for ext in (".wav", ".flac", ".mp3", ".ogg")
+                          if labels.with_suffix(ext).exists()), None)
+            if audio is None:
+                continue
+            tasks.append((str(audio), json.loads(labels.read_text()),
                           f"{args.out}/{labels.stem}.npz", args.delete_synth))
     with Pool(max(1, os.cpu_count() or 1)) as pool:
         for number, _ in enumerate(pool.imap_unordered(one, tasks), 1):

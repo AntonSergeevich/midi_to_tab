@@ -75,7 +75,7 @@ def stem_of(name: str) -> str:
     return name[name.index(f"_{player(name)}_") + 1:]
 
 
-def batch(rng, items, size):
+def batch(rng, items, size, augment: bool = False):
     xs, ys = [], []
     for _ in range(size):
         _, x, y = rng.choice(items)
@@ -90,7 +90,62 @@ def batch(rng, items, size):
         pad = FRAMES - len(crop)
         xs.append(np.pad(crop, ((0, pad), (0, 0))))
         ys.append(np.pad(common.transpose_class(y, -d), (0, pad), constant_values=common.IGNORE))
-    return torch.tensor(np.stack(xs)), torch.tensor(np.stack(ys))
+    x = np.stack(xs)
+    if augment:
+        x = spec_augment(rng, x)
+    return torch.tensor(x), torch.tensor(np.stack(ys))
+
+
+def spec_augment(rng, x: np.ndarray) -> np.ndarray:
+    """Другой тембр и запись: наклон спектра (ярче/глуше), громкость, шум,
+    выпавшие кусочки времени. Полосы частот не маскируем -- терца решает
+    мажор/минор, её прятать нельзя."""
+    x = x.copy()
+    bins = np.linspace(-1.0, 1.0, x.shape[2], dtype=np.float32)
+    for b in range(len(x)):
+        x[b] = x[b] * rng.uniform(0.8, 1.2) + rng.gauss(0, 0.3) * bins + rng.gauss(0, 0.1)
+        x[b] += np.random.default_rng(rng.randrange(1 << 30)).normal(0, rng.uniform(0, 0.15),
+                                                                     x[b].shape).astype(np.float32)
+        for _ in range(rng.randrange(3)):
+            width = rng.randrange(1, 8)
+            start = rng.randrange(max(1, x.shape[1] - width))
+            x[b, start:start + width] = 0.0
+    return x
+
+
+def class_weights(pools) -> torch.Tensor:
+    """Веса классов по качеству аккорда: минора и септаккордов в данных
+    меньше мажора, и без весов сеть в сомнении отвечает «мажор» (Em -> E).
+    Вес ~ 1/sqrt(частоты качества), в пределах 0.5..3."""
+    counts = np.zeros(len(common.QUALITIES) + 1)
+    for items, share in pools:
+        if not items or share <= 0:
+            continue
+        part = np.zeros_like(counts)
+        for _, _, y in items:
+            chord = y[(y >= 0) & (y < common.N_CLASS)]
+            part[:-1] += np.bincount(chord // 12, minlength=len(common.QUALITIES))
+            part[-1] += np.sum(y == common.N_CLASS)
+        counts += share * part / max(part.sum(), 1)
+    freq = counts / counts.sum()
+    per_quality = np.clip((freq.mean() / np.maximum(freq, 1e-6)) ** 0.5, 0.5, 3.0)
+    weights = np.concatenate([np.repeat(per_quality[:-1], 12), per_quality[-1:]])
+    print("доли качеств:", dict(zip(common.QUALITIES + ["N"], np.round(freq, 3))),
+          "| веса:", dict(zip(common.QUALITIES + ["N"], np.round(per_quality, 2))), flush=True)
+    return torch.tensor(weights, dtype=torch.float32)
+
+
+def reference_from_frames(y: np.ndarray):
+    """Покадровая разметка -> отрезки для mir_eval (вне словаря -- «X»)."""
+    step = common.HOP / common.SR
+    out = []
+    for t, c in enumerate(y):
+        label = "X" if c < 0 else common.CLASSES[int(c)]
+        if out and out[-1][2] == label:
+            out[-1][1] = (t + 1) * step
+        else:
+            out.append([t * step, (t + 1) * step, label])
+    return [tuple(o) for o in out]
 
 
 def predict(model, x: np.ndarray) -> np.ndarray:
@@ -123,6 +178,10 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=6000)
     parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--synth-share", type=float, default=0.5)
+    parser.add_argument("--aam-share", type=float, default=0.0, help="доля шагов на AAM")
+    parser.add_argument("--weights", action="store_true", help="веса классов по качеству аккорда")
+    parser.add_argument("--augment", action="store_true", help="аугментации спектра")
+    parser.add_argument("--smoothing", type=float, default=0.0, help="сглаживание меток")
     parser.add_argument("--export", default="chordnet.onnx")
     parser.add_argument("--report", default="report.json")
     parser.add_argument("--baseline", action="store_true", help="считать и старый разбор")
@@ -142,17 +201,33 @@ def main() -> None:
     test = [i for i in items if player(i[0]) and held(i[0]) and i[0].endswith("_comp_mic")]
     guitar = [i for i in items if player(i[0]) and not held(i[0])]
     synth = [i for i in items if i[0].startswith("synth_")]
-    print(f"обучение: GuitarSet {len(guitar)}, синтетика {len(synth)}; проверка: {len(test)}", flush=True)
+    aam_all = [i for i in items if i[0].startswith("aam_")]
+    # Каждая десятая песня AAM (до 60) -- проверочная, модель её не слышит
+    aam_test = aam_all[::10][:60]
+    held_aam = {i[0] for i in aam_test}
+    aam = [i for i in aam_all if i[0] not in held_aam]
+    print(f"обучение: GuitarSet {len(guitar)}, синтетика {len(synth)}, AAM {len(aam)}; "
+          f"проверка: GuitarSet {len(test)}, AAM {len(aam_test)}", flush=True)
+    guitar_share = max(0.0, 1.0 - args.synth_share - args.aam_share)
+    pools = [(aam, args.aam_share if aam else 0.0), (synth, args.synth_share if synth else 0.0),
+             (guitar, guitar_share if guitar else 0.0)]
+    total_share = sum(share for _, share in pools) or 1.0
 
     model = ChordNet()
     optimizer = torch.optim.AdamW(model.parameters(), lr=2e-3, weight_decay=1e-4)
     schedule = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=2e-3, total_steps=args.steps)
-    loss_fn = nn.CrossEntropyLoss(ignore_index=common.IGNORE)
+    loss_fn = nn.CrossEntropyLoss(ignore_index=common.IGNORE, label_smoothing=args.smoothing,
+                                  weight=class_weights(pools) if args.weights else None)
     started = time.time()
     model.train()
     for step in range(1, args.steps + 1):
-        pool = synth if synth and (not guitar or rng.random() < args.synth_share) else guitar
-        x, y = batch(rng, pool, args.batch)
+        r, pool = rng.random() * total_share, guitar
+        for items_, share in pools:
+            if share > 0 and r < share:
+                pool = items_
+                break
+            r -= share
+        x, y = batch(rng, pool, args.batch, augment=args.augment)
         loss = loss_fn(model(x).reshape(-1, common.N_CLASS + 1), y.reshape(-1))
         optimizer.zero_grad()
         loss.backward()
@@ -166,7 +241,8 @@ def main() -> None:
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     report = {"steps": args.steps, "train_guitarset": len(guitar), "train_synth": len(synth),
-              "files": []}
+              "train_aam": len(aam), "weights": args.weights, "augment": args.augment,
+              "smoothing": args.smoothing, "files": []}
     penalties = (0.0, 1.0, 2.0, 3.0, 5.0, 8.0)
     totals = {p: {"root": 0.0, "majmin": 0.0, "sevenths": 0.0} for p in penalties}
     base_total = {"root": 0.0, "majmin": 0.0, "sevenths": 0.0}
@@ -200,9 +276,25 @@ def main() -> None:
         weight += length
         report["files"].append(row)
         print(json.dumps(row, ensure_ascii=False), flush=True)
+    weight = weight or 1.0   # без проверки на GuitarSet (например, быстрый прогон) -- нули
     report["net"] = {str(p): {m: v / weight for m, v in t.items()} for p, t in totals.items()}
     if args.baseline:
         report["old"] = {m: v / weight for m, v in base_total.items()}
+    if aam_test:
+        aam_totals = {p: {"root": 0.0, "majmin": 0.0, "sevenths": 0.0} for p in penalties}
+        aam_weight = 0.0
+        for name, x, y in aam_test:
+            reference = reference_from_frames(y)
+            length = reference[-1][1]
+            probs = predict(model, x)
+            for p in penalties:
+                s = score(reference, common.segments(common.viterbi(probs, p)))
+                for m in s:
+                    aam_totals[p][m] += s[m] * length
+            aam_weight += length
+        report["aam"] = {str(p): {m: v / aam_weight for m, v in t.items()} for p, t in aam_totals.items()}
+        print("\nИТОГ AAM majmin:", {p: round(t["majmin"] / aam_weight, 3) for p, t in aam_totals.items()},
+              flush=True)
     best = max(penalties, key=lambda p: totals[p]["majmin"])
     report["best_penalty"] = best
     for metric in ("majmin", "sevenths"):
