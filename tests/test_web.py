@@ -1571,3 +1571,106 @@ def test_chords_are_free_parts_and_tabs_charge_once(tmp_path, monkeypatch):
         assert client.post(f"/api/job/{job_id}/separate").status_code == 200
         assert app_module.storage.user(user.id).balance == 100 - app_module.billing.PRICE_SINGLE_RUB
         assert app_module.storage.job(job_id).counted
+
+
+def test_separating_a_midi_track_is_refused_not_charged_and_crashed(tmp_path, monkeypatch):
+    """MIDI уже разложен по партиям смыслово -- Demucs не умеет читать .mid.
+    Кнопка на фронтенде для MIDI скрыта, но прямой запрос к API не должен
+    списать деньги и уйти в фоновый разбор, который гарантированно упадёт
+    (и упадёт уже ПОСЛЕ списания, без возврата)."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    started = []
+    monkeypatch.setattr(app_module.runner, "submit_separation", lambda jid: started.append(jid))
+    monkeypatch.setattr(app_module.separate, "available", lambda: (True, ""))
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        app_module.storage.add_balance(user.id, 100)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+        job = app_module.storage.create_job(user.id, "song.mid", {})
+        app_module.storage.update_job(job.id, status="done", result={
+            "isMidi": True, "chords": [{"name": "C", "start": 0, "end": 1, "confidence": 1}],
+            "paths": {"parts": {"full": "song.mid"}},
+        })
+
+        response = client.post(f"/api/job/{job.id}/separate")
+
+        assert response.status_code == 409
+        assert not started
+        assert app_module.storage.user(user.id).balance == 100
+        assert not app_module.storage.job(job.id).counted
+
+
+def test_two_stem_tabs_clicked_at_once_charge_only_once(tmp_path, monkeypatch):
+    """Два клика (разные партии одного трека) почти одновременно не должны
+    списать разбор дважды: оба запроса видят один и тот же снятый до этого
+    объект `job` с counted=False, и без атомарной отметки оба прошли бы
+    проверку и списали бы по одному разу каждый."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    import web.app as app_module
+
+    user = app_module.storage.ensure_user(None)
+    for _ in range(app_module.billing.FREE_SONGS):
+        app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+    app_module.storage.add_balance(user.id, 100)
+    job = app_module.storage.create_job(user.id, "song.mp3", {})
+
+    # Один и тот же снимок `job` (counted=False) передаётся дважды -- как
+    # если бы два запроса прочитали его из базы до того, как любой из них
+    # успел списать деньги.
+    app_module._charge_song_once(app_module.storage.user(user.id), job)
+    app_module._charge_song_once(app_module.storage.user(user.id), job)
+
+    assert app_module.storage.user(user.id).balance == 100 - app_module.billing.PRICE_SINGLE_RUB
+    assert app_module.storage.job(job.id).counted
+
+
+def test_uploaded_midi_gets_chords_and_key_not_just_a_paid_empty_result(tmp_path, monkeypatch):
+    """Загрузка готового MIDI -- платная (не проба аккордов из аудио), и
+    должна отдавать за эти деньги настоящие аккорды и тональность, а не
+    пустой результат: раньше распознавание аккордов по нотам (chords.detect)
+    нигде не вызывалось для этого пути, и .mid всегда возвращал chords=[]."""
+    import sys
+
+    import pretty_midi
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    import web.app as app_module
+
+    midi_path = tmp_path / "song.mid"
+    pm = pretty_midi.PrettyMIDI(initial_tempo=120.0)
+    inst = pretty_midi.Instrument(program=25)
+    for pitch in (48, 52, 55, 60):       # C
+        inst.notes.append(pretty_midi.Note(velocity=90, pitch=pitch, start=0.0, end=2.0))
+    for pitch in (43, 47, 50, 55):       # G
+        inst.notes.append(pretty_midi.Note(velocity=90, pitch=pitch, start=2.0, end=4.0))
+    pm.instruments.append(inst)
+    pm.write(str(midi_path))
+
+    user = app_module.storage.ensure_user(None)
+    app_module.storage.add_balance(user.id, 100)
+    job = app_module.storage.create_job(user.id, "song.mid", {})
+
+    app_module.runner._analyze(job.id, str(midi_path))
+
+    result = app_module.storage.job(job.id).result
+    assert result["isMidi"] is True
+    assert [c["name"] for c in result["chords"]] == ["C", "G"]
+    assert result["key"]
+    assert result["shapes"]["C"]
