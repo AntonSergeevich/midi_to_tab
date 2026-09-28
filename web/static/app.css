@@ -839,3 +839,4 @@ header.top > div > .badge { margin-left: 8px; text-decoration: none; }
 .choice small b { display: inline; font-size: inherit; color: var(--text); margin: 0; }
 .credit-table .grid b { color: var(--accent); font-size: 18px; }
 @media (max-width: 720px) { .choices.plans3 { grid-template-columns: 1fr; } }
+.st-rec { font-style: normal; font-size: 11px; font-weight: 700; color: #1a1206; background: var(--accent); border-radius: 999px; padding: 1px 8px; margin-left: 6px; vertical-align: 2px; }
