@@ -844,3 +844,7 @@ header.top > div > .badge { margin-left: 8px; text-decoration: none; }
 .st-linkbtn.on { border-style: solid; border-color: var(--accent); background: rgba(217,154,78,.08); }
 .preset.mine { border-style: dashed; }
 .preset.add { color: var(--accent); }
+.st-archives { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.st-archives a { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border); color: var(--text); text-decoration: none; font-size: 13px; }
+.st-archives a:hover { border-color: var(--accent); color: var(--accent); }
+.st-archives svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }

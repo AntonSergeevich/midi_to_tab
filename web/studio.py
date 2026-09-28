@@ -31,6 +31,7 @@ import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from pathlib import Path
 
 from .storage import Storage
 
@@ -62,6 +63,7 @@ SERVICES = {
     "stems": Service("Разделение на партии", 19.0),
     "extend": Service("Продлить песню", 29.0),
     "voice": Service("Мой голос для песен", 49.0),
+    "stems_pro": Service("Глубокое разделение + MIDI", 149.0),
 }
 
 # Переделка в стиль на ACE-Step не дотягивает до качества, за которое
@@ -83,7 +85,7 @@ MUREKA_STATES = {"preparing": "Готовим трек", "queued": "В очер�
 # Цена в кредитах Студии (billing.PLANS): от себестоимости действия.
 # Живые замеры (28.09): продление -- $0.03, песня «как в образце» -- $0.09 за две.
 CREDIT_COST = {"create": 10, "restyle": 40, "keep": 20, "enrich": 5, "stems": 3, "extend": 5,
-               "voice": 10}
+               "voice": 10, "stems_pro": 60}  # глубокое разделение Mureka -- $0.70
 
 
 def voice_clone_open() -> bool:
@@ -128,6 +130,10 @@ TRACKS = {
 STEM_LABELS = {
     "vocals": "Вокал", "guitar": "Гитара", "bass": "Бас", "drums": "Барабаны",
     "piano": "Клавиши", "other": "Остальное",
+    # Глубокое разделение Mureka (audio-separation-2): до 12 партий
+    "vocal": "Вокал", "flute": "Флейта", "fx": "Эффекты", "strings": "Струнные",
+    "synth": "Синтезатор", "keyboard": "Клавишные", "brass": "Духовые",
+    "woodwinds": "Деревянные духовые", "brass_and_woodwinds": "Духовые", "instrumental": "Минус",
 }
 
 STATES = {
@@ -533,10 +539,10 @@ def check_link(secret: str, job_id: str, purpose: str, expires: int, signature: 
 
 
 def safe_file_name(name: str) -> str | None:
-    """Имя файла от воркера: только простое имя mp3 (или обложка), без путей."""
+    """Имя файла от воркера: простое имя mp3/mid/zip (или обложка), без путей."""
     if name == "cover.jpg":
         return name
-    return name if re.fullmatch(r"[A-Za-z0-9_.-]{1,80}\.mp3", name or "") else None
+    return name if re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,80}\.(mp3|mid|zip)", name or "") else None
 
 
 def label_of(mode: str, name: str) -> str:
@@ -770,6 +776,76 @@ class StudioRunner:
         except Exception as error:  # noqa: BLE001 -- любая ошибка -> деньги назад
             self._fail(job_id, str(error))
 
+    def _run_stems_pro(self, job_id: str) -> None:
+        """Глубокое разделение Mureka (audio-separation-2): до 12 партий в wav
+        и MIDI каждой. Партии -- в mp3 для прослушивания, MIDI -- отдельными
+        файлами (из них табы собираются без распознавания звука) и архивом."""
+        import zipfile
+
+        try:
+            job = self.storage.job(job_id)
+            task_input = (job.settings or {}).get("input") or {}
+            folder = self.folder(job_id)
+            self.storage.update_job(job_id, status="running", stage="Раскладываем на 12 дорожек",
+                                    progress=10)
+            source = next(os.path.join(folder, f) for f in sorted(os.listdir(folder))
+                          if f.startswith("source."))
+            # data URI до 10 МБ: base64 раздувает на треть -- кодируем в 128 кбит/с
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", source, "-t", str(MUREKA_MAX_SECONDS),
+                            "-ac", "2", "-b:a", "128k", os.path.join(folder, "for_mureka.mp3")],
+                           check=True, timeout=300)
+            if use_relay():
+                out = relay_run({"op": "stem", "source_url": task_input["mureka_url"],
+                                 "model": "audio-separation-2"}, timeout=1200)
+                if not out.get("ok"):
+                    raise RuntimeError(f"Mureka не разделила ({out.get('status')}): "
+                                       f"{short_error(out.get('error') or '')}")
+                answer = out.get("json") or {}
+            else:
+                import base64
+
+                data = base64.b64encode(open(os.path.join(folder, "for_mureka.mp3"), "rb").read()).decode()
+                answer = mureka_call("POST", "/v1/song/stem", {
+                    "url": f"data:audio/mp3;base64,{data}", "model": "audio-separation-2"}, timeout=900)
+            self.storage.update_job(job_id, status="running", stage="Забираем партии и MIDI", progress=70)
+            for key, name in (("zip_url", "stems.zip"), ("midi_zip_url", "midi.zip")):
+                if answer.get(key):
+                    fetch_result(task_input, answer[key], folder, name)
+            files, midi = [], []
+            stems_zip = os.path.join(folder, "stems.zip")
+            if os.path.isfile(stems_zip):
+                with zipfile.ZipFile(stems_zip) as archive:
+                    for entry in archive.namelist():
+                        stem = re.sub(r"[^a-z0-9]+", "_", Path(entry).stem.lower()).strip("_")
+                        if not entry.lower().endswith((".wav", ".mp3")) or not stem:
+                            continue
+                        raw = os.path.join(folder, f"raw_{stem}{Path(entry).suffix.lower()}")
+                        with archive.open(entry) as src, open(raw, "wb") as dst:
+                            shutil.copyfileobj(src, dst)
+                        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", raw, "-b:a", "256k",
+                                        os.path.join(folder, f"{stem}.mp3")], check=True, timeout=300)
+                        os.remove(raw)
+                        files.append({"name": f"{stem}.mp3", "label": STEM_LABELS.get(stem, stem.capitalize())})
+            midi_zip = os.path.join(folder, "midi.zip")
+            if os.path.isfile(midi_zip):
+                with zipfile.ZipFile(midi_zip) as archive:
+                    for entry in archive.namelist():
+                        stem = re.sub(r"[^a-z0-9]+", "_", Path(entry).stem.lower()).strip("_")
+                        if entry.lower().endswith((".mid", ".midi")) and stem:
+                            with archive.open(entry) as src, open(os.path.join(folder, f"{stem}.mid"), "wb") as dst:
+                                shutil.copyfileobj(src, dst)
+                            midi.append({"name": f"{stem}.mid",
+                                         "label": f"MIDI · {STEM_LABELS.get(stem, stem.capitalize())}"})
+            if not files and not midi:
+                raise RuntimeError("Mureka закончила, но партии до сайта не дошли")
+            order = list(STEM_LABELS)
+            files.sort(key=lambda f: order.index(f["name"][:-4]) if f["name"][:-4] in order else 99)
+            self.storage.update_job(job_id, status="done", stage="Готово", progress=100, result={
+                "files": files, "midi": midi, "engine": "mureka", "pro": True,
+                "archives": [n for n in ("stems.zip", "midi.zip") if os.path.isfile(os.path.join(folder, n))]})
+        except Exception as error:  # noqa: BLE001 -- любая ошибка -> деньги назад
+            self._fail(job_id, f"глубокое разделение не удалось: {error}")
+
     def _run_voice(self, job_id: str) -> None:
         """Мой голос: вокал из записи (Demucs), без пауз, 30 с -> Mureka
         song/vocal-clone -> vocal_id в список голосов человека."""
@@ -809,6 +885,9 @@ class StudioRunner:
             return
         if (job.settings or {}).get("mode") == "voice":
             self._run_voice(job_id)
+            return
+        if (job.settings or {}).get("mode") == "stems":
+            self._run_stems_pro(job_id)
             return
         try:
             settings = dict(job.settings or {})

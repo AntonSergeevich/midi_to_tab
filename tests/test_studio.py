@@ -918,3 +918,49 @@ def test_create_from_reference_sends_reference_without_prompt(studio_app, monkey
     studio.StudioRunner(app_module.storage, app_module.DATA_DIR)._run(job_id)
     body = calls[0][2]
     assert body["reference_id"] == "ref-reference" and "prompt" not in body
+
+
+def test_stems_pro_unpacks_parts_and_midi(studio_app, monkeypatch):
+    """Глубокое разделение: архивы Mureka -> партии mp3 + MIDI каждой; из MIDI -- табы."""
+    import io
+    import zipfile
+
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    _mureka_env(monkeypatch)
+    app_module.storage.add_studio_credits(user.id, 100)
+    job_id = _start(client, mode="stems", pro="true").json()["jobId"]
+    assert app_module.storage.user(user.id).studio_credits == 40              # 60 кредитов
+    job = app_module.storage.job(job_id)
+    assert job.settings["engine"] == "mureka"
+    app_module.storage.update_job(job_id, settings={**job.settings, "input": submitted[-1][1]})
+
+    def archive(names):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as z:
+            for n in names:
+                z.writestr(n, b"data")
+        return buffer.getvalue()
+
+    monkeypatch.setattr(studio.subprocess, "run", lambda cmd, **kw: open(cmd[-1], "wb").write(b"mp3"))
+    monkeypatch.setattr(studio, "mureka_call", lambda m, path, body=None, timeout=60: {
+        "zip_url": "https://cdn/stems.zip", "midi_zip_url": "https://cdn/midi.zip"})
+    monkeypatch.setattr(studio, "download", lambda url, target: open(target, "wb").write(
+        archive(["song/Vocals.wav", "song/Guitar.wav", "song/Strings.wav"]) if "stems" in url
+        else archive(["song/guitar.mid", "song/vocal.mid"])))
+    studio.StudioRunner(app_module.storage, app_module.DATA_DIR)._run(job_id)
+    job = app_module.storage.job(job_id)
+    assert job.status == "done", job.error
+    assert [f["label"] for f in job.result["files"]] == ["Вокал", "Гитара", "Струнные"]
+    assert [m["label"] for m in job.result["midi"]] == ["MIDI · Гитара", "MIDI · Вокал"]
+    listed = client.get("/api/studio").json()["jobs"][0]
+    assert listed["pro"] and listed["midi"][0]["url"].endswith("/guitar.mid")
+    response = client.get(listed["midi"][0]["url"])
+    assert response.headers["content-type"] == "audio/midi"
+    # табы прямо из MIDI -- без распознавания звука и разделения
+    started = []
+    monkeypatch.setattr(app_module.runner, "submit_analysis", lambda jid, path: started.append(path))
+    tab = client.post(f"/api/studio/{job_id}/tabs", data={"file": "guitar.mid"})
+    assert tab.status_code == 200, tab.text
+    assert started[0].endswith(".mid")
+    assert app_module.storage.job(tab.json()["jobId"]).settings["separate"] is False

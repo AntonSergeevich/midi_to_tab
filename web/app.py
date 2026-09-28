@@ -1350,6 +1350,11 @@ def _studio_job_payload(job) -> dict:
         "style": (settings.get("input") or {}).get("prompt", ""),
         "voice": settings.get("voice", ""),
         "hasSource": any(f.startswith("source.") for f in os.listdir(folder)) if os.path.isdir(folder) else False,
+        "midi": [{**m, "url": f"/api/studio/file/{job.id}/{m['name']}"} for m in result.get("midi") or []
+                 if os.path.isfile(os.path.join(folder, m["name"]))],
+        "archives": [{"name": a, "url": f"/api/studio/file/{job.id}/{a}"} for a in result.get("archives") or []
+                     if os.path.isfile(os.path.join(folder, a))],
+        "pro": bool(result.get("pro")),
         "cover": f"/api/studio/file/{job.id}/cover.jpg"
                  if os.path.isfile(os.path.join(folder, "cover.jpg")) else None,
         "lyrics": result.get("lyrics") or (settings.get("input") or {}).get("lyrics") or "",
@@ -1404,6 +1409,7 @@ async def api_studio_start(
     again: str = Form(""),
     rights: str = Form(""),
     reference: bool = Form(False),
+    pro: bool = Form(False),
 ):
     user = current_user(request)
     ready, why = studio.available()
@@ -1412,7 +1418,12 @@ async def api_studio_start(
     service = studio.SERVICES.get(mode)
     if service is None:
         raise HTTPException(400, "Неизвестная услуга")
-    engine = studio.restyle_engine() if mode in ("restyle", "create") else "runpod"
+    pro = pro and mode == "stems"
+    engine = studio.restyle_engine() if mode in ("restyle", "create") or pro else "runpod"
+    if pro and engine != "mureka":
+        raise HTTPException(503, "Глубокое разделение пока не подключено")
+    if pro:
+        service = studio.SERVICES["stems_pro"]
     if mode == "create" and engine != "mureka":
         raise HTTPException(503, "Песни с нуля пишет Mureka, а она на сервере не подключена")
     if mode == "restyle" and not (studio.restyle_open() or user.unlimited):
@@ -1456,7 +1467,8 @@ async def api_studio_start(
     style = prompt.strip()[:500] or (studio.PRESETS[preset][1] if preset in studio.PRESETS else "")
     if mode in ("restyle", "enrich") and not style:
         raise HTTPException(400, "Опишите стиль: жанр, настроение, инструменты")
-    by_pack = user.studio_credits >= studio.credit_cost(mode, keep_vocals) > 0
+    cost_key = "stems_pro" if pro else mode
+    by_pack = user.studio_credits >= studio.credit_cost(cost_key, keep_vocals) > 0
     if not user.unlimited and not by_pack and user.balance < service.price:
         raise HTTPException(402, f"{service.title} стоит {service.price:.0f} ₽, на балансе "
                                  f"{user.balance:.0f} ₽. Пополните баланс или возьмите пакет "
@@ -1503,7 +1515,7 @@ async def api_studio_start(
         **(_runpod_restyle_recipe(knobs["audio_influence"], clamp(melody))
            if mode == "restyle" and engine == "runpod" else {}),
         "track": track, "language": language if language in ("ru", "en") else "ru",
-        "voice": "" if vocal_id else voice, "keep_vocals": keep_vocals,
+        "voice": "" if vocal_id else voice, "keep_vocals": keep_vocals, "cost_key": cost_key,
         **({"vocal_id": vocal_id} if vocal_id else {}), **({"reference": True} if reference else {}),
     })
     response = JSONResponse({"jobId": job.id})
@@ -1531,7 +1543,8 @@ def _studio_charge_and_submit(request: Request, user, job_id: str, service, fold
     settings = dict(job.settings or {})
     # Списываем до запуска и одним атомарным запросом: два параллельных
     # запуска не должны потратить одни и те же деньги дважды.
-    cost = studio.credit_cost(worker_input["mode"], bool(worker_input.get("keep_vocals")))
+    cost = studio.credit_cost(worker_input.get("cost_key") or worker_input["mode"],
+                              bool(worker_input.get("keep_vocals")))
     if not user.unlimited and cost and storage.spend_studio_credit(user.id, cost):
         # Генерации из пакета: деньги не трогаем, при сбое вернём их в пакет.
         settings["charged_credit"] = cost
@@ -1555,8 +1568,10 @@ def _studio_charge_and_submit(request: Request, user, job_id: str, service, fold
 
 
 @app.post("/api/studio/{job_id}/stems")
-def api_studio_split_result(job_id: str, request: Request, file: str = Form("")):
-    """Разделить на партии уже готовую переделку -- без повторной загрузки."""
+def api_studio_split_result(job_id: str, request: Request, file: str = Form(""),
+                            pro: bool = Form(False)):
+    """Разделить на партии уже готовую переделку -- без повторной загрузки;
+    pro -- глубокое разделение Mureka с MIDI."""
     user = current_user(request)
     parent = storage.job(job_id)
     if (not parent or parent.user_id != user.id
@@ -1570,20 +1585,25 @@ def api_studio_split_result(job_id: str, request: Request, file: str = Form(""))
     ready, why = studio.available()
     if not ready:
         raise HTTPException(503, why)
-    service = studio.SERVICES["stems"]
-    if not user.unlimited and user.balance < service.price:
-        raise HTTPException(402, f"{service.title} стоит {service.price:.0f} ₽, на балансе "
-                                 f"{user.balance:.0f} ₽. Пополните баланс на странице тарифов.")
+    cost_key = "stems_pro" if pro else "stems"
+    if pro and studio.restyle_engine() != "mureka":
+        raise HTTPException(503, "Глубокое разделение пока не подключено")
+    service = studio.SERVICES[cost_key]
+    if not user.unlimited and user.balance < service.price \
+            and user.studio_credits < studio.credit_cost(cost_key):
+        raise HTTPException(402, f"{service.title} стоит {studio.credit_cost(cost_key)} кредитов или "
+                                 f"{service.price:.0f} ₽. Пополните баланс на странице тарифов.")
     title = f"{(parent.settings or {}).get('title', '')}: {parent.filename}"
     variant = studio.label_of((parent.settings or {}).get("mode", ""), files[0]["name"])
     job = storage.create_job(user.id, parent.filename, {
         "kind": "studio", "mode": "stems", "title": service.title, "from": job_id,
-        "variant": variant, "charged": 0})
+        "variant": variant, "charged": 0, **({"engine": "mureka"} if pro else {})})
     folder = studio_runner.folder(job.id)
     os.makedirs(folder, exist_ok=True)
     shutil.copyfile(os.path.join(studio_runner.folder(job_id), files[0]["name"]),
                     os.path.join(folder, "source.mp3"))
-    _studio_charge_and_submit(request, user, job.id, service, folder, {"mode": "stems"})
+    _studio_charge_and_submit(request, user, job.id, service, folder,
+                              {"mode": "stems", "cost_key": cost_key})
     return {"jobId": job.id, "from": title}
 
 
@@ -1626,7 +1646,8 @@ def api_studio_to_tabs(job_id: str, request: Request, file: str = Form("")):
     if (not parent or parent.user_id != user.id
             or (parent.settings or {}).get("kind") != "studio" or parent.status != "done"):
         raise HTTPException(404, "Готовая работа не найдена")
-    names = [f["name"] for f in (parent.result or {}).get("files") or []]
+    names = [f["name"] for f in ((parent.result or {}).get("files") or [])
+             + ((parent.result or {}).get("midi") or [])]
     source = os.path.join(studio_runner.folder(job_id), file)
     if file not in names or not os.path.isfile(source):
         raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
@@ -1634,7 +1655,7 @@ def api_studio_to_tabs(job_id: str, request: Request, file: str = Form("")):
     if not access.allowed:
         raise HTTPException(402, access.reason)
     label = studio.label_of((parent.settings or {}).get("mode", ""), file)
-    whole = (parent.settings or {}).get("mode") != "stems"
+    whole = (parent.settings or {}).get("mode") != "stems" and not file.endswith(".mid")
     job = storage.create_job(user.id, f"{parent.filename} — {label}", {
         "capo": 0, "tempo": 0, "minChord": 0.9,
         "vocabulary": audiochords.DEFAULT_VOCABULARY, "separate": whole,
@@ -1837,6 +1858,10 @@ def api_studio_file(job_id: str, name: str, request: Request):
     if safe == "cover.jpg":
         return FileResponse(path, media_type="image/jpeg",
                             headers={"Cache-Control": "private, max-age=86400"})
+    if safe.endswith((".mid", ".zip")):
+        base = Path(job.filename).stem[:60] or "naslux"
+        return FileResponse(path, filename=f"{base} — {safe}",
+                            media_type="audio/midi" if safe.endswith(".mid") else "application/zip")
     label = studio.label_of((job.settings or {}).get("mode", ""), safe)
     return FileResponse(path, filename=download_name(job.filename, label, ".mp3"))
 

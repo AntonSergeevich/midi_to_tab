@@ -111,6 +111,7 @@ function showMode() {
   $('trackBox').hidden = mode !== 'enrich';
   const keep = mode === 'restyle' && mureka && $('keepVocals').checked;
   $('keepBox').hidden = !(mode === 'restyle' && mureka);
+  $('proBox').hidden = !(mode === 'stems' && mureka);
   $('voiceBox').hidden = !['create', 'restyle'].includes(mode) || !mureka || keep;
   $('lyricsBox').hidden = !['create', 'restyle'].includes(mode) || keep;
   $('instrumentalBox').hidden = mode !== 'create';
@@ -122,7 +123,7 @@ function showMode() {
 
 function updateStart() {
   if (!info) return;
-  const service = info.services[mode];
+  const service = mode === 'stems' && $('stemsPro').checked ? info.services.stems_pro : info.services[mode];
   const packCost = (mode === 'restyle' && $('keepVocals').checked ? service.packKeep : service.pack) || 0;
   const byPack = packCost && info.studioCredits >= packCost;
   const enough = info.unlimited || byPack || info.balance >= service.price;
@@ -356,6 +357,16 @@ function renderDetail(jobs) {
             data-url="${f.url}" title="Что сделать">${ICON.more}</button>
         </div>`).join('') : `<div class="st-version"><div class="st-row-main">${statusLine(c)}</div></div>`}
     </div>`).join('');
+  const midi = (j.midi || []).length ? `<div class="st-sub"><div class="st-label">MIDI партий</div>
+    ${j.midi.map((m) => `<div class="st-version small">
+      <div class="st-row-main"><b>${esc(m.label)}</b></div>
+      <button type="button" class="icon-btn" data-act="tabs" data-job="${j.id}" data-file="${esc(m.name)}"
+        title="Табы и аккорды из этого MIDI">${ICON.tabs}</button>
+      <a class="icon-btn" href="${m.url}" download title="Скачать MIDI">${ICON.download}</a>
+    </div>`).join('')}
+    <div class="st-archives">${(j.archives || []).map((a) => `<a href="${a.url}" download>${ICON.download}
+      ${a.name === 'midi.zip' ? 'Все MIDI одним архивом' : 'Все партии в WAV одним архивом'}</a>`).join('')}</div>
+  </div>` : '';
   const lyrics = j.lyrics ? `<details class="st-lyrics"><summary>Текст песни</summary>
     <pre>${esc(j.lyrics)}</pre></details>` : '';
   $('detailView').innerHTML = `
@@ -367,7 +378,7 @@ function renderDetail(jobs) {
     ? `<button type="button" class="icon-btn" data-menu="${j.id}" data-track="1" title="Что сделать">${ICON.more}</button>` : ''}
     </div>
     <div class="st-label">${j.mode === 'stems' ? 'Партии' : 'Версии'}</div>
-    ${versions}${parts}${lyrics}`;
+    ${versions}${midi}${parts}${lyrics}`;
 }
 
 function closeDetail() {
@@ -544,6 +555,7 @@ $('drop').addEventListener('drop', (e) => {
 });
 $('lyrics').addEventListener('input', () => { lyricsCount(); saveDraft(); updateStart(); });
 $('keepVocals').addEventListener('change', showMode);
+$('stemsPro').addEventListener('change', showMode);
 $('instrumental').addEventListener('change', () => {
   $('lyrics').disabled = $('instrumental').checked;
   updateStart();
@@ -614,6 +626,7 @@ $('start').addEventListener('click', async () => {
   form.append('track', $('track').value);
   form.append('voice', voice);
   form.append('keep_vocals', mode === 'restyle' && $('keepVocals').checked);
+  form.append('pro', mode === 'stems' && $('stemsPro').checked);
   $('start').disabled = true;
   $('msg').textContent = mode === 'create' ? 'Отправляем…' : 'Загружаем трек…';
   const response = await fetch('/api/studio', { method: 'POST', body: form });
@@ -665,6 +678,8 @@ function openMenu(button) {
     : `<a href="${button.dataset.url}" download>${ICON.download}<span>Скачать mp3</span></a>`
       + item('tabs', ICON.tabs, 'Табы, аккорды и MIDI')
       + (button.dataset.splitOk ? item('split', ICON.split, 'Разделить на партии') : '')
+      + (button.dataset.splitOk && info.restyleEngine === 'mureka'
+        ? item('splitpro', ICON.split, 'Глубокое разделение + MIDI') : '')
       + item('shift', ICON.tempo, 'Темп и тональность')
       + (button.dataset.extend ? item('extend', ICON.again, 'Продлить песню') : '')
       + '<hr>' + item('again', ICON.again, 'Повторить с этими настройками');
@@ -734,9 +749,12 @@ async function act(what, jobId, fileName) {
     load();
     return;
   }
-  if (what === 'split') {
-    const price = info.unlimited ? '' : ` за ${rub(info.services.stems.price)}`;
-    if (!confirm(`Разделить эту версию на партии${price}?`)) return;
+  if (what === 'split' || what === 'splitpro') {
+    const pro = what === 'splitpro';
+    const service = pro ? info.services.stems_pro : info.services.stems;
+    const price = info.unlimited ? '' : ` за ${service.pack} кредитов или ${rub(service.price)}`;
+    if (!confirm(pro ? `До 12 партий и MIDI каждой${price}?` : `Разделить эту версию на партии${price}?`)) return;
+    form.append('pro', pro);
     const response = await fetch(`/api/studio/${jobId}/stems`, { method: 'POST', body: form });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
