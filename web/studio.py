@@ -570,6 +570,11 @@ def audio_seconds(path: str) -> int:
         return 0
 
 
+# Версия разбора: сменилась (модель, подсказка тональности) -- старый кеш
+# в задачах пересчитывается при следующем открытии
+ANALYSIS_VERSION = 2
+
+
 def analyze_audio(path: str) -> dict:
     """Тональность, темп, доли и аккорды записи -- для карточки трека,
     окна «Темп и тональность» и метронома мультитрека. Тот же разбор, что
@@ -578,7 +583,7 @@ def analyze_audio(path: str) -> dict:
     from midi2tab import audiochords
 
     found = audiochords.detect_from_audio(path)
-    return {"key": found.key, "bpm": round(found.tempo) if found.tempo else None,
+    return {"v": ANALYSIS_VERSION, "key": found.key, "bpm": round(found.tempo) if found.tempo else None,
             "beats": [round(b, 3) for b in found.beats],
             "downbeats": [round(b, 3) for b in found.downbeats],
             "chords": [[round(c.start, 2), round(c.end, 2), c.name] for c in found.chords]}
@@ -735,7 +740,7 @@ class StudioRunner:
         """Разбор версии (тональность, темп, доли, аккорды) с кешем в задаче."""
         job = self.storage.job(job_id)
         cached = ((job.result or {}).get("analysis") or {}).get(name) if job else None
-        if cached:
+        if cached and cached.get("v") == ANALYSIS_VERSION:
             return cached
         try:
             found = analyze_audio(os.path.join(self.folder(job_id), name))

@@ -1737,7 +1737,7 @@ def api_studio_analysis(job_id: str, request: Request, file: str = ""):
     if not file or file not in names or not os.path.isfile(os.path.join(folder, file)):
         raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
     cached = ((job.result or {}).get("analysis") or {}).get(file)
-    if cached:
+    if cached and cached.get("v") == studio.ANALYSIS_VERSION:
         return cached
     studio_runner.analyze_later(job_id, file)
     return {"pending": True}

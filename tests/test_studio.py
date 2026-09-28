@@ -1024,7 +1024,7 @@ def test_upload_goes_straight_to_my_tracks_with_key_and_tempo(studio_app, monkey
     assert listed[job_id]["mode"] == "upload" and listed[job_id]["name"] == "song.wav"
 
     monkeypatch.setattr(studio, "analyze_audio", lambda path: {
-        "key": "Am", "bpm": 120, "beats": [0.5, 1.0], "downbeats": [0.5], "chords": [[0, 2, "Am"]]})
+        "v": studio.ANALYSIS_VERSION, "key": "Am", "bpm": 120, "beats": [0.5, 1.0], "downbeats": [0.5], "chords": [[0, 2, "Am"]]})
     runner = studio.StudioRunner(app_module.storage, app_module.DATA_DIR)
     app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings,
                                                     "input": {"mode": "upload"}})
@@ -1053,7 +1053,7 @@ def test_analysis_starts_in_background_then_is_cached(studio_app, monkeypatch):
                         lambda job, name: started.append((job, name)) or True)
     assert client.get(f"/api/studio/{job_id}/analysis?file=restyle_1.mp3").json() == {"pending": True}
     assert started == [(job_id, "restyle_1.mp3")]
-    monkeypatch.setattr(app_module.studio, "analyze_audio", lambda path: {"key": "F#m", "bpm": 98})
+    monkeypatch.setattr(app_module.studio, "analyze_audio", lambda path: {"v": app_module.studio.ANALYSIS_VERSION, "key": "F#m", "bpm": 98})
     app_module.studio_runner.analyze(job_id, "restyle_1.mp3")
     assert client.get(f"/api/studio/{job_id}/analysis?file=restyle_1.mp3").json()["key"] == "F#m"
 

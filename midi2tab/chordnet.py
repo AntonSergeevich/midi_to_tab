@@ -104,8 +104,11 @@ def viterbi(probs, change_penalty: float = 2.0):
     return path
 
 
-# Подсказка тональности (scripts/chordnet/eval_prior.py): 0 -- выключена
-KEY_STRENGTH = float(os.environ.get("NASLUX_CHORD_KEY", "0") or 0)
+# Подсказка тональности в споре мажор/минор. Замер (chord-eval, 28.09.2026):
+# GuitarSet 0.911 -> 0.910, AAM 0.696 -> 0.693 при 2.5 -- почти без разницы;
+# включена по просьбе владельца как проверка на живых песнях. Выключить --
+# NASLUX_CHORD_KEY=0 в окружении сервера, без выкладки кода.
+KEY_STRENGTH = float(os.environ.get("NASLUX_CHORD_KEY", "2.5") or 0)
 
 
 def parallel(index: int) -> int:

@@ -53,6 +53,7 @@ const loop = { on: false, a: 0, b: 0 };
 let job = null;
 let info = null;
 let file = '';
+let hidden = new Set();   // убранные дорожки (по названию) -- помнятся в браузере
 let base = null;          // набор дорожек для сдвига: {id, file ('*' -- все партии)}
 let shifted = null;       // открытая сдвинутая версия (задача «Темп и тональность»)
 
@@ -92,7 +93,7 @@ function saved() {
 function save() {
   try {
     localStorage.setItem(STORE, JSON.stringify({
-      metro: metroOn, countIn, metroVol: $('metroVol').value,
+      metro: metroOn, countIn, metroVol: $('metroVol').value, hidden: [...hidden],
       tracks: Object.fromEntries(tracks.filter((t) => !t.local).map((t) => [t.name, {
         mute: t.mute, solo: t.solo, vol: t.vol, trimStart: t.trimStart, trimEnd: t.trimEnd,
       }])),
@@ -163,6 +164,11 @@ async function loadTracks(list) {
   metroGain.gain.value = Number($('metroVol').value) / 100;
   pressed('metro', metroOn);
   pressed('countIn', countIn);
+  // Убранные дорожки («×») не грузим вовсе -- и память, и трафик
+  hidden = new Set(memory.hidden || []);
+  const kept = list.filter((item) => !hidden.has(item.name));
+  if (kept.length) list = kept; else hidden.clear();   // убрать все нельзя
+  showHidden();
   let done = 0;
   note(`Загружаем дорожки: 0 из ${list.length}…`);
   await Promise.all(list.map(async (item, index) => {
@@ -177,6 +183,17 @@ async function loadTracks(list) {
   $('total').textContent = clock(duration);
   render();
 }
+
+function showHidden() {
+  $('restoreTracks').hidden = !hidden.size;
+  $('restoreTracks').textContent = `↺ Вернуть убранные (${hidden.size})`;
+}
+
+$('restoreTracks').addEventListener('click', () => {
+  hidden.clear();
+  save();
+  location.reload();
+});
 
 function makeTrack(name, url, buffer, remembered = {}, local = false) {
   const gain = ctx.createGain();
@@ -417,8 +434,8 @@ function render() {
           <button type="button" class="mx-ms solo" data-solo="${i}" aria-pressed="${t.solo}" title="Только эта (соло)">S</button>
           <input type="range" class="mx-vol" data-vol="${i}" min="0" max="150" value="${t.vol}"
             aria-label="Громкость: ${esc(t.name)}" title="Громкость">
-          ${t.local ? `<button type="button" class="mx-ms" data-remove="${i}" title="Убрать дорожку">×</button>`
-    : `<a class="mx-ms" href="${t.url}" download title="Скачать дорожку">⤓</a>`}
+          ${t.local ? '' : `<a class="mx-ms" href="${t.url}" download title="Скачать дорожку">⤓</a>`}
+          <button type="button" class="mx-ms" data-remove="${i}" title="Убрать дорожку из микса">×</button>
         </div>
       </div>
       <div class="mx-lane"><canvas class="mx-wave" data-wave="${i}" height="64"></canvas></div>
@@ -712,8 +729,10 @@ document.addEventListener('click', (e) => {
   if (mute) { const t = tracks[mute.dataset.mute]; t.mute = !t.mute; mute.setAttribute('aria-pressed', t.mute); }
   if (solo) { const t = tracks[solo.dataset.solo]; t.solo = !t.solo; solo.setAttribute('aria-pressed', t.solo); }
   if (remove) {
+    if (tracks.length === 1) { toast('Последнюю дорожку убрать нельзя'); return; }
     const [t] = tracks.splice(Number(remove.dataset.remove), 1);
     t.gain.disconnect();
+    if (!t.local) { hidden.add(t.name); save(); showHidden(); }
     duration = Math.max(...tracks.map((x) => x.buffer.duration));
     $('total').textContent = clock(duration);
     render();
