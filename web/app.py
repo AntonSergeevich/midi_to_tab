@@ -23,7 +23,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, URLSafeSerializer
@@ -32,7 +32,7 @@ from midi2tab import audiochords, audioin, lyrics as lyrics_mod, separate
 from midi2tab.timing import GRIDS
 from midi2tab.tuning import TUNINGS
 
-from . import auth, billing, mailer, oauth, studio, support
+from . import auth, billing, mailer, oauth, seo, studio, support
 from . import jobs as jobs_module
 from .jobs import JobRunner
 from .storage import Storage
@@ -98,13 +98,18 @@ def page(name: str, values: dict | None = None) -> HTMLResponse:
     html = (STATIC_DIR / name).read_text(encoding="utf-8")
     for key, value in (values or {}).items():
         html = html.replace("{{" + key + "}}", str(value))
-    html = re.sub(r'(/static/[\w./-]+\.(?:js|css|svg))"', rf'\1?v={STAMP}"', html)
+    html = page_stamp(html)
     return HTMLResponse(
         html,
         # Саму страницу кешировать нельзя: в ней и лежит отпечаток, по
         # которому браузер узнаёт, что статика обновилась.
         headers={"Cache-Control": "no-cache, must-revalidate"},
     )
+
+
+def page_stamp(html: str) -> str:
+    """Отпечаток версии в ссылках на статику -- чтобы браузер брал свежую."""
+    return re.sub(r'(/static/[\w./-]+\.(?:js|css|svg))"', rf'\1?v={STAMP}"', html)
 
 
 def download_name(title: str, part: str, suffix: str) -> str:
@@ -202,9 +207,49 @@ def attach_cookie(response: Response, user_id: str) -> None:
 
 # ------------------------------------------------------------------ страницы
 
+STUDIO_TITLE = "NASLUX — нейросеть для музыки: песни, каверы, дорожки, аккорды и табы"
+STUDIO_DESCRIPTION = ("Создайте песню нейросетью по тексту, сделайте кавер своей песни, разделите "
+                      "трек на дорожки с MIDI, подберите аккорды и табы. На русском, оплата картой РФ.")
+CHORDS_TITLE = "Подбор аккордов, табы и MIDI по песне онлайн — NASLUX"
+CHORDS_DESCRIPTION = ("Загрузите песню — нейросеть подберёт аккорды (бесплатно), разложит на "
+                      "партии и соберёт табы с MIDI. Играйте под бегущую строку.")
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
-    return page("index.html")
+    # Главная -- Студия; подбор аккордов переехал на /chords
+    return page("studio.html", {"HEAD": seo.head_tags("/", STUDIO_TITLE, STUDIO_DESCRIPTION)
+                                + "\n" + seo.app_ld(), "FEATURES": seo.features_nav(),
+                                "TITLE": STUDIO_TITLE, "DESCRIPTION": STUDIO_DESCRIPTION})
+
+
+@app.get("/chords", response_class=HTMLResponse)
+def chords_page() -> HTMLResponse:
+    return page("index.html", {"HEAD": seo.head_tags("/chords", CHORDS_TITLE, CHORDS_DESCRIPTION),
+                               "FEATURES": seo.features_nav(),
+                               "TITLE": CHORDS_TITLE, "DESCRIPTION": CHORDS_DESCRIPTION})
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+def robots_txt() -> PlainTextResponse:
+    return PlainTextResponse(seo.robots())
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml() -> Response:
+    return Response(seo.sitemap(), media_type="application/xml")
+
+
+def _landing_route(slug: str):
+    def landing() -> HTMLResponse:
+        return HTMLResponse(page_stamp(seo.render_landing(seo.BY_SLUG[slug])),
+                            headers={"Cache-Control": "public, max-age=3600"})
+    landing.__name__ = f"landing_{slug.replace('-', '_')}"
+    return landing
+
+
+for _slug in seo.BY_SLUG:
+    app.get(f"/{_slug}", response_class=HTMLResponse)(_landing_route(_slug))
 
 
 def require_admin(request: Request):
@@ -1325,7 +1370,7 @@ def api_file(job_id: str, kind: str, request: Request):
 
 @app.get("/studio", response_class=HTMLResponse)
 def studio_page() -> HTMLResponse:
-    return page("studio.html")
+    return index()
 
 
 def _studio_job_payload(job) -> dict:

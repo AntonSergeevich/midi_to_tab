@@ -4,8 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#15161c">
-<title>NASLUX — подбор песен на слух</title>
-<meta name="description" content="Загрузите песню — получите аккорды, партии инструментов, табы и MIDI.">
+<title>{{TITLE}}</title>
+<meta name="description" content="{{DESCRIPTION}}">
+{{HEAD}}
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css">
 </head>
@@ -14,7 +15,8 @@
   <header class="top">
     <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
     <div style="display:flex;gap:14px;align-items:center">
-      <a href="/studio">Студия</a>
+      <a href="/">Студия</a>
+      <a href="/chords" aria-current="page">Аккорды и табы</a>
       <a href="/library">Мои треки</a>
       <a href="/pricing">Тарифы</a>
       <a href="/account" id="account" class="who">Вход</a>
@@ -39,7 +41,7 @@
       <div class="step"><b>3</b><span>Табы и MIDI<br><i>для нужной партии</i></span></div>
     </div>
     <!-- Студия -- второй продукт; без этого блока о ней с главной не узнать -->
-    <a href="/studio" class="studio-promo">
+    <a href="/" class="studio-promo">
       <span class="studio-promo-tag">Новое · Студия</span>
       <b>Песня с нуля за пару минут — даже поздравление с днём рождения</b>
       <span class="muted">Нейросеть сочинит текст и споёт его в любом стиле, переделает вашу
@@ -141,6 +143,7 @@
     репетиций. Публикация и коммерческое использование — только с разрешения правообладателей
     (<a href="/offer#rights">п. 6 оферты</a>).</p>
   <p id="caps" class="muted" style="margin-top:18px"></p>
+  {{FEATURES}}
   <footer class="legal">
     <a href="/privacy">Политика конфиденциальности</a>
     <a href="/offer">Оферта</a>

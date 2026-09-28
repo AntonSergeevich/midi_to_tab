@@ -394,6 +394,10 @@ async function load() {
   $('balance').className = info.unlimited || info.balance > 0 ? 'badge pro' : 'badge';
   if (!$('voices').children.length) {
     const restored = restoreDraft();
+    // Ссылки со страниц возможностей: /?mode=stems, /?style=рок
+    const ask = new URLSearchParams(location.search);
+    if (ask.get('mode') in MODE) mode = ask.get('mode');
+    if (ask.get('style') && !$('prompt').value) $('prompt').value = ask.get('style').slice(0, 300);
     renderVoices();
     $('track').innerHTML = Object.entries(info.tracks).map(([key, title]) =>
       `<option value="${key}">${esc(title)}</option>`).join('');
