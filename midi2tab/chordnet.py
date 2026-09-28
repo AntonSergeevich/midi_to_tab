@@ -18,7 +18,13 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-MODEL = Path(__file__).resolve().parent / "models" / "chordnet.onnx"
+# Модель раунда 2 (GuitarSet + 500 песен AAM полным составом, веса классов,
+# аугментации). Прежняя v2 лежит рядом: NASLUX_CHORD_MODEL=v2 -- откат без
+# выкладки кода. Замеры 28.09.2026 (majmin): полный состав AAM (блок, которого
+# не слышала ни одна модель) 0.696 -> 0.969, свежая синтетика 0.769 -> 0.884,
+# гитара соло GuitarSet 0.911 -> 0.888.
+_MODELS = Path(__file__).resolve().parent / "models"
+MODEL = _MODELS / ("chordnet_v2.onnx" if os.environ.get("NASLUX_CHORD_MODEL") == "v2" else "chordnet.onnx")
 
 # Должно совпадать с scripts/chordnet/common.py
 SR = 22050
