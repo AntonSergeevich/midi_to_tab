@@ -1,0 +1,56 @@
+name: Подбор порогов распознавания нот (GuitarSet)
+
+# scripts/transcribe_sweep.py: Basic Pitch один раз на запись, ноты при
+# разных порогах, F1 против эталона GuitarSet. Бесплатно (без нейросетей
+# за деньги). Итог -- в test-results/sweep-<номер прогона>.
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: Сколько записей (поровну аккомпанемент/соло)
+        default: "40"
+
+permissions:
+  contents: write
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      FILES: ${{ inputs.files }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Зависимости
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q -r requirements.txt -r requirements-audio.txt pretty_midi
+          pip install -q --no-deps basic-pitch
+      - name: GuitarSet
+        run: |
+          base=https://zenodo.org/records/3371780/files
+          mkdir -p gs/annotation gs/audio
+          curl -sSfL "$base/annotation.zip?download=1" -o annotation.zip
+          curl -sSfL "$base/audio_mono-mic.zip?download=1" -o audio.zip
+          unzip -q -o annotation.zip -d gs/annotation
+          unzip -q -o audio.zip -d gs/audio
+          find gs/annotation -mindepth 2 -name '*.jams' -exec mv -t gs/annotation {} +
+          find gs/audio -mindepth 2 -name '*.wav' -exec mv -t gs/audio {} +
+      - name: Подбор
+        run: mkdir -p results && python -u scripts/transcribe_sweep.py --audio gs/audio --annotations gs/annotation --files "$FILES" --out results/sweep.json
+      - name: В ветку test-results
+        if: always()
+        run: |
+          [ -f results/sweep.json ] || exit 0
+          dir="sweep-${{ github.run_id }}"
+          git clone -q --depth 1 --branch test-results \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
+          mkdir -p "out/$dir" && cp results/* "out/$dir/"
+          cd out
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "Пороги нот: прогон ${{ github.run_id }}"
+          git push -q origin HEAD:test-results
