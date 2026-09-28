@@ -307,17 +307,22 @@ def _mureka_direct(method, path, body, timeout):
         return error.code, error.read()[:2000].decode(errors="replace"), None
 
 
-def mureka_upload_for(task_input: dict, path: str, purpose: str) -> str:
+def mureka_upload_for(task_input: dict, path: str, purpose: str, api_path: str = "",
+                      fields: dict | None = None, key: str = "id") -> str:
     """Загрузить файл задачи в Mureka: через ретранслятор -- по подписанной
-    ссылке сайта (task_input["mureka_url"]), напрямую -- с диска."""
+    ссылке сайта (task_input["mureka_url"] отдаёт for_mureka.mp3), напрямую --
+    с диска. api_path/fields/key -- для приёмов файла помимо files/upload."""
     if not use_relay():
+        if api_path:
+            return mureka_upload(path, purpose, api_path, fields, key)
         return mureka_upload(path, purpose)
     out = relay_run({"op": "upload", "source_url": task_input["mureka_url"],
-                     "purpose": purpose, "filename": "track.mp3"})
-    if not out.get("ok") or not (out.get("json") or {}).get("id"):
+                     "purpose": purpose, "filename": "track.mp3",
+                     **({"path": api_path, "fields": fields} if api_path else {})})
+    if not out.get("ok") or not (out.get("json") or {}).get(key):
         raise RuntimeError(f"Mureka не приняла файл ({out.get('status')}): "
                            f"{short_error(out.get('error') or str(out.get('json')))}")
-    return out["json"]["id"]
+    return out["json"][key]
 
 
 def fetch_result(task_input: dict, url: str, folder: str, name: str) -> None:
@@ -332,18 +337,21 @@ def fetch_result(task_input: dict, url: str, folder: str, name: str) -> None:
         raise RuntimeError(f"не забрать {name}: {short_error(out.get('error') or '')}")
 
 
-def mureka_upload(path: str, purpose: str) -> str:
-    """POST /v1/files/upload -- multipart, поле file и purpose; возвращает id."""
+def mureka_upload(path: str, purpose: str, api_path: str = "/v1/files/upload",
+                  fields: dict | None = None, key: str = "id") -> str:
+    """Файл в Mureka multipart-запросом: files/upload (поле purpose) или
+    другой приём файла (song/vocal-clone с description). Возвращает id."""
     boundary = uuid.uuid4().hex
     with open(path, "rb") as f:
         content = f.read()
     name = os.path.basename(path)
-    body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\n"
-            f"{purpose}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
-            f"filename=\"{name}\"\r\nContent-Type: {'audio/midi' if name.lower().endswith(('.mid', '.midi')) else 'audio/mpeg'}"
-            "\r\n\r\n").encode() \
+    kind = "audio/midi" if name.lower().endswith((".mid", ".midi")) else "audio/mpeg"
+    head = "".join(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n"
+                   for k, v in (fields or {"purpose": purpose}).items())
+    body = (head + f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
+            f"filename=\"{name}\"\r\nContent-Type: {kind}\r\n\r\n").encode() \
         + content + f"\r\n--{boundary}--\r\n".encode()
-    request = urllib.request.Request(f"{MUREKA_API}/v1/files/upload", data=body, method="POST",
+    request = urllib.request.Request(f"{MUREKA_API}{api_path}", data=body, method="POST",
                                      headers={"Authorization": f"Bearer {mureka_key()}",
                                               "Content-Type": f"multipart/form-data; boundary={boundary}",
                                               "User-Agent": USER_AGENT})
@@ -353,9 +361,9 @@ def mureka_upload(path: str, purpose: str) -> str:
     except urllib.error.HTTPError as error:
         raise RuntimeError(f"Mureka не приняла файл ({error.code}): "
                            f"{short_error(error.read()[:2000].decode(errors='replace'))}") from error
-    if not uploaded.get("id"):
-        raise RuntimeError(f"Mureka не вернула id файла: {str(uploaded)[:200]}")
-    return uploaded["id"]
+    if not uploaded.get(key):
+        raise RuntimeError(f"Mureka не вернула {key}: {str(uploaded)[:200]}")
+    return uploaded[key]
 
 
 def mureka_source(source: str, folder: str) -> str:

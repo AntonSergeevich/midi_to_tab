@@ -7,8 +7,8 @@
 
 Операции (input.op):
   call   -- {method, path, body}: один JSON-запрос к API;
-  upload -- {source_url, purpose, filename}: скачать исходник по ссылке
-            сайта и загрузить в Mureka (files/upload);
+  upload -- {source_url, purpose, filename[, path, fields]}: скачать файл по
+            ссылке сайта и загрузить в Mureka (files/upload или path);
   stem   -- {source_url, model}: разделение на партии (song/stem);
   fetch  -- {url, upload_url, name}: скачать файл Mureka и отдать сайту.
 Ответ: {"ok", "status", "json" | "bytes" | "error"} -- статус и текст
@@ -62,14 +62,19 @@ def handler(job):
         if op == "call":
             return _mureka(task.get("method", "GET"), task["path"], task.get("body"))
         if op == "upload":
+            # По умолчанию -- files/upload с purpose; path/fields -- для других
+            # приёмов файла (song/vocal-clone с description).
             content = _get(task["source_url"])
             boundary = uuid.uuid4().hex
             name = task.get("filename") or "track.mp3"
-            body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\n"
-                    f"{task['purpose']}\r\n--{boundary}\r\nContent-Disposition: form-data; "
-                    f"name=\"file\"; filename=\"{name}\"\r\nContent-Type: audio/mpeg\r\n\r\n"
-                    ).encode() + content + f"\r\n--{boundary}--\r\n".encode()
-            return _mureka("POST", "/v1/files/upload", body, {
+            fields = task.get("fields") or {"purpose": task["purpose"]}
+            head = "".join(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n"
+                           for k, v in fields.items())
+            kind = "audio/midi" if name.lower().endswith((".mid", ".midi")) else "audio/mpeg"
+            body = (head + f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
+                    f"filename=\"{name}\"\r\nContent-Type: {kind}\r\n\r\n").encode() \
+                + content + f"\r\n--{boundary}--\r\n".encode()
+            return _mureka("POST", task.get("path") or "/v1/files/upload", body, {
                 "Content-Type": f"multipart/form-data; boundary={boundary}"})
         if op == "stem":
             data = base64.b64encode(_get(task["source_url"])).decode()
