@@ -289,6 +289,8 @@ def render_landing(landing: dict) -> str:
 <meta name="description" content="{_e(landing['description'])}">
 <meta name="keywords" content="{_e(landing['keywords'])}">
 {head_tags(path, landing['title'], landing['description'])}
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/static/favicon-120.png" type="image/png" sizes="120x120">
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="stylesheet" href="/static/app.css">

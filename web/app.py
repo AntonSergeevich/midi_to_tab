@@ -2155,7 +2155,8 @@ async def api_webhook(gateway_name: str, request: Request):
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     """Браузер запрашивает иконку сам; без неё в консоли висит 404."""
-    return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
+    # Настоящий ICO: робот Яндекса не принимает SVG под именем favicon.ico
+    return FileResponse(STATIC_DIR / "favicon.ico", media_type="image/x-icon")
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

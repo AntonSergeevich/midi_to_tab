@@ -70,3 +70,12 @@ def test_robots_hides_private_pages(client):
     text = client.get("/robots.txt").text
     assert "Disallow: /api/" in text and "Disallow: /account" in text
     assert "Sitemap: https://naslux.ru/sitemap.xml" in text
+
+
+def test_favicon_is_a_real_ico(client):
+    """Робот Яндекса берёт /favicon.ico и не принимает SVG под этим именем."""
+    icon = client.get("/favicon.ico")
+    assert icon.headers["content-type"] == "image/x-icon"
+    assert icon.content[:4] == b"\x00\x00\x01\x00"
+    assert 'href="/static/favicon-120.png"' in client.get("/").text
+    assert client.get("/static/favicon-120.png").status_code == 200
