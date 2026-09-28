@@ -143,7 +143,10 @@ async function init() {
     : 'Одна дорожка — разделите трек, чтобы глушить отдельные инструменты';
   if (!stems) showSplit(splitting);
 
-  loadAnalysis(job.mode === 'stems' ? 'source' : version.name);
+  // Аккорды и тональность: по партиям без голоса и барабанов, если трек
+  // разделён (голос тянет ноты мимо аккорда), иначе -- по самой версии
+  if (stems) loadAnalysis(stems.id, 'harmony');
+  else loadAnalysis(jobId, version.name);
   await loadTracks(list);
 }
 
@@ -227,9 +230,9 @@ function peaksOf(buffer, n) {
   return out.map((v) => v / top);
 }
 
-async function loadAnalysis(name) {
+async function loadAnalysis(owner, name) {
   for (let tries = 0; tries < 40; tries++) {
-    let answer = await fetch(`/api/studio/${jobId}/analysis?file=${encodeURIComponent(name)}`)
+    let answer = await fetch(`/api/studio/${owner}/analysis?file=${encodeURIComponent(name)}`)
       .then((r) => (r.ok ? r.json() : { error: 'нет' })).catch(() => ({ error: 'сеть' }));
     if (!answer.pending) {
       if (answer.error) { $('factKey').textContent = '—'; return; }

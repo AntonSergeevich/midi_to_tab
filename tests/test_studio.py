@@ -1117,3 +1117,32 @@ def test_shift_all_tracks_of_a_multitrack_at_once(studio_app, monkeypatch):
     listed = {j["id"]: j for j in client.get("/api/studio").json()["jobs"]}
     assert [f["label"] for f in listed[child]["files"]] == ["Вокал", "Бас"]
     assert listed[child]["shift"] == {"of": job.id, "file": "*", "semitones": 2, "tempo": 0.8}
+
+
+def test_mixer_chords_listen_to_parts_without_vocals_and_drums(studio_app, monkeypatch):
+    """Аккорды мультитрека по разделённому треку -- по сведению партий без
+    голоса и барабанов (harmony.wav), с кешем как у обычного разбора."""
+    import os
+    import subprocess
+
+    app_module, client, user, submitted = studio_app
+    job = app_module.storage.create_job(user.id, "song.mp3", {"kind": "studio", "mode": "stems",
+                                                              "title": "Разделение на партии"})
+    folder = app_module.studio_runner.folder(job.id)
+    os.makedirs(folder, exist_ok=True)
+    for name, freq in (("vocals", 880), ("drums", 60), ("bass", 110), ("guitar", 330)):
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"sine=frequency={freq}:duration=1",
+                        f"{folder}/{name}.mp3"], check=True)
+    app_module.storage.update_job(job.id, status="done", result={"files": [
+        {"name": f"{n}.mp3", "label": n} for n in ("vocals", "drums", "bass", "guitar")]})
+    mixed = []
+    real_mix = app_module.separate.harmonic_mix
+    monkeypatch.setattr(app_module.separate, "harmonic_mix",
+                        lambda parts, out: mixed.append(sorted(parts)) or real_mix(parts, out))
+    started = []
+    monkeypatch.setattr(app_module.studio_runner, "analyze_later", lambda j, n: started.append(n) or True)
+    assert client.get(f"/api/studio/{job.id}/analysis?file=harmony").json() == {"pending": True}
+    assert mixed == [["bass.mp3", "drums", "guitar.mp3", "vocals"]] and started == ["harmony.wav"]
+    assert os.path.isfile(f"{folder}/harmony.wav")
+    client.get(f"/api/studio/{job.id}/analysis?file=harmony")      # второй раз -- без пересведения
+    assert len(mixed) == 1

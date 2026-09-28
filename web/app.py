@@ -1729,7 +1729,20 @@ def api_studio_analysis(job_id: str, request: Request, file: str = ""):
         raise HTTPException(404, "Готовая работа не найдена")
     names = [f["name"] for f in (job.result or {}).get("files") or []]
     folder = studio_runner.folder(job_id)
-    if file == "source":
+    if file == "harmony" and (job.settings or {}).get("mode") == "stems":
+        # Аккорды по партиям без голоса и барабанов: мелодия голоса и
+        # тарелки сбивают сеть сильнее всего (как «без барабанов и голоса»
+        # в обычном разборе). Сведение -- один раз, дальше -- кеш.
+        target = os.path.join(folder, "harmony.wav")
+        if not os.path.isfile(target):
+            parts = {("vocals" if re.search(r"vocal|вокал", n, re.I) else
+                      "drums" if re.search(r"drum|барабан", n, re.I) else n): os.path.join(folder, n)
+                     for n in names if os.path.isfile(os.path.join(folder, n))}
+            if not separate.harmonic_mix(parts, target):
+                raise HTTPException(409, "Не получилось свести партии без голоса и барабанов")
+        file = "harmony.wav"
+        names.append(file)
+    elif file == "source":
         # Партии без трека-родителя: доли и аккорды -- по исходнику целиком
         file = next((f for f in sorted(os.listdir(folder)) if f.startswith("source.")), "") \
             if os.path.isdir(folder) else ""

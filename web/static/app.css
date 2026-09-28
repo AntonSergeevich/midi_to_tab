@@ -1052,3 +1052,4 @@ header.top > div > .badge { margin-left: 8px; text-decoration: none; }
 .mx-version[hidden] { display: none; }
 .mx-version small { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
 .mx-version select { min-width: 170px; }
+.icon-btn[hidden] { display: none; }
