@@ -1262,6 +1262,11 @@ def api_separate_later(job_id: str, request: Request):
         raise HTTPException(409, "Разбор ещё не готов")
     if (job.result.get("paths") or {}).get("parts", {}).keys() - {"full"}:
         raise HTTPException(409, "Трек уже разделён на партии")
+    if job.result.get("isMidi"):
+        # Только на фронтенде кнопка «Разделить на партии» скрыта для MIDI --
+        # прямой запрос к API дошёл бы до _separate_later, а там Demucs не
+        # умеет читать .mid и падает уже ПОСЛЕ списания денег, без возврата.
+        raise HTTPException(409, "MIDI не на что делить -- в нём уже отдельные партии.")
 
     ok, why = separate.available()
     if not ok:
@@ -1273,16 +1278,28 @@ def api_separate_later(job_id: str, request: Request):
 
 def _charge_song_once(user, job) -> None:
     """Трек разобран бесплатно (только аккорды) -- за партии и табы
-    списывается один раз, как за обычный разбор; дальше всё включено."""
+    списывается один раз, как за обычный разбор; дальше всё включено.
+
+    Разделение на партии и табы по отдельным партиям одного трека могут
+    прийти двумя запросами почти одновременно (два клика подряд): оба
+    видят один и тот же объект `job` со `counted=False`, снятый до этого
+    вызова, и снимок мог устареть. Поэтому право списать застолбливается
+    атомарно (claim_job_charge) прежде, чем списывать деньги -- иначе оба
+    запроса прошли бы проверку `job.counted` и оплата ушла бы дважды.
+    Если списать не удалось (или доступа нет), метка снимается: иначе
+    трек остался бы помеченным оплаченным, ничего не списав."""
     if job.counted:
+        return
+    if not storage.claim_job_charge(job.id):
         return
     access = billing.check_access(user)
     if not access.allowed:
+        storage.update_job(job.id, counted=False)
         raise HTTPException(402, "Аккорды — бесплатно, а партии, табы и MIDI — по тарифу. "
                                  + access.reason)
     if not billing.consume(storage, user):
+        storage.update_job(job.id, counted=False)
         raise HTTPException(402, "Не получилось списать разбор — обновите страницу и попробуйте снова")
-    storage.update_job(job.id, counted=True)
 
 
 @app.post("/api/job/{job_id}/tabs/{stem_key}")
