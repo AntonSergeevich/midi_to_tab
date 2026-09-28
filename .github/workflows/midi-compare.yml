@@ -1,0 +1,65 @@
+name: MIDI гитары -- Mureka против нашего разбора
+
+# scripts/midi_compare.py на записях GuitarSet (CC BY 4.0, эталон по нотам).
+# Каждая запись -- разделение Mureka (~$0.70) и транскрипция Mureka.
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: Записи GuitarSet без _mic.wav (через пробел)
+        default: "00_Rock3-117-Bb_comp 00_Rock3-117-Bb_solo"
+      skip_mureka:
+        description: "1 -- только наш разбор (бесплатно)"
+        default: "0"
+
+permissions:
+  contents: write
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      MUREKA_API_KEY: ${{ secrets.MUREKA_API_KEY || secrets.MUREKA_API_KEY2 }}
+      MUREKA_BUSY_WAIT: "300"
+      FILES: ${{ inputs.files }}
+      SKIP: ${{ inputs.skip_mureka }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Зависимости
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q -r requirements.txt -r requirements-audio.txt music21 pretty_midi
+          pip install -q --no-deps basic-pitch
+      - name: GuitarSet
+        run: |
+          base=https://zenodo.org/records/3371780/files
+          mkdir -p gs/annotation gs/audio
+          curl -sSfL "$base/annotation.zip?download=1" -o annotation.zip
+          curl -sSfL "$base/audio_mono-mic.zip?download=1" -o audio.zip
+          unzip -q -o annotation.zip -d gs/annotation
+          unzip -q -o audio.zip -d gs/audio
+          find gs/annotation -mindepth 2 -name '*.jams' -exec mv -t gs/annotation {} +
+          find gs/audio -mindepth 2 -name '*.wav' -exec mv -t gs/audio {} +
+      - name: Сравнение
+        run: |
+          flag=""; [ "$SKIP" = 1 ] && flag="--skip-mureka"
+          python -u scripts/midi_compare.py --audio gs/audio --annotations gs/annotation \
+            --files $FILES --out midi_compare $flag
+      - name: В ветку test-results
+        if: always()
+        run: |
+          [ -n "$(ls -A midi_compare 2>/dev/null)" ] || exit 0
+          find midi_compare -name '*.mp3' -delete
+          dir="midi-${{ github.run_id }}"
+          git clone -q --depth 1 --branch test-results \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
+          mkdir -p "out/$dir" && cp -r midi_compare/* "out/$dir/"
+          cd out
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "MIDI: прогон ${{ github.run_id }}"
+          git push -q origin HEAD:test-results
