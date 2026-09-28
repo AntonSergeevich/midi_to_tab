@@ -335,8 +335,8 @@ def test_restyle_closed_for_regular_users_open_for_unlimited(studio_app, monkeyp
     assert _start(client).status_code == 200
 
 
-def test_restyle_goes_to_mureka_and_needs_lyrics(studio_app, monkeypatch):
-    """С ключом Mureka переделка идёт к ней; без текста песни не запускается."""
+def test_restyle_goes_to_mureka_without_lyrics(studio_app, monkeypatch):
+    """С ключом Mureka переделка идёт к ней; текст не обязателен -- распознаем сами."""
     app_module, client, user, submitted = studio_app
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
     monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
@@ -346,11 +346,50 @@ def test_restyle_goes_to_mureka_and_needs_lyrics(studio_app, monkeypatch):
     info = client.get("/api/studio").json()
     assert info["restyleOpen"] is True and info["restyleEngine"] == "mureka"
 
-    assert _start(client).status_code == 400                       # без текста
-    response = _start(client, lyrics="[Куплет]\nЗемля в иллюминаторе")
+    response = _start(client)                                      # без текста
+
     assert response.status_code == 200, response.text
     job = app_module.storage.job(response.json()["jobId"])
     assert job.settings["engine"] == "mureka"
+
+
+def test_remix_without_lyrics_recognizes_words_first(studio_app, monkeypatch):
+    """Текст не вставили -- song/recognize, потом remix по распознанным словам."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
+    monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
+    app_module.storage.add_balance(user.id, 100)
+    job_id = _start(client).json()["jobId"]
+    app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings,
+                                                    "input": submitted[0][1]})
+    calls = []
+    recognized = {"lyrics_sections": [{"lines": [{"text": "Раз"}, {"text": " "}, {"text": "Два"}]},
+                                      {"lines": [{"text": "Три"}]}]}
+
+    def mureka_call(method, path, body=None, timeout=60):
+        calls.append((method, path, body))
+        if path == "/v1/song/recognize":
+            return recognized
+        return {"id": "task9"} if method == "POST" else {
+            "status": "succeeded", "choices": [{"url": "https://cdn.mureka.ai/a.mp3"}]}
+
+    monkeypatch.setattr(studio, "mureka_call", mureka_call)
+    monkeypatch.setattr(studio, "mureka_source", lambda source, folder: source)
+    monkeypatch.setattr(studio, "mureka_upload", lambda path, purpose: calls.append(
+        ("UPLOAD", purpose, "")) or f"up-{purpose}")
+    monkeypatch.setattr(studio, "download", lambda url, target: open(target, "wb").write(b"x"))
+    monkeypatch.setattr(studio, "POLL_SECONDS", 0)
+
+    studio.StudioRunner(app_module.storage, app_module.DATA_DIR)._run(job_id)
+
+    job = app_module.storage.job(job_id)
+    assert job.status == "done", job.error
+    assert [c[1] for c in calls[:4]] == ["audio", "/v1/song/recognize", "remix", "/v1/song/remix"]
+    assert calls[1][2] == {"upload_audio_id": "up-audio"}
+    assert calls[3][2]["lyrics"] == "[Verse]\nРаз\nДва\n\n[Verse]\nТри"
+    assert job.result["lyrics"].startswith("[Verse]")
 
 
 def test_mureka_runner_uploads_remixes_and_downloads(studio_app, monkeypatch):

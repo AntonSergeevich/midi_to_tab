@@ -60,7 +60,8 @@ def handler(job):
     op = task.get("op")
     try:
         if op == "call":
-            return _mureka(task.get("method", "GET"), task["path"], task.get("body"))
+            return _mureka(task.get("method", "GET"), task["path"], task.get("body"),
+                           timeout=int(task.get("timeout") or 300))
         if op == "upload":
             # По умолчанию -- files/upload с purpose; path/fields -- для других
             # приёмов файла (song/vocal-clone с description).

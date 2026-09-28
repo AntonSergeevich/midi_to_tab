@@ -135,7 +135,6 @@ function updateStart() {
   else if (mode === 'restyle' && !info.restyleOpen) problem = 'Переделка скоро вернётся.';
   else if (mode !== 'create' && !file && !again) problem = 'Загрузите трек.';
   else if (mode === 'create' && useReference && !file) problem = 'Загрузите песню-образец (возьмём ~30 секунд).';
-  else if (mode === 'restyle' && mureka && !lyrics && !$('keepVocals').checked) problem = 'Вставьте текст песни или отметьте «Сохранить мой голос».';
   else if (mode === 'create' && !lyrics && !$('instrumental').checked) problem = 'Добавьте текст или отметьте «инструментал».';
   else if (mode !== 'create' && mode !== 'stems' && !$('prompt').value.trim()) problem = 'Опишите стиль.';
   // Не хватает денег или нет аккаунта -- кнопка не гаснет, а ведёт к оплате:

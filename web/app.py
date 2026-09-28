@@ -1432,10 +1432,6 @@ async def api_studio_start(
     if engine == "runpod" and not studio.api_key():
         raise HTTPException(503, "Эта услуга ещё не подключена: нет ключа RunPod на сервере")
     keep_vocals = keep_vocals and mode == "restyle" and engine == "mureka"
-    if mode == "restyle" and engine == "mureka" and not keep_vocals and not lyrics.strip():
-        # remix у Mureka требует текст: мелодию она сохраняет и поёт по нему.
-        raise HTTPException(400, "Для переделки нужен текст песни — нейросеть сохраняет мелодию "
-                                 "и поёт по тексту. Вставьте его в поле «Текст песни».")
     if mode == "create" and not (prompt.strip() or lyrics.strip() or preset in studio.PRESETS):
         raise HTTPException(400, "Опишите стиль или добавьте текст песни")
     # «Повторить»: исходник берётся из прошлой работы, загружать заново не нужно.

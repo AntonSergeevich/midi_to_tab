@@ -295,7 +295,8 @@ def mureka_call(method: str, path: str, body: dict | None = None, timeout: int =
     deadline = time.time() + MUREKA_BUSY_WAIT
     while True:
         if use_relay():
-            out = relay_run({"op": "call", "method": method, "path": path, "body": body})
+            out = relay_run({"op": "call", "method": method, "path": path, "body": body,
+                             "timeout": max(timeout, 300)})
             if out.get("ok"):
                 return out.get("json") or {}
             code, detail = out.get("status") or 0, out.get("error") or ""
@@ -397,6 +398,27 @@ def mureka_source(source: str, folder: str) -> str:
     if source.lower().endswith((".mp3", ".m4a")) and os.path.getsize(source) <= MUREKA_UPLOAD_LIMIT:
         return source
     raise RuntimeError("трек нужно перекодировать в mp3 до 10 МБ, а ffmpeg на сервере нет")
+
+
+def lyrics_from_sections(recognized: dict) -> str:
+    """Ответ song/recognize -> текст с [Verse]-пометками по секциям."""
+    parts = []
+    for section in recognized.get("lyrics_sections") or []:
+        lines = [l.get("text", "").strip() for l in section.get("lines") or []]
+        lines = [l for l in lines if l]
+        if lines:
+            parts.append("[Verse]\n" + "\n".join(lines))
+    return "\n\n".join(parts)
+
+
+def recognize_lyrics(task_input: dict, path: str) -> str:
+    """Слова песни с записи (Mureka song/recognize). Нет слов -- понятная ошибка."""
+    audio_id = mureka_upload_for(task_input, path, "audio")
+    text = lyrics_from_sections(mureka_call("POST", "/v1/song/recognize",
+                                            {"upload_audio_id": audio_id}, timeout=600))
+    if not text.strip():
+        raise RuntimeError("не удалось разобрать слова песни — вставьте текст в поле «Текст песни»")
+    return text[:3000]
 
 
 # Пометки голоса в строках текста: (Male), (Female voice, fast rap), (Мужской)...
@@ -964,7 +986,13 @@ class StudioRunner:
         else:
             source = next(os.path.join(folder, f) for f in sorted(os.listdir(folder))
                           if f.startswith("source."))
-            upload_id = mureka_upload_for(task_input, mureka_source(source, folder), "remix")
+            prepared = mureka_source(source, folder)
+            if not lyrics.strip():
+                # remix поёт по тексту: не вставили -- распознаём слова сами
+                # (song/recognize, $0.01), так советует документация Mureka.
+                lyrics = recognize_lyrics(task_input, prepared)
+                task_input["lyrics"] = lyrics
+            upload_id = mureka_upload_for(task_input, prepared, "remix")
             started = mureka_call("POST", "/v1/song/remix", {
                 "upload_audio_id": upload_id, "prompt": prompt, "lyrics": lyrics, "n": 2})
             kind = "song"
