@@ -90,13 +90,17 @@ def main() -> None:
     beatinfo = {Path(n).name.split("_")[0]: n for n in annotations.namelist() if n.endswith("_beatinfo.arff")}
     print(f"разметок: {len(beatinfo)}", flush=True)
 
+    import time
+
     from remotezip import RemoteZip
 
+    url = f"{RECORD}/{args.block}-audio-mixes.zip?download=1"
     vocabulary: dict[str, int] = {}
-    with RemoteZip(f"{RECORD}/{args.block}-audio-mixes.zip?download=1") as mixes:
-        audio = sorted(n for n in mixes.namelist() if n.lower().endswith((".flac", ".wav", ".mp3", ".ogg")))
-        print(f"сведений в архиве: {len(audio)}; например {audio[:2]}", flush=True)
-        done = 0
+    mixes = RemoteZip(url)
+    audio = sorted(n for n in mixes.namelist() if n.lower().endswith((".flac", ".wav", ".mp3", ".ogg")))
+    print(f"сведений в архиве: {len(audio)}; например {audio[:2]}", flush=True)
+    done = skipped = 0
+    try:
         for name in audio[args.skip:]:
             song = Path(name).name.split("_")[0].split(".")[0]
             if song not in beatinfo:
@@ -105,7 +109,25 @@ def main() -> None:
             if not segments:
                 continue
             target = out / f"aam_{song}{Path(name).suffix.lower()}"
-            target.write_bytes(mixes.read(name))
+            # Zenodo иногда рвёт соединение посреди песни: переподключаемся,
+            # а после четырёх неудач пропускаем песню, а не весь прогон
+            data = None
+            for attempt in range(4):
+                try:
+                    data = mixes.read(name)
+                    break
+                except Exception as error:  # noqa: BLE001
+                    print(f"AAM {song}: обрыв ({str(error)[:80]}), попытка {attempt + 2}", flush=True)
+                    time.sleep(3 * (attempt + 1))
+                    try:
+                        mixes.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    mixes = RemoteZip(url)
+            if data is None:
+                skipped += 1
+                continue
+            target.write_bytes(data)
             (out / f"aam_{song}.json").write_text(json.dumps(segments))
             for _, _, label in segments:
                 vocabulary[label.split(":")[-1]] = vocabulary.get(label.split(":")[-1], 0) + 1
@@ -114,7 +136,9 @@ def main() -> None:
                 print(f"AAM: {done}/{args.count}", flush=True)
             if done >= args.count:
                 break
-    print(f"AAM готово: {done} песен; качества аккордов: {dict(sorted(vocabulary.items(), key=lambda kv: -kv[1]))}",
+    finally:
+        mixes.close()
+    print(f"AAM готово: {done} песен (пропущено из-за обрывов: {skipped}); качества аккордов: {dict(sorted(vocabulary.items(), key=lambda kv: -kv[1]))}",
           flush=True)
     if not done:
         sys.exit("AAM: ни одной песни")

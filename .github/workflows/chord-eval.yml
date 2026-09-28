@@ -41,12 +41,14 @@ jobs:
           unzip -q -o mic.zip -d gs/audio_mono-mic
           find gs/audio_mono-mic -mindepth 2 -name '*.wav' -exec mv -t gs/audio_mono-mic {} +
       - name: AAM (другой блок)
+        continue-on-error: true      # без AAM замер на GuitarSet всё равно нужен
         run: python -u scripts/chordnet/aam.py --count "${{ inputs.aam }}" --out aam_eval --block 0001-1000
       - name: Замер
         run: |
           mkdir -p results
           python -u scripts/chordnet/eval_prior.py --guitarset gs/audio_mono-mic --annotations gs/annotation \
-            --fold "${{ inputs.fold }}" --aam aam_eval --out results/report.json 2>&1 | tee results/eval.log
+            --fold "${{ inputs.fold }}" $( [ -n "$(ls aam_eval/*.json 2>/dev/null)" ] && echo --aam aam_eval ) \
+            --out results/report.json 2>&1 | tee results/eval.log
       - name: В ветку test-results
         if: always()
         run: |
