@@ -915,15 +915,23 @@ header.top > div > .badge { margin-left: 8px; text-decoration: none; }
 .st-modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
 /* Вход через Яндекс ID и VK ID */
-.oauth { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; max-width: 420px; }
-.oauth[hidden], .oauth-btn[hidden] { display: none; }
-.oauth-btn { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px 16px;
-  border-radius: 12px; font-weight: 600; text-decoration: none; color: #fff; }
-.oauth-btn b { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px;
-  border-radius: 50%; font-size: 13px; background: rgba(255,255,255,.18); }
-.oauth-btn.yandex { background: #fc3f1d; }
-.oauth-btn.vk { background: #0077ff; }
-.oauth-btn:hover { filter: brightness(1.08); }
+.oauth { display: flex; flex-direction: column; gap: 12px; margin-top: 18px; }
+.oauth[hidden], .oauth-btn[hidden], .oauth-error[hidden] { display: none; }
+.oauth-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.oauth-btn {
+  display: flex; align-items: center; justify-content: center; gap: 10px; padding: 11px 14px;
+  border-radius: 10px; border: 1px solid var(--border); background: var(--panel-hi);
+  color: var(--text); font-weight: 600; font-size: 14px; text-decoration: none;
+  transition: border-color .15s, background .15s;
+}
+.oauth-btn:hover { border-color: rgba(217,154,78,.5); background: var(--bg); }
+.oauth-logo {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  font-style: normal; font-size: 11px; font-weight: 800; color: #fff; flex: none;
+}
+.oauth-logo.yandex { background: #fc3f1d; font-size: 13px; }
+.oauth-logo.vk { background: #0077ff; border-radius: 6px; font-size: 9.5px; }
+.oauth-error { margin: 0; font-size: 13px; color: var(--bad, #e57373); }
 .oauth-or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
 .oauth-or::before, .oauth-or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
 

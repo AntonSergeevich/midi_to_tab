@@ -44,13 +44,16 @@ async function boot() {
   const oauth = me.oauth || {};
   if (!me.registered && (oauth.yandex || oauth.vk)) {
     const next = encodeURIComponent(nextPage());
-    $('oauthBox').hidden = false;
-    [['yandex', 'oauthYandex'], ['vk', 'oauthVk']].forEach(([name, id]) => {
-      $(id).hidden = !oauth[name];
-      $(id).href = `/api/auth/${name}/start?next=${next}`;
-    });
     const error = new URLSearchParams(location.search).get('oauth_error');
-    if (error) $('oauthError').innerHTML = `<span class="bad">${error.replace(/[<>&]/g, '')}</span>`;
+    document.querySelectorAll('[data-oauth]').forEach((box) => {
+      box.hidden = false;
+      box.querySelectorAll('[data-provider]').forEach((a) => {
+        a.hidden = !oauth[a.dataset.provider];
+        a.href = `/api/auth/${a.dataset.provider}/start?next=${next}`;
+      });
+      const note = box.querySelector('.oauth-error');
+      if (error) { note.textContent = `Не получилось войти: ${error}`; note.hidden = false; }
+    });
   }
   if (!me.registered && new URLSearchParams(location.search).get('next')) {
     show('register');               // пришли из Студии или оплаты -- новичок

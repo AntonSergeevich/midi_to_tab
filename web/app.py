@@ -649,11 +649,21 @@ def api_login(request: Request, email: str = Form(...), password: str = Form(...
 oauth_signer = URLSafeSerializer(SECRET, salt="oauth")
 
 
+def oauth_redirect_uri(request: Request, provider: str) -> str:
+    """Адрес возврата -- ровно тот, что вписан в кабинетах Яндекса и VK:
+    на боевом домене всегда https://naslux.ru/..., даже если прокси не
+    передал схему; на тестовом -- как пришёл запрос."""
+    site = seo.site_url()
+    base = site if request.url.hostname == urllib.parse.urlparse(site).hostname \
+        else str(request.base_url).rstrip("/")
+    return f"{base}/api/auth/{provider}/callback"
+
+
 @app.get("/api/auth/{provider}/start")
 def api_oauth_start(provider: str, request: Request, next: str = "/library"):  # noqa: A002
     if not oauth.configured().get(provider):
         raise HTTPException(404, "Такой вход не подключён")
-    redirect_uri = f"{str(request.base_url).rstrip('/')}/api/auth/{provider}/callback"
+    redirect_uri = oauth_redirect_uri(request, provider)
     url, remembered = oauth.start(provider, redirect_uri)
     response = RedirectResponse(url, status_code=302)
     response.set_cookie("oauth", oauth_signer.dumps({**remembered, "next": safe_next(next)}),
@@ -673,7 +683,7 @@ def api_oauth_callback(provider: str, request: Request):
         remembered = oauth_signer.loads(request.cookies.get("oauth", ""))
     except BadSignature:
         remembered = {}
-    redirect_uri = f"{str(request.base_url).rstrip('/')}/api/auth/{provider}/callback"
+    redirect_uri = oauth_redirect_uri(request, provider)
     try:
         person = oauth.finish(provider, dict(request.query_params), remembered, redirect_uri)
     except Exception as error:  # noqa: BLE001 -- любая неудача -> понятное сообщение

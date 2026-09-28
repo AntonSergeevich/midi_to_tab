@@ -335,3 +335,71 @@ def test_oauth_yandex_creates_account_and_keeps_tracks(tmp_path, monkeypatch):
         # подделанный state -- отказ
         bad = client.get("/api/auth/yandex/callback?code=c&state=zzz", follow_redirects=False)
         assert "oauth_error" in bad.headers["location"]
+
+
+def test_oauth_vk_uses_pkce_new_host_and_shows_vk_error(tmp_path, monkeypatch):
+    """VK ID: id.vk.ru, PKCE без секрета, device_id и state в обмене; ошибку
+    VK человек видит её словами, а не «HTTP Error 400»."""
+    import io
+    import sys
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    monkeypatch.setenv("VK_CLIENT_ID", "54793729")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    oauth = app_module.oauth
+    with TestClient(app_module.app) as client:
+        start = client.get("/api/auth/vk/start?next=/studio", follow_redirects=False)
+        url = start.headers["location"]
+        assert url.startswith("https://id.vk.ru/authorize?")
+        query = dict(urllib.parse.parse_qsl(url.split("?", 1)[1]))
+        assert query["client_id"] == "54793729" and query["code_challenge_method"] == "S256"
+        assert query["redirect_uri"] == "http://testserver/api/auth/vk/callback"
+        calls = []
+
+        def post(url, fields):
+            calls.append((url, fields))
+            if url.endswith("/oauth2/auth"):
+                return {"access_token": "t", "user_id": 7}
+            return {"user": {"user_id": 7, "email": "a@vk.ru", "first_name": "Антон"}}
+
+        monkeypatch.setattr(oauth, "_post", post)
+        back = client.get(f"/api/auth/vk/callback?code=c&state={query['state']}&device_id=dev",
+                          follow_redirects=False)
+        assert back.headers["location"] == "/studio"
+        exchange = calls[0]
+        assert exchange[0] == "https://id.vk.ru/oauth2/auth"
+        assert exchange[1]["device_id"] == "dev" and exchange[1]["code_verifier"]
+        assert "client_secret" not in exchange[1]
+
+    # ошибка VK -- её же словами
+    def refuse(request, timeout=20):
+        raise urllib.error.HTTPError(request.full_url, 400, "Bad", {},
+                                     io.BytesIO(b'{"error":"invalid_request","error_description":"redirect_uri mismatch"}'))
+
+    monkeypatch.setattr(oauth.urllib.request, "urlopen", refuse)
+    try:
+        oauth._open(urllib.request.Request("https://id.vk.ru/oauth2/auth", data=b""))
+    except ValueError as error:
+        assert "redirect_uri mismatch" in str(error)
+    else:
+        raise AssertionError("ошибка VK потерялась")
+
+
+def test_oauth_redirect_uri_is_fixed_on_the_real_domain(monkeypatch):
+    """На боевом домене адрес возврата всегда https, даже если прокси сказал http."""
+    from types import SimpleNamespace
+
+    import web.app as app_module
+
+    monkeypatch.setenv("NASLUX_SITE_URL", "https://naslux.ru")
+    request = SimpleNamespace(url=SimpleNamespace(hostname="naslux.ru"), base_url="http://naslux.ru/")
+    assert app_module.oauth_redirect_uri(request, "vk") == "https://naslux.ru/api/auth/vk/callback"

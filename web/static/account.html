@@ -62,12 +62,6 @@
   </div>
 
   <div id="forms">
-    <div class="oauth" id="oauthBox" hidden>
-      <a class="oauth-btn yandex" id="oauthYandex" href="#" hidden><b>Я</b> Войти с Яндекс ID</a>
-      <a class="oauth-btn vk" id="oauthVk" href="#" hidden><b>VK</b> Войти с VK ID</a>
-      <p class="muted" id="oauthError"></p>
-      <div class="oauth-or"><span>или по почте</span></div>
-    </div>
     <div class="tabs">
       <button class="tab active" data-tab="login">Вход</button>
       <button class="tab" data-tab="register">Регистрация</button>
@@ -83,6 +77,15 @@
         <a href="#" id="showForgot" class="muted">Забыли пароль?</a>
       </div>
       <p id="loginMsg" class="muted" style="margin:12px 0 0"></p>
+      <!-- Вход в один клик: российские сервисы (разрешены 149-ФЗ) -->
+      <div class="oauth" data-oauth hidden>
+        <div class="oauth-or"><span>или войдите через</span></div>
+        <div class="oauth-row">
+          <a class="oauth-btn" data-provider="yandex" href="#" hidden><i class="oauth-logo yandex">Я</i>Яндекс ID</a>
+          <a class="oauth-btn" data-provider="vk" href="#" hidden><i class="oauth-logo vk">VK</i>VK ID</a>
+        </div>
+        <p class="oauth-error" hidden></p>
+      </div>
     </div>
 
     <div class="card pane" id="pane-register" style="display:none">
@@ -95,6 +98,15 @@
         <input type="password" id="regPassword" autocomplete="new-password"></label>
       <button class="primary" id="doRegister" style="margin-top:16px">Создать аккаунт</button>
       <p id="regMsg" class="muted" style="margin:12px 0 0"></p>
+      <!-- Вход в один клик: российские сервисы (разрешены 149-ФЗ) -->
+      <div class="oauth" data-oauth hidden>
+        <div class="oauth-or"><span>или зарегистрируйтесь через</span></div>
+        <div class="oauth-row">
+          <a class="oauth-btn" data-provider="yandex" href="#" hidden><i class="oauth-logo yandex">Я</i>Яндекс ID</a>
+          <a class="oauth-btn" data-provider="vk" href="#" hidden><i class="oauth-logo vk">VK</i>VK ID</a>
+        </div>
+        <p class="oauth-error" hidden></p>
+      </div>
     </div>
 
     <div class="card pane" id="pane-forgot" style="display:none">
