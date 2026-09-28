@@ -1,0 +1,283 @@
+{
+ "current": {
+  "onset": 0.5,
+  "frame": 0.3,
+  "min_ms": 90,
+  "min_amp": 0.0,
+  "comp": 0.736,
+  "solo": 0.81,
+  "mean": 0.773
+ },
+ "top": [
+  {
+   "onset": 0.6,
+   "frame": 0.4,
+   "min_ms": 90,
+   "min_amp": 0.0,
+   "comp": 0.739,
+   "solo": 0.86,
+   "mean": 0.8
+  },
+  {
+   "onset": 0.6,
+   "frame": 0.4,
+   "min_ms": 90,
+   "min_amp": 0.2,
+   "comp": 0.739,
+   "solo": 0.86,
+   "mean": 0.8
+  },
+  {
+   "onset": 0.6,
+   "frame": 0.4,
+   "min_ms": 90,
+   "min_amp": 0.3,
+   "comp": 0.739,
+   "solo": 0.861,
+   "mean": 0.8
+  },
+  {
+   "onset": 0.6,
+   "frame": 0.4,
+   "min_ms": 60,
+   "min_amp": 0.0,
+   "comp": 0.753,
+   "solo": 0.843,
+   "mean": 0.798
+  },
+  {
+   "onset": 0.6,
+   "frame": 0.4,
+   "min_ms": 60,
+   "min_amp": 0.2,
+   "comp": 0.753,
+   "solo": 0.843,
+   "mean": 0.798
+  },
+  {
+   "onset": 0.6,
+   "frame": 0.4,
+   "min_ms": 60,
+   "min_amp": 0.3,
+   "comp": 0.753,
+   "solo": 0.844,
+   "mean": 0.798
+  },
+  {
+   "onset": 0.7,
+   "frame": 0.4,
+   "min_ms": 60,
+   "min_amp": 0.0,
+   "comp": 0.745,
+   "solo": 0.85,
+   "mean": 0.797
+  },
+  {
+   "onset": 0.7,
+   "frame": 0.4,
+   "min_ms": 60,
+   "min_amp": 0.2,
+   "comp": 0.745,
+   "solo": 0.85,
+   "mean": 0.797
+  },
+  {
+   "onset": 0.7,
+   "frame": 0.4,
+   "min_ms": 60,
+   "min_amp": 0.3,
+   "comp": 0.745,
+   "solo": 0.85,
+   "mean": 0.797
+  },
+  {
+   "onset": 0.7,
+   "frame": 0.4,
+   "min_ms": 90,
+   "min_amp": 0.0,
+   "comp": 0.729,
+   "solo": 0.864,
+   "mean": 0.797
+  },
+  {
+   "onset": 0.7,
+   "frame": 0.4,
+   "min_ms": 90,
+   "min_amp": 0.2,
+   "comp": 0.729,
+   "solo": 0.864,
+   "mean": 0.797
+  },
+  {
+   "onset": 0.7,
+   "frame": 0.4,
+   "min_ms": 90,
+   "min_amp": 0.3,
+   "comp": 0.729,
+   "solo": 0.864,
+   "mean": 0.797
+  },
+  {
+   "onset": 0.5,
+   "frame": 0.4,
+   "min_ms": 90,
+   "min_amp": 0.0,
+   "comp": 0.739,
+   "solo": 0.845,
+   "mean": 0.792
+  },
+  {
+   "onset": 0.5,
+   "frame": 0.4,
+   "min_ms": 90,
+   "min_amp": 0.2,
+   "comp": 0.739,
+   "solo": 0.845,
+   "mean": 0.792
+  },
+  {
+   "onset": 0.5,
+   "frame": 0.4,
+   "min_ms": 90,
+   "min_amp": 0.3,
+   "comp": 0.739,
+   "solo": 0.846,
+   "mean": 0.792
+  },
+  {
+   "onset": 0.6,
+   "frame": 0.3,
+   "min_ms": 90,
+   "min_amp": 0.3,
+   "comp": 0.745,
+   "solo": 0.83,
+   "mean": 0.787
+  },
+  {
+   "onset": 0.5,
+   "frame": 0.4,
+   "min_ms": 60,
+   "min_amp": 0.0,
+   "comp": 0.749,
+   "solo": 0.823,
+   "mean": 0.786
+  },
+  {
+   "onset": 0.5,
+   "frame": 0.4,
+   "min_ms": 60,
+   "min_amp": 0.2,
+   "comp": 0.749,
+   "solo": 0.823,
+   "mean": 0.786
+  },
+  {
+   "onset": 0.5,
+   "frame": 0.4,
+   "min_ms": 60,
+   "min_amp": 0.3,
+   "comp": 0.749,
+   "solo": 0.824,
+   "mean": 0.786
+  },
+  {
+   "onset": 0.6,
+   "frame": 0.2,
+   "min_ms": 90,
+   "min_amp": 0.3,
+   "comp": 0.752,
+   "solo": 0.819,
+   "mean": 0.785
+  },
+  {
+   "onset": 0.6,
+   "frame": 0.3,
+   "min_ms": 90,
+   "min_amp": 0.0,
+   "comp": 0.743,
+   "solo": 0.826,
+   "mean": 0.785
+  },
+  {
+   "onset": 0.6,
+   "frame": 0.3,
+   "min_ms": 90,
+   "min_amp": 0.2,
+   "comp": 0.743,
+   "solo": 0.826,
+   "mean": 0.785
+  },
+  {
+   "onset": 0.7,
+   "frame": 0.3,
+   "min_ms": 90,
+   "min_amp": 0.3,
+   "comp": 0.735,
+   "solo": 0.835,
+   "mean": 0.785
+  },
+  {
+   "onset": 0.7,
+   "frame": 0.3,
+   "min_ms": 90,
+   "min_amp": 0.0,
+   "comp": 0.734,
+   "solo": 0.834,
+   "mean": 0.784
+  },
+  {
+   "onset": 0.7,
+   "frame": 0.3,
+   "min_ms": 90,
+   "min_amp": 0.2,
+   "comp": 0.734,
+   "solo": 0.834,
+   "mean": 0.784
+  },
+  {
+   "onset": 0.5,
+   "frame": 0.3,
+   "min_ms": 90,
+   "min_amp": 0.3,
+   "comp": 0.74,
+   "solo": 0.815,
+   "mean": 0.778
+  },
+  {
+   "onset": 0.6,
+   "frame": 0.2,
+   "min_ms": 60,
+   "min_amp": 0.3,
+   "comp": 0.747,
+   "solo": 0.809,
+   "mean": 0.778
+  },
+  {
+   "onset": 0.7,
+   "frame": 0.2,
+   "min_ms": 90,
+   "min_amp": 0.3,
+   "comp": 0.733,
+   "solo": 0.823,
+   "mean": 0.778
+  },
+  {
+   "onset": 0.6,
+   "frame": 0.2,
+   "min_ms": 130,
+   "min_amp": 0.3,
+   "comp": 0.736,
+   "solo": 0.819,
+   "mean": 0.777
+  },
+  {
+   "onset": 0.5,
+   "frame": 0.2,
+   "min_ms": 90,
+   "min_amp": 0.3,
+   "comp": 0.748,
+   "solo": 0.801,
+   "mean": 0.775
+  }
+ ]
+}
