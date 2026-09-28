@@ -1371,6 +1371,8 @@ def api_studio(request: Request):
         "presets": {k: v[0] for k, v in studio.PRESETS.items()},
         "tracks": studio.TRACKS,
         "voices": {k: v[0] for k, v in studio.VOICES.items()},
+        "myVoices": [{"id": v["id"], "name": v["name"]} for v in storage.voices(user.id)],
+        "voiceCloneOpen": studio.voice_clone_open(),
         "balance": user.balance, "unlimited": user.unlimited, "registered": user.registered,
         "studioCredits": user.studio_credits,
         "restyleOpen": studio.restyle_open() or user.unlimited,
@@ -1401,6 +1403,7 @@ async def api_studio_start(
     keep_vocals: bool = Form(False),
     again: str = Form(""),
     rights: str = Form(""),
+    reference: bool = Form(False),
 ):
     user = current_user(request)
     ready, why = studio.available()
@@ -1435,10 +1438,16 @@ async def api_studio_start(
         if not again_source:
             raise HTTPException(409, "Исходник прошлой работы уже удалён — загрузите трек заново")
     suffix = Path((file.filename if file else again_source or "") or "").suffix.lower()
-    if mode != "create" and ((file is None and not again_source) or suffix not in ALLOWED
-                             or suffix in (".mid", ".midi")):
+    if (mode != "create" or reference) and ((file is None and not again_source) or suffix not in ALLOWED
+                                            or suffix in (".mid", ".midi")):
         raise HTTPException(400, "Нужен аудиофайл: mp3, wav, flac, ogg, m4a")
-    if mode != "create" and rights not in ("own", "cover"):
+    reference = reference and mode == "create" and file is not None
+    vocal_id = ""
+    if voice.startswith("my:"):
+        vocal_id = next((v["vocal_id"] for v in storage.voices(user.id) if v["id"] == voice[3:]), "")
+        if not vocal_id:
+            raise HTTPException(404, "Такого голоса нет — выберите другой")
+    if (mode != "create" or reference) and rights not in ("own", "cover"):
         # Оферта, п. 6.3: перед работой с записью человек отмечает, чья это
         # музыка, и соглашается с условиями -- отметка хранится с заказом.
         raise HTTPException(400, "Отметьте, чья это музыка, и согласитесь с условиями")
@@ -1456,15 +1465,19 @@ async def api_studio_start(
     clamp = lambda v: max(0.0, min(1.0, float(v)))  # noqa: E731
     knobs = {"audio_influence": clamp(audio_influence),
              "style_influence": clamp(style_influence), "weirdness": clamp(weirdness)}
-    voice = voice if voice in studio.VOICES else ""
+    voice = voice if voice in studio.VOICES or vocal_id else ""
     settings = {"kind": "studio", "mode": mode, "title": service.title, "preset": preset,
                 **knobs, "track": track, "charged": 0, "engine": engine, "voice": voice,
                 "keepVocals": keep_vocals,
                 **({"rights": {"kind": rights, "at": time.time(),
                                "ip": request.client.host if request.client else ""}}
-                   if mode != "create" else {})}
-    name = (file.filename if file else "") or (storage.job(again).filename if again_source else "") \
-        or title.strip()[:80] or studio.PRESETS.get(preset, ("Песня",))[0]
+                   if mode != "create" or reference else {}),
+                **({"reference": True} if reference else {})}
+    if mode == "create":   # у песни с нуля файл -- лишь образец стиля, имя -- название
+        name = title.strip()[:80] or "Новая песня"
+    else:
+        name = (file.filename if file else "") or (storage.job(again).filename if again_source else "") \
+            or title.strip()[:80] or studio.PRESETS.get(preset, ("Песня",))[0]
     job = storage.create_job(user.id, name, settings)
     folder = studio_runner.folder(job.id)
     os.makedirs(folder, exist_ok=True)
@@ -1490,7 +1503,8 @@ async def api_studio_start(
         **(_runpod_restyle_recipe(knobs["audio_influence"], clamp(melody))
            if mode == "restyle" and engine == "runpod" else {}),
         "track": track, "language": language if language in ("ru", "en") else "ru",
-        "voice": voice, "keep_vocals": keep_vocals,
+        "voice": "" if vocal_id else voice, "keep_vocals": keep_vocals,
+        **({"vocal_id": vocal_id} if vocal_id else {}), **({"reference": True} if reference else {}),
     })
     response = JSONResponse({"jobId": job.id})
     attach_cookie(response, user.id)
@@ -1690,6 +1704,104 @@ def api_studio_lyrics(request: Request, prompt: str = Form(...)):
     except RuntimeError as error:
         raise HTTPException(502, f"Не получилось сочинить текст: {error}") from error
     return {"title": answer.get("title", ""), "lyrics": answer.get("lyrics", "")}
+
+
+@app.post("/api/studio/lyrics/extend")
+def api_studio_lyrics_extend(request: Request, lyrics: str = Form(...)):
+    """Дописать продолжение текста (Mureka lyrics/extend) -- для «Продлить песню»."""
+    user = current_user(request)
+    if studio.restyle_engine() != "mureka":
+        raise HTTPException(503, "Сочинение текста пока не подключено")
+    now = time.time()
+    recent = [t for t in _lyrics_calls.get(user.id, []) if now - t < 86400]
+    if len(recent) >= studio.LYRICS_PER_DAY and not user.unlimited:
+        raise HTTPException(429, "На сегодня текстов достаточно — попробуйте завтра")
+    _lyrics_calls[user.id] = [*recent, now]
+    try:
+        answer = studio.mureka_call("POST", "/v1/lyrics/extend", {"lyrics": lyrics.strip()[:3000]})
+    except RuntimeError as error:
+        raise HTTPException(502, f"Не получилось дописать текст: {error}") from error
+    return {"lyrics": answer.get("lyrics", "")}
+
+
+@app.post("/api/studio/{job_id}/extend")
+def api_studio_extend(job_id: str, request: Request, file: str = Form(""), lyrics: str = Form("")):
+    """Продлить готовую песню Студии: Mureka song/extend с конца версии."""
+    user = current_user(request)
+    parent = storage.job(job_id)
+    if (not parent or parent.user_id != user.id
+            or (parent.settings or {}).get("kind") != "studio" or parent.status != "done"):
+        raise HTTPException(404, "Готовая работа не найдена")
+    chosen = next((f for f in (parent.result or {}).get("files") or [] if f["name"] == file), None)
+    if not chosen or not chosen.get("mid"):
+        raise HTTPException(409, "Продлить можно песню, созданную в Студии за последний месяц")
+    if time.time() - parent.created_at > 28 * 86400:
+        raise HTTPException(409, "Mureka продлевает только песни не старше месяца")
+    if not lyrics.strip():
+        raise HTTPException(400, "Напишите или сочините текст продолжения")
+    service = studio.SERVICES["extend"]
+    user = storage.user(user.id)
+    if not user.unlimited and user.studio_credits < studio.credit_cost("extend") \
+            and user.balance < service.price:
+        raise HTTPException(402, f"{service.title} стоит {studio.credit_cost('extend')} кредитов или "
+                                 f"{service.price:.0f} ₽ — пополните баланс на странице тарифов.")
+    job = storage.create_job(user.id, parent.filename, {
+        "kind": "studio", "mode": "extend", "title": service.title, "from": job_id,
+        "variant": chosen.get("label", ""), "charged": 0, "engine": "mureka"})
+    folder = studio_runner.folder(job.id)
+    os.makedirs(folder, exist_ok=True)
+    _studio_charge_and_submit(request, user, job.id, service, folder, {
+        "mode": "extend", "song_id": chosen["mid"], "extend_at": chosen.get("ms") or 0,
+        "lyrics": lyrics.strip()[:3000]})
+    return {"jobId": job.id}
+
+
+@app.post("/api/studio/voice")
+async def api_studio_voice(request: Request, file: UploadFile = File(...), name: str = Form("Мой голос"),
+                           consent: bool = Form(False)):
+    """Запомнить голос для песен (Mureka song/vocal-clone). Нужна отметка,
+    что голос свой или есть согласие его владельца."""
+    user = current_user(request)
+    if studio.restyle_engine() != "mureka" or not studio.voice_clone_open():
+        raise HTTPException(503, "Свой голос скоро появится — ждём, пока Mureka откроет клонирование")
+    if not consent:
+        raise HTTPException(400, "Подтвердите, что это ваш голос или у вас есть согласие его владельца")
+    if len(storage.voices(user.id)) >= 5:
+        raise HTTPException(409, "Голосов уже пять — удалите ненужный")
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in ALLOWED or suffix in (".mid", ".midi"):
+        raise HTTPException(400, "Нужна запись голоса: mp3, wav, m4a, ogg, flac")
+    service = studio.SERVICES["voice"]
+    if not user.unlimited and user.studio_credits < studio.credit_cost("voice") \
+            and user.balance < service.price:
+        raise HTTPException(402, f"{service.title} стоит {studio.credit_cost('voice')} кредитов или "
+                                 f"{service.price:.0f} ₽ — пополните баланс на странице тарифов.")
+    job = storage.create_job(user.id, name.strip()[:40] or "Мой голос", {
+        "kind": "studio", "mode": "voice", "title": service.title, "charged": 0, "engine": "mureka",
+        "voiceName": name.strip()[:40] or "Мой голос",
+        "consent": {"at": time.time(), "ip": request.client.host if request.client else "",
+                    "text": "мой голос или есть согласие владельца"}})
+    folder = studio_runner.folder(job.id)
+    os.makedirs(folder, exist_ok=True)
+    size, limit = 0, 30 * 1024 * 1024
+    with open(os.path.join(folder, f"source{suffix}"), "wb") as out:
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > limit:
+                out.close()
+                shutil.rmtree(folder, ignore_errors=True)
+                storage.update_job(job.id, status="error", error="Файл слишком большой")
+                raise HTTPException(413, "Запись голоса — до 30 МБ")
+            out.write(chunk)
+    _studio_charge_and_submit(request, user, job.id, service, folder, {"mode": "voice"})
+    return {"jobId": job.id}
+
+
+@app.delete("/api/studio/voice/{voice_id}")
+def api_studio_voice_delete(voice_id: str, request: Request):
+    if not storage.delete_voice(current_user(request).id, voice_id):
+        raise HTTPException(404, "Голос не найден")
+    return {"ok": True}
 
 
 @app.post("/api/studio/upload/{job_id}")

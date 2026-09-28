@@ -44,6 +44,8 @@
         <input type="text" id="title" maxlength="80" placeholder="например: С днём рождения, Саша">
       </label>
 
+      <button type="button" class="st-linkbtn" id="refToggle" hidden>＋ Как в образце: взять стиль из песни</button>
+
       <div id="styleBox">
         <div class="st-label st-labelrow">
           <span>Стиль</span>
@@ -137,6 +139,42 @@
 
 <!-- Плеер: один на страницу -- музыка не прерывается при обновлении списка -->
 <div class="st-toast" id="toast" hidden></div>
+
+<!-- Мой голос: запись -> клон у Mureka -->
+<div class="st-modal" id="voiceModal" hidden>
+  <div class="st-modal-box" role="dialog" aria-modal="true" aria-labelledby="voiceTitle">
+    <h3 id="voiceTitle">Мой голос для песен</h3>
+    <p class="muted">Загрузите запись, где вы поёте 20–60 секунд: можно под музыку — голос выделим сами.
+      Нейросеть запомнит тембр и будет петь им ваши песни.</p>
+    <label class="st-field"><span>Как назвать голос</span>
+      <input type="text" id="voiceName" maxlength="40" placeholder="например: Антон"></label>
+    <label class="st-field"><span>Запись</span>
+      <input type="file" id="voiceFile" accept=".mp3,.wav,.m4a,.ogg,.flac"></label>
+    <label class="check st-agree"><input type="checkbox" id="voiceConsent">
+      <span>Это мой голос или у меня есть согласие его владельца. Чужие голоса без согласия
+        (в том числе известных артистов) использовать нельзя.</span></label>
+    <p class="muted" id="voicePrice"></p>
+    <div class="st-modal-actions">
+      <button type="button" id="voiceCancel">Отмена</button>
+      <button type="button" class="primary" id="voiceOk" disabled>Запомнить голос</button>
+    </div>
+  </div>
+</div>
+
+<!-- Продлить песню -->
+<div class="st-modal" id="extendModal" hidden>
+  <div class="st-modal-box" role="dialog" aria-modal="true" aria-labelledby="extendTitle">
+    <h3 id="extendTitle">Продлить песню</h3>
+    <p class="muted">Нейросеть продолжит с конца версии — в том же звуке и голосе. Нужен текст продолжения.</p>
+    <textarea id="extendLyrics" rows="7" maxlength="3000" class="st-textarea"
+              placeholder="[Куплет 3]&#10;…&#10;&#10;[Припев]&#10;…"></textarea>
+    <button type="button" class="icon-btn" id="extendAi" style="align-self:flex-start">✦ <span>Сочинить продолжение</span></button>
+    <div class="st-modal-actions">
+      <button type="button" id="extendCancel">Отмена</button>
+      <button type="button" class="primary" id="extendOk">Продлить</button>
+    </div>
+  </div>
+</div>
 
 <!-- Темп и тональность версии -->
 <div class="st-modal" id="shiftModal" hidden>

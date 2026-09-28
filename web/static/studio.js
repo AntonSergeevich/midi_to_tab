@@ -7,7 +7,8 @@ let info = null;
 let mode = 'create';
 let voice = '';
 let file = null;
-let again = null;           // «Повторить»: исходник берём из этой прошлой работы
+let again = null;
+let useReference = false;  // «Как в образце»: стиль берём из загруженной песни           // «Повторить»: исходник берём из этой прошлой работы
 let polling = null;
 let openJob = null;         // id трека, чья страница открыта
 let playing = null;         // url, который сейчас в плеере
@@ -96,7 +97,15 @@ function showMode() {
     b.classList.toggle('on', b.dataset.mode === mode));
   $('modeHint').textContent = MODE[mode].hint;
   const mureka = info && info.restyleEngine === 'mureka';
-  $('drop').hidden = mode === 'create';
+  const reference = mode === 'create' && useReference;
+  $('drop').hidden = mode === 'create' && !reference;
+  $('refToggle').hidden = !(mode === 'create' && mureka);
+  $('refToggle').classList.toggle('on', reference);
+  $('refToggle').textContent = reference ? '✓ Как в образце — стиль возьмём из загруженной песни (отменить)'
+    : '＋ Как в образце: взять стиль из песни';
+  $('prompt').disabled = reference;
+  $('prompt').placeholder = reference ? 'Стиль возьмём из образца — описание Mureka с ним не сочетает'
+    : 'Жанр, настроение, инструменты, темп. Например: мощный ню-метал, рваный рифф, скретчи, агрессивный рэп-куплет и мелодичный припев';
   $('titleBox').hidden = mode !== 'create';
   $('styleBox').hidden = mode === 'stems';
   $('trackBox').hidden = mode !== 'enrich';
@@ -124,6 +133,7 @@ function updateStart() {
   else if (mode === 'create' && !info.createOpen) problem = 'Песни с нуля скоро появятся.';
   else if (mode === 'restyle' && !info.restyleOpen) problem = 'Переделка скоро вернётся.';
   else if (mode !== 'create' && !file && !again) problem = 'Загрузите трек.';
+  else if (mode === 'create' && useReference && !file) problem = 'Загрузите песню-образец (возьмём ~30 секунд).';
   else if (mode === 'restyle' && mureka && !lyrics && !$('keepVocals').checked) problem = 'Вставьте текст песни или отметьте «Сохранить мой голос».';
   else if (mode === 'create' && !lyrics && !$('instrumental').checked) problem = 'Добавьте текст или отметьте «инструментал».';
   else if (mode !== 'create' && mode !== 'stems' && !$('prompt').value.trim()) problem = 'Опишите стиль.';
@@ -295,8 +305,18 @@ function playButton(f, title) {
     data-title="${esc(title)}" data-sub="${esc(f.label)}" aria-label="Слушать">${on ? ICON.pause : ICON.play}</button>`;
 }
 
+function renderVoices() {
+  const learning = info.jobs.filter((j) => j.mode === 'voice' && ['queued', 'running'].includes(j.status));
+  $('voices').innerHTML = Object.entries(info.voices || {}).map(([key, title]) =>
+    `<button type="button" class="preset${key === voice ? ' selected' : ''}" data-voice="${key}">${esc(title)}</button>`).join('')
+    + (info.myVoices || []).map((v) =>
+      `<button type="button" class="preset mine${`my:${v.id}` === voice ? ' selected' : ''}" data-voice="my:${v.id}">🎙 ${esc(v.name)}</button>`).join('')
+    + learning.map((j) => `<button type="button" class="preset mine" disabled>🎙 ${esc(j.name)} · учим…</button>`).join('')
+    + (info.voiceCloneOpen ? '<button type="button" class="preset add" data-voice="add">＋ Мой голос</button>' : '');
+}
+
 function renderList(jobs) {
-  const top = jobs.filter((j) => !j.from);
+  const top = jobs.filter((j) => !j.from && j.mode !== 'voice');
   $('count').textContent = top.length ? `${top.length}` : '';
   if (!top.length) {
     $('jobs').innerHTML = '<p class="muted">Здесь появятся ваши песни.</p>';
@@ -324,7 +344,8 @@ function renderDetail(jobs) {
       <div class="st-row-main"><b>${esc(f.label)}</b>
         <span class="muted">${time(f.seconds)}</span></div>
       <button type="button" class="icon-btn" data-menu="${j.id}" data-file="${esc(f.name)}"
-        data-url="${f.url}" data-split-ok="${j.mode !== 'stems' ? 1 : ''}" title="Что сделать">${ICON.more}</button>
+        data-url="${f.url}" data-split-ok="${j.mode !== 'stems' ? 1 : ''}" data-extend="${f.mid ? 1 : ''}"
+        title="Что сделать">${ICON.more}</button>
     </div>`).join('') : `<div class="st-version"><div class="st-row-main">${statusLine(j)}</div></div>`;
   const parts = children.map((c) => `
     <div class="st-sub"><div class="st-label">${esc(c.title)}</div>
@@ -363,14 +384,14 @@ async function load() {
   $('balance').className = info.unlimited || info.balance > 0 ? 'badge pro' : 'badge';
   if (!$('voices').children.length) {
     const restored = restoreDraft();
-    $('voices').innerHTML = Object.entries(info.voices || {}).map(([key, title]) =>
-      `<button type="button" class="preset${key === voice ? ' selected' : ''}" data-voice="${key}">${esc(title)}</button>`).join('');
+    renderVoices();
     $('track').innerHTML = Object.entries(info.tracks).map(([key, title]) =>
       `<option value="${key}">${esc(title)}</option>`).join('');
     lyricsCount();
     showMode();
     afterPayment(restored);
   }
+  renderVoices();
   renderList(info.jobs);
   if (openJob) renderDetail(info.jobs);
   updateStart();
@@ -489,6 +510,11 @@ $('modes').addEventListener('click', (e) => {
   mode = b.dataset.mode;
   showMode();
 });
+$('refToggle').addEventListener('click', () => {
+  useReference = !useReference;
+  if (!useReference && mode === 'create') { file = null; $('drop').classList.remove('has'); }
+  showMode();
+});
 $('styleIdea').addEventListener('click', () => {
   const current = $('prompt').value;
   let idea = current;
@@ -501,6 +527,7 @@ $('styleIdea').addEventListener('click', () => {
 $('voices').addEventListener('click', (e) => {
   const b = e.target.closest('[data-voice]');
   if (!b) return;
+  if (b.dataset.voice === 'add') { askVoice(); return; }
   voice = b.dataset.voice;
   saveDraft();
   document.querySelectorAll('#voices .preset').forEach((x) => x.classList.toggle('selected', x === b));
@@ -561,7 +588,8 @@ $('start').addEventListener('click', async () => {
     location.href = info.registered ? pay : `/account?next=${encodeURIComponent(pay)}`;
     return;
   }
-  if (mode !== 'create') {
+  const withFile = mode !== 'create' || useReference;
+  if (withFile) {
     const key = file ? `${file.name}:${file.size}` : again;
     if (rightsFor !== key) {
       rights = await askRights();
@@ -570,8 +598,9 @@ $('start').addEventListener('click', async () => {
     }
   }
   const form = new FormData();
-  form.append('rights', mode === 'create' ? '' : rights);
-  if (file && mode !== 'create') form.append('file', file);
+  form.append('rights', withFile ? rights : '');
+  if (file && withFile) form.append('file', file);
+  form.append('reference', mode === 'create' && useReference);
   if (!file && again && mode !== 'create') form.append('again', again);
   form.append('mode', mode);
   form.append('preset', '');
@@ -637,6 +666,7 @@ function openMenu(button) {
       + item('tabs', ICON.tabs, 'Табы, аккорды и MIDI')
       + (button.dataset.splitOk ? item('split', ICON.split, 'Разделить на партии') : '')
       + item('shift', ICON.tempo, 'Темп и тональность')
+      + (button.dataset.extend ? item('extend', ICON.again, 'Продлить песню') : '')
       + '<hr>' + item('again', ICON.again, 'Повторить с этими настройками');
   const box = button.getBoundingClientRect();
   menu.hidden = false;
@@ -678,6 +708,17 @@ async function act(what, jobId, fileName) {
   }
   const form = new FormData();
   form.append('file', fileName || '');
+  if (what === 'extend') {
+    const lyrics = await askExtend(jobId);
+    if (!lyrics) return;
+    form.append('lyrics', lyrics);
+    const response = await fetch(`/api/studio/${jobId}/extend`, { method: 'POST', body: form });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) toast(`${pick(OOPS, Date.now())} ${data.detail || ''}`);
+    else toast('Дописываем продолжение — появится под треком 🎶');
+    load();
+    return;
+  }
   if (what === 'shift') {
     const choice = await askShift();
     if (!choice) return;
@@ -711,6 +752,59 @@ async function act(what, jobId, fileName) {
     if (response.ok) location.href = `/player/${data.jobId}`;
     else toast(`${pick(OOPS, Date.now())} ${data.detail || ''}`);
   }
+}
+
+function askExtend(jobId) {
+  return new Promise((resolve) => {
+    const j = info.jobs.find((x) => x.id === jobId) || {};
+    const modal = $('extendModal');
+    $('extendLyrics').value = '';
+    $('extendOk').textContent = `Продлить · ${info.unlimited ? '' : `${info.services.extend.pack} кредитов или ${rub(info.services.extend.price)}`}`;
+    modal.hidden = false;
+    $('extendAi').onclick = async () => {
+      $('extendAi').disabled = true;
+      const form = new FormData();
+      form.append('lyrics', j.lyrics || $('extendLyrics').value || '[Verse]');
+      const response = await fetch('/api/studio/lyrics/extend', { method: 'POST', body: form });
+      const data = await response.json().catch(() => ({}));
+      $('extendAi').disabled = false;
+      if (response.ok) $('extendLyrics').value = data.lyrics || '';
+      else toast(data.detail || 'Не получилось сочинить');
+    };
+    $('extendOk').onclick = () => {
+      const text = $('extendLyrics').value.trim();
+      if (!text) { $('extendLyrics').focus(); return; }
+      modal.hidden = true;
+      resolve(text);
+    };
+    $('extendCancel').onclick = () => { modal.hidden = true; resolve(''); };
+  });
+}
+
+function askVoice() {
+  const modal = $('voiceModal');
+  $('voicePrice').textContent = info.unlimited ? '' : `Стоит ${info.services.voice.pack} кредитов или ${rub(info.services.voice.price)}. Голос хранится у вас, использовать можно сколько угодно.`;
+  const sync = () => {
+    $('voiceOk').disabled = !$('voiceFile').files[0] || !$('voiceConsent').checked;
+  };
+  modal.oninput = sync;
+  modal.onchange = sync;
+  sync();
+  modal.hidden = false;
+  $('voiceCancel').onclick = () => { modal.hidden = true; };
+  $('voiceOk').onclick = async () => {
+    const form = new FormData();
+    form.append('file', $('voiceFile').files[0]);
+    form.append('name', $('voiceName').value.trim() || 'Мой голос');
+    form.append('consent', $('voiceConsent').checked);
+    $('voiceOk').disabled = true;
+    const response = await fetch('/api/studio/voice', { method: 'POST', body: form });
+    const data = await response.json().catch(() => ({}));
+    modal.hidden = true;
+    if (!response.ok) toast(`${pick(OOPS, Date.now())} ${data.detail || ''}`);
+    else toast('Слушаем ваш голос — через пару минут он появится в списке голосов 🎙');
+    load();
+  };
 }
 
 function askShift() {

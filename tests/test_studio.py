@@ -836,3 +836,85 @@ def test_shift_tempo_and_key_makes_child_version(studio_app, monkeypatch):
     assert job.result["files"][0]["label"] == "−2 полутона, темп 90%"
     listed = {j["id"]: j for j in client.get("/api/studio").json()["jobs"]}
     assert listed[child]["from"] == job_id and "темп 90%" in listed[child]["title"]
+
+
+def _mureka_env(monkeypatch):
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
+    monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
+
+
+def test_voice_clone_then_song_with_my_voice(studio_app, monkeypatch):
+    """Мой голос: согласие обязательно; Demucs -> vocal-clone -> голос в списке;
+    песня этим голосом идёт в song/generate с vocal_id и описанием, без gender."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    _mureka_env(monkeypatch)
+    monkeypatch.setenv("NASLUX_VOICE_CLONE", "1")
+    app_module.storage.add_studio_credits(user.id, 30)
+    voice = lambda consent: client.post("/api/studio/voice", data={"name": "Антон", "consent": consent},  # noqa: E731
+                                        files={"file": ("me.mp3", b"ID3voice", "audio/mpeg")})
+    assert voice("false").status_code == 400
+    job_id = voice("true").json()["jobId"]
+    assert app_module.storage.user(user.id).studio_credits == 20
+    app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings,
+                                                    "input": submitted[-1][1]})
+    folder = app_module.studio_runner.folder(job_id)
+    runner = studio.StudioRunner(app_module.storage, app_module.DATA_DIR)
+    monkeypatch.setattr(runner, "_separate_vocals", lambda jid, st: open(f"{folder}/vocals.mp3", "wb").write(b"v")
+                        and f"{folder}/vocals.mp3")
+    monkeypatch.setattr(studio.subprocess, "run", lambda cmd, **kw: open(cmd[-1], "wb").write(b"cut"))
+    uploads = []
+    monkeypatch.setattr(studio, "mureka_upload", lambda path, purpose, api_path="", fields=None, key="id":
+                        uploads.append((api_path, fields, key)) or "vocal-777")
+    runner._run(job_id)
+    assert app_module.storage.job(job_id).status == "done", app_module.storage.job(job_id).error
+    assert uploads[0][0] == "/v1/song/vocal-clone" and uploads[0][2] == "vocal_id"
+    mine = client.get("/api/studio").json()["myVoices"]
+    assert [v["name"] for v in mine] == ["Антон"]
+
+    song = _create(client, prompt="pop", lyrics="[Verse]\nЛя", voice=f"my:{mine[0]['id']}").json()["jobId"]
+    job = app_module.storage.job(song)
+    app_module.storage.update_job(song, settings={**job.settings, "input": submitted[-1][1]})
+    calls = _mureka_direct(monkeypatch, studio, [{"status": "succeeded", "choices": [
+        {"url": "https://cdn/1.mp3", "id": "s1", "duration": 90000}]}])
+    runner._run(song)
+    body = calls[0][2]
+    assert body["vocal_id"] == "vocal-777" and body["prompt"] == "pop" and "gender" not in body
+    done = app_module.storage.job(song).result["files"][0]
+    assert done["mid"] == "s1" and done["ms"] == 90000        # id для продления
+
+    # Продление этой песни: song/extend с конца версии, текст обязателен
+    assert client.post(f"/api/studio/{song}/extend", data={"file": "create_1.mp3"}).status_code == 400
+    child = client.post(f"/api/studio/{song}/extend",
+                        data={"file": "create_1.mp3", "lyrics": "[Verse]\nДальше"}).json()["jobId"]
+    app_module.storage.update_job(child, settings={**app_module.storage.job(child).settings,
+                                                   "input": submitted[-1][1]})
+    calls = _mureka_direct(monkeypatch, studio, [{"status": "succeeded", "choices": [
+        {"url": "https://cdn/e.mp3", "id": "s2"}]}])
+    runner._run(child)
+    assert calls[0][1] == "/v1/song/extend"
+    assert calls[0][2] == {"song_id": "s1", "lyrics": "[Verse]\nДальше", "extend_at": 90000}
+    assert app_module.storage.job(child).result["files"][0]["label"] == "Продолжение 1"
+
+
+def test_create_from_reference_sends_reference_without_prompt(studio_app, monkeypatch):
+    """Песня «как в образце»: файл -> reference_id; описание Mureka с ним не берёт."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    _mureka_env(monkeypatch)
+    app_module.storage.add_balance(user.id, 100)
+    response = client.post("/api/studio", data={"mode": "create", "title": "По образцу", "prompt": "rock",
+                                                "lyrics": "[Verse]\nЛя", "reference": "true", "rights": "cover"},
+                           files={"file": ("образец.mp3", b"ID3ref", "audio/mpeg")})
+    assert response.status_code == 200, response.text
+    job_id = response.json()["jobId"]
+    job = app_module.storage.job(job_id)
+    assert job.filename == "По образцу" and job.settings["rights"]["kind"] == "cover"
+    app_module.storage.update_job(job_id, settings={**job.settings, "input": submitted[-1][1]})
+    monkeypatch.setattr(studio, "mureka_source", lambda source, folder: source)
+    monkeypatch.setattr(studio, "mureka_upload", lambda path, purpose: f"ref-{purpose}")
+    calls = _mureka_direct(monkeypatch, studio, [{"status": "succeeded", "choices": [{"url": "https://cdn/1.mp3"}]}])
+    studio.StudioRunner(app_module.storage, app_module.DATA_DIR)._run(job_id)
+    body = calls[0][2]
+    assert body["reference_id"] == "ref-reference" and "prompt" not in body

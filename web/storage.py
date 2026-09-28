@@ -96,6 +96,17 @@ CREATE TABLE IF NOT EXISTS notices (
     reason       TEXT
 );
 
+-- Голоса пользователей для Студии (клон у Mureka: song/vocal-clone)
+CREATE TABLE IF NOT EXISTS voices (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL,
+    created_at   REAL NOT NULL,
+    name         TEXT NOT NULL,
+    vocal_id     TEXT NOT NULL,
+    consent      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS voices_user ON voices(user_id, created_at);
 CREATE INDEX IF NOT EXISTS tickets_status ON tickets(status, created_at);
 CREATE INDEX IF NOT EXISTS jobs_user ON jobs(user_id, created_at);
 -- Почта уникальна на уровне базы: две учётные записи с одним адресом
@@ -818,6 +829,25 @@ class Storage:
                 " AND status IN ('queued', 'running')"
             ).fetchall()
         return [j for j in (self.job(r["id"]) for r in rows) if j]
+
+    def add_voice(self, user_id: str, name: str, vocal_id: str, consent: dict) -> str:
+        voice_id = uuid.uuid4().hex
+        with self._connect() as conn:
+            conn.execute("INSERT INTO voices (id, user_id, created_at, name, vocal_id, consent)"
+                         " VALUES (?, ?, ?, ?, ?, ?)",
+                         (voice_id, user_id, time.time(), name, vocal_id, json.dumps(consent)))
+        return voice_id
+
+    def voices(self, user_id: str) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT id, name, vocal_id, created_at FROM voices WHERE user_id = ?"
+                                " ORDER BY created_at", (user_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_voice(self, user_id: str, voice_id: str) -> bool:
+        with self._connect() as conn:
+            return bool(conn.execute("DELETE FROM voices WHERE id = ? AND user_id = ?",
+                                     (voice_id, user_id)).rowcount)
 
     def studio_jobs(self, user_id: str, limit: int = 30) -> list[Job]:
         """Задачи Студии: переделки, дописанные партии, разделения на GPU."""
