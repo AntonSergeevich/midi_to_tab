@@ -573,6 +573,79 @@ footer.legal a:hover { color: var(--accent); }
 .lyrics-wrap.full .lyrics-bar .muted { flex: 1; }
 .lyrics-wrap.full textarea { flex: 1; resize: none; font-size: 16px; line-height: 1.5; max-width: 900px; width: 100%; margin: 0 auto; }
 @media (max-width: 640px) { .knobs { grid-template-columns: 1fr; } }
+/* ---------------- главная: загрузка -- доминанта, схема, Студия ---------------- */
+
+.hero h1 { font-size: 44px; }
+#hero { padding-bottom: 6px; }
+#hero .lead { margin-bottom: 22px; }
+.drop-hero {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  max-width: 760px; margin: 0 auto 26px; padding: 44px 24px 38px;
+  border: 2px dashed rgba(217,154,78,.6); border-radius: 22px;
+  background: radial-gradient(420px 180px at 50% 0%, rgba(217,154,78,.14), transparent 70%), var(--panel);
+  box-shadow: 0 18px 50px rgba(0,0,0,.35);
+}
+.drop-hero:hover, .drop-hero.over, .drop-hero:focus-visible {
+  border-color: var(--accent); background: radial-gradient(420px 180px at 50% 0%, rgba(217,154,78,.22), transparent 70%), var(--panel-hi);
+  outline: none;
+}
+.drop-hero b { font-size: 22px; margin: 0; }
+.drop-hero small em { font-style: normal; color: var(--accent); }
+.drop-icon {
+  width: 52px; height: 52px; border-radius: 50%; background: rgba(217,154,78,.16); position: relative;
+}
+.drop-icon::before {
+  content: ""; position: absolute; inset: 13px; background: var(--accent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 16V4M6 10l6-6 6 6M4 20h16'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 16V4M6 10l6-6 6 6M4 20h16'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.drop-btn {
+  display: inline-block; padding: 12px 28px; border-radius: 999px; font-weight: 600; font-size: 15px;
+  background: var(--accent); color: #15161c;
+}
+
+/* Схема «1 → 2 → 3»: плоская линия процесса, без рамок и реакции на мышь */
+.flow {
+  list-style: none; display: flex; justify-content: center; align-items: flex-start;
+  max-width: 760px; margin: 0 auto 30px; padding: 0; cursor: default; user-select: none;
+}
+.flow li {
+  flex: 1; position: relative; display: flex; flex-direction: column; align-items: center;
+  text-align: center; gap: 3px; padding: 0 8px;
+}
+.flow li + li::before {           /* соединительная линия от предыдущего шага */
+  content: ""; position: absolute; top: 15px; right: calc(50% + 22px); width: calc(100% - 44px);
+  height: 2px; background: linear-gradient(90deg, rgba(217,154,78,.15), rgba(217,154,78,.55));
+}
+.flow-n {
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 14px; font-weight: 700; color: var(--accent); background: rgba(217,154,78,.12);
+  margin-bottom: 6px;
+}
+.flow b { font-size: 15px; }
+.flow small { color: var(--muted); font-size: 12.5px; }
+
+.studio-card {
+  display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: var(--text);
+  max-width: 760px; margin: 0 auto; padding: 18px 20px; border-radius: var(--radius);
+  background: var(--panel); border: 1px solid var(--border); transition: border-color .15s;
+}
+.studio-card:hover { border-color: rgba(217,154,78,.45); }
+.studio-card b { font-size: 17px; }
+.studio-card-tag { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.studio-card-go { color: var(--accent); font-weight: 600; font-size: 14px; }
+.pay-note { text-align: center; font-size: 12.5px; margin: 14px 0 0; }
+body.working .flow, body.working .studio-card, body.working .pay-note { display: none; }
+
+@media (max-width: 640px) {
+  .hero h1 { font-size: 30px; }
+  .drop-hero { padding: 30px 16px 26px; border-radius: 18px; }
+  .drop-hero b { font-size: 19px; }
+  .flow li { padding: 0 4px; }
+  .flow b { font-size: 14px; }
+  .flow small { font-size: 11.5px; }
+}
+
 .studio-promo {
   display: flex; flex-direction: column; gap: 6px; text-align: left; text-decoration: none;
   max-width: 640px; margin: 18px auto 0; padding: 16px 18px; border-radius: var(--radius);
@@ -756,19 +829,15 @@ header.top > div > a:not(.badge):hover { color: var(--text); background: var(--p
 header.top > div > a[aria-current="page"] {
   color: var(--accent); background: rgba(217,154,78,.1); border-color: rgba(217,154,78,.35);
 }
-header.top > div > a[href="/"]::before,
+header.top > div > a[href="/studio"]::before,
 header.top > div > a[href="/library"]::before,
-header.top > div > a[href="/chords"]::before,
 header.top > div > a[href="/pricing"]:not(.badge)::before,
 header.top > div > a.who::before {
   content: ""; width: 16px; height: 16px; flex: none; background: currentColor;
   -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat;
 }
-header.top > div > a[href="/"] {
+header.top > div > a[href="/studio"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12 3 1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z'/%3E%3Cpath d='M18 15v5M15.5 17.5h5'/%3E%3C/svg%3E");
-}
-header.top > div > a[href="/chords"] {
-  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='3' width='14' height='18' rx='2'/%3E%3Cpath d='M9 3v18M13 3v18M5 9h14M5 15h14'/%3E%3Ccircle cx='11' cy='12' r='1.3' fill='black'/%3E%3C/svg%3E");
 }
 header.top > div > a[href="/library"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 18V5l12-2v13'/%3E%3Ccircle cx='6' cy='18' r='3'/%3E%3Ccircle cx='18' cy='16' r='3'/%3E%3C/svg%3E");
@@ -787,13 +856,12 @@ header.top > div > .badge { margin-left: 8px; text-decoration: none; }
   header.top > div > a:not(.badge) { padding: 6px 10px; font-size: 13px; gap: 5px; }
   header.top > div > a.who { max-width: 34vw; }
 }
-@media (max-width: 760px) {
+@media (max-width: 420px) {
   /* На узком экране у пунктов меню остаются только иконки, кроме почты */
-  header.top > div > a[href="/"], header.top > div > a[href="/library"], header.top > div > a[href="/chords"],
+  header.top > div > a[href="/studio"], header.top > div > a[href="/library"],
   header.top > div > a[href="/pricing"]:not(.badge) { font-size: 0; gap: 0; padding: 8px 10px; }
-  header.top > div > a[href="/"]::before, header.top > div > a[href="/library"]::before,
-  header.top > div > a[href="/chords"]::before,
-  header.top > div > a[href="/pricing"]:not(.badge)::before { width: 18px; height: 18px; }
+  header.top > div > a[href="/studio"]::before, header.top > div > a[href="/library"]::before,
+    header.top > div > a[href="/pricing"]:not(.badge)::before { width: 18px; height: 18px; }
 }
 .st-keep { align-items: flex-start; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); cursor: pointer; }
 .st-keep input { margin-top: 3px; flex: none; }

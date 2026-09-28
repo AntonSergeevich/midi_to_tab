@@ -70,6 +70,7 @@ async function loadMe() {
   // форму и думал, что всё пропало. Теперь подхватываем то, что считается.
   const busy = (me.jobs || []).find((j) => j.status === 'running' || j.status === 'queued');
   if (busy && !chosenFile) {
+    document.body.classList.add('working');
     $('hint').textContent = `«${busy.name}» — можно закрыть страницу, работа не пропадёт.`;
     reveal('progress');
     watch(busy.id, null);
@@ -79,6 +80,9 @@ async function loadMe() {
 // ------------------------------------------------------------- выбор файла
 
 $('drop').onclick = () => $('file').click();
+$('drop').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); }
+});
 $('file').onchange = (e) => pick(e.target.files[0]);
 ['dragover', 'dragenter'].forEach((t) =>
   $('drop').addEventListener(t, (e) => {
@@ -95,6 +99,7 @@ $('drop').addEventListener('drop', (e) => {
 function pick(file) {
   if (!file) return;
   chosenFile = file;
+  document.body.classList.add('working');  // схема и Студия уходят -- дальше работа с треком
   $('fileName').textContent = file.name;
   $('fileMeta').textContent = `${(file.size / 1048576).toFixed(1)} МБ`;
 
@@ -116,6 +121,7 @@ function pick(file) {
 
 $('reset').onclick = () => {
   chosenFile = null;
+  document.body.classList.remove('working');
   $('file').value = '';
   hide('chosen');
   hide('progress');

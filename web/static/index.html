@@ -15,8 +15,7 @@
   <header class="top">
     <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
     <div style="display:flex;gap:14px;align-items:center">
-      <a href="/">Студия</a>
-      <a href="/chords" aria-current="page">Аккорды и табы</a>
+      <a href="/studio">Студия</a>
       <a href="/library">Мои треки</a>
       <a href="/pricing">Тарифы</a>
       <a href="/account" id="account" class="who">Вход</a>
@@ -24,39 +23,42 @@
     </div>
   </header>
 
-  <!-- Что это такое: одно предложение и три шага -->
+  <!-- Первый экран: обещание -> загрузка (главное действие) -> как это работает -> Студия -->
   <section class="hero" id="hero">
-    <h1>Подберём песню за вас</h1>
+    <h1>Разберите любую песню&nbsp;—<br>или создайте свою</h1>
     <p class="lead">
-      Загрузите трек — услышим аккорды, разложим на партии инструментов
-      и соберём табы с MIDI. Играйте под бегущую ленту, как под суфлёр.
+      Аккорды, табы, MIDI и отдельные дорожки из любого трека. А если трека ещё нет —
+      нейросеть напишет песню по вашему тексту или сделает кавер. Всё в одном окне.
     </p>
-    <p class="muted" style="margin-top:-8px">
-      Оплата российской картой, в рублях — без VPN, App Store и посредников.
-      Табы отдаются сразу в формате Guitar Pro.
-    </p>
-    <div class="steps">
-      <div class="step"><b>1</b><span>Аккорды всей песни<br><i>за секунды</i></span></div>
-      <div class="step"><b>2</b><span>Партии по отдельности<br><i>гитара, бас, вокал</i></span></div>
-      <div class="step"><b>3</b><span>Табы и MIDI<br><i>для нужной партии</i></span></div>
-    </div>
-    <!-- Студия -- второй продукт; без этого блока о ней с главной не узнать -->
-    <a href="/" class="studio-promo">
-      <span class="studio-promo-tag">Новое · Студия</span>
-      <b>Песня с нуля за пару минут — даже поздравление с днём рождения</b>
-      <span class="muted">Нейросеть сочинит текст и споёт его в любом стиле, переделает вашу
-        песню в ню-метал или джаз, разложит трек на вокал, гитару, бас и барабаны — от 19 ₽.</span>
-      <span class="studio-promo-go">Открыть Студию →</span>
-    </a>
   </section>
 
-  <!-- Шаг 1: только зона загрузки, ничего лишнего -->
-  <div class="drop" id="drop">
+  <!-- Главное действие страницы: крупно, сразу под заголовком -->
+  <div class="drop drop-hero" id="drop" role="button" tabindex="0"
+       aria-label="Загрузить песню: перетащите файл или нажмите, чтобы выбрать">
+    <span class="drop-icon" aria-hidden="true"></span>
     <b>Перетащите песню сюда</b>
-    <small>или нажмите, чтобы выбрать · mp3, wav, flac, ogg, m4a или готовый MIDI</small>
+    <span class="drop-btn">Выбрать файл</span>
+    <small>mp3, wav, flac, ogg, m4a или готовый MIDI · <em>аккорды — бесплатно, без регистрации</em></small>
     <input type="file" id="file" hidden
            accept=".mp3,.wav,.flac,.ogg,.m4a,.aiff,.aif,.mid,.midi">
   </div>
+
+  <!-- Как это работает: схема процесса, а не кнопки -- ни рамок, ни наведения -->
+  <ol class="flow" aria-label="Как это работает">
+    <li><span class="flow-n">1</span><b>Аккорды</b><small>всей песни за секунды</small></li>
+    <li><span class="flow-n">2</span><b>Партии</b><small>гитара, бас, вокал отдельно</small></li>
+    <li><span class="flow-n">3</span><b>Табы и MIDI</b><small>для нужной партии, в Guitar Pro</small></li>
+  </ol>
+
+  <!-- Второе направление -- Студия: спокойная карточка под загрузкой -->
+  <a href="/studio" class="studio-card">
+    <span class="studio-card-tag">Студия · нейросеть</span>
+    <b>Нет трека? Создайте песню с нуля</b>
+    <span class="muted">Напишите текст или нажмите «Сочинить» — нейросеть споёт его в любом стиле.
+      Кавер своей песни в другом жанре, глубокое разделение на 12 дорожек, смена темпа и тональности.</span>
+    <span class="studio-card-go">Открыть Студию →</span>
+  </a>
+  <p class="muted pay-note">Оплата российской картой, в рублях — без VPN, App Store и посредников.</p>
 
   <!-- Шаг 2: появляется только после выбора файла -->
   <section class="reveal" id="chosen">

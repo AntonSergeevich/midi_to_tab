@@ -25,15 +25,18 @@ def client(tmp_path, monkeypatch):
         yield test_client
 
 
-def test_home_is_studio_and_chords_moved(client):
+def test_home_is_upload_first_and_studio_has_its_page(client):
     home = client.get("/").text
-    assert 'id="modes"' in home                                   # Студия
+    assert 'id="drop"' in home and 'href="/studio" class="studio-card"' in home
+    # загрузка -- сразу под заголовком, раньше схемы и Студии
+    assert home.index("<h1>") < home.index('id="drop"') < home.index('class="flow"') \
+        < home.index('class="studio-card"')
     assert '<link rel="canonical" href="https://naslux.ru/">' in home
-    assert "{{" not in home                                       # все подстановки на месте
-    assert 'href="/podbor-akkordov"' in home                      # подвал возможностей
-    chords = client.get("/chords").text
-    assert 'href="https://naslux.ru/chords"' in chords and "{{" not in chords
-    assert client.get("/studio").text == home                     # старые ссылки живы
+    assert "{{" not in home and 'href="/podbor-akkordov"' in home
+    studio = client.get("/studio").text
+    assert 'id="modes"' in studio and 'href="https://naslux.ru/studio"' in studio and "{{" not in studio
+    moved = client.get("/chords", follow_redirects=False)
+    assert moved.status_code == 301 and moved.headers["location"] == "/"
 
 
 def test_landings_have_meta_faq_and_cta(client):
@@ -58,7 +61,7 @@ def test_sitemap_lists_every_page(client):
     assert response.headers["content-type"].startswith("application/xml")
     ns = {"s": "http://www.sitemaps.org/schemas/sitemap/0.9"}
     locs = {el.text for el in ET.fromstring(response.content).findall("s:url/s:loc", ns)}
-    assert "https://naslux.ru/" in locs and "https://naslux.ru/chords" in locs
+    assert "https://naslux.ru/" in locs and "https://naslux.ru/studio" in locs
     for landing in seo.LANDINGS:
         assert f"https://naslux.ru/{landing['slug']}" in locs
 

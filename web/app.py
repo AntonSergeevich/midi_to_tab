@@ -207,27 +207,26 @@ def attach_cookie(response: Response, user_id: str) -> None:
 
 # ------------------------------------------------------------------ страницы
 
-STUDIO_TITLE = "NASLUX — нейросеть для музыки: песни, каверы, дорожки, аккорды и табы"
+HOME_TITLE = "NASLUX — аккорды, табы и MIDI по песне и создание музыки нейросетью"
+HOME_DESCRIPTION = ("Разберите любую песню на аккорды (бесплатно), дорожки, табы и MIDI — или "
+                    "создайте свою: нейросеть напишет песню по тексту и сделает кавер.")
+STUDIO_TITLE = "Студия NASLUX — создать песню нейросетью, кавер, дорожки и MIDI"
 STUDIO_DESCRIPTION = ("Создайте песню нейросетью по тексту, сделайте кавер своей песни, разделите "
-                      "трек на дорожки с MIDI, подберите аккорды и табы. На русском, оплата картой РФ.")
-CHORDS_TITLE = "Подбор аккордов, табы и MIDI по песне онлайн — NASLUX"
-CHORDS_DESCRIPTION = ("Загрузите песню — нейросеть подберёт аккорды (бесплатно), разложит на "
-                      "партии и соберёт табы с MIDI. Играйте под бегущую строку.")
+                      "трек на дорожки с MIDI, смените темп и тональность. На русском, оплата картой РФ.")
 
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
-    # Главная -- Студия; подбор аккордов переехал на /chords
-    return page("studio.html", {"HEAD": seo.head_tags("/", STUDIO_TITLE, STUDIO_DESCRIPTION)
-                                + "\n" + seo.app_ld(), "FEATURES": seo.features_nav(),
-                                "TITLE": STUDIO_TITLE, "DESCRIPTION": STUDIO_DESCRIPTION})
+    # Главная -- разбор трека (загрузка -- главное действие) и вход в Студию
+    return page("index.html", {"HEAD": seo.head_tags("/", HOME_TITLE, HOME_DESCRIPTION)
+                               + "\n" + seo.app_ld(), "FEATURES": seo.features_nav(),
+                               "TITLE": HOME_TITLE, "DESCRIPTION": HOME_DESCRIPTION})
 
 
-@app.get("/chords", response_class=HTMLResponse)
-def chords_page() -> HTMLResponse:
-    return page("index.html", {"HEAD": seo.head_tags("/chords", CHORDS_TITLE, CHORDS_DESCRIPTION),
-                               "FEATURES": seo.features_nav(),
-                               "TITLE": CHORDS_TITLE, "DESCRIPTION": CHORDS_DESCRIPTION})
+@app.get("/chords")
+def chords_page() -> RedirectResponse:
+    # Недолго здесь жил разбор, пока главной была Студия -- ссылки не теряем
+    return RedirectResponse("/", status_code=301)
 
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
@@ -1370,7 +1369,9 @@ def api_file(job_id: str, kind: str, request: Request):
 
 @app.get("/studio", response_class=HTMLResponse)
 def studio_page() -> HTMLResponse:
-    return index()
+    return page("studio.html", {"HEAD": seo.head_tags("/studio", STUDIO_TITLE, STUDIO_DESCRIPTION),
+                                "FEATURES": seo.features_nav(),
+                                "TITLE": STUDIO_TITLE, "DESCRIPTION": STUDIO_DESCRIPTION})
 
 
 def _studio_job_payload(job) -> dict:
