@@ -96,7 +96,7 @@ def main() -> None:
 
     url = f"{RECORD}/{args.block}-audio-mixes.zip?download=1"
     vocabulary: dict[str, int] = {}
-    mixes = RemoteZip(url)
+    mixes = RemoteZip(url, timeout=60)
     audio = sorted(n for n in mixes.namelist() if n.lower().endswith((".flac", ".wav", ".mp3", ".ogg")))
     print(f"сведений в архиве: {len(audio)}; например {audio[:2]}", flush=True)
     done = skipped = 0
@@ -123,7 +123,7 @@ def main() -> None:
                         mixes.close()
                     except Exception:  # noqa: BLE001
                         pass
-                    mixes = RemoteZip(url)
+                    mixes = RemoteZip(url, timeout=60)
             if data is None:
                 skipped += 1
                 continue
