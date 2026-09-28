@@ -2,6 +2,13 @@
 
 const $ = (id) => document.getElementById(id);
 
+// Откуда пришли: после входа или регистрации -- туда же (например, в
+// Студию с недописанной песней или к оплате). Только свои пути сайта.
+function nextPage() {
+  const next = new URLSearchParams(location.search).get('next') || '';
+  return /^\/[A-Za-z0-9/_?=&%.-]*$/.test(next) && !next.startsWith('//') ? next : '/library';
+}
+
 const show = (name) => {
   ['login', 'register', 'forgot', 'reset'].forEach((pane) => {
     $(`pane-${pane}`).style.display = pane === name ? '' : 'none';
@@ -29,6 +36,14 @@ async function boot() {
   if (token) { show('reset'); return; }
 
   const me = await (await fetch('/api/me')).json();
+  if (me.registered && new URLSearchParams(location.search).get('next')) {
+    location.replace(nextPage());   // уже вошли -- сразу дальше
+    return;
+  }
+  if (!me.registered && new URLSearchParams(location.search).get('next')) {
+    show('register');               // пришли из Студии или оплаты -- новичок
+    $('regMsg').innerHTML = 'Заведите аккаунт за минуту — всё, что вы заполнили, дождётся вас.';
+  }
   if (me.registered) {
     $('forms').style.display = 'none';
     $('profile').style.display = '';
@@ -64,7 +79,7 @@ $('doLogin').onclick = async () => {
     $('loginMsg').innerHTML = data.moved
       ? `<span class="ok">Вошли. Перенесено треков: ${data.moved}</span>`
       : '<span class="ok">Вошли</span>';
-    setTimeout(() => (location.href = '/library'), 500);
+    setTimeout(() => (location.href = nextPage()), 500);
   } catch (error) { fail('loginMsg', error); }
 };
 
@@ -75,7 +90,7 @@ $('doRegister').onclick = async () => {
       email: $('regEmail').value, password: $('regPassword').value,
     });
     $('regMsg').innerHTML = '<span class="ok">Готово</span>';
-    setTimeout(() => (location.href = '/library'), 500);
+    setTimeout(() => (location.href = nextPage()), 500);
   } catch (error) { fail('regMsg', error); }
 };
 
@@ -93,7 +108,7 @@ $('doReset').onclick = async () => {
   try {
     await post('/api/auth/reset', { token, password: $('newPassword').value });
     $('resetMsg').innerHTML = '<span class="ok">Пароль изменён</span>';
-    setTimeout(() => (location.href = '/library'), 700);
+    setTimeout(() => (location.href = nextPage()), 700);
   } catch (error) { fail('resetMsg', error); }
 };
 

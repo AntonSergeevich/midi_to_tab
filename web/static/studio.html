@@ -45,10 +45,14 @@
       </label>
 
       <div id="styleBox">
-        <div class="st-label">Стиль</div>
-        <div class="presets" id="presets"></div>
-        <input type="text" id="prompt" maxlength="500" class="st-input"
-               placeholder="или своими словами: жанр, настроение, инструменты, голос">
+        <div class="st-label st-labelrow">
+          <span>Стиль</span>
+          <button type="button" class="icon-btn" id="styleIdea" title="Подкинуть идею">
+            <span aria-hidden="true">🎲</span><span>Идея</span>
+          </button>
+        </div>
+        <textarea id="prompt" rows="3" maxlength="500" class="st-textarea"
+                  placeholder="Жанр, настроение, инструменты, темп. Например: мощный ню-метал, рваный рифф, скретчи, агрессивный рэп-куплет и мелодичный припев"></textarea>
       </div>
 
       <label class="check st-keep" id="keepBox" hidden>
@@ -81,8 +85,8 @@
           </span>
         </div>
         <div class="st-ai" id="aiBox" hidden>
-          <input type="text" id="aiPrompt" maxlength="500" class="st-input"
-                 placeholder="о чём песня: поздравление маме с юбилеем, весело">
+          <textarea id="aiPrompt" rows="3" maxlength="500" class="st-textarea"
+                    placeholder="О чём песня, кому и какое настроение. Например: весёлое поздравление маме с юбилеем, вспомнить дачу и её пироги"></textarea>
           <button type="button" class="primary" id="aiGo">Сочинить</button>
         </div>
         <div class="lyrics-wrap" id="lyricsWrap">
@@ -123,11 +127,14 @@
         <div id="jobs" class="st-list"><p class="muted">Здесь появятся ваши песни.</p></div>
       </div>
       <div id="detailView" hidden></div>
+      <div class="st-menu" id="menu" hidden></div>
     </section>
   </div>
 </div>
 
 <!-- Плеер: один на страницу -- музыка не прерывается при обновлении списка -->
+<div class="st-toast" id="toast" hidden></div>
+
 <div class="st-player" id="player" hidden>
   <button type="button" class="play-btn" id="playerToggle" aria-label="Пауза"></button>
   <div class="st-player-info"><b id="playerTitle"></b><small id="playerSub" class="muted"></small></div>

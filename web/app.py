@@ -1253,9 +1253,12 @@ def _studio_job_payload(job) -> dict:
         "files": files,
         "from": settings.get("from"),
         "keepVocals": bool(settings.get("keepVocals")),
+        "style": (settings.get("input") or {}).get("prompt", ""),
+        "voice": settings.get("voice", ""),
+        "hasSource": any(f.startswith("source.") for f in os.listdir(folder)) if os.path.isdir(folder) else False,
         "cover": f"/api/studio/file/{job.id}/cover.jpg"
                  if os.path.isfile(os.path.join(folder, "cover.jpg")) else None,
-        "lyrics": result.get("lyrics") or settings.get("lyrics") or "",
+        "lyrics": result.get("lyrics") or (settings.get("input") or {}).get("lyrics") or "",
         # Файлы Студии уборка удаляет через 14 дней (deploy/cleanup.py)
         "expired": job.status == "done" and not files,
     }
@@ -1301,6 +1304,7 @@ async def api_studio_start(
     language: str = Form("ru"),
     voice: str = Form(""),
     keep_vocals: bool = Form(False),
+    again: str = Form(""),
 ):
     user = current_user(request)
     ready, why = studio.available()
@@ -1323,13 +1327,26 @@ async def api_studio_start(
         raise HTTPException(400, "Для переделки нужен текст песни — нейросеть сохраняет мелодию "
                                  "и поёт по тексту. Вставьте его в поле «Текст песни».")
     if mode == "create" and not (prompt.strip() or lyrics.strip() or preset in studio.PRESETS):
-        raise HTTPException(400, "Опишите песню или выберите стиль")
-    suffix = Path((file.filename if file else "") or "").suffix.lower()
-    if mode != "create" and (file is None or suffix not in ALLOWED or suffix in (".mid", ".midi")):
+        raise HTTPException(400, "Опишите стиль или добавьте текст песни")
+    # «Повторить»: исходник берётся из прошлой работы, загружать заново не нужно.
+    again_source = None
+    if file is None and again and mode != "create":
+        previous = storage.job(again)
+        if previous and previous.user_id == user.id and (previous.settings or {}).get("kind") == "studio":
+            folder_before = studio_runner.folder(again)
+            again_source = next((os.path.join(folder_before, f) for f in sorted(os.listdir(folder_before))
+                                 if f.startswith("source.")), None) if os.path.isdir(folder_before) else None
+        if not again_source:
+            raise HTTPException(409, "Исходник прошлой работы уже удалён — загрузите трек заново")
+    suffix = Path((file.filename if file else again_source or "") or "").suffix.lower()
+    if mode != "create" and ((file is None and not again_source) or suffix not in ALLOWED
+                             or suffix in (".mid", ".midi")):
         raise HTTPException(400, "Нужен аудиофайл: mp3, wav, flac, ogg, m4a")
     if mode == "enrich" and track not in studio.TRACKS:
         raise HTTPException(400, "Выберите партию, которую дописать")
-    style = prompt.strip()[:500] or studio.PRESETS.get(preset, studio.PRESETS["numetal"])[1]
+    style = prompt.strip()[:500] or (studio.PRESETS[preset][1] if preset in studio.PRESETS else "")
+    if mode in ("restyle", "enrich") and not style:
+        raise HTTPException(400, "Опишите стиль: жанр, настроение, инструменты")
     by_pack = mode in studio.PACK_MODES and user.studio_credits >= studio.PACK_COST[mode]
     if not user.unlimited and not by_pack and user.balance < service.price:
         raise HTTPException(402, f"{service.title} стоит {service.price:.0f} ₽, на балансе "
@@ -1343,13 +1360,15 @@ async def api_studio_start(
     settings = {"kind": "studio", "mode": mode, "title": service.title, "preset": preset,
                 **knobs, "track": track, "charged": 0, "engine": engine, "voice": voice,
                 "keepVocals": keep_vocals}
-    name = (file.filename if file else "") or (title.strip()[:80] or
-                                                 studio.PRESETS.get(preset, ("Песня",))[0])
+    name = (file.filename if file else "") or (storage.job(again).filename if again_source else "") \
+        or title.strip()[:80] or studio.PRESETS.get(preset, ("Песня",))[0]
     job = storage.create_job(user.id, name, settings)
     folder = studio_runner.folder(job.id)
     os.makedirs(folder, exist_ok=True)
     source = os.path.join(folder, f"source{suffix}")
     size, limit = 0, MAX_UPLOAD_MB * 1024 * 1024
+    if again_source:
+        shutil.copyfile(again_source, source)
     with open(source, "wb") if file else open(os.devnull, "wb") as out:
         while file and (chunk := await file.read(1024 * 1024)):
             size += len(chunk)
@@ -1591,7 +1610,14 @@ def api_studio_delete(job_id: str, request: Request):
 
 # ------------------------------------------------------------------ оплата
 
-def _start_payment(request: Request, user, amount: float, title: str, plan: str) -> dict:
+def safe_next(next_path: str) -> str:
+    """Куда вернуть человека после оплаты: только свой путь на этом сайте
+    (/studio, /pricing...), без чужих доменов и протоколов."""
+    return next_path if re.fullmatch(r"/[A-Za-z0-9/_-]{0,60}", next_path or "") else "/"
+
+
+def _start_payment(request: Request, user, amount: float, title: str, plan: str,
+                   next_path: str = "/") -> dict:
     """
     Общая часть создания платежа: подписка, разовый трек и пополнение
     баланса отличаются только суммой, названием и тем, что зачислится
@@ -1622,11 +1648,11 @@ def _start_payment(request: Request, user, amount: float, title: str, plan: str)
     base = str(request.base_url).rstrip("/")
     try:
         created = gateway.create_payment(
-            user.id, amount, f"{base}/?paid=1",
+            user.id, amount, f"{base}{safe_next(next_path)}?paid=1",
             title=title,
             notify_url=f"{base}/api/webhook/{gateway.name}",
             email=user.email or "",
-            fail_url=f"{base}/?paid=0",
+            fail_url=f"{base}{safe_next(next_path)}?paid=0",
         )
     except billing.PaymentError as error:
         # Неудачную попытку сохраняем наравне с уведомлениями: по ней
@@ -1682,17 +1708,17 @@ def api_payments(request: Request):
 
 
 @app.post("/api/subscribe")
-def api_subscribe(request: Request, plan: str = Form("month")):
+def api_subscribe(request: Request, plan: str = Form("month"), next: str = Form("/")):  # noqa: A002
     """Создать платёж: подписка на месяц или один трек."""
     if plan not in billing.PLANS:
         raise HTTPException(400, "Неизвестный тариф")
     user = current_user(request)
     spec = billing.PLANS[plan]
-    return _start_payment(request, user, spec["price"], spec["title"], plan)
+    return _start_payment(request, user, spec["price"], spec["title"], plan, next)
 
 
 @app.post("/api/topup")
-def api_topup(request: Request, amount: float = Form(...)):
+def api_topup(request: Request, amount: float = Form(...), next: str = Form("/")):  # noqa: A002
     """
     Пополнить баланс на любую сумму в разрешённых границах.
 
@@ -1708,7 +1734,7 @@ def api_topup(request: Request, amount: float = Form(...)):
         )
     user = current_user(request)
     return _start_payment(
-        request, user, amount, f"Пополнение баланса на {amount:.0f} ₽", "topup"
+        request, user, amount, f"Пополнение баланса на {amount:.0f} ₽", "topup", next
     )
 
 

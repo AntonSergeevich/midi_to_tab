@@ -63,17 +63,7 @@ async function loadMe() {
     : '';
   $('caps').className = missing.length ? 'muted bad' : 'muted';
 
-  if (me.jobs && me.jobs.length) {
-    $('jobs').innerHTML = me.jobs.map((j) => `
-      <div style="padding:8px 0;border-bottom:1px solid var(--border)">
-        ${j.name} — ${j.status === 'done'
-          ? `<a href="/player/${j.id}">открыть</a>`
-          : j.status === 'error'
-            ? '<span class="bad">ошибка</span>'
-            : `<span class="muted">${j.stage || j.status} ${Math.round(j.progress || 0)}%</span>`}
-      </div>`).join('');
-    reveal('history');
-  }
+  // Список своих треков живёт в меню «Мои треки», а не внизу главной.
 
   // Обработка идёт на сервере и не прерывается уходом со страницы. Раньше
   // человек, заглянувший в «Мои треки» и вернувшийся назад, видел чистую
@@ -118,7 +108,6 @@ function pick(file) {
       ? 'гитара, бас, барабаны, вокал отдельно — потом табы для нужной'
       : 'на сервере не установлено разделение';
 
-  hide('history');
   reveal('chosen');
   $('chosen').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 

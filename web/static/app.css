@@ -598,9 +598,9 @@ footer.legal a:hover { color: var(--accent); }
 .st-field input, .st-field select, .st-input { width: 100%; }
 .st-input { margin-top: 10px; }
 .st-tools { display: flex; gap: 6px; }
-.st-ai { display: flex; gap: 8px; margin-bottom: 10px; }
+.st-ai { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
 .st-ai .st-input { margin-top: 0; flex: 1; min-width: 0; }
-.st-ai button { flex: none; }
+.st-ai button { align-self: flex-end; }
 #lyrics { width: 100%; }
 #lyrics:disabled { opacity: .45; }
 #instrumentalBox { margin-top: 10px; }
@@ -736,3 +736,29 @@ header.top > div > .badge { margin-left: 8px; text-decoration: none; }
 .st-keep small { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 2px; }
 .st-cover { overflow: hidden; }
 .st-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.st-textarea { width: 100%; resize: vertical; min-height: 76px; font-size: 14px; line-height: 1.45; }
+#styleIdea span:first-child { font-size: 15px; }
+
+/* Меню «⋯» у версии трека */
+.st-menu {
+  position: absolute; z-index: 45; min-width: 230px; padding: 6px;
+  background: var(--panel-hi); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.45);
+}
+.st-menu button, .st-menu a {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px;
+  background: none; border: 0; border-radius: 8px; color: var(--text); font-size: 14px;
+  text-align: left; text-decoration: none; cursor: pointer;
+}
+.st-menu button:hover, .st-menu a:hover { background: var(--bg); color: var(--accent); }
+.st-menu svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.st-menu .danger { color: var(--red); }
+.st-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+.st-fun { display: block; font-size: 12px; color: var(--accent); opacity: .85; }
+.st-toast {
+  position: fixed; left: 50%; top: 18px; transform: translateX(-50%); z-index: 60;
+  max-width: calc(100vw - 32px); padding: 12px 18px; border-radius: 12px;
+  background: var(--panel-hi); border: 1px solid var(--accent); color: var(--text);
+  box-shadow: 0 10px 30px rgba(0,0,0,.4); font-size: 14px;
+}
+.st-toast[hidden] { display: none; }

@@ -5,9 +5,9 @@
 const $ = (id) => document.getElementById(id);
 let info = null;
 let mode = 'create';
-let preset = 'numetal';
 let voice = '';
 let file = null;
+let again = null;           // «Повторить»: исходник берём из этой прошлой работы
 let polling = null;
 let openJob = null;         // id трека, чья страница открыта
 let playing = null;         // url, который сейчас в плеере
@@ -25,7 +25,36 @@ const ICON = {
   tabs: '<svg viewBox="0 0 24 24"><path d="M4 6h16M4 10h16M4 14h16M4 18h16M9 4v16M15 4v16"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="M15 5 8 12l7 7"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2m-7 0 1 12h8l1-12"/></svg>',
+  more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
+  again: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15m0 5v-5h5"/></svg>',
 };
+
+// Музыкальный сленг: ожидание и неудачи -- по-человечески, с юмором.
+const WAIT = [
+  'Настраиваем гитары…', 'Барабанщик считает «раз-два-три-четыре»…', 'Вокалист распевается…',
+  'Басист ищет тонику…', 'Звукорежиссёр крутит ручки…', 'Сводим, мастерим, не дышим…',
+  'Ловим грув…', 'Подтягиваем струны…', 'Прогоняем припев ещё разок…',
+];
+const OOPS = [
+  'Ой, эпик фейл! Это не струна порвалась — грув уже на выезде и чинит.',
+  'Фальшивая нота вышла. Бывает и у рок-звёзд.',
+  'Сет прервался — техник уже бежит с запасным кабелем.',
+];
+const pick = (list, seed) => list[Math.abs(seed) % list.length];
+const seedOf = (id) => [...id].reduce((a, c) => a + c.charCodeAt(0), 0);
+
+const STYLE_IDEAS = [
+  'мощный ню-метал, рваный дроп-рифф, скретчи, рэп-куплет и мелодичный припев',
+  'тёплая акустика, пальцевый перебор, лёгкая перкуссия, душевный вокал',
+  'синтвейв 80-х, аналоговые синтезаторы, драм-машина, ночная трасса',
+  'поп-панк, быстрые барабаны, дерзкие гитары, заряжающий припев',
+  'лоу-фай хип-хоп, виниловый треск, мягкие клавиши, расслабленный бит',
+  'эпичный оркестр, струнные, хор, большие барабаны, кинематографично',
+  'фанк 70-х, слэп-бас, вау-гитара, духовые, танцевальный грув',
+  'русский рок, живые гитары, хриплый вокал, гимн для стадиона',
+  'джаз-трио, контрабас, щёточки, рояль, дымный клуб',
+  'дип-хаус, 122 BPM, тёплый бас, воздушный женский вокал',
+];
 
 const MODE = {
   create: { title: 'Песня с нуля', hint: 'Опишите стиль и вставьте или сочините текст — нейросеть напишет песню. Две версии на выбор.', button: 'Создать' },
@@ -66,6 +95,7 @@ function showMode() {
   $('lyricsBox').hidden = !['create', 'restyle'].includes(mode) || keep;
   $('instrumentalBox').hidden = mode !== 'create';
   $('strengthBox').hidden = !(mode === 'restyle' && !mureka);
+  saveDraft();
   $('lyricsNote').textContent = mode === 'restyle' && mureka ? '— обязателен' : '';
   updateStart();
 }
@@ -82,21 +112,73 @@ function updateStart() {
   if (!info.ready) problem = info.why;
   else if (mode === 'create' && !info.createOpen) problem = 'Песни с нуля скоро появятся.';
   else if (mode === 'restyle' && !info.restyleOpen) problem = 'Переделка скоро вернётся.';
-  else if (mode !== 'create' && !file) problem = 'Загрузите трек.';
+  else if (mode !== 'create' && !file && !again) problem = 'Загрузите трек.';
   else if (mode === 'restyle' && mureka && !lyrics && !$('keepVocals').checked) problem = 'Вставьте текст песни или отметьте «Сохранить мой голос».';
   else if (mode === 'create' && !lyrics && !$('instrumental').checked) problem = 'Добавьте текст или отметьте «инструментал».';
-  else if (!enough) problem = `На балансе ${rub(info.balance)} — <a href="/pricing">пополните</a> или возьмите пакет.`;
+  else if (mode !== 'create' && mode !== 'stems' && !$('prompt').value.trim()) problem = 'Опишите стиль.';
+  // Не хватает денег или нет аккаунта -- кнопка не гаснет, а ведёт к оплате:
+  // черновик сохранён, после регистрации и оплаты человек вернётся сюда же.
+  needPay = !problem && !enough;
   $('start').disabled = Boolean(problem);
   const price = info.unlimited ? '' : byPack
     ? ` · ${packCost} ${packCost === 1 ? 'генерация' : 'генерации'} из пакета` : ` · ${rub(service.price)}`;
-  $('start').textContent = `${MODE[mode].button}${price}`;
-  $('msg').innerHTML = problem || (['create', 'restyle'].includes(mode)
-    ? 'Две версии на выбор, обычно 1–3 минуты.' : 'Обычно пара минут.');
+  $('start').textContent = needPay ? `Оплатить и ${MODE[mode].button.toLowerCase()}${price}`
+    : `${MODE[mode].button}${price}`;
+  $('msg').innerHTML = problem || (needPay
+    ? (info.registered ? 'Пополните баланс — всё заполненное дождётся вас здесь.'
+      : 'Заведите аккаунт и пополните баланс — всё заполненное дождётся вас здесь.')
+    : ['create', 'restyle'].includes(mode) ? 'Две версии на выбор, обычно 1–3 минуты.' : 'Обычно пара минут.');
+}
+
+let needPay = false;
+
+// ------------------------------------------------------------ черновик
+// Всё, что человек заполнил, живёт в localStorage: перезагрузка, вход,
+// регистрация и оплата его не стирают. Файл браузер хранить не даёт --
+// его придётся выбрать снова (кроме «Повторить», там исходник на сервере).
+const DRAFT = 'naslux.studio.draft';
+function saveDraft() {
+  try {
+    localStorage.setItem(DRAFT, JSON.stringify({
+      mode, voice, again, title: $('title').value, prompt: $('prompt').value,
+      lyrics: $('lyrics').value, aiPrompt: $('aiPrompt').value,
+      instrumental: $('instrumental').checked, keep: $('keepVocals').checked,
+      againName: again ? $('dropTitle').textContent : '',
+    }));
+  } catch (error) { /* приватный режим -- просто без черновика */ }
+}
+function restoreDraft() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(DRAFT) || 'null'); } catch (error) { d = null; }
+  if (!d) return false;
+  mode = d.mode || mode;
+  voice = d.voice || '';
+  ['title', 'prompt', 'lyrics', 'aiPrompt'].forEach((k) => { if (d[k]) $(k).value = d[k]; });
+  $('instrumental').checked = Boolean(d.instrumental);
+  $('lyrics').disabled = $('instrumental').checked;
+  $('keepVocals').checked = Boolean(d.keep);
+  if (d.again) useSource(d.again, d.againName);
+  return Boolean(d.prompt || d.lyrics || d.title);
+}
+function useSource(jobId, name) {
+  again = jobId;
+  file = null;
+  $('dropTitle').textContent = name || 'Исходник из прошлой работы';
+  $('dropHint').textContent = 'берём из прошлой работы · нажмите, чтобы выбрать другой файл';
+  $('drop').classList.add('has');
+}
+
+function toast(html, ms = 6000) {
+  $('toast').innerHTML = html;
+  $('toast').hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { $('toast').hidden = true; }, ms);
 }
 
 function pickFile(chosen) {
   if (!chosen) return;
   file = chosen;
+  again = null;
   $('dropTitle').textContent = chosen.name;
   $('dropHint').textContent = `${(chosen.size / 1048576).toFixed(1)} МБ · нажмите, чтобы заменить`;
   $('drop').classList.add('has');
@@ -128,10 +210,14 @@ function lyricsFull(open) {
 // ------------------------------------------------------------ правая часть
 
 function statusLine(j) {
-  if (j.status === 'error') return `<span class="bad">${esc(j.error)}</span>`;
+  if (j.status === 'error') {
+    return `<span class="bad">${pick(OOPS, seedOf(j.id))}</span><span class="muted">${esc(j.error)}</span>`;
+  }
   if (j.expired) return '<span class="muted">файлы удалены по сроку хранения</span>';
   if (j.status !== 'done') {
+    const tick = Math.floor(Date.now() / 7000) + seedOf(j.id);
     return `<span class="muted">${esc(j.stage || 'В очереди')}</span>
+      <span class="st-fun">${pick(WAIT, tick)}</span>
       <div class="bar done"><i style="width:${Math.max(4, j.progress)}%"></i></div>`;
   }
   const when = new Date(j.at * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
@@ -173,20 +259,16 @@ function renderDetail(jobs) {
       ${playButton(f, j.name)}
       <div class="st-row-main"><b>${esc(f.label)}</b>
         <span class="muted">${time(f.seconds)}</span></div>
-      <a class="icon-btn" href="${f.url}" download title="Скачать">${ICON.download}</a>
-      <button type="button" class="icon-btn" data-tabs="${j.id}"
-        data-file="${esc(f.name)}" title="Табы, аккорды и MIDI">${ICON.tabs}</button>
-      ${j.mode === 'stems' ? '' : `<button type="button" class="icon-btn" data-split="${j.id}"
-        data-file="${esc(f.name)}" title="Разделить на партии">${ICON.split}</button>`}
+      <button type="button" class="icon-btn" data-menu="${j.id}" data-file="${esc(f.name)}"
+        data-url="${f.url}" data-split-ok="${j.mode !== 'stems' ? 1 : ''}" title="Что сделать">${ICON.more}</button>
     </div>`).join('') : `<div class="st-version"><div class="st-row-main">${statusLine(j)}</div></div>`;
   const parts = children.map((c) => `
     <div class="st-sub"><div class="st-label">Партии · ${esc((c.title.split('·')[1] || '').trim())}</div>
       ${c.status === 'done' ? c.files.map((f) => `
         <div class="st-version small">${playButton(f, `${j.name}: ${f.label}`)}
           <div class="st-row-main"><b>${esc(f.label)}</b></div>
-          <a class="icon-btn" href="${f.url}" download title="Скачать">${ICON.download}</a>
-          <button type="button" class="icon-btn" data-tabs="${c.id}"
-        data-file="${esc(f.name)}" title="Табы, аккорды и MIDI">${ICON.tabs}</button>
+          <button type="button" class="icon-btn" data-menu="${c.id}" data-file="${esc(f.name)}"
+            data-url="${f.url}" title="Что сделать">${ICON.more}</button>
         </div>`).join('') : `<div class="st-version"><div class="st-row-main">${statusLine(c)}</div></div>`}
     </div>`).join('');
   const lyrics = j.lyrics ? `<details class="st-lyrics"><summary>Текст песни</summary>
@@ -197,7 +279,7 @@ function renderDetail(jobs) {
       ${cover(j, true)}
       <div class="st-row-main"><h2>${esc(j.name)}</h2><span class="muted">${esc(meta)}</span></div>
       ${['done', 'error'].includes(j.status)
-    ? `<button type="button" class="icon-btn" data-del="${j.id}" title="Удалить">${ICON.trash}</button>` : ''}
+    ? `<button type="button" class="icon-btn" data-menu="${j.id}" data-track="1" title="Что сделать">${ICON.more}</button>` : ''}
     </div>
     <div class="st-label">${j.mode === 'stems' ? 'Партии' : 'Версии'}</div>
     ${versions}${parts}${lyrics}`;
@@ -215,14 +297,15 @@ async function load() {
   $('balance').textContent = info.unlimited ? 'Безлимит' : `Баланс: ${rub(info.balance)}`
     + (info.studioCredits > 0 ? ` · генераций: ${info.studioCredits}` : '');
   $('balance').className = info.unlimited || info.balance > 0 ? 'badge pro' : 'badge';
-  if (!$('presets').children.length) {
-    $('presets').innerHTML = Object.entries(info.presets).map(([key, title]) =>
-      `<button type="button" class="preset${key === preset ? ' selected' : ''}" data-preset="${key}">${esc(title)}</button>`).join('');
+  if (!$('voices').children.length) {
+    const restored = restoreDraft();
     $('voices').innerHTML = Object.entries(info.voices || {}).map(([key, title]) =>
       `<button type="button" class="preset${key === voice ? ' selected' : ''}" data-voice="${key}">${esc(title)}</button>`).join('');
     $('track').innerHTML = Object.entries(info.tracks).map(([key, title]) =>
       `<option value="${key}">${esc(title)}</option>`).join('');
+    lyricsCount();
     showMode();
+    afterPayment(restored);
   }
   renderList(info.jobs);
   if (openJob) renderDetail(info.jobs);
@@ -270,17 +353,20 @@ $('modes').addEventListener('click', (e) => {
   mode = b.dataset.mode;
   showMode();
 });
-$('presets').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-preset]');
-  if (!b) return;
-  preset = b.dataset.preset;
-  $('prompt').value = '';
-  document.querySelectorAll('#presets .preset').forEach((x) => x.classList.toggle('selected', x === b));
+$('styleIdea').addEventListener('click', () => {
+  const current = $('prompt').value;
+  let idea = current;
+  while (idea === current) idea = STYLE_IDEAS[Math.floor(Math.random() * STYLE_IDEAS.length)];
+  $('prompt').value = idea;
+  saveDraft();
+  updateStart();
 });
+['title', 'prompt', 'aiPrompt'].forEach((id) => $(id).addEventListener('input', () => { saveDraft(); updateStart(); }));
 $('voices').addEventListener('click', (e) => {
   const b = e.target.closest('[data-voice]');
   if (!b) return;
   voice = b.dataset.voice;
+  saveDraft();
   document.querySelectorAll('#voices .preset').forEach((x) => x.classList.toggle('selected', x === b));
 });
 ['audioKnob', 'styleKnob', 'weirdKnob', 'melodyKnob'].forEach((id) => $(id).addEventListener('input', knobText));
@@ -293,7 +379,7 @@ $('drop').addEventListener('drop', (e) => {
   $('drop').classList.remove('over');
   pickFile(e.dataTransfer.files[0]);
 });
-$('lyrics').addEventListener('input', () => { lyricsCount(); updateStart(); });
+$('lyrics').addEventListener('input', () => { lyricsCount(); saveDraft(); updateStart(); });
 $('keepVocals').addEventListener('change', showMode);
 $('instrumental').addEventListener('change', () => {
   $('lyrics').disabled = $('instrumental').checked;
@@ -327,14 +413,23 @@ $('aiGo').addEventListener('click', async () => {
   if (data.title && !$('title').value) $('title').value = data.title;
   $('aiBox').hidden = true;
   lyricsCount();
+  saveDraft();
   updateStart();
 });
 
 $('start').addEventListener('click', async () => {
+  saveDraft();
+  if (needPay) {
+    const price = info.services[mode].price;
+    const pay = `/pricing?next=/studio&need=${Math.ceil(price - (info.balance || 0))}`;
+    location.href = info.registered ? pay : `/account?next=${encodeURIComponent(pay)}`;
+    return;
+  }
   const form = new FormData();
   if (file && mode !== 'create') form.append('file', file);
+  if (!file && again && mode !== 'create') form.append('again', again);
   form.append('mode', mode);
-  form.append('preset', preset);
+  form.append('preset', '');
   form.append('prompt', $('prompt').value);
   form.append('title', $('title').value);
   form.append('lyrics', $('instrumental').checked && mode === 'create' ? '' : $('lyrics').value);
@@ -350,7 +445,7 @@ $('start').addEventListener('click', async () => {
   const response = await fetch('/api/studio', { method: 'POST', body: form });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    $('msg').innerHTML = `<span class="bad">${data.detail || 'Не получилось запустить.'}</span>`;
+    $('msg').innerHTML = `<span class="bad">${pick(OOPS, Date.now())}</span> ${data.detail || 'Не получилось запустить.'}`;
     $('start').disabled = false;
     return;
   }
@@ -377,38 +472,102 @@ document.addEventListener('click', async (e) => {
     return;
   }
   if (e.target.closest('#back')) { closeDetail(); return; }
-  const split = e.target.closest('[data-split]');
-  if (split) {
+  const menuBtn = e.target.closest('[data-menu]');
+  if (menuBtn) { openMenu(menuBtn); return; }
+  const action = e.target.closest('[data-act]');
+  if (action) { await act(action.dataset.act, action.dataset.job, action.dataset.file); return; }
+  if (!e.target.closest('#menu')) $('menu').hidden = true;
+});
+
+function openMenu(button) {
+  const menu = $('menu');
+  const job = button.dataset.menu;
+  const f = button.dataset.file || '';
+  const item = (what, icon, text, extra = '') =>
+    `<button type="button" data-act="${what}" data-job="${job}" data-file="${esc(f)}" ${extra}>${icon}<span>${text}</span></button>`;
+  menu.innerHTML = button.dataset.track
+    ? item('again', ICON.again, 'Повторить с этими настройками') + '<hr>'
+      + item('delete', ICON.trash, 'Удалить трек', 'class="danger"')
+    : `<a href="${button.dataset.url}" download>${ICON.download}<span>Скачать mp3</span></a>`
+      + item('tabs', ICON.tabs, 'Табы, аккорды и MIDI')
+      + (button.dataset.splitOk ? item('split', ICON.split, 'Разделить на партии') : '')
+      + '<hr>' + item('again', ICON.again, 'Повторить с этими настройками');
+  const box = button.getBoundingClientRect();
+  menu.hidden = false;
+  const left = Math.min(window.innerWidth - menu.offsetWidth - 12, box.right - menu.offsetWidth);
+  menu.style.left = `${Math.max(12, left) + window.scrollX}px`;
+  menu.style.top = `${box.bottom + window.scrollY + 6}px`;
+}
+
+// «Повторить»: настройки трека -- обратно в левую панель, можно поправить
+// и сгенерировать заново. Для переделки исходник берётся с сервера.
+function repeat(jobId) {
+  const j = info.jobs.find((x) => x.id === jobId);
+  if (!j) return;
+  mode = j.mode in MODE ? j.mode : 'create';
+  $('title').value = mode === 'create' ? j.name : '';
+  $('prompt').value = j.style || '';
+  $('lyrics').value = j.lyrics || '';
+  $('instrumental').checked = mode === 'create' && !j.lyrics;
+  $('lyrics').disabled = $('instrumental').checked;
+  $('keepVocals').checked = Boolean(j.keepVocals);
+  voice = j.voice || '';
+  document.querySelectorAll('#voices .preset').forEach((x) => x.classList.toggle('selected', x.dataset.voice === voice));
+  if (mode !== 'create' && j.hasSource) useSource(j.id, j.name);
+  lyricsCount();
+  showMode();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  toast(`Настройки в панели слева — поправьте что хотите и жмите «${MODE[mode].button}» 🎛`);
+}
+
+async function act(what, jobId, fileName) {
+  $('menu').hidden = true;
+  if (what === 'again') { repeat(jobId); return; }
+  if (what === 'delete') {
+    if (!confirm('Удалить трек вместе с файлами?')) return;
+    await fetch(`/api/studio/${jobId}`, { method: 'DELETE' });
+    closeDetail();
+    load();
+    return;
+  }
+  const form = new FormData();
+  form.append('file', fileName || '');
+  if (what === 'split') {
     const price = info.unlimited ? '' : ` за ${rub(info.services.stems.price)}`;
     if (!confirm(`Разделить эту версию на партии${price}?`)) return;
-    const form = new FormData();
-    form.append('file', split.dataset.file || '');
-    const response = await fetch(`/api/studio/${split.dataset.split}/stems`, { method: 'POST', body: form });
+    const response = await fetch(`/api/studio/${jobId}/stems`, { method: 'POST', body: form });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      alert((error.detail || 'Не получилось запустить').replace(/<[^>]+>/g, ''));
+      toast(`${pick(OOPS, Date.now())} ${error.detail || ''}`);
     }
     load();
     return;
   }
-  const tabs = e.target.closest('[data-tabs]');
-  if (tabs) {
+  if (what === 'tabs') {
     if (!confirm('Разобрать в табы, аккорды и MIDI? Это обычный разбор NASLUX — по вашему тарифу.')) return;
-    const form = new FormData();
-    form.append('file', tabs.dataset.file);
-    const response = await fetch(`/api/studio/${tabs.dataset.tabs}/tabs`, { method: 'POST', body: form });
+    const response = await fetch(`/api/studio/${jobId}/tabs`, { method: 'POST', body: form });
     const data = await response.json().catch(() => ({}));
     if (response.ok) location.href = `/player/${data.jobId}`;
-    else alert((data.detail || 'Не получилось запустить').replace(/<[^>]+>/g, ''));
-    return;
+    else toast(`${pick(OOPS, Date.now())} ${data.detail || ''}`);
   }
-  const del = e.target.closest('[data-del]');
-  if (del && confirm('Удалить трек вместе с файлами?')) {
-    await fetch(`/api/studio/${del.dataset.del}`, { method: 'DELETE' });
-    closeDetail();
-    load();
-  }
-});
+}
+
+// Вернулись с оплаты: деньги могут дойти через пару секунд -- ждём их и
+// напоминаем, что черновик на месте.
+function afterPayment(restored) {
+  const paid = new URLSearchParams(location.search).get('paid');
+  if (!paid) return;
+  history.replaceState(null, '', location.pathname);
+  if (paid === '0') { toast('Оплата не прошла — черновик на месте, можно попробовать ещё раз.'); return; }
+  toast(`Оплата прошла 🎸 ${restored ? `Всё заполненное на месте — жмите «${MODE[mode].button}».` : ''}`, 9000);
+  let tries = 0;
+  const wait = async () => {
+    const before = info.balance;
+    await load();
+    if (info.balance === before && ++tries < 6) setTimeout(wait, 3000);
+  };
+  setTimeout(wait, 2000);
+}
 
 $('playerToggle').addEventListener('click', () => {
   const audio = $('audio');

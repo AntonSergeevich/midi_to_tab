@@ -8,6 +8,12 @@ let me = null;
 
 const date = (ts) => new Date(ts * 1000).toLocaleDateString('ru-RU');
 
+// Пришли из Студии (?next=/studio&need=49): после оплаты -- обратно туда,
+// где ждёт недописанная песня, а не на главную.
+const params = new URLSearchParams(location.search);
+const nextPath = /^\/[A-Za-z0-9/_-]*$/.test(params.get('next') || '') ? params.get('next') : '/';
+const need = parseFloat(params.get('need') || '0');
+
 // Обработчик вешается СРАЗУ, ещё до того, как придут данные о человеке.
 // Иначе выходит ловушка: кнопки уже нарисованы сервером и выглядят
 // рабочими, а нажатие проваливается в пустоту, пока не ответит /api/me.
@@ -90,6 +96,17 @@ function selectPlan(plan, el) {
   updatePayLabel();
 }
 
+// Из Студии за конкретной песней: сразу предлагаем пополнить на её цену.
+if (need > 0) {
+  ready.then(() => {
+    const tile = document.querySelector('[data-plan="topup"]');
+    if (!tile) return;
+    $('amount').value = Math.max(need - (me.balance || 0), me.topupMin || 0, 1);
+    selectPlan('topup', tile);
+    $('msg').innerHTML = 'После оплаты вернём вас в Студию — всё, что вы заполнили, на месте.';
+  });
+}
+
 function updatePayLabel() {
   const pay = $('pay');
   if (selectedPlan === 'topup') {
@@ -113,12 +130,14 @@ $('pay').onclick = () => {
     pay(() => {
       const form = new FormData();
       form.append('amount', amount);
+      form.append('next', nextPath);
       return fetch('/api/topup', { method: 'POST', body: form });
     });
   } else {
     pay(() => {
       const form = new FormData();
       form.append('plan', selectedPlan);
+      form.append('next', nextPath);
       return fetch('/api/subscribe', { method: 'POST', body: form });
     });
   }
@@ -143,7 +162,7 @@ async function pay(makeRequest) {
   if (!me.registered) {
     button.classList.remove('busy');
     $('msg').innerHTML =
-      'Сначала <a href="/account">заведите учётную запись</a> — иначе оплаченное ' +
+      `Сначала <a href="/account?next=${encodeURIComponent(location.pathname + location.search)}">заведите учётную запись</a> — иначе оплаченное ` +
       'потеряется при смене браузера.';
     return;
   }
