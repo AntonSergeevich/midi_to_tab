@@ -1,0 +1,48 @@
+name: Живой тест голоса Mureka (дуэт, мужской, женский)
+
+# scripts/voice_test.py: несколько способов попросить голос, высота вокала
+# по времени -> доля мужского и женского. Результат -- в ветку
+# test-results/voice-<номер прогона>. Каждый случай -- одна песня (~$0.05).
+on:
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: Какие случаи (через запятую, пусто -- все)
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      MUREKA_API_KEY: ${{ secrets.MUREKA_API_KEY || secrets.MUREKA_API_KEY2 }}
+      MUREKA_BUSY_WAIT: "300"
+      CASES: ${{ inputs.cases }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Зависимости
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install -q demucs librosa soundfile
+      - name: Замер
+        run: python -u scripts/voice_test.py --out voice --cases "$CASES"
+      - name: В ветку test-results
+        if: always()
+        run: |
+          [ -n "$(ls -A voice 2>/dev/null)" ] || exit 0
+          dir="voice-${{ github.run_id }}"
+          git clone -q --depth 1 --branch test-results \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
+          mkdir -p "out/$dir" && cp voice/* "out/$dir/"
+          cd out
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "Голос Mureka: прогон ${{ github.run_id }}"
+          git push -q origin HEAD:test-results
