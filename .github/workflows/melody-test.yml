@@ -1,0 +1,52 @@
+name: Живой тест мелодии Mureka (melody_id против remix)
+
+# scripts/melody_test.py на we_angel (60 с): вокал Demucs и MIDI вокала от
+# Mureka как melody_id, сходство мелодии с исходником; для сравнения --
+# прежние результаты remix из test-results/mureka-36238720549.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      MUREKA_API_KEY: ${{ secrets.MUREKA_API_KEY || secrets.MUREKA_API_KEY2 }}
+      MUREKA_BUSY_WAIT: "300"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Зависимости
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg unzip
+          pip install -q torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install -q demucs librosa soundfile
+      - name: Исходник и прежние результаты
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/AntonSergeevich/vibe_track/claude/nu-metal-track-transformer-kf2j2n/we_angel.mp3 -o full.mp3
+          ffmpeg -v error -i full.mp3 -t 60 -c copy source.mp3
+          git fetch -q origin test-results
+          git show origin/test-results:mureka-36238720549/remix_1.mp3 > remix_1.mp3
+          git show origin/test-results:mureka-36238720549/remix_2.mp3 > remix_2.mp3
+          git show origin/test-results:mureka-36238720549/midi.zip > midi.zip
+          unzip -o -q midi.zip -d midi && ls midi
+      - name: Замер
+        run: python -u scripts/melody_test.py source.mp3 --midi midi/vocal.mid --remix remix_1.mp3 remix_2.mp3 --out melody
+      - name: В ветку test-results
+        if: always()
+        run: |
+          [ -n "$(ls -A melody 2>/dev/null)" ] || exit 0
+          dir="melody-${{ github.run_id }}"
+          git clone -q --depth 1 --branch test-results \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
+          mkdir -p "out/$dir" && cp melody/* "out/$dir/"
+          cd out
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "Мелодия Mureka: прогон ${{ github.run_id }}"
+          git push -q origin HEAD:test-results

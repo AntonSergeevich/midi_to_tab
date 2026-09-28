@@ -336,7 +336,8 @@ def mureka_upload(path: str, purpose: str) -> str:
     name = os.path.basename(path)
     body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\n"
             f"{purpose}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
-            f"filename=\"{name}\"\r\nContent-Type: audio/mpeg\r\n\r\n").encode() \
+            f"filename=\"{name}\"\r\nContent-Type: {'audio/midi' if name.lower().endswith(('.mid', '.midi')) else 'audio/mpeg'}"
+            "\r\n\r\n").encode() \
         + content + f"\r\n--{boundary}--\r\n".encode()
     request = urllib.request.Request(f"{MUREKA_API}/v1/files/upload", data=body, method="POST",
                                      headers={"Authorization": f"Bearer {mureka_key()}",
