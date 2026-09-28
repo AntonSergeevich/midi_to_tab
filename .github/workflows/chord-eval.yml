@@ -1,0 +1,62 @@
+name: Аккорды — замер подсказки тональности
+
+# Помогает ли тональность песни нейросети аккордов (спор мажор/минор)?
+# Модель -- та, что на сайте (midi2tab/models/chordnet.onnx). Проверка:
+# песни GuitarSet, которых модель не слышала (fold), и песни AAM из блока
+# 0001-1000 (полный состав; модели учились только на 2001-3000).
+on:
+  workflow_dispatch:
+    inputs:
+      fold:
+        description: Проверочная пятая часть песен GuitarSet (0 -- та, что не видела модель на сайте)
+        default: "0"
+      aam:
+        description: Песен AAM для проверки
+        default: "60"
+
+permissions:
+  contents: write
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Зависимости
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q -r requirements.txt -r requirements-audio.txt remotezip
+      - name: GuitarSet
+        run: |
+          base=https://zenodo.org/records/3371780/files
+          mkdir -p gs/annotation gs/audio_mono-mic
+          curl -sSfL "$base/annotation.zip?download=1" -o annotation.zip
+          unzip -q -o annotation.zip -d gs/annotation
+          find gs/annotation -mindepth 2 -name '*.jams' -exec mv -t gs/annotation {} +
+          curl -sSfL "$base/audio_mono-mic.zip?download=1" -o mic.zip
+          unzip -q -o mic.zip -d gs/audio_mono-mic
+          find gs/audio_mono-mic -mindepth 2 -name '*.wav' -exec mv -t gs/audio_mono-mic {} +
+      - name: AAM (другой блок)
+        run: python -u scripts/chordnet/aam.py --count "${{ inputs.aam }}" --out aam_eval --block 0001-1000
+      - name: Замер
+        run: |
+          mkdir -p results
+          python -u scripts/chordnet/eval_prior.py --guitarset gs/audio_mono-mic --annotations gs/annotation \
+            --fold "${{ inputs.fold }}" --aam aam_eval --out results/report.json 2>&1 | tee results/eval.log
+      - name: В ветку test-results
+        if: always()
+        run: |
+          [ -n "$(ls -A results 2>/dev/null)" ] || exit 0
+          dir="chord-eval-${{ github.run_id }}"
+          git clone -q --depth 1 --branch test-results \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
+          mkdir -p "out/$dir" && cp results/* "out/$dir/"
+          cd out
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "Аккорды, подсказка тональности: прогон ${{ github.run_id }}"
+          git push -q origin HEAD:test-results

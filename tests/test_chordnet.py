@@ -44,3 +44,19 @@ def test_model_hears_a_c_major_triad():
     found = chordnet.detect(y.astype(np.float32), sr)
     longest = max(found, key=lambda c: c[1] - c[0])
     assert longest[2] in ("C", "Cmaj7")
+
+
+def test_key_settles_major_minor_doubt_but_not_confident_chords():
+    """В ре миноре сомнение D/Dm решается в пользу Dm; уверенный D остаётся D;
+    чужие аккорды без пары (например, E7) не трогаются."""
+    k = 61
+    d_major, d_minor = 2, 12 + 2
+    doubtful = np.full((1, k), 0.15 / (k - 2))
+    doubtful[0, d_major], doubtful[0, d_minor] = 0.45, 0.40
+    confident = np.full((1, k), 0.04 / (k - 1))
+    confident[0, d_major] = 0.96
+    key = (2, False)                                     # Dm
+    assert chordnet.with_key(doubtful, key, strength=2.5)[0].argmax() == d_minor
+    assert chordnet.with_key(confident, key, strength=2.5)[0].argmax() == d_major
+    assert chordnet.with_key(doubtful, key, strength=0.0) is doubtful
+    assert chordnet.parallel(2 * 12 + 7) == 4 * 12 + 7 and chordnet.parallel(3 * 12) == 3 * 12

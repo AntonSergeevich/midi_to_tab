@@ -413,13 +413,13 @@ def _net_analysis(np, chordnet, librosa, y, sr, bpm, beats, chroma, min_duration
     дребезг сама, а быстрые смены (по две доли) в песнях настоящие."""
     if progress:
         progress("Слушаю аккорды нейросетью...")
-    found = chordnet.detect(y, sr)
+    key = guess_key(chroma)
+    found = chordnet.detect(y, sr, key=key, chroma=chroma)
     chords = _merge_short([AudioChord(name, start, end, confidence)
                            for start, end, name, confidence in found],
                           min(min_duration, 0.6))
     beat_times = [float(t) for t in librosa.frames_to_time(beats, sr=sr)]
     offset = _bar_offset(chroma, beats, beats_per_bar)
-    key = guess_key(chroma)
     if progress:
         progress(f"Аккордов найдено: {len(chords)}, разных {len({c.name for c in chords})}, "
                  f"темп {bpm:.0f}")

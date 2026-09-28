@@ -104,9 +104,44 @@ def viterbi(probs, change_penalty: float = 2.0):
     return path
 
 
-def detect(y, sr: int, change_penalty: float = 5.0) -> list[tuple[float, float, str, float]]:
-    """Запись -> [(начало, конец, аккорд, уверенность)], без участков «N»."""
-    probs = probabilities(y, sr)
+# Подсказка тональности (scripts/chordnet/eval_prior.py): 0 -- выключена
+KEY_STRENGTH = float(os.environ.get("NASLUX_CHORD_KEY", "0") or 0)
+
+
+def parallel(index: int) -> int:
+    """Пара с тем же основным тоном: C <-> Cm, C7 <-> Cm7; maj7 -- без пары."""
+    quality, root = divmod(index, 12)
+    pair = {0: 1, 1: 0, 2: 4, 4: 2}.get(quality)
+    return index if pair is None else pair * 12 + root
+
+
+def with_key(probs, key, chroma=None, strength: float = KEY_STRENGTH):
+    """Тональность решает спор «мажор или минор» там, где сеть сомневается.
+
+    Сеть хорошо слышит основной тон, а терцию в плотном миксе с голосом --
+    хуже (Dm -> D). Тональность же слышна по всей песне сразу. Штраф
+    получает только аккорд вне тональности, у которого пара с тем же тоном
+    -- в тональности, и тем сильнее, чем меньше сеть уверена в кадре:
+    уверенный D в ре миноре (гармоническая доминанта, заимствование)
+    остаётся D."""
+    import numpy as np
+
+    if not strength or key is None:
+        return probs
+    from . import audiochords
+
+    k = probs.shape[1]
+    names = [class_name(i, k) for i in range(k - 1)]
+    outside = audiochords.key_penalties(names, key, chroma, strength=1.0)
+    penalty = np.array([outside[i] if outside[parallel(i)] < outside[i] else 0.0 for i in range(k - 1)])
+    doubt = np.minimum(1.0, 2.0 * (1.0 - probs.max(axis=1, keepdims=True)))
+    out = probs.copy()
+    out[:, :-1] *= np.exp(-strength * doubt * penalty[None, :])
+    return out / out.sum(axis=1, keepdims=True)
+
+
+def decode(probs, change_penalty: float = 5.0) -> list[tuple[float, float, str, float]]:
+    """Вероятности по кадрам -> [(начало, конец, аккорд, уверенность)] без «N»."""
     n_classes = probs.shape[1]
     path = viterbi(probs, change_penalty)
     step = HOP / SR
@@ -119,3 +154,10 @@ def detect(y, sr: int, change_penalty: float = 5.0) -> list[tuple[float, float, 
                 out.append((start * step, t * step, name, float(probs[start:t, path[start]].mean())))
             start = t
     return out
+
+
+def detect(y, sr: int, change_penalty: float = 5.0, key=None, chroma=None,
+           key_strength: float = KEY_STRENGTH) -> list[tuple[float, float, str, float]]:
+    """Запись -> [(начало, конец, аккорд, уверенность)], без участков «N»;
+    key -- (тон, мажор ли) песни для подсказки мажор/минор."""
+    return decode(with_key(probabilities(y, sr), key, chroma, key_strength), change_penalty)
