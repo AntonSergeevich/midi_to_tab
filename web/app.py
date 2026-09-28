@@ -1429,6 +1429,10 @@ def _studio_job_payload(job) -> dict:
         "archives": [{"name": a, "url": f"/api/studio/file/{job.id}/{a}"} for a in result.get("archives") or []
                      if os.path.isfile(os.path.join(folder, a))],
         "pro": bool(result.get("pro")),
+        "midiBusy": [n for j, n in studio_runner.transcribing if j == job.id],
+        "shift": {"of": settings.get("shiftOf"), "file": settings.get("shiftFile"),
+                  "semitones": settings.get("semitones", 0), "tempo": settings.get("tempo", 1.0)}
+        if settings.get("mode") == "shift" else None,
         "cover": f"/api/studio/file/{job.id}/cover.jpg"
                  if os.path.isfile(os.path.join(folder, "cover.jpg")) else None,
         "lyrics": result.get("lyrics") or (settings.get("input") or {}).get("lyrics") or "",
@@ -1739,6 +1743,33 @@ def api_studio_analysis(job_id: str, request: Request, file: str = ""):
     return {"pending": True}
 
 
+DRUMS = re.compile(r"drum|барабан|ударн", re.IGNORECASE)
+
+
+@app.post("/api/studio/{job_id}/midi")
+def api_studio_midi(job_id: str, request: Request, file: str = Form("")):
+    """MIDI уже готовой партии -- без повторного разделения, бесплатно:
+    наша расшифровка нот (та же, что для табов). Барабаны так не
+    расшифровать -- для них глубокое разделение PRO."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if (not job or job.user_id != user.id or (job.settings or {}).get("kind") != "studio"
+            or job.status != "done"):
+        raise HTTPException(404, "Готовая работа не найдена")
+    names = [f["name"] for f in (job.result or {}).get("files") or []]
+    if file not in names or not os.path.isfile(os.path.join(studio_runner.folder(job_id), file)):
+        raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
+    label = studio.label_of((job.settings or {}).get("mode", ""), file)
+    if DRUMS.search(file) or DRUMS.search(label):
+        raise HTTPException(400, "Барабаны в MIDI переводит только «Глубокое разделение + MIDI» — "
+                                 "обычная расшифровка слышит ноты, а не удары")
+    ready, why = audioin.available()
+    if not ready:
+        raise HTTPException(503, why)
+    studio_runner.transcribe_later(job_id, file)
+    return {"pending": True}
+
+
 @app.get("/studio/mix/{job_id}", response_class=HTMLResponse)
 def studio_mix_page(job_id: str) -> HTMLResponse:
     return page("mix.html")
@@ -1753,9 +1784,13 @@ def api_studio_shift(job_id: str, request: Request, file: str = Form(""),
     if (not parent or parent.user_id != user.id
             or (parent.settings or {}).get("kind") != "studio" or parent.status != "done"):
         raise HTTPException(404, "Готовая работа не найдена")
-    names = [f["name"] for f in (parent.result or {}).get("files") or []]
-    source = os.path.join(studio_runner.folder(job_id), file)
-    if file not in names or not os.path.isfile(source):
+    parent_files = (parent.result or {}).get("files") or []
+    names = [f["name"] for f in parent_files]
+    # file="*" -- все дорожки разом (мультитрек): партии звучат вместе,
+    # сдвигать их по одной нельзя
+    batch = names if file == "*" else [file]
+    sources = [os.path.join(studio_runner.folder(job_id), n) for n in batch]
+    if not batch or any(n not in names for n in batch) or not all(os.path.isfile(x) for x in sources):
         raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
     semitones = max(-12, min(12, int(semitones)))
     rate = max(50.0, min(150.0, float(tempo))) / 100
@@ -1763,14 +1798,21 @@ def api_studio_shift(job_id: str, request: Request, file: str = Form(""),
         raise HTTPException(400, "Сдвиньте тон или темп")
     # Сдвиг партии -- к её треку, а не к работе «Партии»
     owner = (parent.settings or {}).get("from") or job_id
+    what = "Все дорожки" if file == "*" else studio.label_of((parent.settings or {}).get("mode", ""), file)
     job = storage.create_job(user.id, parent.filename, {
         "kind": "studio", "mode": "shift", "title": "Темп и тональность", "from": owner,
-        "variant": f"{studio.label_of((parent.settings or {}).get('mode', ''), file)} · "
-                   f"{studio.shift_label(semitones, rate)}",
-        "engine": "local", "semitones": semitones, "tempo": rate, "charged": 0})
+        "variant": f"{what} · {studio.shift_label(semitones, rate)}",
+        "engine": "local", "semitones": semitones, "tempo": rate, "charged": 0,
+        "shiftOf": job_id, "shiftFile": file,
+        **({"batch": [{"name": f["name"], "label": f.get("label") or f["name"]} for f in parent_files]}
+           if file == "*" else {})})
     folder = studio_runner.folder(job.id)
     os.makedirs(folder, exist_ok=True)
-    shutil.copyfile(source, os.path.join(folder, "source.mp3"))
+    if file == "*":
+        for name, src in zip(batch, sources):
+            shutil.copyfile(src, os.path.join(folder, f"src_{name}"))
+    else:
+        shutil.copyfile(sources[0], os.path.join(folder, "source.mp3"))
     studio_runner.submit(job.id, {"mode": "shift"})
     return {"jobId": job.id}
 

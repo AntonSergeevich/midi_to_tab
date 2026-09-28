@@ -53,6 +53,8 @@ const loop = { on: false, a: 0, b: 0 };
 let job = null;
 let info = null;
 let file = '';
+let base = null;          // набор дорожек для сдвига: {id, file ('*' -- все партии)}
+let shifted = null;       // открытая сдвинутая версия (задача «Темп и тональность»)
 
 // ---------------------------------------------------------------- утилиты
 
@@ -126,8 +128,15 @@ async function init() {
     && ['queued', 'running'].includes(j.status) && (!j.sourceFile || j.sourceFile === file));
   const version = job.files.find((f) => f.name === file) || job.files[0];
 
-  const list = stems ? stems.files.map((f) => ({ name: f.label, url: f.url }))
-    : [{ name: version.label === 'Оригинал' ? 'Трек целиком' : version.label, url: version.url }];
+  // Сдвинутые версии этого набора дорожек (кнопка «Тон и темп»)
+  base = stems ? { id: stems.id, file: '*' } : { id: job.id, file: version.name };
+  const shifts = info.jobs.filter((j) => j.shift && j.shift.of === base.id && j.shift.file === base.file);
+  shifted = shifts.find((j) => j.id === params.get('v') && j.status === 'done') || null;
+  versionPicker(shifts);
+
+  const list = shifted ? shifted.files.map((f) => ({ name: stems ? f.label : 'Трек целиком', url: f.url }))
+    : stems ? stems.files.map((f) => ({ name: f.label, url: f.url }))
+      : [{ name: version.label === 'Оригинал' ? 'Трек целиком' : version.label, url: version.url }];
   $('sub').textContent = stems
     ? `${list.length} ${plural(list.length, 'дорожка', 'дорожки', 'дорожек')}${job.mode === 'stems' ? '' : ` · ${version.label}`}`
     : 'Одна дорожка — разделите трек, чтобы глушить отдельные инструменты';
@@ -203,11 +212,12 @@ function peaksOf(buffer, n) {
 
 async function loadAnalysis(name) {
   for (let tries = 0; tries < 40; tries++) {
-    const answer = await fetch(`/api/studio/${jobId}/analysis?file=${encodeURIComponent(name)}`)
+    let answer = await fetch(`/api/studio/${jobId}/analysis?file=${encodeURIComponent(name)}`)
       .then((r) => (r.ok ? r.json() : { error: 'нет' })).catch(() => ({ error: 'сеть' }));
     if (!answer.pending) {
       if (answer.error) { $('factKey').textContent = '—'; return; }
-      analysis = answer;
+      analysis = shifted ? shiftAnalysis(answer, shifted.shift) : answer;
+      answer = analysis;
       $('factKey').textContent = answer.key || '—';
       $('factBpm').textContent = answer.bpm ? `${answer.bpm} BPM` : '—';
       beats = answer.beats && answer.beats.length ? answer.beats : gridBeats(answer.bpm);
@@ -221,6 +231,118 @@ async function loadAnalysis(name) {
     await new Promise((r) => setTimeout(r, 2500));
   }
 }
+
+// Разбор оригинала -> разбор сдвинутой версии: аккорды и тональность
+// транспонируются, доли и аккорды растягиваются по темпу. Заново слушать
+// запись не нужно -- сдвиг известен точно.
+const SHARPS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const FLATS = { Db: 'C#', Eb: 'D#', Gb: 'F#', Ab: 'G#', Bb: 'A#' };
+function transpose(name, semitones) {
+  const m = /^([A-G][#b]?)(.*)$/.exec(name || '');
+  if (!m || !semitones) return name;
+  const index = SHARPS.indexOf(FLATS[m[1]] || m[1]);
+  return index < 0 ? name : SHARPS[(index + Number(semitones) + 120) % 12] + m[2];
+}
+
+function shiftAnalysis(a, shift) {
+  const rate = shift.tempo || 1;
+  const st = shift.semitones || 0;
+  const t = (x) => Math.round((x / rate) * 1000) / 1000;
+  return {
+    key: transpose(a.key, st), bpm: a.bpm ? Math.round(a.bpm * rate) : a.bpm,
+    beats: (a.beats || []).map(t), downbeats: (a.downbeats || []).map(t),
+    chords: (a.chords || []).map(([x, y, n]) => [t(x), t(y), transpose(n, st)]),
+  };
+}
+
+function shiftName(shift) {
+  const st = shift.semitones || 0;
+  const tone = st ? `${st > 0 ? '+' : '−'}${Math.abs(st)} полутона` : '';
+  const tempo = Math.round((shift.tempo || 1) * 100) !== 100 ? `темп ${Math.round(shift.tempo * 100)}%` : '';
+  return [tone, tempo].filter(Boolean).join(', ');
+}
+
+function versionPicker(shifts) {
+  const done = shifts.filter((j) => j.status === 'done' && j.files.length);
+  const busy = shifts.find((j) => ['queued', 'running'].includes(j.status));
+  $('versionBox').hidden = !done.length;
+  $('version').innerHTML = '<option value="">Оригинал</option>' + done.map((j) =>
+    `<option value="${j.id}"${shifted && shifted.id === j.id ? ' selected' : ''}>${esc(shiftName(j.shift))}</option>`).join('');
+  $('version').onchange = () => {
+    const next = new URLSearchParams(location.search);
+    if ($('version').value) next.set('v', $('version').value); else next.delete('v');
+    location.search = next.toString();
+  };
+  if (busy) waitShift(busy.id);
+}
+
+async function waitShift(id) {
+  $('shiftBtn').disabled = true;
+  for (;;) {
+    const fresh = await (await fetch('/api/studio')).json();
+    const j = fresh.jobs.find((x) => x.id === id);
+    if (!j) break;
+    if (j.status === 'done') {
+      const next = new URLSearchParams(location.search);
+      next.set('v', id);
+      location.search = next.toString();
+      return;
+    }
+    if (j.status === 'error') { note(`Не получилось сдвинуть: ${esc(j.error || '')}`); break; }
+    note(`Сдвигаем тональность и темп: ${esc(j.stage || 'в очереди')}… Страница обновится сама.`);
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  $('shiftBtn').disabled = false;
+}
+
+function askShift() {
+  return new Promise((resolve) => {
+    const modal = $('shiftModal');
+    // сдвиг всегда от оригинала -- и из открытой сдвинутой версии тоже
+    const orig = shifted
+      ? { key: transpose(analysis && analysis.key, -(shifted.shift.semitones || 0)),
+        bpm: analysis && analysis.bpm ? Math.round(analysis.bpm / (shifted.shift.tempo || 1)) : null }
+      : { key: analysis && analysis.key, bpm: analysis && analysis.bpm };
+    const sync = () => {
+      const tone = Number($('shiftTone').value);
+      const rate = Number($('shiftTempo').value);
+      $('shiftToneVal').textContent = tone > 0 ? `+${tone}` : String(tone);
+      $('shiftTempoVal').textContent = `${rate}%`;
+      const now = [orig.key, orig.bpm ? `${orig.bpm} BPM` : ''].filter(Boolean).join(' · ');
+      const next = [transpose(orig.key, tone), orig.bpm ? `${Math.round(orig.bpm * rate / 100)} BPM` : '']
+        .filter(Boolean).join(' · ');
+      $('shiftNow').innerHTML = now ? `Оригинал: <b>${esc(now)}</b>${tone || rate !== 100
+        ? ` → станет: <b class="st-key">${esc(next)}</b>` : ''}` : '';
+      $('shiftOk').disabled = tone === 0 && rate === 100;
+    };
+    $('shiftTone').value = shifted ? shifted.shift.semitones || 0 : 0;
+    $('shiftTempo').value = shifted ? Math.round((shifted.shift.tempo || 1) * 100) : 100;
+    modal.oninput = sync;
+    sync();
+    modal.hidden = false;
+    $('shiftOk').onclick = () => {
+      modal.hidden = true;
+      resolve({ semitones: $('shiftTone').value, tempo: $('shiftTempo').value });
+    };
+    $('shiftCancel').onclick = () => { modal.hidden = true; resolve(null); };
+  });
+}
+
+$('shiftBtn').addEventListener('click', async () => {
+  if (!base) return;
+  const choice = await askShift();
+  if (!choice) return;
+  if (playing) pause();
+  const form = new FormData();
+  form.append('file', base.file);
+  form.append('semitones', choice.semitones);
+  form.append('tempo', choice.tempo);
+  const response = await fetch(`/api/studio/${base.id}/shift`, { method: 'POST', body: form });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) { toast(data.detail || 'Не получилось запустить'); return; }
+  toast('Подкручиваем колки у всех дорожек — это минута-другая 🎚');
+  waitShift(data.jobId);
+});
 
 function gridBeats(bpm) {
   if (!bpm || !duration) return [];

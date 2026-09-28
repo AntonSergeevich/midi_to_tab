@@ -351,16 +351,13 @@ function renderDetail(jobs) {
         title="Открыть в мультитреке: дорожки, метроном, заглушить лишнее">${ICON.mix}<span>Мультитрек</span></a>
       <button type="button" class="icon-btn" data-menu="${j.id}" data-file="${esc(f.name)}"
         data-url="${f.url}" data-split-ok="${j.mode !== 'stems' ? 1 : ''}" data-extend="${f.mid ? 1 : ''}"
+        ${j.mode === 'stems' ? stemData(j, f) : ''}
         title="Что сделать">${ICON.more}</button>
     </div>`).join('') : `<div class="st-version"><div class="st-row-main">${statusLine(j)}</div></div>`;
   const parts = children.map((c) => `
     <div class="st-sub"><div class="st-label">${esc(c.title)}</div>
-      ${c.status === 'done' ? c.files.map((f) => `
-        <div class="st-version small">${playButton(f, `${j.name}: ${f.label}`)}
-          <div class="st-row-main"><b>${esc(f.label)}</b></div>
-          <button type="button" class="icon-btn" data-menu="${c.id}" data-file="${esc(f.name)}"
-            data-url="${f.url}" title="Что сделать">${ICON.more}</button>
-        </div>`).join('') : `<div class="st-version"><div class="st-row-main">${statusLine(c)}</div></div>`}
+      ${c.status === 'done' ? c.files.map((f) => stemRow(c, f, `${j.name}: ${f.label}`)).join('')
+        + midiList(c) : `<div class="st-version"><div class="st-row-main">${statusLine(c)}</div></div>`}
     </div>`).join('');
   const midi = (j.midi || []).length ? `<div class="st-sub"><div class="st-label">MIDI партий</div>
     ${j.midi.map((m) => `<div class="st-version small">
@@ -383,7 +380,33 @@ function renderDetail(jobs) {
     ? `<button type="button" class="icon-btn" data-menu="${j.id}" data-track="1" data-upload="${j.mode === 'upload' ? 1 : ''}" title="Что сделать">${ICON.more}</button>` : ''}
     </div>
     <div class="st-label">${j.mode === 'stems' ? 'Партии' : 'Версии'}</div>
-    ${versions}${midi}${parts}${lyrics}`;
+    ${versions}${j.mode === 'stems' ? midiList(j) : ''}${midi}${parts}${lyrics}`;
+}
+
+// Партия: MIDI -- по кнопке в ⋯ (наша расшифровка нот), статус -- прямо в строке
+function stemRow(c, f, title) {
+  const stem = f.name.replace(/\.[^.]+$/, '');
+  const ready = (c.midi || []).find((m) => m.name === `${stem}.mid`);
+  const busy = (c.midiBusy || []).includes(f.name);
+  return `<div class="st-version small">${playButton(f, title)}
+    <div class="st-row-main"><b>${esc(f.label)}</b>${busy ? '<span class="muted">переводим в ноты…</span>' : ''}</div>
+    ${ready ? `<a class="icon-btn" href="${ready.url}" download title="Скачать MIDI этой партии">MIDI</a>` : ''}
+    <button type="button" class="icon-btn" data-menu="${c.id}" data-file="${esc(f.name)}"
+      data-url="${f.url}" data-stem="${c.mode === 'stems' ? 1 : ''}" data-midi="${ready ? ready.url : ''}"
+      data-busy="${busy ? 1 : ''}" title="Что сделать">${ICON.more}</button>
+  </div>`;
+}
+
+function stemData(c, f) {
+  const ready = (c.midi || []).find((m) => m.name === `${f.name.replace(/\.[^.]+$/, '')}.mid`);
+  return `data-stem="1" data-midi="${ready ? ready.url : ''}" data-busy="${(c.midiBusy || []).includes(f.name) ? 1 : ''}"`;
+}
+
+function midiList(c) {
+  if (c.mode !== 'stems') return '';
+  const hint = c.pro ? '' : `<p class="muted st-midi-hint">Нужен MIDI? В ⋯ у партии — «MIDI этой дорожки», бесплатно.
+    Барабаны в MIDI — через «Глубокое разделение + MIDI» в ⋯ у версии трека.</p>`;
+  return hint;
 }
 
 function closeDetail() {
@@ -417,7 +440,7 @@ async function load() {
   updateStart();
   clearTimeout(polling);
   const analyzing = await ensureKeys();
-  if (info.jobs.some((j) => j.status === 'queued' || j.status === 'running')) {
+  if (info.jobs.some((j) => j.status === 'queued' || j.status === 'running' || (j.midiBusy || []).length)) {
     polling = setTimeout(load, 5000);
   } else if (analyzing) {
     polling = setTimeout(load, 6000);   // тональность и темп вот-вот будут
@@ -747,6 +770,10 @@ function openMenu(button) {
       + (button.dataset.splitOk ? item('split', ICON.split, 'Разделить на партии') : '')
       + (button.dataset.splitOk && info.restyleEngine === 'mureka'
         ? item('splitpro', ICON.split, 'Глубокое разделение + MIDI') : '')
+      + (button.dataset.stem ? (button.dataset.midi
+        ? `<a href="${button.dataset.midi}" download>${ICON.download}<span>Скачать MIDI партии</span></a>`
+        : item('midi', ICON.tabs, button.dataset.busy ? 'MIDI уже считается…' : 'MIDI этой дорожки',
+          button.dataset.busy ? 'disabled' : '')) : '')
       + item('shift', ICON.tempo, 'Темп и тональность')
       + (button.dataset.extend ? item('extend', ICON.again, 'Продлить песню') : '')
       + '<hr>' + item('again', ICON.again, 'Повторить с этими настройками');
@@ -815,6 +842,14 @@ async function act(what, jobId, fileName) {
     } else {
       toast('Подкручиваем колки и метроном — новая версия появится под треком 🎚');
     }
+    load();
+    return;
+  }
+  if (what === 'midi') {
+    const response = await fetch(`/api/studio/${jobId}/midi`, { method: 'POST', body: form });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) toast(`${pick(OOPS, Date.now())} ${data.detail || ''}`, 7000);
+    else toast('Переводим партию в ноты — MIDI появится у партии через минуту 🎼');
     load();
     return;
   }

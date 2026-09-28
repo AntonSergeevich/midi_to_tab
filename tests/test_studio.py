@@ -1056,3 +1056,64 @@ def test_analysis_starts_in_background_then_is_cached(studio_app, monkeypatch):
     monkeypatch.setattr(app_module.studio, "analyze_audio", lambda path: {"key": "F#m", "bpm": 98})
     app_module.studio_runner.analyze(job_id, "restyle_1.mp3")
     assert client.get(f"/api/studio/{job_id}/analysis?file=restyle_1.mp3").json()["key"] == "F#m"
+
+
+def test_midi_of_a_ready_stem_without_resplitting(studio_app, monkeypatch):
+    """MIDI готовой партии: бесплатно, в фоне, в список MIDI той же работы;
+    барабаны -- нельзя (только глубокое разделение)."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    job = app_module.storage.create_job(user.id, "song.mp3", {"kind": "studio", "mode": "stems",
+                                                              "title": "Разделение на партии"})
+    folder = app_module.studio_runner.folder(job.id)
+    import os
+    os.makedirs(folder, exist_ok=True)
+    for name in ("vocals.mp3", "drums.mp3"):
+        open(f"{folder}/{name}", "wb").write(b"x")
+    app_module.storage.update_job(job.id, status="done", result={
+        "files": [{"name": "vocals.mp3", "label": "Вокал"}, {"name": "drums.mp3", "label": "Барабаны"}]})
+    monkeypatch.setattr(app_module.audioin, "available", lambda: (True, ""))
+    assert client.post(f"/api/studio/{job.id}/midi", data={"file": "drums.mp3"}).status_code == 400
+    started = []
+    monkeypatch.setattr(app_module.studio_runner, "transcribe_later", lambda j, n: started.append((j, n)))
+    assert client.post(f"/api/studio/{job.id}/midi", data={"file": "vocals.mp3"}).json() == {"pending": True}
+    assert started == [(job.id, "vocals.mp3")]
+
+    # сама расшифровка -- в фоне, результат -- в midi работы
+    runner = studio.StudioRunner(app_module.storage, app_module.DATA_DIR)
+    monkeypatch.setattr("midi2tab.audioin.transcribe",
+                        lambda src, dst, *a, **k: open(dst, "wb").write(b"MThd") and (dst, 10))
+    runner.transcribe_later(job.id, "vocals.mp3")
+    runner.midi_pool.shutdown(wait=True)
+    listed = {j["id"]: j for j in client.get("/api/studio").json()["jobs"]}
+    assert [m["name"] for m in listed[job.id]["midi"]] == ["vocals.mid"]
+    assert listed[job.id]["midi"][0]["label"] == "Вокал"
+    assert client.get(listed[job.id]["midi"][0]["url"]).content == b"MThd"
+
+
+def test_shift_all_tracks_of_a_multitrack_at_once(studio_app, monkeypatch):
+    """Мультитрек: «Тон и темп» сдвигает все партии разом, имена и подписи те же."""
+    import os
+
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    job = app_module.storage.create_job(user.id, "song.mp3", {"kind": "studio", "mode": "stems",
+                                                              "title": "Разделение на партии"})
+    folder = app_module.studio_runner.folder(job.id)
+    os.makedirs(folder, exist_ok=True)
+    for name in ("vocals.mp3", "bass.mp3"):
+        open(f"{folder}/{name}", "wb").write(name.encode())
+    app_module.storage.update_job(job.id, status="done", result={
+        "files": [{"name": "vocals.mp3", "label": "Вокал"}, {"name": "bass.mp3", "label": "Бас"}]})
+    child = client.post(f"/api/studio/{job.id}/shift",
+                        data={"file": "*", "semitones": "2", "tempo": "80"}).json()["jobId"]
+    calls = []
+    monkeypatch.setattr(studio, "shift_audio", lambda src, dst, st, tempo: calls.append(
+        (open(src, "rb").read(), os.path.basename(dst), st, tempo)) or open(dst, "wb").write(b"shifted"))
+    studio.StudioRunner(app_module.storage, app_module.DATA_DIR)._run(child)
+    done = app_module.storage.job(child)
+    assert done.status == "done", done.error
+    assert calls == [(b"vocals.mp3", "vocals.mp3", 2, 0.8), (b"bass.mp3", "bass.mp3", 2, 0.8)]
+    listed = {j["id"]: j for j in client.get("/api/studio").json()["jobs"]}
+    assert [f["label"] for f in listed[child]["files"]] == ["Вокал", "Бас"]
+    assert listed[child]["shift"] == {"of": job.id, "file": "*", "semitones": 2, "tempo": 0.8}

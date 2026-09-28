@@ -615,6 +615,9 @@ class StudioRunner:
         self.data_dir = data_dir
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="studio")
         self._analysis_lock = threading.Lock()
+        # MIDI отдельной партии -- по одной за раз: Basic Pitch ест процессор
+        self.midi_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="midi")
+        self.transcribing: set[tuple[str, str]] = set()
         self._analyzing: set[tuple[str, str]] = set()
 
     def folder(self, job_id: str) -> str:
@@ -694,6 +697,19 @@ class StudioRunner:
                 self._run_upload(job_id, folder)
                 return
             semitones, tempo = int(settings.get("semitones", 0)), float(settings.get("tempo", 1.0))
+            if settings.get("batch"):
+                # Все дорожки мультитрека: те же имена и подписи, что у партий
+                files = []
+                for n, part in enumerate(settings["batch"], 1):
+                    shift_audio(os.path.join(folder, f"src_{part['name']}"), os.path.join(folder, part["name"]),
+                                semitones, tempo)
+                    os.remove(os.path.join(folder, f"src_{part['name']}"))
+                    files.append({"name": part["name"], "label": part["label"]})
+                    self.storage.update_job(job_id, status="running", progress=10 + 85 * n // len(settings["batch"]),
+                                            stage=f"Подкручиваем колки: {n} из {len(settings['batch'])}")
+                self.storage.update_job(job_id, status="done", stage="Готово", progress=100,
+                                        result={"files": files})
+                return
             shift_audio(os.path.join(folder, "source.mp3"), os.path.join(folder, "shifted.mp3"),
                         semitones, tempo)
             self.storage.update_job(job_id, status="done", stage="Готово", progress=100, result={
@@ -731,6 +747,38 @@ class StudioRunner:
             result["analysis"] = {**(result.get("analysis") or {}), name: found}
             self.storage.update_job(job_id, result=result)
         return found
+
+    def transcribe_later(self, job_id: str, name: str) -> bool:
+        """MIDI партии нашей расшифровкой нот (Basic Pitch) -- в фоне, в список
+        MIDI той же работы. False -- уже в работе."""
+        key = (job_id, name)
+        with self._analysis_lock:
+            if key in self.transcribing:
+                return False
+            self.transcribing.add(key)
+
+        def work():
+            try:
+                from midi2tab import audioin
+
+                folder = self.folder(job_id)
+                target = f"{Path(name).stem}.mid"
+                audioin.transcribe(os.path.join(folder, name), os.path.join(folder, target))
+                with self._analysis_lock:
+                    job = self.storage.job(job_id)
+                    result = dict(job.result or {})
+                    label = label_of((job.settings or {}).get("mode", ""), name)
+                    midi = [m for m in result.get("midi") or [] if m["name"] != target]
+                    result["midi"] = midi + [{"name": target, "label": label}]
+                    self.storage.update_job(job_id, result=result)
+            except Exception as error:  # noqa: BLE001
+                print(f"[midi] {job_id}/{name}: {error}", file=sys.stderr, flush=True)
+            finally:
+                with self._analysis_lock:
+                    self.transcribing.discard(key)
+
+        self.midi_pool.submit(work)
+        return True
 
     def analyze_later(self, job_id: str, name: str) -> bool:
         """Запустить разбор в фоне; False -- он уже идёт."""

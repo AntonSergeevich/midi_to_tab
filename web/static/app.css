@@ -1046,3 +1046,9 @@ header.top > div > .badge { margin-left: 8px; text-decoration: none; }
   .mx-transport .icon-btn span { display: none; }
   .mx-mini { display: none; }
 }
+.st-midi-hint { font-size: 12.5px; margin: 6px 0 0 4px; }
+.st-version .icon-btn[download] { font-size: 11px; font-weight: 700; letter-spacing: .03em; }
+.mx-version { display: flex; flex-direction: column; gap: 3px; }
+.mx-version[hidden] { display: none; }
+.mx-version small { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.mx-version select { min-width: 170px; }

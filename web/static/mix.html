@@ -28,6 +28,7 @@
   <section class="mx-head">
     <a class="icon-btn" href="/studio" id="back" title="Назад в Студию">←</a>
     <div class="mx-title"><h1 id="title">Загружаем…</h1><p class="muted" id="sub"></p></div>
+    <label class="mx-version" id="versionBox" hidden><small>Версия</small><select id="version"></select></label>
     <div class="mx-facts">
       <div class="mx-fact"><small>Тональность</small><b id="factKey">—</b></div>
       <div class="mx-fact"><small>Темп</small><b id="factBpm">—</b></div>
@@ -49,6 +50,7 @@
     <button type="button" class="mx-toggle" id="loop" aria-pressed="false"
             title="Повтор куска: выделите его мышью на линейке над дорожками"><span class="mx-led"></span>Повтор</button>
     <span class="mx-sep"></span>
+    <button type="button" class="icon-btn" id="shiftBtn" title="Сдвинуть тональность и темп всех дорожек">♯♭ <span>Тон и темп</span></button>
     <button type="button" class="icon-btn" id="addTrack" title="Добавить свою дорожку: запись с репетиции, подложку">＋ <span>Дорожка</span></button>
     <button type="button" class="icon-btn" id="exportMix" title="Скачать то, что сейчас звучит, одним файлом">⤓ <span>Скачать микс</span></button>
     <input type="file" id="addFile" hidden accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a">
@@ -79,6 +81,22 @@
     Пробел — играть/пауза · клик по волне — перемотка · тяните края волны — обрезать дорожку ·
     выделите кусок на линейке — повтор. Метроном идёт по долям самой песни, а не по ровной сетке.
   </p>
+</div>
+<!-- Тон и темп всех дорожек: считается на сервере, тембр сохраняется -->
+<div class="st-modal" id="shiftModal" hidden>
+  <div class="st-modal-box" role="dialog" aria-modal="true" aria-labelledby="shiftTitle">
+    <h3 id="shiftTitle">Тональность и темп</h3>
+    <p class="muted">Все дорожки сдвинутся вместе — под свой голос, строй или чтобы разучить медленнее. Бесплатно.</p>
+    <p class="st-shift-now" id="shiftNow"></p>
+    <label class="field knob"><span>Тональность <b id="shiftToneVal">0</b></span>
+      <input type="range" id="shiftTone" min="-6" max="6" step="1" value="0"></label>
+    <label class="field knob"><span>Темп <b id="shiftTempoVal">100%</b></span>
+      <input type="range" id="shiftTempo" min="50" max="130" step="1" value="100"></label>
+    <div class="st-modal-actions">
+      <button type="button" id="shiftCancel">Отмена</button>
+      <button type="button" class="primary" id="shiftOk" disabled>Сделать</button>
+    </div>
+  </div>
 </div>
 <div class="st-toast" id="toast" hidden></div>
 <script src="/static/nav.js" defer></script>
