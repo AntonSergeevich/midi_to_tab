@@ -810,6 +810,15 @@ class Storage:
                 (user_id, time.time() - 86400)).fetchone()
         return int(row["n"])
 
+    def studio_uploads_today(self, user_id: str) -> int:
+        """Сколько своих треков человек загрузил в Студию за сутки."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM jobs WHERE user_id = ? AND created_at > ?"
+                " AND json_extract(settings, '$.mode') = 'upload'",
+                (user_id, time.time() - 86400)).fetchone()
+        return int(row["n"])
+
     def root_jobs(self, user_id: str, limit: int = 60) -> list[Job]:
         """Только сами треки, без порождённых ими заданий на табы и без Студии."""
         with self._connect() as conn:

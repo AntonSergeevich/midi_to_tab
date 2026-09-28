@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15161c">
+<title>Мультитрек — NASLUX</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="mix-page">
+<div class="wrap wide">
+  <header class="top">
+    <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
+    <div style="display:flex;gap:14px;align-items:center">
+      <a href="/studio">Студия</a>
+      <a href="/library">Мои треки</a>
+      <a href="/pricing">Тарифы</a>
+      <a href="/account" id="account" class="who">Вход</a>
+      <a href="/pricing" id="navBalance" class="badge" hidden>…</a>
+    </div>
+  </header>
+
+  <!-- Шапка трека: название, тональность и темп крупно -->
+  <section class="mx-head">
+    <a class="icon-btn" href="/studio" id="back" title="Назад в Студию">←</a>
+    <div class="mx-title"><h1 id="title">Загружаем…</h1><p class="muted" id="sub"></p></div>
+    <div class="mx-facts">
+      <div class="mx-fact"><small>Тональность</small><b id="factKey">—</b></div>
+      <div class="mx-fact"><small>Темп</small><b id="factBpm">—</b></div>
+    </div>
+  </section>
+
+  <!-- Транспорт: всё главное -- одной строкой -->
+  <section class="mx-transport" aria-label="Управление">
+    <button type="button" class="play-btn" id="play" aria-label="Играть (пробел)"></button>
+    <button type="button" class="icon-btn" id="toStart" title="В начало">⏮</button>
+    <span class="mx-time"><b id="now">0:00</b> / <span id="total">0:00</span></span>
+    <span class="mx-sep"></span>
+    <button type="button" class="mx-toggle" id="metro" aria-pressed="false" title="Метроном по долям песни">
+      <span class="mx-led"></span>Метроном</button>
+    <label class="mx-mini" title="Громкость метронома"><input type="range" id="metroVol" min="0" max="100" value="70"
+      aria-label="Громкость метронома"></label>
+    <button type="button" class="mx-toggle" id="countIn" aria-pressed="false" title="Такт отсчёта перед стартом">
+      <span class="mx-led"></span>Отсчёт</button>
+    <button type="button" class="mx-toggle" id="loop" aria-pressed="false"
+            title="Повтор куска: выделите его мышью на линейке над дорожками"><span class="mx-led"></span>Повтор</button>
+    <span class="mx-sep"></span>
+    <button type="button" class="icon-btn" id="addTrack" title="Добавить свою дорожку: запись с репетиции, подложку">＋ <span>Дорожка</span></button>
+    <button type="button" class="icon-btn" id="exportMix" title="Скачать то, что сейчас звучит, одним файлом">⤓ <span>Скачать микс</span></button>
+    <input type="file" id="addFile" hidden accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a">
+  </section>
+
+  <p class="mx-note" id="note" hidden></p>
+
+  <!-- Дорожки: слева пульт, справа волна. Сверху -- такты и аккорды. -->
+  <section class="mx-board" id="board">
+    <div class="mx-row mx-ruler-row">
+      <div class="mx-ctrl mx-ruler-label"><small>Такты · аккорды</small></div>
+      <div class="mx-lane"><canvas id="ruler" height="46"></canvas></div>
+    </div>
+    <div id="tracks"></div>
+    <div class="mx-playhead" id="playhead"></div>
+  </section>
+
+  <section class="mx-split" id="splitBox" hidden>
+    <div>
+      <b>Разложить трек на дорожки</b>
+      <p class="muted">Вокал, гитара, бас, барабаны, клавиши — отдельно. Заглушите то, что сыграете вживую.</p>
+    </div>
+    <button type="button" class="primary" id="splitGo">Разделить</button>
+    <button type="button" id="splitPro" hidden>До 12 дорожек + MIDI</button>
+  </section>
+
+  <p class="muted mx-help">
+    Пробел — играть/пауза · клик по волне — перемотка · тяните края волны — обрезать дорожку ·
+    выделите кусок на линейке — повтор. Метроном идёт по долям самой песни, а не по ровной сетке.
+  </p>
+</div>
+<div class="st-toast" id="toast" hidden></div>
+<script src="/static/nav.js" defer></script>
+<script src="/static/mix.js"></script>
+</body>
+</html>

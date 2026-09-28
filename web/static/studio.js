@@ -25,6 +25,8 @@ const plural = (n, one, few, many) => {
 const time = (s) => (s ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '');
 
 const ICON = {
+  mix: '<svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
+  upload: '<svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4 4m4-4 4 4M5 20h14"/></svg>',
   play: '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
   pause: '<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>',
   download: '<svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg>',
@@ -74,7 +76,8 @@ const MODE = {
   stems: { title: 'Партии', hint: 'Разложим любой трек на вокал, гитару, бас, барабаны, клавиши и остальное.', button: 'Разделить' },
   enrich: { title: 'Дописать', hint: 'Допишем к вашей записи барабаны, бас или другую партию.', button: 'Дописать' },
 };
-const MODE_ICON = { create: '✦', restyle: '↻', stems: '≡', enrich: '+' };
+const MODE_ICON = { create: '✦', restyle: '↻', stems: '≡', enrich: '+', upload: '⤒' };
+let fresh = null;          // только что запущенный трек -- подсветить в списке
 
 // Обложка трека: свой градиент для каждого id -- чтобы список не был серым.
 function cover(j, big) {
@@ -296,7 +299,8 @@ function statusLine(j) {
   }
   const when = new Date(j.at * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
   const length = j.files[0] && j.files[0].seconds ? ` · ${time(j.files[0].seconds)}` : '';
-  return `<span class="muted">${esc(MODE[j.mode] ? MODE[j.mode].title : j.title)}${length} · ${when}</span>`;
+  const key = j.key ? ` · <b class="st-key">${esc(j.key)}${j.bpm ? ` · ${j.bpm} BPM` : ''}</b>` : '';
+  return `<span class="muted">${esc(MODE[j.mode] ? MODE[j.mode].title : j.title)}${key}${length} · ${when}</span>`;
 }
 
 function playButton(f, title) {
@@ -324,7 +328,7 @@ function renderList(jobs) {
   }
   $('jobs').innerHTML = top.map((j) => {
     const first = j.status === 'done' && j.files[0];
-    return `<div class="st-row" data-open="${j.id}">
+    return `<div class="st-row${j.id === fresh ? ' st-new' : ''}" data-open="${j.id}">
       ${cover(j)}<span class="st-mode">${MODE_ICON[j.mode] || ''}</span>
       <div class="st-row-main"><b>${esc(j.name)}</b>${statusLine(j)}</div>
       ${first ? playButton(first, j.name) : ''}
@@ -342,7 +346,9 @@ function renderDetail(jobs) {
     <div class="st-version">
       ${playButton(f, j.name)}
       <div class="st-row-main"><b>${esc(f.label)}</b>
-        <span class="muted">${time(f.seconds)}</span></div>
+        <span class="muted">${time(f.seconds)}${keyOf(j, f.name)}</span></div>
+      <a class="icon-btn st-mixbtn" href="/studio/mix/${j.id}?file=${encodeURIComponent(f.name)}"
+        title="Открыть в мультитреке: дорожки, метроном, заглушить лишнее">${ICON.mix}<span>Мультитрек</span></a>
       <button type="button" class="icon-btn" data-menu="${j.id}" data-file="${esc(f.name)}"
         data-url="${f.url}" data-split-ok="${j.mode !== 'stems' ? 1 : ''}" data-extend="${f.mid ? 1 : ''}"
         title="Что сделать">${ICON.more}</button>
@@ -374,7 +380,7 @@ function renderDetail(jobs) {
       ${cover(j, true)}
       <div class="st-row-main"><h2>${esc(j.name)}</h2><span class="muted">${esc(meta)}</span></div>
       ${['done', 'error'].includes(j.status)
-    ? `<button type="button" class="icon-btn" data-menu="${j.id}" data-track="1" title="Что сделать">${ICON.more}</button>` : ''}
+    ? `<button type="button" class="icon-btn" data-menu="${j.id}" data-track="1" data-upload="${j.mode === 'upload' ? 1 : ''}" title="Что сделать">${ICON.more}</button>` : ''}
     </div>
     <div class="st-label">${j.mode === 'stems' ? 'Партии' : 'Версии'}</div>
     ${versions}${midi}${parts}${lyrics}`;
@@ -410,12 +416,41 @@ async function load() {
   if (openJob) renderDetail(info.jobs);
   updateStart();
   clearTimeout(polling);
+  const analyzing = await ensureKeys();
   if (info.jobs.some((j) => j.status === 'queued' || j.status === 'running')) {
     polling = setTimeout(load, 5000);
+  } else if (analyzing) {
+    polling = setTimeout(load, 6000);   // тональность и темп вот-вот будут
   } else if (info.jobs.some((j) => j.status === 'done' && !j.cover
       && ['create', 'restyle'].includes(j.mode) && Date.now() / 1000 - j.at < 900)) {
     polling = setTimeout(load, 15000);  // обложка ещё рисуется
   }
+}
+
+// Тональность и темп: разбор на сервере по запросу, не больше двух треков
+// за раз (открытый трек -- первым). true -- что-то ещё считается.
+const keyAsked = {};
+async function ensureKeys() {
+  const wanted = [];
+  const open = info.jobs.find((j) => j.id === openJob);
+  const consider = (j, files) => files.forEach((f) => {
+    if (!(j.keys || {})[f.name] && (keyAsked[`${j.id}/${f.name}`] || 0) < 20) wanted.push([j, f]);
+  });
+  if (open && open.status === 'done') consider(open, open.files);
+  info.jobs.filter((j) => !j.from && j.status === 'done' && j.files[0] && !j.key && j.mode !== 'voice')
+    .forEach((j) => consider(j, [j.files[0]]));
+  let pending = false;
+  for (const [j, f] of wanted.slice(0, 2)) {
+    keyAsked[`${j.id}/${f.name}`] = (keyAsked[`${j.id}/${f.name}`] || 0) + 1;
+    const answer = await fetch(`/api/studio/${j.id}/analysis?file=${encodeURIComponent(f.name)}`)
+      .then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+    if (answer.pending) pending = true;
+    else if (answer.key || answer.error) {
+      j.keys = { ...(j.keys || {}), [f.name]: { key: answer.key, bpm: answer.bpm } };
+      pending = true;               // перерисуем со свежими данными
+    }
+  }
+  return pending;
 }
 
 // ------------------------------------------------------------------ плеер
@@ -640,10 +675,37 @@ $('start').addEventListener('click', async () => {
     $('start').disabled = false;
     return;
   }
-  openJob = data.jobId;
-  $('listView').hidden = true;
-  $('detailView').hidden = false;
+  // Новый трек -- сразу наверху «Моих треков», с подсветкой
+  fresh = data.jobId;
+  closeDetail();
+  $('start').disabled = false;
+  $('msg').textContent = '';
   await load();
+  window.scrollTo({ top: $('listView').offsetTop - 80, behavior: 'smooth' });
+});
+
+// Свой трек -- в «Мои треки» сразу и бесплатно: слушать, узнать тональность,
+// открыть в мультитреке, разделить, сдвинуть темп и тон.
+$('uploadTrack').addEventListener('click', () => $('uploadFile').click());
+$('uploadFile').addEventListener('change', async (e) => {
+  const chosen = e.target.files[0];
+  e.target.value = '';
+  if (!chosen) return;
+  const kind = await askRights();
+  if (!kind) return;
+  const form = new FormData();
+  form.append('file', chosen);
+  form.append('rights', kind);
+  $('uploadTrack').disabled = true;
+  toast('Загружаем трек… 🎧');
+  const response = await fetch('/api/studio/upload', { method: 'POST', body: form });
+  const data = await response.json().catch(() => ({}));
+  $('uploadTrack').disabled = false;
+  if (!response.ok) { toast(`${pick(OOPS, Date.now())} ${data.detail || ''}`); return; }
+  fresh = data.jobId;
+  closeDetail();
+  await load();
+  toast('Трек в «Моих треках» — сейчас узнаем тональность и темп 🎼');
 });
 
 document.addEventListener('click', async (e) => {
@@ -677,9 +739,10 @@ function openMenu(button) {
   const item = (what, icon, text, extra = '') =>
     `<button type="button" data-act="${what}" data-job="${job}" data-file="${esc(f)}" ${extra}>${icon}<span>${text}</span></button>`;
   menu.innerHTML = button.dataset.track
-    ? item('again', ICON.again, 'Повторить с этими настройками') + '<hr>'
+    ? (button.dataset.upload ? '' : item('again', ICON.again, 'Повторить с этими настройками') + '<hr>')
       + item('delete', ICON.trash, 'Удалить трек', 'class="danger"')
     : `<a href="${button.dataset.url}" download>${ICON.download}<span>Скачать mp3</span></a>`
+      + `<a href="/studio/mix/${job}?file=${encodeURIComponent(f)}">${ICON.mix}<span>Открыть в мультитреке</span></a>`
       + item('tabs', ICON.tabs, 'Табы, аккорды и MIDI')
       + (button.dataset.splitOk ? item('split', ICON.split, 'Разделить на партии') : '')
       + (button.dataset.splitOk && info.restyleEngine === 'mureka'
@@ -739,7 +802,9 @@ async function act(what, jobId, fileName) {
     return;
   }
   if (what === 'shift') {
-    const choice = await askShift();
+    const j = info.jobs.find((x) => x.id === jobId) || {};
+    const known = (j.keys || {})[fileName] || (j.files && j.files[0] && j.files[0].name === fileName ? j : {});
+    const choice = await askShift(known.key, known.bpm);
     if (!choice) return;
     form.append('semitones', choice.semitones);
     form.append('tempo', choice.tempo);
@@ -829,13 +894,36 @@ function askVoice() {
   };
 }
 
-function askShift() {
+const SHARPS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const FLATS = { Db: 'C#', Eb: 'D#', Gb: 'F#', Ab: 'G#', Bb: 'A#' };
+
+// «Am» + 2 полутона -> «Bm»
+function transposeKey(key, semitones) {
+  const m = /^([A-G][#b]?)(.*)$/.exec(key || '');
+  if (!m) return '';
+  const index = SHARPS.indexOf(FLATS[m[1]] || m[1]);
+  return index < 0 ? '' : SHARPS[(index + Number(semitones) + 120) % 12] + m[2];
+}
+
+function keyOf(j, name) {
+  const k = (j.keys || {})[name];
+  return k && k.key ? ` · <b class="st-key">${esc(k.key)}${k.bpm ? ` · ${k.bpm} BPM` : ''}</b>` : '';
+}
+
+function askShift(key, bpm) {
   return new Promise((resolve) => {
     const modal = $('shiftModal');
     const sync = () => {
       const tone = Number($('shiftTone').value);
+      const rate = Number($('shiftTempo').value);
       $('shiftToneVal').textContent = tone > 0 ? `+${tone}` : String(tone);
-      $('shiftTempoVal').textContent = `${$('shiftTempo').value}%`;
+      $('shiftTempoVal').textContent = `${rate}%`;
+      const now = [key, bpm ? `${bpm} BPM` : ''].filter(Boolean).join(' · ');
+      const next = [key ? transposeKey(key, tone) : '', bpm ? `${Math.round(bpm * rate / 100)} BPM` : '']
+        .filter(Boolean).join(' · ');
+      $('shiftNow').innerHTML = now
+        ? `Сейчас: <b>${esc(now)}</b>${tone || rate !== 100 ? ` → станет: <b class="st-key">${esc(next)}</b>` : ''}`
+        : 'Тональность ещё определяем — откройте окно через пару секунд.';
       $('shiftOk').disabled = tone === 0 && Number($('shiftTempo').value) === 100;
     };
     $('shiftTone').value = 0;

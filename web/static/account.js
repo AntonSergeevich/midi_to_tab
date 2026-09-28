@@ -63,13 +63,8 @@ async function boot() {
     $('forms').style.display = 'none';
     $('profile').style.display = '';
     $('who').textContent = me.email;
-    const status = me.subscribed ? 'Подписка активна'
-      : me.unlimited ? 'Безлимитный доступ'
-      : me.credits > 0 || me.balance > 0 ? ''
-      : `Бесплатно песен: ${me.freeLeft} из ${me.freeSongs}`;
-    // Деньги показываются ВСЕГДА, отдельно от вида доступа: раньше
-    // безлимит проверялся первым и прятал и баланс, и купленные треки --
-    // владелец пополнял счёт и не видел суммы нигде.
+    const status = me.unlimited ? 'Безлимитный доступ'
+      : me.subscribed ? `Подписка до ${new Date(me.paidUntil * 1000).toLocaleDateString('ru-RU')}` : '';
     $('plan').textContent = [status, money(me)].filter(Boolean).join(' · ');
   }
   if (!me.mailReady) {
@@ -208,9 +203,18 @@ loadSupport();
 // Сколько у человека оплачено -- независимо от того, какой у него доступ.
 function money(me) {
   const parts = [];
-  if (me.balance > 0) parts.push(`баланс ${me.balance} ₽`);
-  if (me.credits > 0) parts.push(`оплачено треков: ${me.credits}`);
+  if (me.studioCredits > 0) parts.push(`${me.studioCredits} ${plural(me.studioCredits, 'кредит', 'кредита', 'кредитов')} Студии`);
+  if (me.balance > 0) parts.push(`баланс ${Math.round(me.balance)} ₽`);
+  if (me.credits > 0) parts.push(`оплачено разборов: ${me.credits}`);
   return parts.join(', ');
+}
+
+function plural(n, one, few, many) {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
 }
 
 // Оплата должна быть видна ВСЕГДА, а не только когда упёрся в предел.
@@ -223,26 +227,23 @@ async function loadBilling(me) {
     ? 'Безлимитный доступ — платить не нужно.'
     : me.subscribed
       ? `Подписка активна до ${new Date(me.paidUntil * 1000).toLocaleDateString('ru-RU')}.`
-      : me.credits > 0 || me.balance > 0
-        ? `Спишется по ${me.priceSingle} ₽ за трек, когда начнёте разбор.`
-        : `Бесплатных песен осталось: ${me.freeLeft} из ${me.freeSongs}.`;
+      : 'Подписки нет.';
   const paid = money(me);
-  now.textContent = paid ? `${paid[0].toUpperCase()}${paid.slice(1)}. ${status}` : status;
+  now.innerHTML = `${escapeHtml(paid ? `${paid[0].toUpperCase()}${paid.slice(1)}. ` : '')}${escapeHtml(status)}
+    <br>Аккорды — бесплатно, до ${me.freeChordsPerDay || 30} песен в день.`;
   loadPayments();
 
-  // Клик отмечает вариант, платит отдельная кнопка ниже -- чтобы не
-  // улетать на оплату по первому касанию. Пополнение произвольной
-  // суммой -- на странице тарифов: там нужно поле для суммы, дублировать
-  // его тут смысла нет.
-  $('plans').innerHTML = `
-    <button class="choice" type="button" data-plan="single">
-      <b>${me.priceSingle} ₽ — один трек</b>
-      <small>разово, без подписки</small>
-    </button>
-    <button class="choice" type="button" data-plan="month">
-      <b>${me.price} ₽ — месяц без ограничений</b>
-      <small>выгоднее с одиннадцатого трека</small>
+  // Клик отмечает тариф, платит отдельная кнопка ниже -- чтобы не улетать
+  // на оплату по первому касанию. Подписки дают кредиты на 30 дней, пакеты
+  // -- кредиты без подписки, они не сгорают.
+  const card = (p) => `
+    <button class="choice" type="button" data-plan="${p.id}">
+      <b>${escapeHtml(p.title.replace(' на 30 дней', ''))} — ${Math.round(p.price)} ₽${p.subscription ? '/мес' : ''}</b>
+      <small>${p.studioCredits} кредитов${p.subscription ? ' на 30 дней + разборы без ограничений' : ', не сгорают'}</small>
     </button>`;
+  const plans = me.plans || [];
+  $('plans').innerHTML = plans.filter((p) => p.subscription).map(card).join('')
+    + plans.filter((p) => !p.subscription).map(card).join('');
   $('billing').style.display = '';
 
   if (!me.paymentReady) {

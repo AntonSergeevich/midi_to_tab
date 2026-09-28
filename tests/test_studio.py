@@ -1003,3 +1003,56 @@ def test_stems_pro_unpacks_parts_and_midi(studio_app, monkeypatch):
     assert tab.status_code == 200, tab.text
     assert started[0].endswith(".mid")
     assert app_module.storage.job(tab.json()["jobId"]).settings["separate"] is False
+
+
+def test_upload_goes_straight_to_my_tracks_with_key_and_tempo(studio_app, monkeypatch, tmp_path):
+    """Свой трек: бесплатно, сразу в «Мои треки», mp3 для плеера, тональность и темп."""
+    import subprocess
+
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    wav = tmp_path / "song.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=2",
+                    str(wav)], check=True)
+    assert client.post("/api/studio/upload", files={"file": ("song.wav", wav.read_bytes())}).status_code == 400
+    balance = app_module.storage.user(user.id).balance
+    job_id = client.post("/api/studio/upload", data={"rights": "own"},
+                         files={"file": ("song.wav", wav.read_bytes())}).json()["jobId"]
+    assert submitted[-1] == (job_id, {"mode": "upload"})
+    assert app_module.storage.user(user.id).balance == balance            # бесплатно
+    listed = {j["id"]: j for j in client.get("/api/studio").json()["jobs"]}
+    assert listed[job_id]["mode"] == "upload" and listed[job_id]["name"] == "song.wav"
+
+    monkeypatch.setattr(studio, "analyze_audio", lambda path: {
+        "key": "Am", "bpm": 120, "beats": [0.5, 1.0], "downbeats": [0.5], "chords": [[0, 2, "Am"]]})
+    runner = studio.StudioRunner(app_module.storage, app_module.DATA_DIR)
+    app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings,
+                                                    "input": {"mode": "upload"}})
+    runner._run(job_id)
+    job = app_module.storage.job(job_id)
+    assert job.status == "done", job.error
+    assert job.result["files"][0]["name"] == "track.mp3" and job.result["files"][0]["seconds"] == 2
+    listed = {j["id"]: j for j in client.get("/api/studio").json()["jobs"]}
+    assert listed[job_id]["key"] == "Am" and listed[job_id]["bpm"] == 120
+    analysis = client.get(f"/api/studio/{job_id}/analysis?file=track.mp3").json()
+    assert analysis["beats"] == [0.5, 1.0] and analysis["chords"] == [[0, 2, "Am"]]
+    assert client.get(f"/api/studio/{job_id}/analysis?file=nope.mp3").status_code == 409
+    assert client.get(f"/studio/mix/{job_id}").status_code == 200
+
+
+def test_analysis_starts_in_background_then_is_cached(studio_app, monkeypatch):
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_balance(user.id, 150)
+    job_id = _start(client).json()["jobId"]
+    folder = app_module.studio_runner.folder(job_id)
+    open(f"{folder}/restyle_1.mp3", "wb").write(b"song")
+    app_module.storage.update_job(job_id, status="done", result={
+        "files": [{"name": "restyle_1.mp3", "label": "Вариант 1"}]})
+    started = []
+    monkeypatch.setattr(app_module.studio_runner, "analyze_later",
+                        lambda job, name: started.append((job, name)) or True)
+    assert client.get(f"/api/studio/{job_id}/analysis?file=restyle_1.mp3").json() == {"pending": True}
+    assert started == [(job_id, "restyle_1.mp3")]
+    monkeypatch.setattr(app_module.studio, "analyze_audio", lambda path: {"key": "F#m", "bpm": 98})
+    app_module.studio_runner.analyze(job_id, "restyle_1.mp3")
+    assert client.get(f"/api/studio/{job_id}/analysis?file=restyle_1.mp3").json()["key"] == "F#m"

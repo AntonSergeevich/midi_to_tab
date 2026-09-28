@@ -560,6 +560,30 @@ def check_link(secret: str, job_id: str, purpose: str, expires: int, signature: 
     return hmac.compare_digest(sign(secret, job_id, purpose, expires), signature or "")
 
 
+def audio_seconds(path: str) -> int:
+    """Длительность записи в секундах (ffprobe; нет его -- 0)."""
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                              "-of", "default=nw=1:nk=1", path], capture_output=True, text=True, timeout=60)
+        return round(float(out.stdout.strip() or 0))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 0
+
+
+def analyze_audio(path: str) -> dict:
+    """Тональность, темп, доли и аккорды записи -- для карточки трека,
+    окна «Темп и тональность» и метронома мультитрека. Тот же разбор, что
+    у подбора аккордов (нейросеть), минуты на сервере не тратятся зря:
+    результат хранится в задаче."""
+    from midi2tab import audiochords
+
+    found = audiochords.detect_from_audio(path)
+    return {"key": found.key, "bpm": round(found.tempo) if found.tempo else None,
+            "beats": [round(b, 3) for b in found.beats],
+            "downbeats": [round(b, 3) for b in found.downbeats],
+            "chords": [[round(c.start, 2), round(c.end, 2), c.name] for c in found.chords]}
+
+
 def safe_file_name(name: str) -> str | None:
     """Имя файла от воркера: простое имя mp3/mid/zip (или обложка), без путей."""
     if name == "cover.jpg":
@@ -590,6 +614,8 @@ class StudioRunner:
         self.storage = storage
         self.data_dir = data_dir
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="studio")
+        self._analysis_lock = threading.Lock()
+        self._analyzing: set[tuple[str, str]] = set()
 
     def folder(self, job_id: str) -> str:
         return os.path.join(self.data_dir, "studio", job_id)
@@ -664,13 +690,65 @@ class StudioRunner:
             folder = self.folder(job_id)
             self.storage.update_job(job_id, status="running", stage="Подкручиваем колки и метроном",
                                     progress=30)
+            if settings.get("mode") == "upload":
+                self._run_upload(job_id, folder)
+                return
             semitones, tempo = int(settings.get("semitones", 0)), float(settings.get("tempo", 1.0))
             shift_audio(os.path.join(folder, "source.mp3"), os.path.join(folder, "shifted.mp3"),
                         semitones, tempo)
             self.storage.update_job(job_id, status="done", stage="Готово", progress=100, result={
                 "files": [{"name": "shifted.mp3", "label": shift_label(semitones, tempo)}]})
         except Exception as error:  # noqa: BLE001
-            self._fail(job_id, f"не получилось изменить темп и тон: {error}")
+            what = "подготовить трек" if (self.storage.job(job_id).settings or {}).get("mode") == "upload" \
+                else "изменить темп и тон"
+            self._fail(job_id, f"не получилось {what}: {error}")
+
+    def _run_upload(self, job_id: str, folder: str) -> None:
+        """Свой трек в «Мои треки»: mp3 для плеера и мультитрека, сразу же --
+        тональность, темп и доли."""
+        source = next(os.path.join(folder, f) for f in sorted(os.listdir(folder)) if f.startswith("source."))
+        target = os.path.join(folder, "track.mp3")
+        self.storage.update_job(job_id, status="running", stage="Настраиваем звук", progress=40)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", source, "-ac", "2", "-b:a", "192k", target],
+                       check=True, timeout=600)
+        self.storage.update_job(job_id, status="done", stage="Готово", progress=100, result={
+            "files": [{"name": "track.mp3", "label": "Оригинал", "seconds": audio_seconds(target)}]})
+        self.analyze(job_id, "track.mp3")
+
+    def analyze(self, job_id: str, name: str) -> dict:
+        """Разбор версии (тональность, темп, доли, аккорды) с кешем в задаче."""
+        job = self.storage.job(job_id)
+        cached = ((job.result or {}).get("analysis") or {}).get(name) if job else None
+        if cached:
+            return cached
+        try:
+            found = analyze_audio(os.path.join(self.folder(job_id), name))
+        except Exception as error:  # noqa: BLE001 -- разбор -- не повод ронять задачу
+            found = {"error": str(error)[:200]}
+        with self._analysis_lock:
+            job = self.storage.job(job_id)
+            result = dict(job.result or {})
+            result["analysis"] = {**(result.get("analysis") or {}), name: found}
+            self.storage.update_job(job_id, result=result)
+        return found
+
+    def analyze_later(self, job_id: str, name: str) -> bool:
+        """Запустить разбор в фоне; False -- он уже идёт."""
+        key = (job_id, name)
+        with self._analysis_lock:
+            if key in self._analyzing:
+                return False
+            self._analyzing.add(key)
+
+        def work():
+            try:
+                self.analyze(job_id, name)
+            finally:
+                with self._analysis_lock:
+                    self._analyzing.discard(key)
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
 
     def _mureka_wait(self, job_id: str, kind: str, task_id: str, created_at: float,
                      stage: str = "") -> dict:

@@ -1007,6 +1007,12 @@ def api_me(request: Request):
     payload["isAdmin"] = user.is_admin
     payload["unlimited"] = user.unlimited
     payload["studioCredits"] = user.studio_credits
+    # Каталог тарифов -- для профиля: подписки на кредиты и пакеты без подписки
+    payload["plans"] = [{"id": key, "title": spec["title"], "price": spec["price"],
+                         "studioCredits": spec.get("studio_credits", 0),
+                         "subscription": bool(spec.get("subscription"))}
+                        for key, spec in billing.PLANS.items() if spec.get("studio_credits")]
+    payload["freeChordsPerDay"] = FREE_CHORDS_PER_DAY
     payload["lyricsReady"] = lyrics_mod.available()[0]
     payload["lyricsModels"] = list(lyrics_mod.MODELS)
     payload["lyricsLanguages"] = list(lyrics_mod.LANGUAGES)
@@ -1384,6 +1390,15 @@ def studio_page() -> HTMLResponse:
                                 "TITLE": STUDIO_TITLE, "DESCRIPTION": STUDIO_DESCRIPTION})
 
 
+def _first_analysis(result: dict, field: str):
+    """Тональность/темп первой разобранной версии -- для строки трека."""
+    for name in [f["name"] for f in result.get("files") or []]:
+        value = ((result.get("analysis") or {}).get(name) or {}).get(field)
+        if value:
+            return value
+    return None
+
+
 def _studio_job_payload(job) -> dict:
     settings = job.settings or {}
     result = job.result or {}
@@ -1398,8 +1413,11 @@ def _studio_job_payload(job) -> dict:
         "title": settings.get("title", "") + (
             f" · {settings.get('variant', 'новой версии').lower()}" if settings.get("from") else ""),
         "charged": settings.get("charged", 0),
-        "bpm": (result.get("settings") or {}).get("bpm"),
-        "key": (result.get("settings") or {}).get("key_scale"),
+        "bpm": (result.get("settings") or {}).get("bpm") or _first_analysis(result, "bpm"),
+        "key": (result.get("settings") or {}).get("key_scale") or _first_analysis(result, "key"),
+        "keys": {name: {"key": a.get("key"), "bpm": a.get("bpm")}
+                 for name, a in (result.get("analysis") or {}).items() if not a.get("error")},
+        "sourceFile": settings.get("sourceFile", ""),
         "files": files,
         "from": settings.get("from"),
         "keepVocals": bool(settings.get("keepVocals")),
@@ -1649,7 +1667,8 @@ def api_studio_split_result(job_id: str, request: Request, file: str = Form(""),
     variant = studio.label_of((parent.settings or {}).get("mode", ""), files[0]["name"])
     job = storage.create_job(user.id, parent.filename, {
         "kind": "studio", "mode": "stems", "title": service.title, "from": job_id,
-        "variant": variant, "charged": 0, **({"engine": "mureka"} if pro else {})})
+        "variant": variant, "sourceFile": files[0]["name"], "charged": 0,
+        **({"engine": "mureka"} if pro else {})})
     folder = studio_runner.folder(job.id)
     os.makedirs(folder, exist_ok=True)
     shutil.copyfile(os.path.join(studio_runner.folder(job_id), files[0]["name"]),
@@ -1657,6 +1676,72 @@ def api_studio_split_result(job_id: str, request: Request, file: str = Form(""),
     _studio_charge_and_submit(request, user, job.id, service, folder,
                               {"mode": "stems", "cost_key": cost_key})
     return {"jobId": job.id, "from": title}
+
+
+UPLOADS_PER_DAY = 40
+
+
+@app.post("/api/studio/upload")
+async def api_studio_upload(request: Request, file: UploadFile = File(...), rights: str = Form("")):
+    """Свой трек -- сразу в «Мои треки», бесплатно: слушать, узнать тональность
+    и темп, сдвинуть их, открыть в мультитреке, разделить на партии."""
+    user = current_user(request)
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in ALLOWED or suffix in (".mid", ".midi"):
+        raise HTTPException(400, "Нужен аудиофайл: mp3, wav, flac, ogg, m4a")
+    if rights not in ("own", "cover"):
+        raise HTTPException(400, "Отметьте, чья это музыка, и согласитесь с условиями")
+    if storage.studio_uploads_today(user.id) >= UPLOADS_PER_DAY:
+        raise HTTPException(429, f"За сутки можно загрузить {UPLOADS_PER_DAY} треков — продолжим завтра")
+    job = storage.create_job(user.id, (file.filename or "Трек")[:120], {
+        "kind": "studio", "mode": "upload", "title": "Загруженный трек", "engine": "local", "charged": 0,
+        "rights": {"kind": rights, "at": time.time(), "ip": request.client.host if request.client else ""}})
+    folder = studio_runner.folder(job.id)
+    os.makedirs(folder, exist_ok=True)
+    size, limit = 0, MAX_UPLOAD_MB * 1024 * 1024
+    with open(os.path.join(folder, f"source{suffix}"), "wb") as out:
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > limit:
+                out.close()
+                shutil.rmtree(folder, ignore_errors=True)
+                storage.delete_job(job.id)
+                raise HTTPException(413, f"Файл больше {MAX_UPLOAD_MB} МБ")
+            out.write(chunk)
+    studio_runner.submit(job.id, {"mode": "upload"})
+    response = JSONResponse({"jobId": job.id})
+    attach_cookie(response, user.id)
+    return response
+
+
+@app.get("/api/studio/{job_id}/analysis")
+def api_studio_analysis(job_id: str, request: Request, file: str = ""):
+    """Тональность, темп, доли и аккорды версии. Первый запрос запускает
+    разбор (секунды) и отвечает pending -- страница спрашивает ещё раз."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if (not job or job.user_id != user.id or (job.settings or {}).get("kind") != "studio"
+            or job.status != "done"):
+        raise HTTPException(404, "Готовая работа не найдена")
+    names = [f["name"] for f in (job.result or {}).get("files") or []]
+    folder = studio_runner.folder(job_id)
+    if file == "source":
+        # Партии без трека-родителя: доли и аккорды -- по исходнику целиком
+        file = next((f for f in sorted(os.listdir(folder)) if f.startswith("source.")), "") \
+            if os.path.isdir(folder) else ""
+        names.append(file)
+    if not file or file not in names or not os.path.isfile(os.path.join(folder, file)):
+        raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
+    cached = ((job.result or {}).get("analysis") or {}).get(file)
+    if cached:
+        return cached
+    studio_runner.analyze_later(job_id, file)
+    return {"pending": True}
+
+
+@app.get("/studio/mix/{job_id}", response_class=HTMLResponse)
+def studio_mix_page(job_id: str) -> HTMLResponse:
+    return page("mix.html")
 
 
 @app.post("/api/studio/{job_id}/shift")

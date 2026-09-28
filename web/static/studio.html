@@ -140,7 +140,11 @@
     <!-- ПРАВО: треки и страница трека -->
     <section class="st-library">
       <div id="listView">
-        <div class="st-libhead"><h2>Мои треки</h2><span class="muted" id="count"></span></div>
+        <div class="st-libhead"><h2>Мои треки</h2><span class="muted" id="count"></span>
+          <button type="button" class="icon-btn st-upload" id="uploadTrack"
+                  title="Добавить свой трек: узнать тональность и темп, открыть в мультитреке, разделить">
+            <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4 4m4-4 4 4M5 20h14"/></svg><span>Загрузить трек</span></button>
+          <input type="file" id="uploadFile" hidden accept=".mp3,.wav,.flac,.ogg,.m4a,.aiff,.aif"></div>
         <div id="jobs" class="st-list"><p class="muted">Здесь появятся ваши песни.</p></div>
       </div>
       <div id="detailView" hidden></div>
@@ -199,6 +203,7 @@
   <div class="st-modal-box" role="dialog" aria-modal="true" aria-labelledby="shiftTitle">
     <h3 id="shiftTitle">Темп и тональность</h3>
     <p class="muted">Под свой голос или удобный лад: тембр сохранится. Бесплатно.</p>
+    <p class="st-shift-now" id="shiftNow"></p>
     <label class="field knob"><span>Тональность <b id="shiftToneVal">0</b></span>
       <input type="range" id="shiftTone" min="-6" max="6" step="1" value="0"></label>
     <label class="field knob"><span>Темп <b id="shiftTempoVal">100%</b></span>
