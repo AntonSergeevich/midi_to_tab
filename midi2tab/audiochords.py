@@ -405,6 +405,29 @@ def _merge_short(chords: list[AudioChord], min_duration: float) -> list[AudioCho
     return result
 
 
+def _net_analysis(np, chordnet, librosa, y, sr, bpm, beats, chroma, min_duration,
+                  beats_per_bar, progress) -> ChordAnalysis:
+    """Аккорды -- от нейросети; доли, сильные доли и тональность -- как раньше.
+
+    Короткие куски сливаются мягче, чем у шаблонов: сеть уже сгладила
+    дребезг сама, а быстрые смены (по две доли) в песнях настоящие."""
+    if progress:
+        progress("Слушаю аккорды нейросетью...")
+    found = chordnet.detect(y, sr)
+    chords = _merge_short([AudioChord(name, start, end, confidence)
+                           for start, end, name, confidence in found],
+                          min(min_duration, 0.6))
+    beat_times = [float(t) for t in librosa.frames_to_time(beats, sr=sr)]
+    offset = _bar_offset(chroma, beats, beats_per_bar)
+    key = guess_key(chroma)
+    if progress:
+        progress(f"Аккордов найдено: {len(chords)}, разных {len({c.name for c in chords})}, "
+                 f"темп {bpm:.0f}")
+    return ChordAnalysis(chords=chords, tempo=bpm, beats=beat_times,
+                         downbeats=_guess_downbeats(beat_times, offset, beats_per_bar),
+                         key=key_name(key))
+
+
 def detect_from_audio(
     audio_path: str,
     *,
@@ -470,6 +493,23 @@ def detect_from_audio(
         # Ритм не нашёлся -- режем на равные отрезки по полсекунды
         step = max(1, int(0.5 * sr / 512))
         beats = np.arange(0, chroma.shape[1], step)
+
+    # Нейросеть (midi2tab/chordnet.py) слышит аккорды втрое точнее шаблонов.
+    # Шаблоны остаются, когда круг аккордов задан заранее (allowed) и как
+    # запасной путь, если модели нет или она выключена.
+    if allowed is None:
+        from . import chordnet
+
+        if chordnet.available():
+            try:
+                net = _net_analysis(np, chordnet, librosa, y, sr, bpm, beats, chroma,
+                                    min_duration, beats_per_bar, progress)
+            except Exception as error:  # noqa: BLE001 -- не вышло -> прежний разбор
+                if progress:
+                    progress(f"Нейросеть не справилась ({error}), разбираю по шаблонам...")
+            else:
+                if net.chords:
+                    return net
 
     times = _edges(librosa.frames_to_time(beats, sr=sr), librosa.get_duration(y=y, sr=sr))
     names, vectors, penalties, roots, qualities = _templates()
