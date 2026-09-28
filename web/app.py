@@ -1305,6 +1305,7 @@ async def api_studio_start(
     voice: str = Form(""),
     keep_vocals: bool = Form(False),
     again: str = Form(""),
+    rights: str = Form(""),
 ):
     user = current_user(request)
     ready, why = studio.available()
@@ -1342,6 +1343,10 @@ async def api_studio_start(
     if mode != "create" and ((file is None and not again_source) or suffix not in ALLOWED
                              or suffix in (".mid", ".midi")):
         raise HTTPException(400, "Нужен аудиофайл: mp3, wav, flac, ogg, m4a")
+    if mode != "create" and rights not in ("own", "cover"):
+        # Оферта, п. 6.3: перед работой с записью человек отмечает, чья это
+        # музыка, и соглашается с условиями -- отметка хранится с заказом.
+        raise HTTPException(400, "Отметьте, чья это музыка, и согласитесь с условиями")
     if mode == "enrich" and track not in studio.TRACKS:
         raise HTTPException(400, "Выберите партию, которую дописать")
     style = prompt.strip()[:500] or (studio.PRESETS[preset][1] if preset in studio.PRESETS else "")
@@ -1359,7 +1364,10 @@ async def api_studio_start(
     voice = voice if voice in studio.VOICES else ""
     settings = {"kind": "studio", "mode": mode, "title": service.title, "preset": preset,
                 **knobs, "track": track, "charged": 0, "engine": engine, "voice": voice,
-                "keepVocals": keep_vocals}
+                "keepVocals": keep_vocals,
+                **({"rights": {"kind": rights, "at": time.time(),
+                               "ip": request.client.host if request.client else ""}}
+                   if mode != "create" else {})}
     name = (file.filename if file else "") or (storage.job(again).filename if again_source else "") \
         or title.strip()[:80] or studio.PRESETS.get(preset, ("Песня",))[0]
     job = storage.create_job(user.id, name, settings)

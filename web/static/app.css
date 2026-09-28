@@ -762,3 +762,21 @@ header.top > div > .badge { margin-left: 8px; text-decoration: none; }
   box-shadow: 0 10px 30px rgba(0,0,0,.4); font-size: 14px;
 }
 .st-toast[hidden] { display: none; }
+
+/* Окно «Чья это музыка?» */
+.st-modal { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(8,9,12,.72); backdrop-filter: blur(4px); }
+.st-modal[hidden] { display: none; }
+.st-modal-box { width: 100%; max-width: 460px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+.st-modal-box h3 { margin: 0; font-size: 20px; }
+.st-modal-box p { margin: 0; }
+.st-choice { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--border);
+  border-radius: 12px; cursor: pointer; background: var(--bg); }
+.st-choice:has(input:checked) { border-color: var(--accent); background: rgba(217,154,78,.08); }
+.st-choice input { margin-top: 3px; accent-color: var(--accent); }
+.st-choice b { display: block; }
+.st-choice small { color: var(--muted); font-size: 13px; }
+.st-agree { align-items: flex-start; font-size: 13px; line-height: 1.45; }
+.st-agree input { margin-top: 2px; flex: none; }
+.st-modal-actions { display: flex; justify-content: flex-end; gap: 10px; }

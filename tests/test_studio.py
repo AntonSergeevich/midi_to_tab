@@ -31,6 +31,7 @@ def studio_app(tmp_path, monkeypatch):
 
 
 def _start(client, mode="restyle", **extra):
+    extra.setdefault("rights", "own")
     return client.post("/api/studio", data={"mode": mode, **extra},
                        files={"file": ("песня.mp3", b"ID3fake-audio", "audio/mpeg")})
 
@@ -785,3 +786,13 @@ def test_single_voice_strips_duet_marks():
     assert gender == "female" and "(" not in lyrics and "Два" in lyrics
     assert studio.voice_plan("", text)[2] == "female"          # «любой» с партиями -- дуэт
     assert studio.voice_plan("", "[Verse]\nРаз")[2] is None    # без партий -- решает Mureka
+
+
+def test_upload_needs_rights_mark_and_stores_it(studio_app):
+    """Оферта 6.3: без отметки «чья музыка» запись не берём; отметка хранится с заказом."""
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_balance(user.id, 100)
+    assert _start(client, mode="stems", rights="").status_code == 400
+    job_id = _start(client, mode="stems", rights="cover").json()["jobId"]
+    stored = app_module.storage.job(job_id).settings["rights"]
+    assert stored["kind"] == "cover" and stored["at"] > 0

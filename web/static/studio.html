@@ -137,6 +137,24 @@
 <!-- Плеер: один на страницу -- музыка не прерывается при обновлении списка -->
 <div class="st-toast" id="toast" hidden></div>
 
+<!-- Оферта, п. 6.3: чья это музыка -- до отправки записи -->
+<div class="st-modal" id="rightsModal" hidden>
+  <div class="st-modal-box" role="dialog" aria-modal="true" aria-labelledby="rightsTitle">
+    <h3 id="rightsTitle">Чья это музыка?</h3>
+    <p class="muted" id="rightsGuess"></p>
+    <label class="st-choice"><input type="radio" name="rights" value="own">
+      <span><b>Моя музыка</b><small>Я автор или у меня есть права на запись</small></span></label>
+    <label class="st-choice"><input type="radio" name="rights" value="cover">
+      <span><b>Чужая песня — кавер для себя</b><small>Учиться, репетировать, слушать дома</small></span></label>
+    <label class="check st-agree"><input type="checkbox" id="rightsAgree">
+      <span id="rightsText">Понимаю условия <a href="/offer#rights" target="_blank">п. 6 оферты</a>.</span></label>
+    <div class="st-modal-actions">
+      <button type="button" id="rightsCancel">Отмена</button>
+      <button type="button" class="primary" id="rightsOk" disabled>Продолжить</button>
+    </div>
+  </div>
+</div>
+
 <div class="st-player" id="player" hidden>
   <button type="button" class="play-btn" id="playerToggle" aria-label="Пауза"></button>
   <div class="st-player-info"><b id="playerTitle"></b><small id="playerSub" class="muted"></small></div>

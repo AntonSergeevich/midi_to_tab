@@ -131,6 +131,59 @@ function updateStart() {
 }
 
 let needPay = false;
+let rights = '';            // отметка «чья музыка» для текущего файла (оферта 6.3)
+let rightsFor = null;
+
+// ------------------------------------------------------ чья это музыка
+// Надёжно узнать песню по звуку бесплатно нельзя (AcoustID -- только для
+// некоммерческих, ACRCloud/AudD -- платные), поэтому догадываемся по имени
+// файла «Исполнитель - Песня» и тегу ID3 TPE1, а решает человек -- галочкой.
+async function guessArtist(f) {
+  if (!f) return '';
+  try {
+    const head = new Uint8Array(await f.slice(0, 65536).arrayBuffer());
+    const text = new TextDecoder('latin1').decode(head);
+    const at = text.indexOf('TPE1');
+    if (at >= 0 && text.startsWith('ID3')) {
+      const size = (head[at + 4] << 24) | (head[at + 5] << 16) | (head[at + 6] << 8) | head[at + 7];
+      const body = head.slice(at + 11, at + 10 + size);
+      const enc = head[at + 10];
+      const decoded = new TextDecoder(enc === 1 ? 'utf-16' : enc === 2 ? 'utf-16be' : enc === 3 ? 'utf-8' : 'windows-1251')
+        .decode(body).replace(/\u0000/g, '').trim();
+      if (decoded) return decoded;
+    }
+  } catch (error) { /* не mp3 или битый тег -- смотрим на имя */ }
+  const m = f.name.replace(/\.[^.]+$/, '').match(/^(.{2,60}?)\s[-–—]\s/);
+  return m ? m[1].trim() : '';
+}
+
+function askRights() {
+  return new Promise(async (resolve) => {
+    const artist = await guessArtist(file);
+    const modal = $('rightsModal');
+    const name = file ? file.name : $('dropTitle').textContent;
+    $('rightsGuess').textContent = artist
+      ? `Похоже, это песня исполнителя «${artist}» — ${name}.`
+      : `Файл: ${name}.`;
+    document.querySelectorAll('[name="rights"]').forEach((r) => { r.checked = r.value === (artist ? 'cover' : ''); });
+    $('rightsAgree').checked = false;
+    const sync = () => {
+      const kind = (document.querySelector('[name="rights"]:checked') || {}).value || '';
+      $('rightsText').innerHTML = kind === 'own'
+        ? 'Подтверждаю, что права на запись у меня (<a href="/offer#rights" target="_blank">п. 6 оферты</a>).'
+        : 'Понимаю: переделки чужих песен — только для личного использования. Публикация и коммерческое использование — под мою ответственность (<a href="/offer#rights" target="_blank">п. 6 оферты</a>).';
+      $('rightsOk').disabled = !kind || !$('rightsAgree').checked;
+    };
+    modal.onchange = sync;
+    sync();
+    modal.hidden = false;
+    $('rightsOk').onclick = () => {
+      modal.hidden = true;
+      resolve(document.querySelector('[name="rights"]:checked').value);
+    };
+    $('rightsCancel').onclick = () => { modal.hidden = true; resolve(''); };
+  });
+}
 
 // ------------------------------------------------------------ черновик
 // Всё, что человек заполнил, живёт в localStorage: перезагрузка, вход,
@@ -425,7 +478,16 @@ $('start').addEventListener('click', async () => {
     location.href = info.registered ? pay : `/account?next=${encodeURIComponent(pay)}`;
     return;
   }
+  if (mode !== 'create') {
+    const key = file ? `${file.name}:${file.size}` : again;
+    if (rightsFor !== key) {
+      rights = await askRights();
+      if (!rights) return;
+      rightsFor = key;
+    }
+  }
   const form = new FormData();
+  form.append('rights', mode === 'create' ? '' : rights);
   if (file && mode !== 'create') form.append('file', file);
   if (!file && again && mode !== 'create') form.append('again', again);
   form.append('mode', mode);
