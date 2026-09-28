@@ -43,9 +43,9 @@ def main() -> None:
     recognized = studio.mureka_call("POST", "/v1/song/recognize", {"upload_audio_id": audio_id}, timeout=600)
     text = lyrics_from(recognized)
     now = studio.mureka_call("GET", "/v1/account/billing").get("total_spending") or 0
-    print(f"распознан текст (${(now - mark) / 100:.3f}):\n{text[:600]}", flush=True)
+    print(f"распознано строк: {len(text.splitlines())} (${(now - mark) / 100:.3f})", flush=True)
     report["recognize_cost"] = (now - mark) / 100
-    report["lyrics"] = text
+    report["lyrics_lines"] = len(text.splitlines())  # сам текст не сохраняем: репозиторий публичный
     mark = now
 
     remix_id = studio.mureka_upload(args.audio, "remix")

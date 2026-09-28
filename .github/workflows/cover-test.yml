@@ -44,7 +44,7 @@ jobs:
           dir="cover-${{ github.run_id }}"
           git clone -q --depth 1 --branch test-results \
             "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
-          mkdir -p "out/$dir" && cp melody/* "out/$dir/"
+          mkdir -p "out/$dir" && cp melody/*.json "out/$dir/"
           cd out
           git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
           git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
