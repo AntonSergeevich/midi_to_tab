@@ -25,6 +25,10 @@ const ICON = {
   tabs: '<svg viewBox="0 0 24 24"><path d="M4 6h16M4 10h16M4 14h16M4 18h16M9 4v16M15 4v16"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="M15 5 8 12l7 7"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2m-7 0 1 12h8l1-12"/></svg>',
+  prev: '<svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>',
+  next: '<svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>',
+  expand: '<svg viewBox="0 0 24 24"><path d="M15 4h5v5M9 20H4v-5M20 4l-6 6M4 20l6-6"/></svg>',
+  down: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
   more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
   again: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15m0 5v-5h5"/></svg>',
 };
@@ -374,18 +378,77 @@ async function load() {
 
 // ------------------------------------------------------------------ плеер
 
+// Очередь -- версии (или партии) того трека, чью кнопку нажали: «дальше»
+// и «назад» листают их, как треки альбома.
+let queue = [];
+let qi = -1;
+
+function coverStyle(j) {
+  if (j && j.cover) return `url("${j.cover}")`;
+  let h = 0;
+  for (const ch of (j ? j.id : 'x')) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return `linear-gradient(135deg, hsl(${h} 70% 45%), hsl(${(h + 60) % 360} 70% 30%))`;
+}
+
+function queueFor(url) {
+  for (const j of (info ? info.jobs : [])) {
+    const index = (j.files || []).findIndex((f) => f.url === url);
+    if (index < 0) continue;
+    const parent = j.from ? info.jobs.find((x) => x.id === j.from) : null;
+    const owner = parent || j;
+    return {
+      index,
+      items: j.files.map((f) => ({
+        url: f.url, title: owner.name, sub: f.label, art: coverStyle(owner), lyrics: owner.lyrics || '',
+      })),
+    };
+  }
+  return null;
+}
+
 function play(url, title, sub) {
   const audio = $('audio');
   if (playing === url) {
     if (audio.paused) audio.play(); else audio.pause();
     return;
   }
-  playing = url;
-  audio.src = url;
+  const found = queueFor(url);
+  queue = found ? found.items : [{ url, title, sub, art: coverStyle(null), lyrics: '' }];
+  qi = found ? found.index : 0;
+  startTrack();
+}
+
+function startTrack() {
+  const item = queue[qi];
+  if (!item) return;
+  const audio = $('audio');
+  playing = item.url;
+  audio.src = item.url;
   audio.play();
-  $('playerTitle').textContent = title;
-  $('playerSub').textContent = sub;
+  $('playerTitle').textContent = item.title;
+  $('playerSub').textContent = item.sub;
+  $('fTitle').textContent = item.title;
+  $('fSub').textContent = item.sub;
+  ['pCover', 'fCover'].forEach((id) => { $(id).style.backgroundImage = item.art; });
+  $('fBg').style.backgroundImage = item.art;
+  $('fDownload').href = item.url;
+  $('fLyrics').textContent = item.lyrics;
+  $('fLyricsBtn').hidden = !item.lyrics;
+  const many = queue.length > 1;
+  ['pPrev', 'pNext', 'fPrev', 'fNext'].forEach((id) => { $(id).disabled = !many; });
   $('player').hidden = false;
+  syncButtons();
+}
+
+function step(delta) {
+  if (queue.length < 2) return;
+  qi = (qi + delta + queue.length) % queue.length;
+  startTrack();
+}
+
+function fullPlayer(open) {
+  $('full').hidden = !open;
+  document.body.style.overflow = open ? 'hidden' : '';
 }
 
 function syncButtons() {
@@ -395,7 +458,20 @@ function syncButtons() {
     b.classList.toggle('on', on);
     b.innerHTML = on ? ICON.pause : ICON.play;
   });
-  $('playerToggle').innerHTML = audio.paused ? ICON.play : ICON.pause;
+  const icon = audio.paused ? ICON.play : ICON.pause;
+  $('playerToggle').innerHTML = icon;
+  $('fToggle').innerHTML = icon;
+}
+
+function syncTime() {
+  const audio = $('audio');
+  const dur = audio.duration || 0;
+  const cur = audio.currentTime || 0;
+  $('pBar').style.width = dur ? `${(cur / dur) * 100}%` : '0';
+  $('pTime').textContent = `${time(cur) || '0:00'} / ${time(dur) || '0:00'}`;
+  $('fCur').textContent = time(cur) || '0:00';
+  $('fDur').textContent = time(dur) || '0:00';
+  if (!$('fSeek').matches(':active')) $('fSeek').value = dur ? Math.round((cur / dur) * 1000) : 0;
 }
 
 // ---------------------------------------------------------------- события
@@ -631,11 +707,29 @@ function afterPayment(restored) {
   setTimeout(wait, 2000);
 }
 
-$('playerToggle').addEventListener('click', () => {
+['playerToggle', 'fToggle'].forEach((id) => $(id).addEventListener('click', () => {
   const audio = $('audio');
   if (audio.paused) audio.play(); else audio.pause();
+}));
+['play', 'pause'].forEach((ev) => $('audio').addEventListener(ev, syncButtons));
+$('audio').addEventListener('ended', () => { if (qi < queue.length - 1) step(1); else syncButtons(); });
+['timeupdate', 'loadedmetadata'].forEach((ev) => $('audio').addEventListener(ev, syncTime));
+$('fSeek').addEventListener('input', () => {
+  const audio = $('audio');
+  if (audio.duration) audio.currentTime = ($('fSeek').value / 1000) * audio.duration;
 });
-['play', 'pause', 'ended'].forEach((ev) => $('audio').addEventListener(ev, syncButtons));
+$('pPrev').addEventListener('click', () => step(-1));
+$('pNext').addEventListener('click', () => step(1));
+$('fPrev').addEventListener('click', () => step(-1));
+$('fNext').addEventListener('click', () => step(1));
+['pOpen', 'pExpand'].forEach((id) => $(id).addEventListener('click', () => fullPlayer(true)));
+$('fClose').addEventListener('click', () => fullPlayer(false));
+$('fLyricsBtn').addEventListener('click', () => { $('fLyrics').hidden = !$('fLyrics').hidden; });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('full').hidden) fullPlayer(false); });
+$('pPrev').innerHTML = ICON.prev; $('fPrev').innerHTML = ICON.prev;
+$('pNext').innerHTML = ICON.next; $('fNext').innerHTML = ICON.next;
+$('pExpand').innerHTML = ICON.expand; $('fClose').innerHTML = ICON.down;
+$('fDownload').innerHTML = ICON.download;
 
 knobText();
 lyricsCount();

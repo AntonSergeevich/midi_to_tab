@@ -155,10 +155,41 @@
   </div>
 </div>
 
+<!-- Плеер: полоска внизу, по нажатию -- во весь экран (как в Яндекс Музыке) -->
 <div class="st-player" id="player" hidden>
-  <button type="button" class="play-btn" id="playerToggle" aria-label="Пауза"></button>
-  <div class="st-player-info"><b id="playerTitle"></b><small id="playerSub" class="muted"></small></div>
-  <audio id="audio" controls preload="none"></audio>
+  <div class="st-pprogress"><i id="pBar"></i></div>
+  <button type="button" class="st-popen" id="pOpen" aria-label="Открыть плеер">
+    <span class="st-pcover" id="pCover"></span>
+    <span class="st-player-info"><b id="playerTitle"></b><small id="playerSub"></small></span>
+  </button>
+  <span class="st-ptime" id="pTime">0:00</span>
+  <button type="button" class="st-pbtn" id="pPrev" aria-label="Предыдущая"></button>
+  <button type="button" class="play-btn" id="playerToggle" aria-label="Играть"></button>
+  <button type="button" class="st-pbtn" id="pNext" aria-label="Следующая"></button>
+  <button type="button" class="st-pbtn st-pexpand" id="pExpand" aria-label="Во весь экран"></button>
+  <audio id="audio" preload="metadata"></audio>
+</div>
+
+<div class="st-full" id="full" hidden>
+  <div class="st-full-bg" id="fBg"></div>
+  <div class="st-full-inner">
+    <div class="st-full-head">
+      <button type="button" class="st-pbtn" id="fClose" aria-label="Свернуть"></button>
+      <span>Сейчас играет</span>
+      <a class="st-pbtn" id="fDownload" download aria-label="Скачать"></a>
+    </div>
+    <div class="st-full-cover" id="fCover"></div>
+    <div class="st-full-title"><h2 id="fTitle"></h2><p id="fSub"></p></div>
+    <input type="range" id="fSeek" min="0" max="1000" value="0" aria-label="Перемотка">
+    <div class="st-full-times"><span id="fCur">0:00</span><span id="fDur">0:00</span></div>
+    <div class="st-full-controls">
+      <button type="button" class="st-pbtn" id="fPrev" aria-label="Предыдущая"></button>
+      <button type="button" class="play-btn big" id="fToggle" aria-label="Играть"></button>
+      <button type="button" class="st-pbtn" id="fNext" aria-label="Следующая"></button>
+    </div>
+    <button type="button" class="st-full-lyrics-btn" id="fLyricsBtn" hidden>Текст песни</button>
+    <pre class="st-full-lyrics" id="fLyrics" hidden></pre>
+  </div>
 </div>
 
 <script src="/static/studio.js"></script>
