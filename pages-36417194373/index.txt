@@ -1,0 +1,6 @@
+200 https://platform.mureka.ai/docs/
+200 https://platform.mureka.ai/docs/en/changelog.html
+200 https://platform.mureka.ai/docs/en/quickstart.html
+200 https://platform.mureka.ai/docs/en/faq.html
+200 https://platform.mureka.ai/sitemap.xml
+404 https://platform.mureka.ai/docs/sitemap.xml
