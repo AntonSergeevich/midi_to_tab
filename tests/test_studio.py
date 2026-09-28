@@ -796,3 +796,30 @@ def test_upload_needs_rights_mark_and_stores_it(studio_app):
     job_id = _start(client, mode="stems", rights="cover").json()["jobId"]
     stored = app_module.storage.job(job_id).settings["rights"]
     assert stored["kind"] == "cover" and stored["at"] > 0
+
+
+def test_shift_tempo_and_key_makes_child_version(studio_app, monkeypatch):
+    """Темп и тональность: дочерняя работа у трека, считается на своём сервере, бесплатно."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    app_module.storage.add_balance(user.id, 150)
+    job_id = _start(client).json()["jobId"]
+    folder = app_module.studio_runner.folder(job_id)
+    open(f"{folder}/restyle_1.mp3", "wb").write(b"song")
+    app_module.storage.update_job(job_id, status="done", result={
+        "files": [{"name": "restyle_1.mp3", "label": "Вариант 1"}]})
+    balance = app_module.storage.user(user.id).balance
+    assert client.post(f"/api/studio/{job_id}/shift", data={"file": "restyle_1.mp3"}).status_code == 400
+    child = client.post(f"/api/studio/{job_id}/shift",
+                        data={"file": "restyle_1.mp3", "semitones": "-2", "tempo": "90"}).json()["jobId"]
+    assert app_module.storage.user(user.id).balance == balance          # бесплатно
+    calls = []
+    monkeypatch.setattr(studio, "shift_audio", lambda src, dst, st, tempo: calls.append((st, tempo))
+                        or open(dst, "wb").write(b"shifted"))
+    studio.StudioRunner(app_module.storage, app_module.DATA_DIR)._run(child)
+    job = app_module.storage.job(child)
+    assert job.status == "done", job.error
+    assert calls == [(-2, 0.9)]
+    assert job.result["files"][0]["label"] == "−2 полутона, темп 90%"
+    listed = {j["id"]: j for j in client.get("/api/studio").json()["jobs"]}
+    assert listed[child]["from"] == job_id and "темп 90%" in listed[child]["title"]

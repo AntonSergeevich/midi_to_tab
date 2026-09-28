@@ -1537,6 +1537,37 @@ def api_studio_split_result(job_id: str, request: Request, file: str = Form(""))
     return {"jobId": job.id, "from": title}
 
 
+@app.post("/api/studio/{job_id}/shift")
+def api_studio_shift(job_id: str, request: Request, file: str = Form(""),
+                     semitones: int = Form(0), tempo: float = Form(100)):
+    """Темп и тональность любой готовой версии -- на своём сервере, бесплатно."""
+    user = current_user(request)
+    parent = storage.job(job_id)
+    if (not parent or parent.user_id != user.id
+            or (parent.settings or {}).get("kind") != "studio" or parent.status != "done"):
+        raise HTTPException(404, "Готовая работа не найдена")
+    names = [f["name"] for f in (parent.result or {}).get("files") or []]
+    source = os.path.join(studio_runner.folder(job_id), file)
+    if file not in names or not os.path.isfile(source):
+        raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
+    semitones = max(-12, min(12, int(semitones)))
+    rate = max(50.0, min(150.0, float(tempo))) / 100
+    if semitones == 0 and round(rate * 100) == 100:
+        raise HTTPException(400, "Сдвиньте тон или темп")
+    # Сдвиг партии -- к её треку, а не к работе «Партии»
+    owner = (parent.settings or {}).get("from") or job_id
+    job = storage.create_job(user.id, parent.filename, {
+        "kind": "studio", "mode": "shift", "title": "Темп и тональность", "from": owner,
+        "variant": f"{studio.label_of((parent.settings or {}).get('mode', ''), file)} · "
+                   f"{studio.shift_label(semitones, rate)}",
+        "engine": "local", "semitones": semitones, "tempo": rate, "charged": 0})
+    folder = studio_runner.folder(job.id)
+    os.makedirs(folder, exist_ok=True)
+    shutil.copyfile(source, os.path.join(folder, "source.mp3"))
+    studio_runner.submit(job.id, {"mode": "shift"})
+    return {"jobId": job.id}
+
+
 @app.post("/api/studio/{job_id}/tabs")
 def api_studio_to_tabs(job_id: str, request: Request, file: str = Form("")):
     """Готовую песню или партию Студии -- в обычный разбор NASLUX: табы, аккорды, MIDI."""

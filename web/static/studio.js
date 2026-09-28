@@ -29,6 +29,7 @@ const ICON = {
   next: '<svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>',
   expand: '<svg viewBox="0 0 24 24"><path d="M15 4h5v5M9 20H4v-5M20 4l-6 6M4 20l6-6"/></svg>',
   down: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
+  tempo: '<svg viewBox="0 0 24 24"><path d="M9 3h6l3 18H6L9 3zM12 14l5-6M8 17h8"/></svg>',
   more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
   again: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15m0 5v-5h5"/></svg>',
 };
@@ -320,7 +321,7 @@ function renderDetail(jobs) {
         data-url="${f.url}" data-split-ok="${j.mode !== 'stems' ? 1 : ''}" title="Что сделать">${ICON.more}</button>
     </div>`).join('') : `<div class="st-version"><div class="st-row-main">${statusLine(j)}</div></div>`;
   const parts = children.map((c) => `
-    <div class="st-sub"><div class="st-label">Партии · ${esc((c.title.split('·')[1] || '').trim())}</div>
+    <div class="st-sub"><div class="st-label">${esc(c.title)}</div>
       ${c.status === 'done' ? c.files.map((f) => `
         <div class="st-version small">${playButton(f, `${j.name}: ${f.label}`)}
           <div class="st-row-main"><b>${esc(f.label)}</b></div>
@@ -629,6 +630,7 @@ function openMenu(button) {
     : `<a href="${button.dataset.url}" download>${ICON.download}<span>Скачать mp3</span></a>`
       + item('tabs', ICON.tabs, 'Табы, аккорды и MIDI')
       + (button.dataset.splitOk ? item('split', ICON.split, 'Разделить на партии') : '')
+      + item('shift', ICON.tempo, 'Темп и тональность')
       + '<hr>' + item('again', ICON.again, 'Повторить с этими настройками');
   const box = button.getBoundingClientRect();
   menu.hidden = false;
@@ -670,6 +672,21 @@ async function act(what, jobId, fileName) {
   }
   const form = new FormData();
   form.append('file', fileName || '');
+  if (what === 'shift') {
+    const choice = await askShift();
+    if (!choice) return;
+    form.append('semitones', choice.semitones);
+    form.append('tempo', choice.tempo);
+    const response = await fetch(`/api/studio/${jobId}/shift`, { method: 'POST', body: form });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      toast(`${pick(OOPS, Date.now())} ${error.detail || ''}`);
+    } else {
+      toast('Подкручиваем колки и метроном — новая версия появится под треком 🎚');
+    }
+    load();
+    return;
+  }
   if (what === 'split') {
     const price = info.unlimited ? '' : ` за ${rub(info.services.stems.price)}`;
     if (!confirm(`Разделить эту версию на партии${price}?`)) return;
@@ -688,6 +705,28 @@ async function act(what, jobId, fileName) {
     if (response.ok) location.href = `/player/${data.jobId}`;
     else toast(`${pick(OOPS, Date.now())} ${data.detail || ''}`);
   }
+}
+
+function askShift() {
+  return new Promise((resolve) => {
+    const modal = $('shiftModal');
+    const sync = () => {
+      const tone = Number($('shiftTone').value);
+      $('shiftToneVal').textContent = tone > 0 ? `+${tone}` : String(tone);
+      $('shiftTempoVal').textContent = `${$('shiftTempo').value}%`;
+      $('shiftOk').disabled = tone === 0 && Number($('shiftTempo').value) === 100;
+    };
+    $('shiftTone').value = 0;
+    $('shiftTempo').value = 100;
+    modal.oninput = sync;
+    sync();
+    modal.hidden = false;
+    $('shiftOk').onclick = () => {
+      modal.hidden = true;
+      resolve({ semitones: $('shiftTone').value, tempo: $('shiftTempo').value });
+    };
+    $('shiftCancel').onclick = () => { modal.hidden = true; resolve(null); };
+  });
 }
 
 // Вернулись с оплаты: деньги могут дойти через пару секунд -- ждём их и

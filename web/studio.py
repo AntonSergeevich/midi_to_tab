@@ -431,6 +431,42 @@ def mix_vocals(vocals: str, backing: str, target: str) -> None:
                     "-b:a", "256k", target], check=True, timeout=300)
 
 
+def shift_audio(source: str, target: str, semitones: int, tempo: float) -> None:
+    """Сдвиг тональности (полутоны) и темпа (1.0 = как было) без «эффекта
+    бурундука»: rubberband сохраняет тембр. Если ffmpeg собран без него --
+    передискретизация (asetrate) и выравнивание длины atempo."""
+    ratio = 2 ** (semitones / 12)
+    good = f"rubberband=pitch={ratio:.6f}:tempo={tempo:.4f}"
+    try:
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", source, "-af", good, "-b:a", "256k", target],
+                       check=True, timeout=600, capture_output=True)
+        return
+    except subprocess.CalledProcessError:
+        pass
+    speed = tempo / ratio          # после asetrate темп вырос в ratio раз -- возвращаем
+    chain = []
+    while speed < 0.5:
+        chain.append("atempo=0.5")
+        speed /= 0.5
+    while speed > 2.0:
+        chain.append("atempo=2.0")
+        speed /= 2.0
+    chain.append(f"atempo={speed:.5f}")
+    filters = f"asetrate=44100*{ratio:.6f},aresample=44100," + ",".join(chain)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", source, "-ar", "44100", "-af", filters,
+                    "-b:a", "256k", target], check=True, timeout=600)
+
+
+def shift_label(semitones: int, tempo: float) -> str:
+    parts = []
+    if semitones:
+        parts.append(f"{'+' if semitones > 0 else '−'}{abs(semitones)} полутон"
+                     + ("а" if abs(semitones) in (2, 3, 4) else "" if abs(semitones) == 1 else "ов"))
+    if round(tempo * 100) != 100:
+        parts.append(f"темп {round(tempo * 100)}%")
+    return ", ".join(parts) or "без изменений"
+
+
 def download(url: str, target: str) -> None:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=300) as response, open(target, "wb") as out:
@@ -529,6 +565,9 @@ class StudioRunner:
         if job and (job.settings or {}).get("engine") == "mureka":
             self._run_mureka(job_id)
             return
+        if job and (job.settings or {}).get("engine") == "local":
+            self._run_local(job_id)
+            return
         try:
             job = self.storage.job(job_id)
             settings = dict(job.settings or {})
@@ -563,6 +602,22 @@ class StudioRunner:
             self._finish(job_id, output, status)
         except Exception as error:  # noqa: BLE001 -- любая ошибка -> деньги назад
             self._fail(job_id, str(error))
+
+    def _run_local(self, job_id: str) -> None:
+        """Работа на своём сервере без нейросетей: темп и тональность."""
+        try:
+            job = self.storage.job(job_id)
+            settings = job.settings or {}
+            folder = self.folder(job_id)
+            self.storage.update_job(job_id, status="running", stage="Подкручиваем колки и метроном",
+                                    progress=30)
+            semitones, tempo = int(settings.get("semitones", 0)), float(settings.get("tempo", 1.0))
+            shift_audio(os.path.join(folder, "source.mp3"), os.path.join(folder, "shifted.mp3"),
+                        semitones, tempo)
+            self.storage.update_job(job_id, status="done", stage="Готово", progress=100, result={
+                "files": [{"name": "shifted.mp3", "label": shift_label(semitones, tempo)}]})
+        except Exception as error:  # noqa: BLE001
+            self._fail(job_id, f"не получилось изменить темп и тон: {error}")
 
     def _mureka_wait(self, job_id: str, kind: str, task_id: str, created_at: float,
                      stage: str = "") -> dict:
