@@ -25,6 +25,10 @@ from pathlib import Path
 
 from midi2tab import (audiochords, audioin, cleanup, gp5out,
                      lyrics as lyrics_mod, midiin, separate, shapes)
+# Имена, не "chords": в _analyze уже есть локальная переменная chords
+# (список аккордов результата) -- импорт под тем же именем перекрыл бы модуль.
+from midi2tab.chords import detect as detect_midi_chords
+from midi2tab.chords import pitch_class_weights as midi_pitch_weights
 from midi2tab.convert import Settings, convert
 from midi2tab.timing import TPQ
 
@@ -322,6 +326,29 @@ class JobRunner:
                 key = analysis.key
                 if not tempo and analysis.tempo:
                     tempo = int(round(analysis.tempo))
+            else:
+                # Аккорды по нотам самого MIDI -- ударные дорожки в них не
+                # участвуют, у них нет высоты и они только исказили бы профиль.
+                bar.begin("Слушаю аккорды...", 2, 97, "chords")
+                doc = midiin.load(source_path)
+                if not tempo:
+                    tempo = int(round(doc.tempo_bpm))
+                notes = doc.merged_notes([t.index for t in doc.tracks if not t.is_drum])
+                spans = detect_midi_chords(notes, total_ticks=doc.total_ticks)
+                chords = []
+                for span in spans:
+                    start_s, end_s = span.seconds(tempo)
+                    chords.append({
+                        "name": span.name,
+                        "start": round(start_s, 3),
+                        "end": round(end_s, 3),
+                        "confidence": round(span.confidence, 2),
+                    })
+                if notes:
+                    import numpy as np
+
+                    weights = midi_pitch_weights(notes, doc.total_ticks)
+                    key = audiochords.key_name(audiochords.guess_key(np.array(weights).reshape(12, 1)))
 
             result_data = {
                 "kind": "analysis",

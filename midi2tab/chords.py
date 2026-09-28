@@ -105,6 +105,14 @@ def _profile(notes: list[NoteEvent], start: int, end: int) -> tuple[list[float],
     return weights, lowest_pitch % 12
 
 
+def pitch_class_weights(notes: list[NoteEvent], total_ticks: int | None = None) -> list[float]:
+    """Сколько всего звучал каждый класс высоты за всю пьесу -- профиль для
+    определения тональности там, где хромаграммы по звуку нет (MIDI)."""
+    end = total_ticks if total_ticks is not None else (max((n.end for n in notes), default=0))
+    weights, _bass = _profile(notes, 0, end)
+    return weights
+
+
 def match(weights: list[float], bass: int | None = None) -> tuple[str, int, float]:
     """Подобрать аккорд к профилю. Возвращает (подпись, основной тон, уверенность)."""
     total = sum(weights)
