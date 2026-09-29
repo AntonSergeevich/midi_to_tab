@@ -18,13 +18,15 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-# Модель раунда 2 (GuitarSet + 500 песен AAM полным составом, веса классов,
-# аугментации). Прежняя v2 лежит рядом: NASLUX_CHORD_MODEL=v2 -- откат без
-# выкладки кода. Замеры 28.09.2026 (majmin): полный состав AAM (блок, которого
-# не слышала ни одна модель) 0.696 -> 0.969, свежая синтетика 0.769 -> 0.884,
-# гитара соло GuitarSet 0.911 -> 0.888.
+# Модель с расширенными аккордами: 121 класс (к мажору/минору и септаккордам
+# добавлены sus4, sus2, dim, aug, 6), GuitarSet + 500 песен AAM + 8% синтетики.
+# Замеры 29.09.2026: гитара соло GuitarSet majmin 0.888 -> 0.890; свежая
+# синтетика majmin 0.804 -> 0.836, mirex 0.699 -> 0.824; попадания sus4 78%,
+# dim 70%, sus2 и aug 44% (прежняя не ставила их вовсе). Откат без выкладки
+# кода: NASLUX_CHORD_MODEL=r2 (прошлая, 61 класс) или v2 (самая первая).
 _MODELS = Path(__file__).resolve().parent / "models"
-MODEL = _MODELS / ("chordnet_v2.onnx" if os.environ.get("NASLUX_CHORD_MODEL") == "v2" else "chordnet.onnx")
+_VARIANTS = {"r2": "chordnet_r2.onnx", "v2": "chordnet_v2.onnx"}
+MODEL = _MODELS / _VARIANTS.get(os.environ.get("NASLUX_CHORD_MODEL", ""), "chordnet.onnx")
 
 # Должно совпадать с scripts/chordnet/common.py
 SR = 22050
