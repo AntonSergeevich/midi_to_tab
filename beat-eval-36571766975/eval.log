@@ -1,0 +1,11 @@
+guitarset  librosa            точность1 0.572  точность2 0.650  n=180  0.19 с на минуту звука
+  return {"acc1": round(float(ok1.mean()), 3), "acc2": round(float(ok2.mean()), 3), "n": len(estimates)}
+  ret = ret.dtype.type(ret / rcount)
+guitarset  beatthis_final0    точность1 nan  точность2 nan  n=180  0.0 с на минуту звука
+guitarset  beatthis_small0    точность1 nan  точность2 nan  n=180  0.0 с на минуту звука
+aam        librosa            точность1 0.625  точность2 0.850  n=80  0.07 с на минуту звука
+aam        beatthis_final0    точность1 nan  точность2 nan  n=80  0.0 с на минуту звука
+aam        beatthis_small0    точность1 nan  точность2 nan  n=80  0.0 с на минуту звука
+synth      librosa            точность1 0.469  точность2 0.844  n=32  0.08 с на минуту звука
+synth      beatthis_final0    точность1 nan  точность2 nan  n=32  0.0 с на минуту звука
+synth      beatthis_small0    точность1 nan  точность2 nan  n=32  0.0 с на минуту звука
