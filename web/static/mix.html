@@ -36,7 +36,8 @@
     </div>
     <div class="mx-facts">
       <div class="mx-fact"><small>Тональность</small><b id="factKey">—</b></div>
-      <div class="mx-fact"><small>Темп</small><b id="factBpm">—</b></div>
+      <button type="button" class="mx-fact mx-fact-btn" id="tempoBtn" title="Темп определился неверно? Поправьте">
+        <small>Темп <span aria-hidden="true">✎</span></small><b id="factBpm">—</b></button>
     </div>
   </section>
 
@@ -116,6 +117,31 @@
     <div class="st-modal-actions">
       <button type="button" id="shiftCancel">Отмена</button>
       <button type="button" class="primary" id="shiftOk" disabled>Сделать</button>
+    </div>
+  </div>
+</div>
+<!-- Свой темп: когда автоопределение ошиблось (81 читается как 108) -->
+<div class="st-modal" id="tempoModal" hidden>
+  <div class="st-modal-box" role="dialog" aria-modal="true" aria-labelledby="tempoTitle">
+    <h3 id="tempoTitle">Темп песни</h3>
+    <p class="muted">Ошибся автомат? Впишите темп или отстучите его — метроном, такты и сетка пойдут по нему.
+      Сохраняется при треке.</p>
+    <div class="mx-tempo-row">
+      <button type="button" class="icon-btn" id="tempoHalf" title="Вдвое медленнее">÷2</button>
+      <label class="mx-tempo-val"><input type="number" id="tempoVal" min="30" max="300" step="0.5"
+        inputmode="decimal" aria-label="Темп, ударов в минуту"><span>BPM</span></label>
+      <button type="button" class="icon-btn" id="tempoDouble" title="Вдвое быстрее">×2</button>
+    </div>
+    <button type="button" class="mx-tap" id="tempoTap">Отстучать<small id="tapInfo">нажимайте в такт — 4 раза и больше</small></button>
+    <div class="mx-tempo-row">
+      <button type="button" class="icon-btn" id="tempoPlay">▶ Играть</button>
+      <button type="button" class="icon-btn" id="tempoOne" title="Нажмите на «раз» такта, пока играет песня">«Раз» — здесь</button>
+    </div>
+    <p class="muted mx-tempo-note" id="tempoNote"></p>
+    <div class="st-modal-actions">
+      <button type="button" id="tempoReset" hidden>Вернуть авто</button>
+      <button type="button" id="tempoCancel">Отмена</button>
+      <button type="button" class="primary" id="tempoOk">Сохранить</button>
     </div>
   </div>
 </div>

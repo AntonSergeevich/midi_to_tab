@@ -996,6 +996,18 @@ header.top > nav.topnav {
 }
 .mx-fact small { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
 .mx-fact b { font-size: 20px; color: var(--accent); }
+.mx-fact-btn { font: inherit; color: inherit; cursor: pointer; text-align: inherit; }
+.mx-fact-btn:hover, .mx-fact-btn.fixed { border-color: rgba(217,154,78,.6); }
+.mx-fact-btn small span { opacity: .7; }
+.mx-tempo-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 14px 0; flex-wrap: wrap; }
+.mx-tempo-val { display: flex; align-items: baseline; gap: 6px; }
+.mx-tempo-val input { width: 110px; font-size: 28px; font-weight: 700; text-align: center; padding: 6px 8px; }
+.mx-tempo-val span { color: var(--muted); }
+.mx-tap { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; padding: 18px;
+  font-size: 18px; font-weight: 700; border-radius: 14px; touch-action: manipulation; user-select: none; }
+.mx-tap small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.mx-tap.hit { border-color: var(--accent); background: rgba(217,154,78,.15); }
+.mx-tempo-note { font-size: 13px; text-align: center; min-height: 1.2em; }
 .mx-transport {
   position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
   padding: 10px 12px; margin-bottom: 12px; border-radius: 14px;

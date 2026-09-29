@@ -1410,9 +1410,11 @@ def studio_page() -> HTMLResponse:
 
 
 def _first_analysis(result: dict, field: str):
-    """Тональность/темп первой разобранной версии -- для строки трека."""
+    """Тональность/темп первой разобранной версии -- для строки трека
+    (темп, поправленный музыкантом, важнее автоопределения)."""
     for name in [f["name"] for f in result.get("files") or []]:
-        value = ((result.get("analysis") or {}).get(name) or {}).get(field)
+        value = (((result.get("tempoFix") or {}) if field == "bpm" else {}).get(name)
+                 or (result.get("analysis") or {}).get(name) or {}).get(field)
         if value:
             return value
     return None
@@ -1434,7 +1436,7 @@ def _studio_job_payload(job) -> dict:
         "charged": settings.get("charged", 0),
         "bpm": (result.get("settings") or {}).get("bpm") or _first_analysis(result, "bpm"),
         "key": (result.get("settings") or {}).get("key_scale") or _first_analysis(result, "key"),
-        "keys": {name: {"key": a.get("key"), "bpm": a.get("bpm")}
+        "keys": {name: {"key": a.get("key"), "bpm": ((result.get("tempoFix") or {}).get(name) or a).get("bpm")}
                  for name, a in (result.get("analysis") or {}).items() if not a.get("error")},
         "sourceFile": settings.get("sourceFile", ""),
         "files": files,
@@ -1772,9 +1774,51 @@ def api_studio_analysis(job_id: str, request: Request, file: str = ""):
         raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
     cached = ((job.result or {}).get("analysis") or {}).get(file)
     if cached and cached.get("v") == studio.ANALYSIS_VERSION:
-        return cached
+        owner, name = _tempo_owner(job, file)
+        return studio.with_tempo(cached, ((owner.result or {}).get("tempoFix") or {}).get(name))
     studio_runner.analyze_later(job_id, file)
     return {"pending": True}
+
+
+def _tempo_owner(job, file: str):
+    """Где хранится поправленный темп: у партий -- на исходном треке, чтобы
+    Студия, мультитрек и метроном показывали одно и то же."""
+    settings = job.settings or {}
+    if file == "harmony.wav" and settings.get("from") and settings.get("sourceFile"):
+        parent = storage.job(settings["from"])
+        if parent and parent.user_id == job.user_id:
+            return parent, settings["sourceFile"]
+    return job, file
+
+
+@app.post("/api/studio/{job_id}/tempo")
+def api_studio_tempo(job_id: str, request: Request, file: str = Form(""), bpm: float = Form(0),
+                     start: float = Form(0)):
+    """Свой темп и сильная доля вместо автоопределения; bpm=0 -- вернуть авто."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if (not job or job.user_id != user.id or (job.settings or {}).get("kind") != "studio"
+            or job.status != "done"):
+        raise HTTPException(404, "Готовая работа не найдена")
+    if bpm and not 30 <= bpm <= 300:
+        raise HTTPException(400, "Темп — от 30 до 300 ударов в минуту")
+    names = [f["name"] for f in (job.result or {}).get("files") or []]
+    if file == "harmony":
+        file = "harmony.wav"
+    elif file == "source" or file not in names + ["harmony.wav"]:
+        raise HTTPException(400, "Неизвестная версия трека")
+    owner, name = _tempo_owner(job, file)
+    with studio_runner._analysis_lock:
+        fresh = storage.job(owner.id)
+        result = dict(fresh.result or {})
+        fixes = dict(result.get("tempoFix") or {})
+        if bpm:
+            fixes[name] = {"bpm": round(bpm, 2), "start": round(max(0.0, start), 3)}
+        else:
+            fixes.pop(name, None)
+        result["tempoFix"] = fixes
+        storage.update_job(owner.id, result=result)
+    return {"ok": True}
 
 
 DRUMS = re.compile(r"drum|барабан|ударн", re.IGNORECASE)

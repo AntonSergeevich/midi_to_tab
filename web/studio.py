@@ -589,6 +589,23 @@ def analyze_audio(path: str) -> dict:
             "chords": [[round(c.start, 2), round(c.end, 2), c.name] for c in found.chords]}
 
 
+def with_tempo(analysis: dict, fix: dict | None) -> dict:
+    """Темп, который музыкант поправил сам: ровная сетка долей от его
+    сильной доли, такт -- четыре доли. Автоопределение ошибается на
+    «качающихся» песнях (81 читается как 108), а метроному нужна точность."""
+    if not fix or not fix.get("bpm") or analysis.get("error"):
+        return analysis
+    step = 60.0 / fix["bpm"]
+    start = float(fix.get("start") or 0.0)
+    ends = [b for b in analysis.get("beats") or []] + [c[1] for c in analysis.get("chords") or []]
+    end = max(ends, default=start) + step
+    first = start - step * int(start / step)
+    beats = [round(first + k * step, 3) for k in range(int((end - first) / step) + 1)]
+    downbeats = [b for k, b in enumerate(beats) if (k - round((start - first) / step)) % 4 == 0]
+    return {**analysis, "bpm": round(fix["bpm"], 1) if fix["bpm"] % 1 else int(fix["bpm"]),
+            "beats": beats, "downbeats": downbeats, "autoBpm": analysis.get("bpm"), "fixed": True}
+
+
 def safe_file_name(name: str) -> str | None:
     """Имя файла от воркера: простое имя mp3/mid/zip (или обложка), без путей."""
     if name == "cover.jpg":

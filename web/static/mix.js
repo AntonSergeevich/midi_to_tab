@@ -257,7 +257,10 @@ function peaksOf(buffer, n) {
   return out.map((v) => v / top);
 }
 
+let analysisSrc = null;    // {owner, name} -- чей разбор; туда же сохраняется свой темп
+
 async function loadAnalysis(owner, name) {
+  analysisSrc = { owner, name };
   for (let tries = 0; tries < 40; tries++) {
     let answer = await fetch(`/api/studio/${owner}/analysis?file=${encodeURIComponent(name)}`)
       .then((r) => (r.ok ? r.json() : { error: 'нет' })).catch(() => ({ error: 'сеть' }));
@@ -267,9 +270,11 @@ async function loadAnalysis(owner, name) {
       answer = analysis;
       $('factKey').textContent = answer.key || '—';
       $('factBpm').textContent = answer.bpm ? `${answer.bpm} BPM` : '—';
+      $('tempoBtn').classList.toggle('fixed', Boolean(answer.fixed));
       beats = answer.beats && answer.beats.length ? answer.beats : gridBeats(answer.bpm);
       downbeats = new Set((answer.downbeats || []).map((b) => b.toFixed(2)));
       meter();
+      if (playing) nextBeat = Math.max(0, beats.findIndex((b) => b >= position()));
       if (duration) redraw();
       return;
     }
@@ -297,6 +302,7 @@ function shiftAnalysis(a, shift) {
   const t = (x) => Math.round((x / rate) * 1000) / 1000;
   return {
     key: transpose(a.key, st), bpm: a.bpm ? Math.round(a.bpm * rate) : a.bpm,
+    autoBpm: a.autoBpm ? Math.round(a.autoBpm * rate) : a.autoBpm, fixed: a.fixed,
     beats: (a.beats || []).map(t), downbeats: (a.downbeats || []).map(t),
     chords: (a.chords || []).map(([x, y, n]) => [t(x), t(y), transpose(n, st)]),
   };
@@ -1105,6 +1111,90 @@ $('loop').addEventListener('click', () => {
   pressed('loop', loop.on);
   drawRuler();
 });
+// ---------------------------------------------------------------- свой темп
+// Автомат путает соседние пульсации на «качающихся» песнях (81 -> 108).
+// Музыкант вписывает темп или отстукивает его под песню; «раз» ставит
+// сильную долю. Всё -- в единицах открытой версии (сдвинутая по темпу
+// версия пересчитывается к оригиналу при сохранении).
+const tempo = { bpm: 0, start: 0, taps: [] };
+
+function tempoNote(text) { $('tempoNote').textContent = text; }
+
+$('tempoBtn').addEventListener('click', () => {
+  if (!analysis || !analysisSrc) {
+    toast($('factBpm').textContent === '…' ? 'Темп ещё определяется — секунду' : 'Не получилось разобрать запись');
+    return;
+  }
+  tempo.bpm = analysis.bpm || 120;
+  tempo.start = (analysis.downbeats && analysis.downbeats[0]) || (beats[0] || 0);
+  tempo.taps = [];
+  $('tempoVal').value = tempo.bpm;
+  $('tempoReset').hidden = !analysis.fixed;
+  tempoNote(analysis.fixed ? `Сейчас ваш темп. Автомат определил ${analysis.autoBpm || '—'} BPM.`
+    : 'Не уверены? Включите песню и нажимайте «Отстучать» на каждую долю.');
+  $('tempoPlay').textContent = playing ? '❚❚ Пауза' : '▶ Играть';
+  $('tempoModal').hidden = false;
+});
+
+function setTempo(bpm) {
+  tempo.bpm = Math.round(Math.max(30, Math.min(300, bpm)) * 2) / 2;
+  $('tempoVal').value = tempo.bpm;
+}
+$('tempoVal').addEventListener('input', () => { tempo.bpm = Number($('tempoVal').value) || 0; });
+$('tempoHalf').addEventListener('click', () => setTempo((Number($('tempoVal').value) || tempo.bpm) / 2));
+$('tempoDouble').addEventListener('click', () => setTempo((Number($('tempoVal').value) || tempo.bpm) * 2));
+
+function tap() {
+  const now = performance.now();
+  if (tempo.taps.length && now - tempo.taps[tempo.taps.length - 1].at > 2500) tempo.taps = [];
+  tempo.taps.push({ at: now, pos: playing ? position() : null });
+  const taps = tempo.taps.slice(-12);
+  $('tempoTap').classList.add('hit');
+  setTimeout(() => $('tempoTap').classList.remove('hit'), 90);
+  if (taps.length < 2) { $('tapInfo').textContent = 'ещё…'; return; }
+  const step = (taps[taps.length - 1].at - taps[0].at) / (taps.length - 1);
+  setTempo(60000 / step);
+  // Доли встают туда, куда вы стучите; «раз» -- на первый удар серии
+  if (taps[0].pos !== null) tempo.start = taps[0].pos;
+  $('tapInfo').textContent = taps.length < 4 ? `${taps.length} удара — ещё пару` : `${taps.length} ударов · ${tempo.bpm} BPM`;
+}
+$('tempoTap').addEventListener('pointerdown', (e) => { e.preventDefault(); tap(); });
+$('tempoTap').addEventListener('keydown', (e) => { if (e.code === 'Enter') { e.preventDefault(); tap(); } });
+
+$('tempoPlay').addEventListener('click', async () => {
+  await play();
+  $('tempoPlay').textContent = playing ? '❚❚ Пауза' : '▶ Играть';
+});
+$('tempoOne').addEventListener('click', () => {
+  tempo.start = position();
+  tempoNote(`«Раз» такта — на ${clock(tempo.start)}`);
+});
+
+function closeTempo() { $('tempoModal').hidden = true; }
+$('tempoCancel').addEventListener('click', closeTempo);
+$('tempoModal').addEventListener('click', (e) => { if (e.target === $('tempoModal')) closeTempo(); });
+
+async function saveTempo(bpm) {
+  const rate = (shifted && shifted.shift.tempo) || 1;
+  const form = new FormData();
+  form.append('file', analysisSrc.name);
+  form.append('bpm', bpm ? String(bpm / rate) : '0');
+  form.append('start', String(tempo.start * rate));
+  const answer = await fetch(`/api/studio/${analysisSrc.owner}/tempo`, { method: 'POST', body: form });
+  const data = await answer.json().catch(() => ({}));
+  if (!answer.ok) { toast(data.detail || 'Не получилось сохранить темп'); return; }
+  closeTempo();
+  await loadAnalysis(analysisSrc.owner, analysisSrc.name);
+  toast(bpm ? `Темп ${analysis && analysis.bpm} BPM сохранён — метроном идёт по нему`
+    : 'Вернули автоматический темп');
+}
+$('tempoOk').addEventListener('click', () => {
+  const bpm = Number($('tempoVal').value);
+  if (!(bpm >= 30 && bpm <= 300)) { tempoNote('Темп — от 30 до 300 ударов в минуту'); return; }
+  saveTempo(bpm);
+});
+$('tempoReset').addEventListener('click', () => saveTempo(0));
+
 document.addEventListener('keydown', (e) => {
   if (e.code !== 'Space' || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) && e.target.type !== 'range') return;
   e.preventDefault();

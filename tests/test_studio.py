@@ -1214,3 +1214,46 @@ def test_own_track_in_mixer_is_kept_with_the_track(studio_app, tmp_path):
     assert client.post(f"/api/studio/{job.id}/extra", files={"file": ("a.exe", b"x")}).status_code == 400
     assert client.delete(f"/api/studio/{job.id}/extra/{extra['name']}").json() == {"ok": True}
     assert os.listdir(folder) == [] and app_module.storage.job(job.id).result["extras"] == []
+
+
+def test_own_tempo_replaces_detected_one_everywhere(studio_app, monkeypatch):
+    """Музыкант поправил темп (автомат дал 108 вместо 81): ровная сетка от
+    его «раз», в строке трека -- его темп; у партий темп хранится на
+    исходном треке; bpm=0 возвращает автоопределение."""
+    import os
+
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    parent = app_module.storage.create_job(user.id, "song.mp3", {"kind": "studio", "mode": "upload"})
+    folder = app_module.studio_runner.folder(parent.id)
+    os.makedirs(folder, exist_ok=True)
+    open(os.path.join(folder, "track.mp3"), "wb").close()
+    auto = {"v": studio.ANALYSIS_VERSION, "key": "Dm", "bpm": 108, "beats": [0.3, 0.86, 1.41],
+            "downbeats": [0.3], "chords": [[0, 12, "Dm"]]}
+    app_module.storage.update_job(parent.id, status="done", result={
+        "files": [{"name": "track.mp3", "label": "Оригинал"}], "analysis": {"track.mp3": auto}})
+
+    assert client.post(f"/api/studio/{parent.id}/tempo", data={"file": "track.mp3", "bpm": 500}).status_code == 400
+    assert client.post(f"/api/studio/{parent.id}/tempo",
+                       data={"file": "track.mp3", "bpm": 81, "start": 1.5}).json() == {"ok": True}
+    fixed = client.get(f"/api/studio/{parent.id}/analysis?file=track.mp3").json()
+    assert fixed["bpm"] == 81 and fixed["autoBpm"] == 108 and fixed["fixed"] is True
+    step = 60 / 81
+    assert 1.5 in fixed["downbeats"] and all(abs(b - a - step) < 0.002 for a, b in zip(fixed["beats"], fixed["beats"][1:]))
+    assert abs(fixed["downbeats"][1] - fixed["downbeats"][0] - 4 * step) < 0.003
+    listed = {j["id"]: j for j in client.get("/api/studio").json()["jobs"]}
+    assert listed[parent.id]["bpm"] == 81 and listed[parent.id]["keys"]["track.mp3"]["bpm"] == 81
+
+    # Мультитрек партий правит темп исходного трека
+    stems = app_module.storage.create_job(user.id, "song.mp3", {"kind": "studio", "mode": "stems",
+                                                                "from": parent.id, "sourceFile": "track.mp3"})
+    os.makedirs(app_module.studio_runner.folder(stems.id), exist_ok=True)
+    open(os.path.join(app_module.studio_runner.folder(stems.id), "harmony.wav"), "wb").close()
+    app_module.storage.update_job(stems.id, status="done", result={"files": [], "analysis": {"harmony.wav": auto}})
+    client.post(f"/api/studio/{stems.id}/tempo", data={"file": "harmony", "bpm": 80, "start": 0})
+    assert app_module.storage.job(parent.id).result["tempoFix"]["track.mp3"]["bpm"] == 80
+    assert client.get(f"/api/studio/{stems.id}/analysis?file=harmony").json()["bpm"] == 80
+
+    client.post(f"/api/studio/{parent.id}/tempo", data={"file": "track.mp3", "bpm": 0})
+    back = client.get(f"/api/studio/{parent.id}/analysis?file=track.mp3").json()
+    assert back["bpm"] == 108 and "fixed" not in back
