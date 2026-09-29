@@ -182,6 +182,7 @@ def main() -> None:
     parser.add_argument("--weights", action="store_true", help="веса классов по качеству аккорда")
     parser.add_argument("--augment", action="store_true", help="аугментации спектра")
     parser.add_argument("--smoothing", type=float, default=0.0, help="сглаживание меток")
+    parser.add_argument("--hidden", type=int, default=128, help="ширина рекуррентного слоя (128 -- как на сайте)")
     parser.add_argument("--export", default="chordnet.onnx")
     parser.add_argument("--report", default="report.json")
     parser.add_argument("--baseline", action="store_true", help="считать и старый разбор")
