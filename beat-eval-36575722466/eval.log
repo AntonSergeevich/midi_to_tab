@@ -1,0 +1,10 @@
+guitarset  librosa            точность1 0.572  точность2 0.650  n=180  0.19 с на минуту звука
+[0;93m2026-09-29 13:54:10.921466478 [W:onnxruntime:Default, device_discovery.cc:146 GetPciBusId] Skipping pci_bus_id for PCI path at "/sys/devices/LNXSYSTM:00/LNXSYBUS:00/ACPI0004:00/MSFT1000:00/5620e0c7-8062-4dce-aeb7-520c7ef76171" because filename "5620e0c7-8062-4dce-aeb7-520c7ef76171" did not match expected pattern of [0-9a-f]+:[0-9a-f]+:[0-9a-f]+[.][0-9a-f]+[m
+guitarset  beatthis_final0    точность1 0.906  точность2 0.989  n=180  3.1 с на минуту звука
+guitarset  beatthis_small0    точность1 0.861  точность2 0.961  n=180  1.77 с на минуту звука
+aam        librosa            точность1 0.625  точность2 0.850  n=80  0.07 с на минуту звука
+aam        beatthis_final0    точность1 0.775  точность2 0.912  n=80  2.49 с на минуту звука
+aam        beatthis_small0    точность1 0.775  точность2 0.925  n=80  1.38 с на минуту звука
+synth      librosa            точность1 0.469  точность2 0.844  n=32  0.08 с на минуту звука
+synth      beatthis_final0    точность1 0.906  точность2 1.000  n=32  3.45 с на минуту звука
+synth      beatthis_small0    точность1 0.875  точность2 0.969  n=32  1.92 с на минуту звука
