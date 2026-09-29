@@ -2363,7 +2363,16 @@ async def api_webhook(gateway_name: str, request: Request):
     except Exception:
         payload = dict(await request.form())
 
-    gateway = billing.provider()
+    # Провайдер выбирается по адресу, а не по текущей переменной
+    # PAYMENT_PROVIDER: URL прописан в кабинете мерчанта именно затем,
+    # чтобы смена активного провайдера не роняла уведомления от старого
+    # (см. докстринг выше). billing.provider() читает именно эту
+    # переменную и годится только для СОЗДАНИЯ платежа -- для проверки
+    # входящего уведомления нужен ровно тот сервис, что в пути запроса.
+    gateway_cls = billing.PROVIDERS.get(gateway_name)
+    if gateway_cls is None:
+        raise HTTPException(404, "Неизвестный платёжный сервис")
+    gateway = gateway_cls()
     verified = gateway.verify(raw, request.headers, payload)
     if not verified:
         # Отвергнутое уведомление сохраняем обязательно: именно по нему

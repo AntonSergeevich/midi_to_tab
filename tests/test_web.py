@@ -1192,6 +1192,47 @@ def test_a_repeated_notice_credits_only_once(tmp_path, monkeypatch):
         assert app_module.storage.user(user.id).credits == 1
 
 
+def test_webhook_uses_provider_from_url_not_from_env(tmp_path, monkeypatch):
+    """
+    Регрессия: обработчик вебхука выбирал провайдера через billing.provider()
+    (переменная PAYMENT_PROVIDER), а не по имени в самом адресе -- хотя
+    докстринг api_webhook прямо объясняет, зачем у каждого сервиса свой
+    путь: чтобы смена активного провайдера не роняла уведомления от
+    старого. Если владелец переключил PAYMENT_PROVIDER на "yookassa", пока
+    ждёт оплату, начатую через GetPlatinum, уведомление на
+    /api/webhook/getplatinum должно по-прежнему проверяться и приниматься
+    именно GetPlatinum, а не тем, что сейчас в PAYMENT_PROVIDER.
+    """
+    import hashlib
+    import hmac
+    import sys
+
+    key = "f" * 64
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    # Активный провайдер для НОВЫХ платежей уже переключён на yookassa...
+    monkeypatch.setenv("PAYMENT_PROVIDER", "yookassa")
+    # ...но у GetPlatinum остались свои настроенные реквизиты -- платёж,
+    # созданный до переключения, всё ещё ждёт именно его уведомления.
+    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", key)
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        app_module.storage.create_payment(user.id, 19.0, "zakaz-1", plan="single")
+
+        body = b'{"notificationType": 1, "dealId": "zakaz-1", "isSuccess": true}'
+        checksum = hmac.new(key.encode(), body, hashlib.sha256).hexdigest().upper()
+        headers = {"X-Checksum": checksum, "Content-Type": "application/json"}
+
+        response = client.post("/api/webhook/getplatinum", content=body, headers=headers)
+        assert response.status_code == 200
+        assert app_module.storage.user(user.id).credits == 1
+
+
 def test_topup_webhook_credits_exact_amount_and_only_once(tmp_path, monkeypatch):
     """
     Пополнение через настоящий вебхук: зачисляется именно оплаченная
