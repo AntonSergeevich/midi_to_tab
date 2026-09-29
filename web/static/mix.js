@@ -101,6 +101,7 @@ function save() {
   try {
     localStorage.setItem(STORE, JSON.stringify({
       metro: metroOn, countIn, metroVol: $('metroVol').value, hidden: [...hidden],
+      metroMode: $('metroMode').value, trackHeight,
       tracks: Object.fromEntries(tracks.filter((t) => !t.local).map((t) => [t.name, {
         mute: t.mute, solo: t.solo, vol: t.vol, trimStart: t.trimStart, trimEnd: t.trimEnd,
       }])),
@@ -171,6 +172,8 @@ async function loadTracks(list) {
   metroOn = Boolean(memory.metro);
   countIn = Boolean(memory.countIn);
   if (memory.metroVol) $('metroVol').value = memory.metroVol;
+  if (memory.metroMode) $('metroMode').value = memory.metroMode;
+  if (memory.trackHeight) setTrackHeight(memory.trackHeight, false);
   metroGain.gain.value = Number($('metroVol').value) / 100;
   pressed('metro', metroOn);
   pressed('countIn', countIn);
@@ -250,6 +253,7 @@ async function loadAnalysis(owner, name) {
       $('factBpm').textContent = answer.bpm ? `${answer.bpm} BPM` : '—';
       beats = answer.beats && answer.beats.length ? answer.beats : gridBeats(answer.bpm);
       downbeats = new Set((answer.downbeats || []).map((b) => b.toFixed(2)));
+      meter();
       if (duration) redraw();
       return;
     }
@@ -371,6 +375,41 @@ $('shiftBtn').addEventListener('click', async () => {
   waitShift(data.jobId);
 });
 
+// Метроном: доля -> место в такте (0 -- сильная) и номер такта. Режимы --
+// каждая доля, через долю (1 и 3), раз в такт, раз в два такта: на быстром
+// темпе щёлкать каждую долю утомительно, а музыканту хватает «раз».
+let beatPos = [];
+let beatBar = [];
+function meter() {
+  beatPos = [];
+  beatBar = [];
+  let pos = -1;
+  let bar = -1;
+  const known = downbeats.size > 0;
+  beats.forEach((b, k) => {
+    if (known ? downbeats.has(b.toFixed(2)) || pos < 0 : k % 4 === 0) { pos = 0; bar += 1; } else pos += 1;
+    beatPos.push(pos);
+    beatBar.push(bar);
+  });
+}
+
+function metroKeeps(k) {
+  const mode = $('metroMode').value;
+  if (mode === 'half') return beatPos[k] % 2 === 0;
+  if (mode === 'bar') return beatPos[k] === 0;
+  if (mode === 'bar2') return beatPos[k] === 0 && beatBar[k] % 2 === 0;
+  return true;
+}
+
+// Высота дорожек: Alt + колесо (Ctrl + колесо -- масштаб по времени)
+let trackHeight = 64;
+function setTrackHeight(h, persist = true) {
+  trackHeight = Math.round(Math.max(40, Math.min(220, h)));
+  $('board').style.setProperty('--track-h', `${trackHeight}px`);
+  sizeCanvases();
+  if (persist) save();
+}
+
 function gridBeats(bpm) {
   if (!bpm || !duration) return [];
   const step = 60 / bpm;
@@ -458,7 +497,7 @@ function sizeCanvases() {
   const dpr = window.devicePixelRatio || 1;
   document.querySelectorAll('.mx-lane canvas').forEach((c) => {
     c.width = Math.max(100, Math.round(c.clientWidth * dpr));
-    c.height = Math.round((c.id === 'ruler' ? 46 : Math.max(64, c.clientHeight)) * dpr);
+    c.height = Math.round((c.id === 'ruler' ? 46 : Math.max(trackHeight, c.clientHeight)) * dpr);
   });
   redraw();
 }
@@ -689,8 +728,8 @@ setInterval(() => {
   if (metroOn) {
     while (nextBeat < beats.length && beats[nextBeat] < now + 0.15) {
       const b = beats[nextBeat];
-      if (b >= startPos - 0.001 && (!loop.on || b < loop.b)) {
-        click(startTime + (b - startPos), downbeats.has(b.toFixed(2)));
+      if (b >= startPos - 0.001 && (!loop.on || b < loop.b) && metroKeeps(nextBeat)) {
+        click(startTime + (b - startPos), beatPos[nextBeat] === 0);
       }
       nextBeat += 1;
     }
@@ -710,6 +749,32 @@ function secAt(e, el) {
   const box = el.getBoundingClientRect();
   return Math.max(0, Math.min(duration, viewStart + Math.max(0, Math.min(1, (e.clientX - box.left) / box.width)) * viewLen()));
 }
+
+// Курсор (белая полоса) можно взять мышью и перетащить в нужное место
+$('playhead').addEventListener('pointerdown', (e) => {
+  if (!duration) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const lane = document.querySelector('.mx-ruler-row .mx-lane');
+  const wasPlaying = playing;
+  if (playing) pause();
+  $('playhead').setPointerCapture(e.pointerId);
+  $('playhead').classList.add('drag');
+  const move = (ev) => { pos = secAt(ev, lane); movePlayhead(); };
+  const up = () => {
+    $('playhead').removeEventListener('pointermove', move);
+    $('playhead').removeEventListener('pointerup', up);
+    $('playhead').classList.remove('drag');
+    if (wasPlaying) play();
+  };
+  $('playhead').addEventListener('pointermove', move);
+  $('playhead').addEventListener('pointerup', up);
+});
+
+$('metroMode').addEventListener('change', () => {
+  if (playing) nextBeat = beats.findIndex((b) => b >= position());
+  save();
+});
 
 document.addEventListener('pointerdown', (e) => {
   const wave = e.target.closest('[data-wave]');
@@ -808,7 +873,10 @@ $('zoomOut').addEventListener('click', () => setZoom(zoom / 2, playing ? positio
 $('board').addEventListener('wheel', (e) => {
   if (!duration) return;
   const lane = document.querySelector('.mx-ruler-row .mx-lane').getBoundingClientRect();
-  if (e.ctrlKey || e.metaKey) {
+  if (e.altKey) {
+    e.preventDefault();
+    setTrackHeight(trackHeight * (e.deltaY < 0 ? 1.15 : 0.87));
+  } else if (e.ctrlKey || e.metaKey) {
     e.preventDefault();
     const at = viewStart + Math.max(0, Math.min(1, (e.clientX - lane.left) / lane.width)) * viewLen();
     setZoom(zoom * (e.deltaY < 0 ? 1.25 : 0.8), at);

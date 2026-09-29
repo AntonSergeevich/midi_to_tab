@@ -1024,11 +1024,17 @@ header.top > div > .badge { margin-left: 8px; text-decoration: none; }
 .mx-ms.solo[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #15161c; }
 .mx-vol { flex: 1; min-width: 0; }
 .mx-lane { position: relative; min-width: 0; }
-.mx-lane canvas { display: block; width: 100%; height: 100%; min-height: 64px; cursor: pointer; touch-action: none; }
-.mx-ruler-row .mx-lane canvas { height: 46px; cursor: crosshair; }
+.mx-lane canvas { display: block; width: 100%; height: 100%; min-height: var(--track-h, 64px); cursor: pointer; touch-action: none; }
+.mx-ruler-row .mx-lane canvas { height: 46px; min-height: 46px; cursor: crosshair; }
 .mx-row.silent .mx-name b { color: var(--muted); text-decoration: line-through; }
-.mx-playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: #fff; opacity: .85;
-  pointer-events: none; box-shadow: 0 0 8px rgba(255,255,255,.5); }
+/* Курсор -- тонкая линия, но ухватить его можно в полосе 14 px */
+.mx-playhead { position: absolute; top: 0; bottom: 0; left: -6px; width: 14px; cursor: ew-resize; touch-action: none;
+  z-index: 3; background: linear-gradient(90deg, transparent 6px, rgba(255,255,255,.9) 6px, rgba(255,255,255,.9) 8px, transparent 8px); }
+.mx-playhead::before { content: ""; position: absolute; top: 0; left: 1px; width: 12px; height: 12px;
+  border-radius: 0 0 6px 6px; background: #fff; box-shadow: 0 0 8px rgba(255,255,255,.5); }
+.mx-playhead.drag, .mx-playhead:hover { filter: drop-shadow(0 0 6px rgba(217,154,78,.9)); }
+.mx-select { width: auto; flex: none; height: 36px; padding: 0 10px; border-radius: 999px; background: var(--panel-hi); border: 1px solid var(--border);
+  color: var(--text); font-size: 13px; }
 .mx-split[hidden] { display: none; }
 .mx-split { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 14px; padding: 16px;
   border-radius: 14px; border: 1px dashed rgba(217,154,78,.6); background: rgba(217,154,78,.06); }

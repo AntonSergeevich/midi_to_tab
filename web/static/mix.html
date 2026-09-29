@@ -52,6 +52,12 @@
     <span class="mx-sep"></span>
     <button type="button" class="mx-toggle" id="metro" aria-pressed="false" title="Метроном по долям песни">
       <span class="mx-led"></span>Метроном</button>
+    <select id="metroMode" class="mx-select" title="Как часто щёлкать" aria-label="Режим метронома">
+      <option value="all">каждая доля</option>
+      <option value="half">через долю</option>
+      <option value="bar">раз в такт</option>
+      <option value="bar2">раз в 2 такта</option>
+    </select>
     <label class="mx-mini" title="Громкость метронома"><input type="range" id="metroVol" min="0" max="100" value="70"
       aria-label="Громкость метронома"></label>
     <button type="button" class="mx-toggle" id="countIn" aria-pressed="false" title="Такт отсчёта перед стартом">
@@ -89,7 +95,7 @@
 
   <p class="muted mx-help">
     Пробел — играть/пауза · клик по волне — перемотка · тяните края волны — обрезать дорожку ·
-    выделите кусок на линейке — повтор · Ctrl + колесо — масштаб, Shift + колесо — прокрутка. Метроном идёт по долям самой песни, а не по ровной сетке.
+    выделите кусок на линейке — повтор · Ctrl + колесо — масштаб, Shift + колесо — прокрутка, Alt + колесо — высота дорожек · белую полосу можно тянуть мышью. Метроном идёт по долям самой песни, а не по ровной сетке.
   </p>
 </div>
 <!-- Тон и темп всех дорожек: считается на сервере, тембр сохраняется -->
