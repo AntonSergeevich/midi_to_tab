@@ -146,6 +146,17 @@ async function init() {
   const list = shifted ? shifted.files.map((f) => ({ name: stems ? f.label : 'Трек целиком', url: f.url }))
     : stems ? stems.files.map((f) => ({ name: f.label, url: f.url }))
       : [{ name: version.label === 'Оригинал' ? 'Трек целиком' : version.label, url: version.url }];
+  // Свои дорожки (репетиция, подложка) хранятся при треке. В сдвинутой
+  // версии их нет: они в исходной тональности и темпе.
+  if (!shifted) {
+    const taken = new Set(list.map((item) => item.name));
+    (job.extras || []).filter((x) => x.for === (params.get('file') || '')).forEach((x) => {
+      let name = x.label;
+      while (taken.has(name)) name += ' ·';
+      taken.add(name);
+      list.push({ name, url: x.url, extra: x.name });
+    });
+  }
   $('sub').textContent = stems
     ? `${list.length} ${plural(list.length, 'дорожка', 'дорожки', 'дорожек')}${job.mode === 'stems' ? '' : ` · ${version.label}`}`
     : 'Одна дорожка — разделите трек, чтобы глушить отдельные инструменты';
@@ -193,6 +204,7 @@ async function loadTracks(list) {
     const buffer = await ctx.decodeAudioData(data);
     const remembered = (memory.tracks || {})[item.name] || {};
     tracks[index] = makeTrack(item.name, item.url, buffer, remembered);
+    tracks[index].extra = item.extra || '';
     note(`Загружаем дорожки: ${++done} из ${list.length}…`);
   }));
   note('');
@@ -482,7 +494,8 @@ function render() {
       <div class="mx-ctrl">
         <div class="mx-name" data-grab="${i}" title="Перетащите выше или ниже, чтобы поменять порядок">
           <span class="mx-grip" data-grip="${i}" aria-hidden="true">⠿</span><i style="background:${t.color}"></i><b title="${esc(t.name)}">${esc(t.name)}</b>
-          ${t.local ? '<em title="Только в этом окне, на сервер не отправляется">своя</em>' : ''}</div>
+          ${t.local ? `<em title="Загружаем на сервер…">${t.uploading ? 'загрузка…' : 'не сохранена'}</em>`
+    : t.extra ? '<em title="Ваша дорожка — хранится при этом треке">своя</em>' : ''}</div>
         <div class="mx-btns">
           <button type="button" class="mx-ms" data-mute="${i}" aria-pressed="${t.mute}" title="Заглушить">M</button>
           <button type="button" class="mx-ms solo" data-solo="${i}" aria-pressed="${t.solo}" title="Только эта (соло)">S</button>
@@ -1026,9 +1039,14 @@ document.addEventListener('click', (e) => {
   if (solo) { const t = tracks[solo.dataset.solo]; t.solo = !t.solo; solo.setAttribute('aria-pressed', t.solo); }
   if (remove) {
     if (tracks.length === 1) { toast('Последнюю дорожку убрать нельзя'); return; }
+    const doomed = tracks[Number(remove.dataset.remove)];
+    if (doomed.extra && !confirm(`Удалить дорожку «${doomed.name}»? Её придётся загружать заново.`)) return;
     const [t] = tracks.splice(Number(remove.dataset.remove), 1);
     t.gain.disconnect();
-    if (!t.local) { hidden.add(t.name); save(); showHidden(); }
+    if (t.extra) {
+      fetch(`/api/studio/${jobId}/extra/${t.extra}`, { method: 'DELETE' })
+        .then((r) => toast(r.ok ? 'Дорожка удалена' : 'Не получилось удалить дорожку на сервере'));
+    } else if (!t.local) { hidden.add(t.name); save(); showHidden(); }
     duration = Math.max(...tracks.map((x) => x.buffer.duration));
     $('total').textContent = clock(duration);
     render();
@@ -1102,19 +1120,64 @@ $('addFile').addEventListener('change', async (e) => {
   e.target.value = '';
   if (!chosen) return;
   audio();
-  try {
-    const buffer = await ctx.decodeAudioData(await chosen.arrayBuffer());
-    const name = chosen.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'Своя дорожка';
-    tracks.push(makeTrack(name, '', buffer, {}, true));
-    duration = Math.max(duration, buffer.duration);
-    $('total').textContent = clock(duration);
-    render();
-    if (playing) startAt(position());
-    toast('Дорожка добавлена — она живёт только в этом окне, на сервер не отправляется');
-  } catch (error) {
-    toast('Этот файл не получилось прочитать — попробуйте mp3 или wav');
+  let name = chosen.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'Своя дорожка';
+  while (tracks.some((x) => x.name === name)) name += ' ·';
+  let buffer = null;
+  try { buffer = await ctx.decodeAudioData(await chosen.arrayBuffer()); } catch (error) { buffer = null; }
+  if (!buffer) {
+    // Браузер не читает формат (amr, 3gp, иногда m4a) -- сервер перекодирует в mp3
+    toast('Перекодируем запись на сервере…');
+    const saved = await uploadExtra(name, chosen);
+    if (!saved) return;
+    try {
+      buffer = await ctx.decodeAudioData(await (await fetch(saved.url)).arrayBuffer());
+    } catch (error) { toast('Этот файл не получилось прочитать — попробуйте mp3 или wav'); return; }
+    const t = makeTrack(name, saved.url, buffer);
+    t.extra = saved.name;
+    addLoaded(t);
+    toast('Дорожка сохранена — она будет здесь и в следующий раз, на любом устройстве');
+    save();
+    return;
   }
+  // Формат браузеру знаком -- дорожка играет сразу, на сервер уходит параллельно
+  const t = makeTrack(name, '', buffer, {}, true);
+  t.uploading = true;
+  addLoaded(t);
+  toast('Дорожка добавлена, сохраняем её при треке…');
+  const saved = await uploadExtra(name, chosen);
+  t.uploading = false;
+  if (saved) {
+    Object.assign(t, { local: false, url: saved.url, extra: saved.name });
+    toast('Дорожка сохранена — она будет здесь и в следующий раз, на любом устройстве');
+    save();
+  }
+  render();
 });
+
+function addLoaded(t) {
+  tracks.push(t);
+  duration = Math.max(duration, t.buffer.duration);
+  $('total').textContent = clock(duration);
+  render();
+  if (playing) startAt(position());
+}
+
+// Дорожка хранится при треке: на репетиции открыл -- она уже на месте
+async function uploadExtra(label, chosen) {
+  const form = new FormData();
+  form.append('file', chosen);
+  form.append('label', label);
+  form.append('version', params.get('file') || '');
+  try {
+    const answer = await fetch(`/api/studio/${jobId}/extra`, { method: 'POST', body: form });
+    const data = await answer.json().catch(() => ({}));
+    if (!answer.ok) throw new Error(data.detail || 'сервер не принял файл');
+    return data;
+  } catch (error) {
+    toast(`Дорожка не сохранилась: ${error.message}`, 7000);
+    return null;
+  }
+}
 
 $('exportMix').addEventListener('click', async () => {
   if (!tracks.length) return;

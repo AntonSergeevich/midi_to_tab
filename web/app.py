@@ -12,9 +12,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import secrets
+import subprocess
 import urllib.parse
 import shutil
 import sys
@@ -1447,6 +1449,8 @@ def _studio_job_payload(job) -> dict:
                      if os.path.isfile(os.path.join(folder, a))],
         "pro": bool(result.get("pro")),
         "midiBusy": [n for j, n in studio_runner.transcribing if j == job.id],
+        "extras": [{**x, "url": f"/api/studio/file/{job.id}/{x['name']}"} for x in result.get("extras") or []
+                   if os.path.isfile(os.path.join(folder, x["name"]))],
         "shift": {"of": settings.get("shiftOf"), "file": settings.get("shiftFile"),
                   "semitones": settings.get("semitones", 0), "tempo": settings.get("tempo", 1.0)}
         if settings.get("mode") == "shift" else None,
@@ -2071,8 +2075,80 @@ def api_studio_file(job_id: str, name: str, request: Request):
         base = Path(job.filename).stem[:60] or "naslux"
         return FileResponse(path, filename=f"{base} — {safe}",
                             media_type="audio/midi" if safe.endswith(".mid") else "application/zip")
-    label = studio.label_of((job.settings or {}).get("mode", ""), safe)
+    extra = next((x for x in (job.result or {}).get("extras") or [] if x["name"] == safe), None)
+    label = extra["label"] if extra else studio.label_of((job.settings or {}).get("mode", ""), safe)
     return FileResponse(path, filename=download_name(job.filename, label, ".mp3"))
+
+
+EXTRAS_PER_TRACK = 8
+# Диктофоны телефонов пишут и в aac/opus/amr -- ffmpeg прочтёт всё
+EXTRA_ALLOWED = (".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aiff", ".aif",
+                 ".aac", ".opus", ".webm", ".amr", ".3gp", ".wma", ".mp4")
+
+
+@app.post("/api/studio/{job_id}/extra")
+async def api_studio_extra(job_id: str, request: Request, file: UploadFile = File(...),
+                           label: str = Form(""), version: str = Form("")):
+    """Своя дорожка мультитрека (запись с репетиции, подложка) -- хранится
+    при треке, как и его партии: открыл на репетиции -- она уже там.
+    Перекодируем в mp3: меньше трафика, и любой браузер её прочитает."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if (not job or job.user_id != user.id or (job.settings or {}).get("kind") != "studio"
+            or job.status != "done"):
+        raise HTTPException(404, "Готовая работа не найдена")
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in EXTRA_ALLOWED:
+        raise HTTPException(400, "Нужен аудиофайл: mp3, wav, m4a, flac, ogg, aac, opus")
+    if len((job.result or {}).get("extras") or []) >= EXTRAS_PER_TRACK:
+        raise HTTPException(400, f"К одному треку — не больше {EXTRAS_PER_TRACK} своих дорожек")
+    folder = studio_runner.folder(job_id)
+    os.makedirs(folder, exist_ok=True)
+    name = f"extra_{secrets.token_hex(4)}.mp3"
+    raw = os.path.join(folder, f"{name}.upload{suffix}")
+    size, limit = 0, MAX_UPLOAD_MB * 1024 * 1024
+    try:
+        with open(raw, "wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > limit:
+                    raise HTTPException(413, f"Файл больше {MAX_UPLOAD_MB} МБ")
+                out.write(chunk)
+        done = await asyncio.to_thread(subprocess.run, [
+            "ffmpeg", "-v", "error", "-y", "-i", raw, "-vn", "-ac", "2", "-ar", "44100", "-b:a", "192k",
+            os.path.join(folder, name)], capture_output=True, timeout=300)
+        if done.returncode or not os.path.isfile(os.path.join(folder, name)):
+            raise HTTPException(400, "Этот файл не получилось прочитать — попробуйте mp3 или wav")
+    finally:
+        if os.path.exists(raw):
+            os.remove(raw)
+    entry = {"name": name, "label": (label.strip() or "Своя дорожка")[:40], "for": version[:120]}
+    with studio_runner._analysis_lock:
+        fresh = storage.job(job_id)
+        result = dict(fresh.result or {})
+        result["extras"] = (result.get("extras") or []) + [entry]
+        storage.update_job(job_id, result=result)
+    return {**entry, "url": f"/api/studio/file/{job_id}/{name}"}
+
+
+@app.delete("/api/studio/{job_id}/extra/{name}")
+def api_studio_extra_delete(job_id: str, name: str, request: Request):
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(404, "Готовая работа не найдена")
+    with studio_runner._analysis_lock:
+        fresh = storage.job(job_id)
+        result = dict(fresh.result or {})
+        extras = result.get("extras") or []
+        if not any(x["name"] == name for x in extras):
+            raise HTTPException(404, "Дорожка не найдена")
+        result["extras"] = [x for x in extras if x["name"] != name]
+        storage.update_job(job_id, result=result)
+    path = os.path.join(studio_runner.folder(job_id), name)
+    if os.path.isfile(path):
+        os.remove(path)
+    return {"ok": True}
 
 
 @app.delete("/api/studio/{job_id}")

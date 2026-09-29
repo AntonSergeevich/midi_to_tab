@@ -1173,3 +1173,44 @@ def test_mixer_tempo_comes_from_the_whole_track_not_harmony(studio_app, monkeypa
     assert result["bpm"] == 96 and result["beats"] == [0.0, 0.625]
     assert result["chords"] == [[0, 4, "Dm"]]                  # аккорды -- по гармонии
     assert app_module.storage.job(parent.id).result["analysis"]["track.mp3"]["bpm"] == 96
+
+
+def test_own_track_in_mixer_is_kept_with_the_track(studio_app, tmp_path):
+    """Своя дорожка мультитрека хранится при треке: перекодирована в mp3,
+    видна в списке работ, скачивается, удаляется; чужим -- недоступна."""
+    import os
+    import subprocess
+    import urllib.parse
+
+    app_module, client, user, submitted = studio_app
+    job = app_module.storage.create_job(user.id, "song.mp3", {"kind": "studio", "mode": "upload"})
+    os.makedirs(app_module.studio_runner.folder(job.id), exist_ok=True)
+    app_module.storage.update_job(job.id, status="done", result={"files": []})
+    take = tmp_path / "репетиция.m4a"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                    str(take)], check=True)
+    answer = client.post(f"/api/studio/{job.id}/extra", data={"label": "Репетиция", "version": "track.mp3"},
+                         files={"file": (take.name, take.read_bytes(), "audio/mp4")})
+    assert answer.status_code == 200, answer.text
+    extra = answer.json()
+    assert extra["label"] == "Репетиция" and extra["for"] == "track.mp3" and extra["name"].endswith(".mp3")
+    folder = app_module.studio_runner.folder(job.id)
+    assert sorted(os.listdir(folder)) == [extra["name"]]            # исходник загрузки не остаётся
+    listed = {j["id"]: j for j in client.get("/api/studio").json()["jobs"]}
+    assert [x["label"] for x in listed[job.id]["extras"]] == ["Репетиция"]
+    file = client.get(extra["url"])
+    assert file.status_code == 200 and "Репетиция" in urllib.parse.unquote(file.headers["content-disposition"])
+
+    from fastapi.testclient import TestClient
+
+    stranger = TestClient(app_module.app)
+    stranger.cookies.set("uid", app_module.signer.dumps(app_module.storage.ensure_user(None).id))
+    assert stranger.delete(f"/api/studio/{job.id}/extra/{extra['name']}").status_code == 404
+    assert stranger.post(f"/api/studio/{job.id}/extra", files={"file": ("a.mp3", b"x")}).status_code == 404
+    assert stranger.get(extra["url"]).status_code == 404
+
+    bad = client.post(f"/api/studio/{job.id}/extra", files={"file": ("битый.mp3", b"not audio")})
+    assert bad.status_code == 400 and sorted(os.listdir(folder)) == [extra["name"]]
+    assert client.post(f"/api/studio/{job.id}/extra", files={"file": ("a.exe", b"x")}).status_code == 400
+    assert client.delete(f"/api/studio/{job.id}/extra/{extra['name']}").json() == {"ok": True}
+    assert os.listdir(folder) == [] and app_module.storage.job(job.id).result["extras"] == []
