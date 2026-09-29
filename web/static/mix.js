@@ -53,6 +53,13 @@ const loop = { on: false, a: 0, b: 0 };
 let job = null;
 let info = null;
 let file = '';
+// Окно просмотра: вся песня в один экран -- такт в 10 px, названия аккордов
+// не помещаются. По умолчанию видно ~30 секунд, при игре окно едет за
+// курсором; «−/＋» и Ctrl+колесо -- масштаб, колесо с Shift -- прокрутка.
+let zoom = 1;
+let viewStart = 0;
+const viewLen = () => (duration || 1) / zoom;
+const toX = (sec, w) => ((sec - viewStart) / viewLen()) * w;
 let hidden = new Set();   // убранные дорожки (по названию) -- помнятся в браузере
 let base = null;          // набор дорожек для сдвига: {id, file ('*' -- все партии)}
 let shifted = null;       // открытая сдвинутая версия (задача «Темп и тональность»)
@@ -184,6 +191,7 @@ async function loadTracks(list) {
   note('');
   duration = Math.max(...tracks.map((t) => t.buffer.duration));
   $('total').textContent = clock(duration);
+  zoom = duration > 45 ? duration / 30 : 1;
   render();
 }
 
@@ -242,8 +250,7 @@ async function loadAnalysis(owner, name) {
       $('factBpm').textContent = answer.bpm ? `${answer.bpm} BPM` : '—';
       beats = answer.beats && answer.beats.length ? answer.beats : gridBeats(answer.bpm);
       downbeats = new Set((answer.downbeats || []).map((b) => b.toFixed(2)));
-      drawRuler();
-      tracks.forEach(drawTrack);
+      if (duration) redraw();
       return;
     }
     $('factKey').textContent = '…';
@@ -453,9 +460,7 @@ function sizeCanvases() {
     c.width = Math.max(100, Math.round(c.clientWidth * dpr));
     c.height = Math.round((c.id === 'ruler' ? 46 : Math.max(64, c.clientHeight)) * dpr);
   });
-  drawRuler();
-  tracks.forEach(drawTrack);
-  movePlayhead();
+  redraw();
 }
 
 function audible(t) {
@@ -481,7 +486,7 @@ function drawTrack(t, i) {
   const h = c.height;
   const dpr = window.devicePixelRatio || 1;
   g.clearRect(0, 0, w, h);
-  const x = (sec) => (sec / duration) * w;
+  const x = (sec) => toX(sec, w);
   // такты -- тонкие линии, чтобы обрезать ровно по сильной доле
   g.fillStyle = 'rgba(255,255,255,.06)';
   beats.forEach((b) => { if (downbeats.has(b.toFixed(2))) g.fillRect(Math.round(x(b)), 0, dpr, h); });
@@ -489,10 +494,11 @@ function drawTrack(t, i) {
   const on = audible(t);
   for (let k = 0; k < bars; k++) {
     const sec = (k / bars) * t.buffer.duration;
+    if (sec < viewStart - 1 || sec > viewStart + viewLen() + 1) continue;
     const inside = sec >= t.trimStart && sec <= t.trimEnd;
     const amp = Math.max(1, t.peaks[k] * (h / 2 - 3 * dpr));
     g.fillStyle = !inside ? 'rgba(255,255,255,.10)' : on ? t.color : 'rgba(167,171,184,.35)';
-    g.fillRect(x(sec), h / 2 - amp, Math.max(1, w / bars * (t.buffer.duration / duration)), amp * 2);
+    g.fillRect(x(sec), h / 2 - amp, Math.max(1, w / bars * (t.buffer.duration / viewLen())), amp * 2);
   }
   // обрезанное -- затемнено, края -- ручки
   g.fillStyle = 'rgba(10,11,15,.55)';
@@ -509,7 +515,7 @@ function drawRuler() {
   const w = c.width;
   const h = c.height;
   const dpr = window.devicePixelRatio || 1;
-  const x = (sec) => (sec / duration) * w;
+  const x = (sec) => toX(sec, w);
   g.clearRect(0, 0, w, h);
   if (loop.b > loop.a) {
     g.fillStyle = loop.on ? 'rgba(217,154,78,.22)' : 'rgba(217,154,78,.10)';
@@ -520,10 +526,13 @@ function drawRuler() {
   g.textBaseline = 'middle';
   ((analysis && analysis.chords) || []).forEach(([a, b, name], k) => {
     g.fillStyle = k % 2 ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.09)';
+    if (x(b) < 0 || x(a) > w) return;
     g.fillRect(x(a), h * 0.5, x(b) - x(a) - dpr, h * 0.5);
-    if (x(b) - x(a) > g.measureText(name).width + 6 * dpr) {
+    // начало аккорда левее окна -- подпись прижимается к краю экрана
+    const left = Math.max(x(a), 0);
+    if (x(b) - left > g.measureText(name).width + 6 * dpr) {
       g.fillStyle = '#e8e3da';
-      g.fillText(name, x(a) + 3 * dpr, h * 0.75);
+      g.fillText(name, left + 3 * dpr, h * 0.75);
     }
   });
   // такты -- номер над сильной долей (не гуще, чем раз в 36 px)
@@ -542,13 +551,53 @@ function drawRuler() {
   });
 }
 
+function redraw() {
+  drawRuler();
+  tracks.forEach(drawTrack);
+  movePlayhead();
+  $('zoomLabel').textContent = zoom > 1 ? `${Math.round(viewLen())} с` : 'вся песня';
+}
+
+function setZoom(next, around) {
+  if (!duration) return;
+  const center = around ?? viewStart + viewLen() / 2;
+  const frac = (center - viewStart) / viewLen();
+  zoom = Math.max(1, Math.min(48, next));
+  viewStart = Math.max(0, Math.min(duration - viewLen(), center - frac * viewLen()));
+  redraw();
+}
+
+// Крупно, как в Chord AI: что играть сейчас и что дальше
+function chordNow() {
+  const list = (analysis && analysis.chords) || [];
+  const now = position();
+  const k = list.findIndex(([a, b]) => now >= a && now < b);
+  const cur = k >= 0 ? list[k] : null;
+  let next = null;
+  for (let j = k >= 0 ? k + 1 : list.findIndex(([a]) => a > now); j >= 0 && j < list.length; j++) {
+    if (!cur || list[j][2] !== cur[2]) { next = list[j]; break; }
+  }
+  $('chordNow').textContent = cur ? cur[2] : list.length ? '—' : '…';
+  $('chordNext').textContent = next ? next[2] : '';
+  $('chordNextBox').hidden = !next;
+}
+
 function movePlayhead() {
   const lane = document.querySelector('.mx-ruler-row .mx-lane');
   if (!lane || !duration) return;
   const board = $('board').getBoundingClientRect();
   const box = lane.getBoundingClientRect();
-  const left = box.left - board.left + (position() / duration) * box.width;
+  const frac = (position() - viewStart) / viewLen();
+  // при игре окно едет за курсором
+  if (playing && zoom > 1 && (frac > 0.85 || frac < 0)) {
+    viewStart = Math.max(0, Math.min(duration - viewLen(), position() - viewLen() * 0.1));
+    redraw();
+    return;
+  }
+  $('playhead').style.display = frac < 0 || frac > 1 ? 'none' : '';
+  const left = box.left - board.left + frac * box.width;
   $('playhead').style.transform = `translateX(${left}px)`;
+  chordNow();
   $('now').textContent = clock(position());
 }
 
@@ -659,7 +708,7 @@ setInterval(() => {
 
 function secAt(e, el) {
   const box = el.getBoundingClientRect();
-  return Math.max(0, Math.min(1, (e.clientX - box.left) / box.width)) * duration;
+  return Math.max(0, Math.min(duration, viewStart + Math.max(0, Math.min(1, (e.clientX - box.left) / box.width)) * viewLen()));
 }
 
 document.addEventListener('pointerdown', (e) => {
@@ -667,7 +716,7 @@ document.addEventListener('pointerdown', (e) => {
   if (wave && duration) {
     const t = tracks[wave.dataset.wave];
     const sec = secAt(e, wave);
-    const px = (s) => (s / duration) * wave.getBoundingClientRect().width;
+    const px = (s) => toX(s, wave.getBoundingClientRect().width);
     const grab = Math.abs(px(sec) - px(t.trimStart)) < 10 ? 'trimStart'
       : Math.abs(px(sec) - px(t.trimEnd)) < 10 ? 'trimEnd' : null;
     if (!grab) { seek(sec); return; }
@@ -695,7 +744,7 @@ document.addEventListener('pointerdown', (e) => {
     let dragged = false;
     const move = (ev) => {
       const to = secAt(ev, ruler);
-      if (Math.abs(to - from) < duration * 0.004) return;
+      if (Math.abs(to - from) < viewLen() * 0.004) return;
       dragged = true;
       loop.a = Math.min(from, to);
       loop.b = Math.max(from, to);
@@ -753,6 +802,23 @@ document.addEventListener('input', (e) => {
 function pressed(id, on) {
   $(id).setAttribute('aria-pressed', String(on));
 }
+
+$('zoomIn').addEventListener('click', () => setZoom(zoom * 2, playing ? position() : undefined));
+$('zoomOut').addEventListener('click', () => setZoom(zoom / 2, playing ? position() : undefined));
+$('board').addEventListener('wheel', (e) => {
+  if (!duration) return;
+  const lane = document.querySelector('.mx-ruler-row .mx-lane').getBoundingClientRect();
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault();
+    const at = viewStart + Math.max(0, Math.min(1, (e.clientX - lane.left) / lane.width)) * viewLen();
+    setZoom(zoom * (e.deltaY < 0 ? 1.25 : 0.8), at);
+  } else if ((e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) && zoom > 1) {
+    e.preventDefault();
+    const dx = e.deltaX || e.deltaY;
+    viewStart = Math.max(0, Math.min(duration - viewLen(), viewStart + (dx / lane.width) * viewLen()));
+    redraw();
+  }
+}, { passive: false });
 
 $('play').addEventListener('click', play);
 $('toStart').addEventListener('click', () => seek(loop.on ? loop.a : 0));

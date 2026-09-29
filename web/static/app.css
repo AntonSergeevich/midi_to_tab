@@ -1053,3 +1053,15 @@ header.top > div > .badge { margin-left: 8px; text-decoration: none; }
 .mx-version small { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
 .mx-version select { min-width: 170px; }
 .icon-btn[hidden] { display: none; }
+.mx-chordnow {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 120px;
+  padding: 6px 16px; border-radius: 12px; background: rgba(217,154,78,.1); border: 1px solid rgba(217,154,78,.45);
+}
+.mx-chordnow small { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.mx-chordnow b { font-size: 30px; line-height: 1.1; color: var(--accent); }
+.mx-chordnow span { font-size: 13px; color: var(--muted); }
+.mx-chordnow span small { margin-right: 4px; }
+.mx-chordnow i { font-style: normal; color: var(--text); font-weight: 600; }
+.mx-zoom { display: inline-flex; align-items: center; gap: 6px; }
+.mx-zoom small { color: var(--muted); font-size: 12px; min-width: 62px; text-align: center; }
+@media (max-width: 720px) { .mx-chordnow { flex: 1; } }

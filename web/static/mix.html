@@ -29,6 +29,10 @@
     <a class="icon-btn" href="/studio" id="back" title="Назад в Студию">←</a>
     <div class="mx-title"><h1 id="title">Загружаем…</h1><p class="muted" id="sub"></p></div>
     <label class="mx-version" id="versionBox" hidden><small>Версия</small><select id="version"></select></label>
+    <div class="mx-chordnow" aria-live="polite">
+      <small>Сейчас</small><b id="chordNow">…</b>
+      <span id="chordNextBox" hidden><small>дальше</small><i id="chordNext"></i></span>
+    </div>
     <div class="mx-facts">
       <div class="mx-fact"><small>Тональность</small><b id="factKey">—</b></div>
       <div class="mx-fact"><small>Темп</small><b id="factBpm">—</b></div>
@@ -40,6 +44,11 @@
     <button type="button" class="play-btn" id="play" aria-label="Играть (пробел)"></button>
     <button type="button" class="icon-btn" id="toStart" title="В начало">⏮</button>
     <span class="mx-time"><b id="now">0:00</b> / <span id="total">0:00</span></span>
+    <span class="mx-sep"></span>
+    <span class="mx-zoom" title="Масштаб: Ctrl + колесо мыши; Shift + колесо -- прокрутка">
+      <button type="button" class="icon-btn" id="zoomOut" aria-label="Мельче">−</button>
+      <small id="zoomLabel">вся песня</small>
+      <button type="button" class="icon-btn" id="zoomIn" aria-label="Крупнее">＋</button></span>
     <span class="mx-sep"></span>
     <button type="button" class="mx-toggle" id="metro" aria-pressed="false" title="Метроном по долям песни">
       <span class="mx-led"></span>Метроном</button>
@@ -80,7 +89,7 @@
 
   <p class="muted mx-help">
     Пробел — играть/пауза · клик по волне — перемотка · тяните края волны — обрезать дорожку ·
-    выделите кусок на линейке — повтор. Метроном идёт по долям самой песни, а не по ровной сетке.
+    выделите кусок на линейке — повтор · Ctrl + колесо — масштаб, Shift + колесо — прокрутка. Метроном идёт по долям самой песни, а не по ровной сетке.
   </p>
 </div>
 <!-- Тон и темп всех дорожек: считается на сервере, тембр сохраняется -->
