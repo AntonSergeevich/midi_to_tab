@@ -833,50 +833,62 @@ body.working .flow, body.working .studio-card, body.working .pay-note { display:
 .studio-app [hidden] { display: none !important; }
 
 /* ---------------- меню в шапке: таблетки с иконками ---------------- */
+/* Одно и то же меню на всех страницах, в одном порядке: иначе при переходе
+   пункты прыгали. На узком экране -- только иконки, почта -- тоже иконкой
+   (целиком она видна в кабинете), значок баланса -- справа. */
 
-header.top > div > a:not(.badge) {
-  display: inline-flex; align-items: center; gap: 7px;
+header.top > nav.topnav {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px; row-gap: 8px; min-width: 0; max-width: 100%;
+}
+.topnav > a:not(.badge) {
+  display: inline-flex; align-items: center; gap: 7px; flex: none;
   padding: 7px 13px; border-radius: 999px; font-size: 14px; font-weight: 500;
   color: var(--muted); text-decoration: none; border: 1px solid transparent;
   transition: color .15s, background .15s, border-color .15s;
 }
-header.top > div > a:not(.badge):hover { color: var(--text); background: var(--panel-hi); }
-header.top > div > a[aria-current="page"] {
+.topnav > a:not(.badge):hover { color: var(--text); background: var(--panel-hi); }
+.topnav > a[aria-current="page"] {
   color: var(--accent); background: rgba(217,154,78,.1); border-color: rgba(217,154,78,.35);
 }
-header.top > div > a[href="/studio"]::before,
-header.top > div > a[href="/library"]::before,
-header.top > div > a[href="/pricing"]:not(.badge)::before,
-header.top > div > a.who::before {
+.topnav > a:not(.badge)::before {
   content: ""; width: 16px; height: 16px; flex: none; background: currentColor;
   -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat;
 }
-header.top > div > a[href="/studio"] {
+.topnav > a[href="/"] {
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12h2l2-6 3 12 3-9 2 5 2-2h4'/%3E%3C/svg%3E");
+}
+.topnav > a[href="/studio"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12 3 1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z'/%3E%3Cpath d='M18 15v5M15.5 17.5h5'/%3E%3C/svg%3E");
 }
-header.top > div > a[href="/library"] {
+.topnav > a[href="/library"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 18V5l12-2v13'/%3E%3Ccircle cx='6' cy='18' r='3'/%3E%3Ccircle cx='18' cy='16' r='3'/%3E%3C/svg%3E");
 }
-header.top > div > a[href="/pricing"] {
+.topnav > a[href="/pricing"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z'/%3E%3Ccircle cx='7.5' cy='7.5' r='1.5'/%3E%3C/svg%3E");
 }
-header.top > div > a.who {
+/* Почта: текст ставит скрипт прямо в ссылку, поэтому иконка -- поверх
+   отступа, а длинный адрес обрезается многоточием внутри таблетки */
+.topnav > a.who {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21a8 8 0 0 1 16 0'/%3E%3C/svg%3E");
-  display: inline-flex; max-width: 240px; overflow: hidden; text-overflow: ellipsis;
-  background: var(--panel); border-color: var(--border);
+  display: inline-block; position: relative; max-width: 210px; overflow: hidden; text-overflow: ellipsis;
+  padding-left: 35px; line-height: 20px; background: var(--panel); border-color: var(--border);
 }
-header.top > div { gap: 4px !important; }
-header.top > div > .badge { margin-left: 8px; text-decoration: none; }
-@media (max-width: 720px) {
-  header.top > div > a:not(.badge) { padding: 6px 10px; font-size: 13px; gap: 5px; }
-  header.top > div > a.who { max-width: 34vw; }
+.topnav > a.who::before { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); }
+.topnav > .badge { margin-left: 8px; text-decoration: none; flex: none; }
+.topnav > .badge[hidden] { display: none; }
+@media (max-width: 900px) {
+  .topnav > a:not(.badge) { padding: 6px 10px; font-size: 13px; gap: 5px; }
+  .topnav > a.who { max-width: 160px; padding-left: 31px; }
+  .topnav > a.who::before { left: 10px; }
 }
-@media (max-width: 420px) {
-  /* На узком экране у пунктов меню остаются только иконки, кроме почты */
-  header.top > div > a[href="/studio"], header.top > div > a[href="/library"],
-  header.top > div > a[href="/pricing"]:not(.badge) { font-size: 0; gap: 0; padding: 8px 10px; }
-  header.top > div > a[href="/studio"]::before, header.top > div > a[href="/library"]::before,
-    header.top > div > a[href="/pricing"]:not(.badge)::before { width: 18px; height: 18px; }
+@media (max-width: 640px) {
+  /* Телефон: одна строка иконок на всю ширину, почта -- иконкой */
+  header.top > nav.topnav { width: 100%; flex-wrap: nowrap; justify-content: space-between; gap: 2px; }
+  .topnav > a:not(.badge) { font-size: 0; gap: 0; padding: 9px; }
+  .topnav > a:not(.badge)::before { width: 20px; height: 20px; }
+  .topnav > a.who { padding: 9px; width: 40px; height: 40px; max-width: none; }
+  .topnav > a.who::before { left: 10px; }
+  .topnav > .badge { margin-left: 4px; flex: 0 1 auto; min-width: 0; }
 }
 .st-keep { align-items: flex-start; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); cursor: pointer; }
 .st-keep input { margin-top: 3px; flex: none; }
@@ -1072,3 +1084,9 @@ header.top > div > .badge { margin-left: 8px; text-decoration: none; }
 .mx-zoom { display: inline-flex; align-items: center; gap: 6px; }
 .mx-zoom small { color: var(--muted); font-size: 12px; min-width: 62px; text-align: center; }
 @media (max-width: 720px) { .mx-chordnow { flex: 1; } }
+/* Самые узкие телефоны (320 px): вкладки режимов Студии не распирают панель */
+.studio-app > * { min-width: 0; }
+@media (max-width: 360px) {
+  .st-tabs button { font-size: 12.5px; padding: 8px 2px; }
+  .studio-page .wrap { padding-left: 10px; padding-right: 10px; }
+}

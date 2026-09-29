@@ -15,7 +15,13 @@
 <div class="wrap" style="max-width:520px">
   <header class="top">
     <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
-    <div style="display:flex;gap:14px;align-items:center"><a href="/studio">Студия</a><a href="/pricing">Тарифы</a><a href="/">← на главную</a></div>
+    <nav class="topnav" aria-label="Разделы">
+      <a href="/">Разобрать трек</a>
+      <a href="/studio">Студия</a>
+      <a href="/library">Мои треки</a>
+      <a href="/pricing">Тарифы</a>
+      <a href="/pricing" id="navBalance" class="badge" hidden></a>
+    </nav>
   </header>
 
   <!-- Уже вошли -->
@@ -160,5 +166,6 @@
 </div>
 <script src="/static/account.js"></script>
 <script src="/static/consent.js"></script>
+<script src="/static/nav.js" defer></script>
 </body>
 </html>

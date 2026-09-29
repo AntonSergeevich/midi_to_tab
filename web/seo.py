@@ -300,11 +300,14 @@ def render_landing(landing: dict) -> str:
 <div class="wrap">
   <header class="top">
     <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
-    <div style="display:flex;gap:14px;align-items:center">
+    <nav class="topnav" aria-label="Разделы">
+      <a href="/">Разобрать трек</a>
       <a href="/studio">Студия</a>
+      <a href="/library">Мои треки</a>
       <a href="/pricing">Тарифы</a>
       <a href="/account" id="account" class="who">Вход</a>
-    </div>
+      <a href="/pricing" id="navBalance" class="badge" hidden></a>
+    </nav>
   </header>
   <main class="landing">
     <section class="hero">
