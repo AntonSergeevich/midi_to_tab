@@ -146,7 +146,12 @@
                   title="Добавить свой трек: узнать тональность и темп, открыть в мультитреке, разделить">
             <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4 4m4-4 4 4M5 20h14"/></svg><span>Загрузить трек</span></button>
           <input type="file" id="uploadFile" hidden accept=".mp3,.wav,.flac,.ogg,.m4a,.aiff,.aif"></div>
+        <label class="st-search" id="searchBox" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+          <input type="search" id="search" placeholder="Найти: название, стиль, тональность…" aria-label="Поиск по трекам"
+                 autocomplete="off"></label>
         <div id="jobs" class="st-list"><p class="muted">Здесь появятся ваши песни.</p></div>
+        <nav class="st-pages" id="pages" aria-label="Страницы" hidden></nav>
       </div>
       <div id="detailView" hidden></div>
       <div class="st-menu" id="menu" hidden></div>

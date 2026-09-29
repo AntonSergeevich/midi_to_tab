@@ -729,6 +729,18 @@ body.working .flow, body.working .studio-card, body.working .pay-note { display:
 .st-library { min-width: 0; }
 .st-libhead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
 .st-libhead h2 { margin: 0; font-size: 20px; }
+.st-search { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 0 12px; border-radius: 12px;
+  border: 1px solid var(--border); background: var(--panel); }
+.st-search[hidden] { display: none; }
+.st-search:focus-within { border-color: rgba(217,154,78,.6); }
+.st-search svg { width: 18px; height: 18px; flex: none; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; }
+.st-search input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 11px 0; font: inherit; color: inherit; outline: none; }
+.st-pages { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 6px; margin: 14px 0 4px; }
+.st-pages[hidden] { display: none; }
+.st-pages button { min-width: 38px; height: 38px; padding: 0 10px; border-radius: 10px; }
+.st-pages button[aria-current] { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.st-pages button:disabled { opacity: .35; cursor: default; }
+.st-pages span { color: var(--muted); padding: 0 2px; }
 .st-libhead { align-items: center; }
 .st-upload { margin-left: auto; }
 .st-upload svg, .st-mixbtn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2;

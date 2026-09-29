@@ -319,14 +319,36 @@ function renderVoices() {
     + (info.voiceCloneOpen ? '<button type="button" class="preset add" data-voice="add">＋ Мой голос</button>' : '');
 }
 
+// Поиск и страницы: список перерисовывается при каждом опросе сервера,
+// поэтому запрос и номер страницы живут отдельно и не сбрасываются
+const PER_PAGE = 10;
+const list = { query: '', page: 0, jobs: [] };
+const fold = (text) => String(text || '').toLowerCase().replace(/ё/g, 'е');
+
+function matches(j, words) {
+  const hay = fold([j.name, j.title, j.style, j.key, j.bpm && `${j.bpm} bpm`,
+    MODE[j.mode] && MODE[j.mode].title].filter(Boolean).join(' '));
+  return words.every((w) => hay.includes(w));
+}
+
 function renderList(jobs) {
-  const top = jobs.filter((j) => !j.from && j.mode !== 'voice');
-  $('count').textContent = top.length ? `${top.length}` : '';
+  list.jobs = jobs;
+  const all = jobs.filter((j) => !j.from && j.mode !== 'voice');
+  const words = fold(list.query).split(/\s+/).filter(Boolean);
+  const top = words.length ? all.filter((j) => matches(j, words)) : all;
+  $('count').textContent = all.length ? (words.length ? `${top.length} из ${all.length}` : `${all.length}`) : '';
+  $('searchBox').hidden = all.length <= PER_PAGE && !list.query;
+  const pages = Math.max(1, Math.ceil(top.length / PER_PAGE));
+  list.page = Math.min(list.page, pages - 1);
+  renderPages(pages);
   if (!top.length) {
-    $('jobs').innerHTML = '<p class="muted">Здесь появятся ваши песни.</p>';
+    $('jobs').innerHTML = all.length
+      ? `<p class="muted">Ничего не нашлось по «${esc(list.query)}».</p>`
+      : '<p class="muted">Здесь появятся ваши песни.</p>';
     return;
   }
-  $('jobs').innerHTML = top.map((j) => {
+  const shown = top.slice(list.page * PER_PAGE, (list.page + 1) * PER_PAGE);
+  $('jobs').innerHTML = shown.map((j) => {
     const first = j.status === 'done' && j.files[0];
     return `<div class="st-row${j.id === fresh ? ' st-new' : ''}" data-open="${j.id}">
       ${cover(j)}<span class="st-mode">${MODE_ICON[j.mode] || ''}</span>
@@ -335,6 +357,35 @@ function renderList(jobs) {
     </div>`;
   }).join('');
 }
+
+function renderPages(pages) {
+  $('pages').hidden = pages < 2;
+  if (pages < 2) { $('pages').innerHTML = ''; return; }
+  const at = list.page;
+  // 1 … 4 5 6 … 12 -- соседние страницы и края
+  const nums = [...new Set([0, at - 1, at, at + 1, pages - 1])].filter((n) => n >= 0 && n < pages).sort((x, y) => x - y);
+  let html = `<button type="button" data-page="${at - 1}" ${at === 0 ? 'disabled' : ''} aria-label="Назад">←</button>`;
+  nums.forEach((n, k) => {
+    if (k && n - nums[k - 1] > 1) html += '<span>…</span>';
+    html += `<button type="button" data-page="${n}" ${n === at ? 'aria-current="page"' : ''}>${n + 1}</button>`;
+  });
+  html += `<button type="button" data-page="${at + 1}" ${at === pages - 1 ? 'disabled' : ''} aria-label="Дальше">→</button>`;
+  $('pages').innerHTML = html;
+}
+
+$('pages').addEventListener('click', (e) => {
+  const button = e.target.closest('[data-page]');
+  if (!button || button.disabled) return;
+  list.page = Number(button.dataset.page);
+  renderList(list.jobs);
+  $('listView').scrollIntoView({ block: 'start', behavior: 'smooth' });
+});
+
+$('search').addEventListener('input', () => {
+  list.query = $('search').value;
+  list.page = 0;
+  renderList(list.jobs);
+});
 
 function renderDetail(jobs) {
   const j = jobs.find((x) => x.id === openJob);
@@ -700,6 +751,7 @@ $('start').addEventListener('click', async () => {
   }
   // Новый трек -- сразу наверху «Моих треков», с подсветкой
   fresh = data.jobId;
+  list.page = 0; list.query = ""; $("search").value = "";
   closeDetail();
   $('start').disabled = false;
   $('msg').textContent = '';
@@ -726,6 +778,7 @@ $('uploadFile').addEventListener('change', async (e) => {
   $('uploadTrack').disabled = false;
   if (!response.ok) { toast(`${pick(OOPS, Date.now())} ${data.detail || ''}`); return; }
   fresh = data.jobId;
+  list.page = 0; list.query = ""; $("search").value = "";
   closeDetail();
   await load();
   toast('Трек в «Моих треках» — сейчас узнаем тональность и темп 🎼');
