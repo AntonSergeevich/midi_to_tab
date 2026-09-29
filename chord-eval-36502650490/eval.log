@@ -1,0 +1,26 @@
+[0;93m2026-09-29 00:35:17.606319256 [W:onnxruntime:Default, device_discovery.cc:146 GetPciBusId] Skipping pci_bus_id for PCI path at "/sys/devices/LNXSYSTM:00/LNXSYBUS:00/ACPI0004:00/MSFT1000:00/5620e0c7-8062-4dce-aeb7-520c7ef76171" because filename "5620e0c7-8062-4dce-aeb7-520c7ef76171" did not match expected pattern of [0-9a-f]+:[0-9a-f]+:[0-9a-f]+[.][0-9a-f]+[m
+Traceback (most recent call last):
+  File "/home/runner/work/midi_to_tab/midi_to_tab/scripts/chordnet/eval_prior.py", line 99, in <module>
+    main()
+  File "/home/runner/work/midi_to_tab/midi_to_tab/scripts/chordnet/eval_prior.py", line 84, in main
+    run(str(f), [(c["time"], c["time"] + c["duration"], c["value"]) for c in chords], results, keys)
+  File "/home/runner/work/midi_to_tab/midi_to_tab/scripts/chordnet/eval_prior.py", line 54, in run
+    s = mir_eval.chord.evaluate(ref_int, ref_lab, np.array([[a, b] for a, b, _ in est]),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/mir_eval/chord.py", line 1573, in evaluate
+    merged_est_intervals = merge_chord_intervals(est_intervals, est_labels)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/mir_eval/chord.py", line 1508, in merge_chord_intervals
+    roots, semitones, basses = encode_many(labels, True)
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/mir_eval/chord.py", line 552, in encode_many
+    result = encode(label, reduce_extended_chords)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/mir_eval/chord.py", line 498, in encode
+    chord_root, quality, scale_degrees, bass = split(
+                                               ^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/mir_eval/chord.py", line 393, in split
+    validate_chord_label(chord_label)
+  File "/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/mir_eval/chord.py", line 356, in validate_chord_label
+    raise InvalidChordException("Invalid chord label: " "{}".format(chord_label))
+mir_eval.chord.InvalidChordException: Invalid chord label: G#dim:maj
