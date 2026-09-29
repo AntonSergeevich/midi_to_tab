@@ -1024,8 +1024,9 @@ header.top > div > .badge { margin-left: 8px; text-decoration: none; }
 .mx-ms.solo[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #15161c; }
 .mx-vol { flex: 1; min-width: 0; }
 .mx-lane { position: relative; min-width: 0; }
-.mx-lane canvas { display: block; width: 100%; height: 100%; min-height: var(--track-h, 64px); cursor: pointer; touch-action: none; }
-.mx-ruler-row .mx-lane canvas { height: 46px; min-height: 46px; cursor: crosshair; }
+.mx-lane canvas { display: block; width: 100%; height: 100%; min-height: var(--track-h, 64px); cursor: pointer; touch-action: pan-y; }
+.mx-overview-row .mx-lane canvas { height: 26px; min-height: 26px; cursor: pointer; touch-action: none; }
+.mx-ruler-row .mx-lane canvas { height: 46px; min-height: 46px; cursor: crosshair; touch-action: none; }
 .mx-row.silent .mx-name b { color: var(--muted); text-decoration: line-through; }
 /* Курсор -- тонкая линия, но ухватить его можно в полосе 14 px */
 .mx-playhead { position: absolute; top: 0; bottom: 0; left: -6px; width: 14px; cursor: ew-resize; touch-action: none;

@@ -497,7 +497,7 @@ function sizeCanvases() {
   const dpr = window.devicePixelRatio || 1;
   document.querySelectorAll('.mx-lane canvas').forEach((c) => {
     c.width = Math.max(100, Math.round(c.clientWidth * dpr));
-    c.height = Math.round((c.id === 'ruler' ? 46 : Math.max(trackHeight, c.clientHeight)) * dpr);
+    c.height = Math.round((c.id === 'ruler' ? 46 : c.id === 'overview' ? 26 : Math.max(trackHeight, c.clientHeight)) * dpr);
   });
   redraw();
 }
@@ -591,6 +591,7 @@ function drawRuler() {
 }
 
 function redraw() {
+  drawOverview();
   drawRuler();
   tracks.forEach(drawTrack);
   movePlayhead();
@@ -628,15 +629,17 @@ function movePlayhead() {
   const box = lane.getBoundingClientRect();
   const frac = (position() - viewStart) / viewLen();
   // при игре окно едет за курсором
-  if (playing && zoom > 1 && (frac > 0.85 || frac < 0)) {
+  if (playing && zoom > 1 && (frac > 0.85 || frac < 0) && Date.now() > followPause) {
     viewStart = Math.max(0, Math.min(duration - viewLen(), position() - viewLen() * 0.1));
     redraw();
     return;
   }
   $('playhead').style.display = frac < 0 || frac > 1 ? 'none' : '';
+  $('playhead').style.top = `${document.querySelector('.mx-ruler-row').offsetTop}px`;
   const left = box.left - board.left + frac * box.width;
   $('playhead').style.transform = `translateX(${left}px)`;
   chordNow();
+  if (playing) drawOverview();
   $('now').textContent = clock(position());
 }
 
@@ -776,49 +779,103 @@ $('metroMode').addEventListener('change', () => {
   save();
 });
 
+// Касания и мышь. Дорожка: тап/клик -- перемотка, протяжка -- сдвиг окна
+// (как карта), у золотых краёв -- обрезка. Линейка: мышью протяжка --
+// кусок для повтора; пальцем протяжка -- курсор, долгое нажатие и
+// протяжка -- повтор. Два пальца -- масштаб. Пока человек двигает окно,
+// оно не убегает за курсором.
+let followPause = 0;
+const touches = new Map();
+let pinch = null;
+
 document.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'touch' && e.target.closest('#board')) {
+    touches.set(e.pointerId, e.clientX);
+    if (touches.size === 2) {
+      const [a, b] = [...touches.values()];
+      const lane = document.querySelector('.mx-ruler-row .mx-lane').getBoundingClientRect();
+      pinch = { dist: Math.abs(a - b) || 1, zoom, at: viewStart + ((a + b) / 2 - lane.left) / lane.width * viewLen() };
+      return;
+    }
+  }
   const wave = e.target.closest('[data-wave]');
   if (wave && duration) {
     const t = tracks[wave.dataset.wave];
     const sec = secAt(e, wave);
-    const px = (s) => toX(s, wave.getBoundingClientRect().width);
-    const grab = Math.abs(px(sec) - px(t.trimStart)) < 10 ? 'trimStart'
-      : Math.abs(px(sec) - px(t.trimEnd)) < 10 ? 'trimEnd' : null;
-    if (!grab) { seek(sec); return; }
+    const width = wave.getBoundingClientRect().width;
+    const px = (x) => toX(x, width);
+    const reach = e.pointerType === 'touch' ? 18 : 10;
+    const grab = Math.abs(px(sec) - px(t.trimStart)) < reach ? 'trimStart'
+      : Math.abs(px(sec) - px(t.trimEnd)) < reach ? 'trimEnd' : null;
     wave.setPointerCapture(e.pointerId);
+    const x0 = e.clientX;
+    const view0 = viewStart;
+    let moved = false;
     const move = (ev) => {
-      const s = secAt(ev, wave);
-      if (grab === 'trimStart') t.trimStart = Math.max(0, Math.min(s, t.trimEnd - 0.5));
-      else t.trimEnd = Math.min(t.buffer.duration, Math.max(s, t.trimStart + 0.5));
-      drawTrack(t, Number(wave.dataset.wave));
+      if (pinch) return;
+      if (grab) {
+        const x = secAt(ev, wave);
+        if (grab === 'trimStart') t.trimStart = Math.max(0, Math.min(x, t.trimEnd - 0.5));
+        else t.trimEnd = Math.min(t.buffer.duration, Math.max(x, t.trimStart + 0.5));
+        drawTrack(t, Number(wave.dataset.wave));
+        return;
+      }
+      if (Math.abs(ev.clientX - x0) < 6 && !moved) return;
+      moved = true;
+      followPause = Date.now() + 4000;
+      if (zoom > 1) {
+        viewStart = Math.max(0, Math.min(duration - viewLen(), view0 - (ev.clientX - x0) / width * viewLen()));
+        redraw();
+      }
     };
-    const up = () => {
+    const up = (ev) => {
       wave.removeEventListener('pointermove', move);
       wave.removeEventListener('pointerup', up);
-      save();
-      if (playing) startAt(position());
+      wave.removeEventListener('pointercancel', up);
+      if (grab) { save(); if (playing) startAt(position()); return; }
+      if (!moved && !pinch && ev.type === 'pointerup') seek(sec);
     };
     wave.addEventListener('pointermove', move);
     wave.addEventListener('pointerup', up);
+    wave.addEventListener('pointercancel', up);
     return;
   }
   const ruler = e.target.closest('#ruler');
   if (ruler && duration) {
     const from = secAt(e, ruler);
     ruler.setPointerCapture(e.pointerId);
+    const finger = e.pointerType === 'touch';
+    // пальцем -- повтор только после долгого нажатия, иначе протяжка двигает курсор
+    let selecting = !finger;
     let dragged = false;
+    const hold = finger ? setTimeout(() => {
+      if (!dragged) { selecting = true; navigator.vibrate?.(15); toast('Ведите пальцем — выделяем кусок для повтора'); }
+    }, 450) : null;
     const move = (ev) => {
+      if (pinch) return;
       const to = secAt(ev, ruler);
       if (Math.abs(to - from) < viewLen() * 0.004) return;
       dragged = true;
-      loop.a = Math.min(from, to);
-      loop.b = Math.max(from, to);
-      drawRuler();
+      followPause = Date.now() + 4000;
+      if (selecting) {
+        loop.a = Math.min(from, to);
+        loop.b = Math.max(from, to);
+        drawRuler();
+      } else {
+        clearTimeout(hold);
+        pos = to;
+        if (playing) startAt(to);
+        movePlayhead();
+      }
     };
-    const up = () => {
+    const up = (ev) => {
+      clearTimeout(hold);
       ruler.removeEventListener('pointermove', move);
       ruler.removeEventListener('pointerup', up);
+      ruler.removeEventListener('pointercancel', up);
+      if (ev.type !== 'pointerup' || pinch) return;
       if (!dragged) { seek(from); return; }
+      if (!selecting) return;
       snapLoop();
       loop.on = true;
       pressed('loop', true);
@@ -828,8 +885,71 @@ document.addEventListener('pointerdown', (e) => {
     };
     ruler.addEventListener('pointermove', move);
     ruler.addEventListener('pointerup', up);
+    ruler.addEventListener('pointercancel', up);
+    return;
+  }
+  const overview = e.target.closest('#overview');
+  if (overview && duration) {
+    overview.setPointerCapture(e.pointerId);
+    const jump = (ev) => {
+      const box = overview.getBoundingClientRect();
+      const at = Math.max(0, Math.min(1, (ev.clientX - box.left) / box.width)) * duration;
+      viewStart = Math.max(0, Math.min(duration - viewLen(), at - viewLen() / 2));
+      followPause = Date.now() + 2500;
+      seek(at);
+      redraw();
+    };
+    jump(e);
+    const up = () => {
+      overview.removeEventListener('pointermove', jump);
+      overview.removeEventListener('pointerup', up);
+    };
+    overview.addEventListener('pointermove', jump);
+    overview.addEventListener('pointerup', up);
   }
 });
+
+document.addEventListener('pointermove', (e) => {
+  if (!pinch || !touches.has(e.pointerId)) return;
+  touches.set(e.pointerId, e.clientX);
+  const [a, b] = [...touches.values()];
+  followPause = Date.now() + 4000;
+  setZoom(pinch.zoom * (Math.abs(a - b) || 1) / pinch.dist, pinch.at);
+});
+['pointerup', 'pointercancel'].forEach((type) => document.addEventListener(type, (e) => {
+  touches.delete(e.pointerId);
+  if (touches.size < 2) setTimeout(() => { if (touches.size < 2) pinch = null; }, 0);
+}));
+
+// Обзор: вся песня мелко, рамка -- то, что видно сейчас
+function drawOverview() {
+  const c = $('overview');
+  if (!c || !duration) return;
+  const g = c.getContext('2d');
+  const w = c.width;
+  const h = c.height;
+  g.clearRect(0, 0, w, h);
+  const n = 400;
+  g.fillStyle = 'rgba(167,171,184,.45)';
+  for (let k = 0; k < n; k++) {
+    let peak = 0;
+    tracks.forEach((t) => {
+      const i = Math.floor((k / n) * (duration / t.buffer.duration) * t.peaks.length);
+      if (i < t.peaks.length) peak = Math.max(peak, t.peaks[i]);
+    });
+    const amp = Math.max(1, peak * (h / 2 - 2));
+    g.fillRect((k / n) * w, h / 2 - amp, Math.max(1, w / n - 1), amp * 2);
+  }
+  if (loop.b > loop.a) {
+    g.fillStyle = 'rgba(217,154,78,.25)';
+    g.fillRect((loop.a / duration) * w, 0, ((loop.b - loop.a) / duration) * w, h);
+  }
+  g.strokeStyle = '#d99a4e';
+  g.lineWidth = Math.max(1, (window.devicePixelRatio || 1) * 1.5);
+  g.strokeRect((viewStart / duration) * w + 1, 1, Math.max(4, (viewLen() / duration) * w - 2), h - 2);
+  g.fillStyle = '#fff';
+  g.fillRect((position() / duration) * w - 1, 0, 2, h);
+}
 
 // Края повтора -- к ближайшим долям: кусок звучит ровно, без рваного начала
 function snapLoop() {
