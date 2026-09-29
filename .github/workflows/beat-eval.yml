@@ -29,9 +29,10 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
           pip install -q torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-          pip install -q -r requirements.txt -r requirements-audio.txt remotezip beat_this soundfile
+          pip install -q -r requirements.txt -r requirements-audio.txt remotezip beat_this soundfile onnx
       - name: Экспорт в ONNX
         run: |
+          set -o pipefail
           mkdir -p results
           python -u scripts/beatnet/export.py --out results 2>&1 | grep -v Warning | tee results/export.log
       - name: Синтетика
@@ -48,6 +49,7 @@ jobs:
         run: python -u scripts/chordnet/aam.py --count "${{ inputs.aam }}" --out aam_eval --block 0001-1000
       - name: Замер
         run: |
+          set -o pipefail
           python -u scripts/beatnet/eval.py --synth synth_beats --guitarset gs --limit "${{ inputs.limit }}" \
             $( [ -n "$(ls aam_eval/*.beats 2>/dev/null)" ] && echo --aam aam_eval ) \
             --models results/beatthis_final0.onnx results/beatthis_small0.onnx \

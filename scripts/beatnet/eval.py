@@ -56,6 +56,9 @@ def main() -> None:
     args = parser.parse_args()
 
     methods = {"librosa": None, **{Path(m).stem: Path(m) for m in args.models}}
+    missing = [str(m) for m in methods.values() if m is not None and not m.is_file()]
+    if missing:
+        raise SystemExit(f"нет моделей: {missing}")
     report = {}
     for set_name, items in truth_sets(args).items():
         report[set_name] = {}
