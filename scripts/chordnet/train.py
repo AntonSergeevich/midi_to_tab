@@ -216,7 +216,7 @@ def main() -> None:
              (guitar, guitar_share if guitar else 0.0)]
     total_share = sum(share for _, share in pools) or 1.0
 
-    model = ChordNet()
+    model = ChordNet(hidden=args.hidden)
     optimizer = torch.optim.AdamW(model.parameters(), lr=2e-3, weight_decay=1e-4)
     schedule = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=2e-3, total_steps=args.steps)
     loss_fn = nn.CrossEntropyLoss(ignore_index=common.IGNORE, label_smoothing=args.smoothing,
