@@ -572,7 +572,7 @@ def audio_seconds(path: str) -> int:
 
 # Версия разбора: сменилась (модель, подсказка тональности) -- старый кеш
 # в задачах пересчитывается при следующем открытии
-ANALYSIS_VERSION = 5
+ANALYSIS_VERSION = 6
 
 
 def analyze_audio(path: str) -> dict:
@@ -746,11 +746,31 @@ class StudioRunner:
             found = analyze_audio(os.path.join(self.folder(job_id), name))
         except Exception as error:  # noqa: BLE001 -- разбор -- не повод ронять задачу
             found = {"error": str(error)[:200]}
+        if name == "harmony.wav" and "error" not in found:
+            found = self._with_source_rhythm(job, found)
         with self._analysis_lock:
             job = self.storage.job(job_id)
             result = dict(job.result or {})
             result["analysis"] = {**(result.get("analysis") or {}), name: found}
             self.storage.update_job(job_id, result=result)
+        return found
+
+    def _with_source_rhythm(self, job, found: dict) -> dict:
+        """Темп и доли -- по треку целиком, аккорды -- по партиям без голоса
+        и барабанов. Без барабанов доли плывут (96 BPM читалось как 129), и
+        мультитрек расходился со Студией и с метрономом."""
+        settings = job.settings or {}
+        parent, source = settings.get("from"), settings.get("sourceFile")
+        if parent and source and os.path.isfile(os.path.join(self.folder(parent), source)):
+            rhythm = self.analyze(parent, source)
+        else:
+            folder = self.folder(job.id)
+            own = next((f for f in sorted(os.listdir(folder)) if f.startswith("source.")), None) \
+                if os.path.isdir(folder) else None
+            rhythm = self.analyze(job.id, own) if own else {}
+        if rhythm.get("beats"):
+            found = {**found, "bpm": rhythm.get("bpm"), "beats": rhythm["beats"],
+                     "downbeats": rhythm.get("downbeats") or []}
         return found
 
     def transcribe_later(self, job_id: str, name: str) -> bool:

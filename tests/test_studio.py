@@ -1146,3 +1146,30 @@ def test_mixer_chords_listen_to_parts_without_vocals_and_drums(studio_app, monke
     assert os.path.isfile(f"{folder}/harmony.wav")
     client.get(f"/api/studio/{job.id}/analysis?file=harmony")      # второй раз -- без пересведения
     assert len(mixed) == 1
+
+
+def test_mixer_tempo_comes_from_the_whole_track_not_harmony(studio_app, monkeypatch):
+    """Аккорды -- по партиям без барабанов, а темп и доли -- по треку
+    целиком: без барабанов 96 BPM читалось как 129."""
+    import os
+
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    parent = app_module.storage.create_job(user.id, "song.mp3", {"kind": "studio", "mode": "upload"})
+    os.makedirs(app_module.studio_runner.folder(parent.id), exist_ok=True)
+    open(os.path.join(app_module.studio_runner.folder(parent.id), "track.mp3"), "wb").close()
+    app_module.storage.update_job(parent.id, status="done", result={"files": [{"name": "track.mp3"}]})
+    stems = app_module.storage.create_job(user.id, "song.mp3", {"kind": "studio", "mode": "stems",
+                                                                "from": parent.id, "sourceFile": "track.mp3"})
+    os.makedirs(app_module.studio_runner.folder(stems.id), exist_ok=True)
+    open(os.path.join(app_module.studio_runner.folder(stems.id), "harmony.wav"), "wb").close()
+    app_module.storage.update_job(stems.id, status="done", result={"files": []})
+    found = {"track.mp3": {"v": studio.ANALYSIS_VERSION, "key": "Dm", "bpm": 96,
+                           "beats": [0.0, 0.625], "downbeats": [0.0], "chords": [[0, 4, "C"]]},
+             "harmony.wav": {"v": studio.ANALYSIS_VERSION, "key": "Dm", "bpm": 129,
+                             "beats": [0.0, 0.465], "downbeats": [0.0], "chords": [[0, 4, "Dm"]]}}
+    monkeypatch.setattr(studio, "analyze_audio", lambda path: found[os.path.basename(path)])
+    result = app_module.studio_runner.analyze(stems.id, "harmony.wav")
+    assert result["bpm"] == 96 and result["beats"] == [0.0, 0.625]
+    assert result["chords"] == [[0, 4, "Dm"]]                  # аккорды -- по гармонии
+    assert app_module.storage.job(parent.id).result["analysis"]["track.mp3"]["bpm"] == 96
