@@ -101,7 +101,7 @@ function save() {
   try {
     localStorage.setItem(STORE, JSON.stringify({
       metro: metroOn, countIn, metroVol: $('metroVol').value, hidden: [...hidden],
-      metroMode: $('metroMode').value, trackHeight,
+      metroMode: $('metroMode').value, trackHeight, order: tracks.filter((t) => !t.local).map((t) => t.name),
       tracks: Object.fromEntries(tracks.filter((t) => !t.local).map((t) => [t.name, {
         mute: t.mute, solo: t.solo, vol: t.vol, trimStart: t.trimStart, trimEnd: t.trimEnd,
       }])),
@@ -181,6 +181,10 @@ async function loadTracks(list) {
   hidden = new Set(memory.hidden || []);
   const kept = list.filter((item) => !hidden.has(item.name));
   if (kept.length) list = kept; else hidden.clear();   // убрать все нельзя
+  // Порядок, в который дорожки расставили перетаскиванием; новые -- в конец
+  const order = memory.order || [];
+  const rank = (item) => { const k = order.indexOf(item.name); return k < 0 ? order.length : k; };
+  list = list.map((item, k) => [item, k]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([item]) => item);
   showHidden();
   let done = 0;
   note(`Загружаем дорожки: 0 из ${list.length}…`);
@@ -476,7 +480,8 @@ function render() {
   $('tracks').innerHTML = tracks.map((t, i) => `
     <div class="mx-row" data-i="${i}">
       <div class="mx-ctrl">
-        <div class="mx-name"><i style="background:${t.color}"></i><b title="${esc(t.name)}">${esc(t.name)}</b>
+        <div class="mx-name" data-grab="${i}" title="Перетащите выше или ниже, чтобы поменять порядок">
+          <span class="mx-grip" data-grip="${i}" aria-hidden="true">⠿</span><i style="background:${t.color}"></i><b title="${esc(t.name)}">${esc(t.name)}</b>
           ${t.local ? '<em title="Только в этом окне, на сервер не отправляется">своя</em>' : ''}</div>
         <div class="mx-btns">
           <button type="button" class="mx-ms" data-mute="${i}" aria-pressed="${t.mute}" title="Заглушить">M</button>
@@ -501,6 +506,60 @@ function sizeCanvases() {
   });
   redraw();
 }
+
+// ---------------------------------------------------------- порядок дорожек
+// Мышью -- за название или ручку «⠿», пальцем -- только за ручку (иначе
+// вертикальный свайп по названию перестал бы листать страницу).
+let drag = null;
+
+document.addEventListener('pointerdown', (e) => {
+  const grab = e.target.closest('[data-grab]');
+  if (!grab || e.button > 0 || tracks.length < 2) return;
+  if (e.pointerType !== 'mouse' && !e.target.closest('[data-grip]')) return;
+  const row = grab.closest('.mx-row');
+  const rows = [...document.querySelectorAll('.mx-row[data-i]')];
+  drag = { from: Number(grab.dataset.grab), to: Number(grab.dataset.grab), row, rows, y0: e.clientY,
+    mids: rows.map((r) => { const b = r.getBoundingClientRect(); return b.top + b.height / 2; }),
+    height: row.getBoundingClientRect().height, id: e.pointerId, moved: false };
+  grab.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+
+document.addEventListener('pointermove', (e) => {
+  if (!drag || e.pointerId !== drag.id) return;
+  const dy = e.clientY - drag.y0;
+  if (!drag.moved && Math.abs(dy) < 4) return;
+  if (!drag.moved) { drag.moved = true; drag.row.classList.add('dragging'); $('board').classList.add('reordering'); }
+  drag.row.style.transform = `translateY(${dy}px)`;
+  // куда встанет: по серединам строк, свою не считаем
+  const y = drag.mids[drag.from] + dy;
+  let to = drag.from;
+  drag.mids.forEach((mid, k) => {
+    if (k < drag.from && y < mid) to = Math.min(to, k);
+    if (k > drag.from && y > mid) to = Math.max(to, k);
+  });
+  drag.to = to;
+  drag.rows.forEach((r, k) => {
+    if (k === drag.from) return;
+    const shift = k > drag.from && k <= to ? -drag.height : k < drag.from && k >= to ? drag.height : 0;
+    r.style.transform = shift ? `translateY(${shift}px)` : '';
+  });
+});
+
+function dropTrack(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  const { from, to, moved } = drag;
+  drag.rows.forEach((r) => { r.style.transform = ''; r.classList.remove('dragging'); });
+  $('board').classList.remove('reordering');
+  drag = null;
+  if (!moved || from === to) return;
+  const [t] = tracks.splice(from, 1);
+  tracks.splice(to, 0, t);
+  render();
+  save();
+}
+document.addEventListener('pointerup', dropTrack);
+document.addEventListener('pointercancel', dropTrack);
 
 function audible(t) {
   const anySolo = tracks.some((x) => x.solo);
