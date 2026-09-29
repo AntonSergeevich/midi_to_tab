@@ -6,8 +6,12 @@
 или 123, ровные 81 -- как 161. Beat This слушает саму музыку и отдельно
 отмечает «раз» такта.
 
-Модель переведена в ONNX (scripts/beatnet/export.py), поэтому на сервере
-хватает onnxruntime, как и для аккордов; torch не нужен. Нет файла модели
+Модель переведена в ONNX и сжата до int8 (scripts/beatnet/export.py,
+beat-eval.yml), поэтому на сервере хватает onnxruntime, как и для
+аккордов; torch не нужен. Замер 29.09.2026 (темп в пределах 4 %):
+GuitarSet 0.57 -> 0.91, AAM 0.63 -> 0.78, синтетика с шаффлом 0.47 ->
+0.91; int8 на синтетике совпал с полной моделью. ~2.5 с на минуту звука.
+Лицензия весов -- MIT, models/beatthis.LICENSE. Нет файла модели
 -- track() возвращает None, и разбор идёт по-старому, через librosa.
 """
 
@@ -120,8 +124,25 @@ def track(y, sr: int = SR):
     beats = _peaks(beat)
     if len(beats) < 4:
         return None
-    downbeats = _peaks(down)
-    # «раз» -- на ближайшую долю, как у Beat This
-    downbeats = np.unique([beats[np.argmin(np.abs(beats - d))] for d in downbeats])
     bpm = 60.0 / float(np.median(np.diff(beats)))
-    return bpm, [float(b) for b in beats], [float(d) for d in downbeats]
+    return bpm, [float(b) for b in beats], [float(d) for d in bars(beats, _peaks(down))]
+
+
+def bars(beats, downbeats):
+    """Ровные такты из «раз», которые отметила сеть. Сама по себе она на
+    плотном шаффле ставит «раз» то тут, то там -- метроному и линейке
+    нужен порядок: такт из 4 долей (3 -- только если сеть явно слышит
+    вальс), начало -- там, где за него больше всего голосов."""
+    import numpy as np
+
+    if not len(downbeats):
+        return beats[::4]
+    votes = np.unique([int(np.argmin(np.abs(beats - d))) for d in downbeats])
+
+    def best(meter):
+        counts = np.bincount(votes % meter, minlength=meter)
+        return counts.max() / len(votes), int(counts.argmax())
+
+    (share4, phase4), (share3, phase3) = best(4), best(3)
+    meter, phase = (3, phase3) if share3 > share4 + 0.15 else (4, phase4)
+    return beats[phase::meter]

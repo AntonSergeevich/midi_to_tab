@@ -52,7 +52,7 @@ jobs:
           set -o pipefail
           python -u scripts/beatnet/eval.py --synth synth_beats --guitarset gs --limit "${{ inputs.limit }}" \
             $( [ -n "$(ls aam_eval/*.beats 2>/dev/null)" ] && echo --aam aam_eval ) \
-            --models results/beatthis_final0.onnx results/beatthis_small0.onnx \
+            --models results/beatthis_final0.onnx results/beatthis_small0.onnx $( [ -f midi2tab/models/beatthis.onnx ] && echo midi2tab/models/beatthis.onnx ) \
             --out results/report.json 2>&1 | grep -v Warning | tee results/eval.log
       - name: В ветку test-results
         if: always()
