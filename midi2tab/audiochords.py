@@ -419,12 +419,21 @@ def _net_analysis(np, chordnet, librosa, y, sr, bpm, beats, chroma, min_duration
                            for start, end, name, confidence in found],
                           min(min_duration, 0.6))
     beat_times = [float(t) for t in librosa.frames_to_time(beats, sr=sr)]
-    offset = _bar_offset(chroma, beats, beats_per_bar)
+    downbeats = _guess_downbeats(beat_times, _bar_offset(chroma, beats, beats_per_bar), beats_per_bar)
+    # Доли и «раз» -- нейросетью Beat This, если модель на месте: librosa
+    # на «качающихся» песнях берёт соседнюю пульсацию (81 -> 108)
+    from . import beatnet
+
+    if progress and beatnet.available():
+        progress("Слушаю доли и такты нейросетью...")
+    found_beats = beatnet.track(y, sr)
+    if found_beats:
+        bpm, beat_times, net_downbeats = found_beats
+        downbeats = net_downbeats or downbeats
     if progress:
         progress(f"Аккордов найдено: {len(chords)}, разных {len({c.name for c in chords})}, "
                  f"темп {bpm:.0f}")
-    return ChordAnalysis(chords=chords, tempo=bpm, beats=beat_times,
-                         downbeats=_guess_downbeats(beat_times, offset, beats_per_bar),
+    return ChordAnalysis(chords=chords, tempo=bpm, beats=beat_times, downbeats=downbeats,
                          key=key_name(key))
 
 
