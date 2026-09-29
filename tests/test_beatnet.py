@@ -70,3 +70,14 @@ def test_bars_are_regular_even_when_net_marks_downbeats_chaotically():
     waltz = beats[[0, 3, 6, 9, 12, 15, 18, 21, 24]]
     assert np.allclose(beatnet.bars(beats, waltz), beats[0::3])
     assert np.allclose(beatnet.bars(beats, np.array([])), beats[::4])
+
+
+def test_intro_in_eighths_joins_the_song_grid():
+    """Вступление, где сеть отметила восьмые, встаёт на сетку песни."""
+    step = 0.74
+    intro = np.arange(0, 20 * step, step / 2)                 # 40 «долей» по восьмым
+    song = np.arange(20 * step, 120 * step, step)
+    grid = beatnet.steady(np.concatenate([intro, song]))
+    assert np.allclose(np.diff(grid), step)
+    assert np.isclose(grid[0], 0.0) and np.isclose(grid[-1], song[-1])
+    assert np.allclose(beatnet.steady(song), song)             # ровная песня не меняется

@@ -302,7 +302,7 @@ function shiftAnalysis(a, shift) {
   const t = (x) => Math.round((x / rate) * 1000) / 1000;
   return {
     key: transpose(a.key, st), bpm: a.bpm ? Math.round(a.bpm * rate) : a.bpm,
-    autoBpm: a.autoBpm ? Math.round(a.autoBpm * rate) : a.autoBpm, fixed: a.fixed,
+    autoBpm: a.autoBpm ? Math.round(a.autoBpm * rate) : a.autoBpm, fixed: a.fixed, tempoBy: a.tempoBy,
     beats: (a.beats || []).map(t), downbeats: (a.downbeats || []).map(t),
     chords: (a.chords || []).map(([x, y, n]) => [t(x), t(y), transpose(n, st)]),
   };
@@ -707,10 +707,16 @@ function movePlayhead() {
   const box = lane.getBoundingClientRect();
   const frac = (position() - viewStart) / viewLen();
   // при игре окно едет за курсором
+  // при игре окно едет за курсором. Только если оно правда сдвинулось:
+  // в конце песни окну некуда ехать, и redraw -> movePlayhead -> redraw
+  // крутился бы без конца (курсор вставал намертво)
   if (playing && zoom > 1 && (frac > 0.85 || frac < 0) && Date.now() > followPause) {
-    viewStart = Math.max(0, Math.min(duration - viewLen(), position() - viewLen() * 0.1));
-    redraw();
-    return;
+    const next = Math.max(0, Math.min(duration - viewLen(), position() - viewLen() * 0.1));
+    if (Math.abs(next - viewStart) > 0.01) {
+      viewStart = next;
+      redraw();
+      return;
+    }
   }
   $('playhead').style.display = frac < 0 || frac > 1 ? 'none' : '';
   $('playhead').style.top = `${document.querySelector('.mx-ruler-row').offsetTop}px`;
@@ -724,7 +730,8 @@ function movePlayhead() {
 // ---------------------------------------------------------------- звук
 
 function position() {
-  return playing ? Math.min(duration, startPos + (ctx.currentTime - startTime)) : pos;
+  // во время такта отсчёта музыка ещё не пошла -- позиция стоит на месте
+  return playing ? Math.min(duration, startPos + Math.max(0, ctx.currentTime - startTime)) : pos;
 }
 
 function stopSources() {
@@ -816,12 +823,13 @@ setInterval(() => {
     }
   }
   if (loop.on && loop.b > loop.a && now >= loop.b) startAt(loop.a, 0.02);
-  else if (now >= duration) { pause(); pos = 0; movePlayhead(); }
+  else if (now >= duration) { pause(); pos = 0; viewStart = 0; redraw(); }
 }, 25);
 
 (function frame() {
-  if (playing) movePlayhead();
+  // следующий кадр -- при любой ошибке, иначе курсор замирает до перезагрузки
   requestAnimationFrame(frame);
+  if (playing) movePlayhead();
 }());
 
 // ---------------------------------------------------------------- мышь
@@ -1130,8 +1138,9 @@ $('tempoBtn').addEventListener('click', () => {
   tempo.taps = [];
   $('tempoVal').value = tempo.bpm;
   $('tempoReset').hidden = !analysis.fixed;
-  tempoNote(analysis.fixed ? `Сейчас ваш темп. Автомат определил ${analysis.autoBpm || '—'} BPM.`
-    : 'Не уверены? Включите песню и нажимайте «Отстучать» на каждую долю.');
+  const by = analysis.tempoBy === 'net' ? 'нейросеть долей' : 'простой алгоритм';
+  tempoNote(analysis.fixed ? `Сейчас ваш темп. Автомат (${by}) определил ${analysis.autoBpm || '—'} BPM.`
+    : `Темп определил${analysis.tempoBy === 'net' ? 'а' : ''} ${by}. Не уверены? Включите песню и нажимайте «Отстучать» на каждую долю.`);
   $('tempoPlay').textContent = playing ? '❚❚ Пауза' : '▶ Играть';
   $('tempoModal').hidden = false;
 });

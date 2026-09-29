@@ -124,8 +124,26 @@ def track(y, sr: int = SR):
     beats = _peaks(beat)
     if len(beats) < 4:
         return None
+    beats = steady(beats)
     bpm = 60.0 / float(np.median(np.diff(beats)))
     return bpm, [float(b) for b in beats], [float(d) for d in bars(beats, _peaks(down))]
+
+
+def steady(beats):
+    """Одна сетка на песню. Во вступлении сеть иногда отмечает восьмые
+    («Тишина»: первые 29 с -- 162 вместо 81), и метроном щёлкал бы там
+    вдвое чаще. Шаг сетки -- медиана промежутков; идём с конца, где
+    песня уже устоялась, и выбрасываем доли ближе ¾ шага к соседней."""
+    import numpy as np
+
+    if len(beats) < 8:
+        return beats
+    step = float(np.median(np.diff(beats)))
+    kept = [beats[-1]]
+    for beat in beats[-2::-1]:
+        if kept[-1] - beat >= 0.75 * step:
+            kept.append(beat)
+    return np.array(kept[::-1])
 
 
 def bars(beats, downbeats):

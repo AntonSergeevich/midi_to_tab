@@ -572,7 +572,7 @@ def audio_seconds(path: str) -> int:
 
 # Версия разбора: сменилась (модель, подсказка тональности) -- старый кеш
 # в задачах пересчитывается при следующем открытии
-ANALYSIS_VERSION = 7
+ANALYSIS_VERSION = 8
 
 
 def analyze_audio(path: str) -> dict:
@@ -582,8 +582,11 @@ def analyze_audio(path: str) -> dict:
     результат хранится в задаче."""
     from midi2tab import audiochords
 
+    from midi2tab import beatnet
+
     found = audiochords.detect_from_audio(path)
     return {"v": ANALYSIS_VERSION, "key": found.key, "bpm": round(found.tempo) if found.tempo else None,
+            "tempoBy": "net" if beatnet.available() else "librosa",
             "beats": [round(b, 3) for b in found.beats],
             "downbeats": [round(b, 3) for b in found.downbeats],
             "chords": [[round(c.start, 2), round(c.end, 2), c.name] for c in found.chords]}
