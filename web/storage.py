@@ -444,22 +444,27 @@ class Storage:
         """
         Проверить и погасить код восстановления.
 
-        Погашение и проверка в одной операции: иначе одним кодом можно
-        было бы сменить пароль дважды.
+        Условие -- в самом UPDATE, как в spend_balance: раньше здесь были
+        отдельные SELECT и UPDATE, и между ними два одновременных запроса
+        с одним и тем же кодом (например, письмо со ссылкой открыли на
+        двух вкладках или перехватили) оба проходили SELECT, пока ни один
+        ещё не погасил код, -- и оба меняли пароль по одному коду вместо
+        одного. Теперь одним и тем же запросом код гасится и сообщается,
+        погасился ли он только что: у второго запроса rowcount будет 0.
         """
         now = time.time()
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT user_id FROM resets"
+            changed = conn.execute(
+                "UPDATE resets SET used_at = ?"
                 " WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?",
-                (token_hash, now),
-            ).fetchone()
-            if not row:
+                (now, token_hash, now),
+            ).rowcount
+            if not changed:
                 return None
-            conn.execute(
-                "UPDATE resets SET used_at = ? WHERE token_hash = ?", (now, token_hash)
-            )
-            return row["user_id"]
+            row = conn.execute(
+                "SELECT user_id FROM resets WHERE token_hash = ?", (token_hash,)
+            ).fetchone()
+            return row["user_id"] if row else None
 
     def purge_resets(self, user_id: str) -> None:
         """Погасить все прежние коды -- например, после смены пароля."""

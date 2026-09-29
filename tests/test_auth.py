@@ -180,6 +180,43 @@ def test_reset_token_is_single_use(store):
     assert store.consume_reset(token_hash) is None
 
 
+def test_reset_token_survives_a_true_concurrent_race(store):
+    """
+    Регрессия под настоящую гонку потоков, а не последовательные вызовы.
+
+    consume_reset раньше проверял и гасил код ДВУМЯ отдельными запросами
+    (SELECT, потом UPDATE). Голый SELECT в sqlite3 не открывает пишущую
+    транзакцию, и ничто не мешало второму потоку прочитать used_at IS
+    NULL раньше, чем первый успевал погасить код своим UPDATE -- оба
+    получали один и тот же user_id и оба меняли пароль по одному письму.
+    Последовательные вызовы (как в test_reset_token_is_single_use) эту
+    гонку не ловят -- она видна только при настоящих потоках, стартующих
+    одновременно. Условие теперь внутри самого UPDATE (как в
+    spend_balance): второй поток либо ещё застаёт used_at IS NULL и сам
+    гасит код, либо застаёт его уже погашенным -- третьего не дано.
+    """
+    import threading
+
+    user = store.ensure_user(None)
+    token, token_hash = auth.make_reset_token()
+    store.create_reset(user.id, token_hash, auth.token_expiry())
+
+    results: list[str | None] = []
+    barrier = threading.Barrier(2)
+
+    def attempt() -> None:
+        barrier.wait()
+        results.append(store.consume_reset(token_hash))
+
+    threads = [threading.Thread(target=attempt) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert sorted(results, key=lambda r: r is None) == [user.id, None]
+
+
 def test_expired_reset_rejected(store):
     user = store.ensure_user(None)
     _, token_hash = auth.make_reset_token()
