@@ -1,0 +1,67 @@
+name: Темп — Beat This против librosa
+
+# Скачивает веса Beat This (CPJKU, MIT), переводит в ONNX и меряет темп
+# на GuitarSet (темп в имени файла), AAM (доли из разметки) и синтетике
+# с шаффлом. Модели и отчёт -- в ветку test-results/beat-eval-<run>.
+on:
+  workflow_dispatch:
+    inputs:
+      aam:
+        description: Песен AAM для проверки
+        default: "80"
+      limit:
+        description: Песен GuitarSet (аккомпанемент)
+        default: "180"
+
+permissions:
+  contents: write
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Зависимости
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install -q -r requirements.txt -r requirements-audio.txt remotezip beat_this soundfile
+      - name: Экспорт в ONNX
+        run: |
+          mkdir -p results
+          python -u scripts/beatnet/export.py --out results 2>&1 | grep -v Warning | tee results/export.log
+      - name: Синтетика
+        run: python -u scripts/beatnet/synth.py --out synth_beats
+      - name: GuitarSet
+        run: |
+          base=https://zenodo.org/records/3371780/files
+          mkdir -p gs
+          curl -sSfL "$base/audio_mono-mic.zip?download=1" -o mic.zip
+          unzip -q -o mic.zip -d gs
+          find gs -mindepth 2 -name '*.wav' -exec mv -t gs {} +
+      - name: AAM
+        continue-on-error: true
+        run: python -u scripts/chordnet/aam.py --count "${{ inputs.aam }}" --out aam_eval --block 0001-1000
+      - name: Замер
+        run: |
+          python -u scripts/beatnet/eval.py --synth synth_beats --guitarset gs --limit "${{ inputs.limit }}" \
+            $( [ -n "$(ls aam_eval/*.beats 2>/dev/null)" ] && echo --aam aam_eval ) \
+            --models results/beatthis_final0.onnx results/beatthis_small0.onnx \
+            --out results/report.json 2>&1 | grep -v Warning | tee results/eval.log
+      - name: В ветку test-results
+        if: always()
+        run: |
+          [ -n "$(ls -A results 2>/dev/null)" ] || exit 0
+          dir="beat-eval-${{ github.run_id }}"
+          git clone -q --depth 1 --branch test-results \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
+          mkdir -p "out/$dir" && cp results/* "out/$dir/"
+          cd out
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "Темп, Beat This: прогон ${{ github.run_id }}"
+          git push -q origin HEAD:test-results

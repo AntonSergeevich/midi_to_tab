@@ -40,8 +40,12 @@ def harte(name: str) -> str:
     return f"{found.group(1)}:{quality}" if quality else "X"
 
 
-def segments_from_beatinfo(text: str, end_time: float | None = None) -> list[list]:
-    """beatinfo.arff (время доли, такт, доля, аккорд) -> отрезки одного аккорда."""
+def beats_from_beatinfo(text: str) -> list[float]:
+    """Времена долей из beatinfo.arff -- для замера темпа (scripts/beatnet)."""
+    return [start for start, _ in _beat_rows(text)]
+
+
+def _beat_rows(text: str) -> list[tuple[float, str]]:
     rows = []
     in_data = False
     for line in text.splitlines():
@@ -60,6 +64,12 @@ def segments_from_beatinfo(text: str, end_time: float | None = None) -> list[lis
             rows.append((float(parts[0]), harte(parts[-1])))
         except (ValueError, IndexError):
             continue
+    return rows
+
+
+def segments_from_beatinfo(text: str, end_time: float | None = None) -> list[list]:
+    """beatinfo.arff (время доли, такт, доля, аккорд) -> отрезки одного аккорда."""
+    rows = _beat_rows(text)
     if not rows:
         return []
     beat = rows[1][0] - rows[0][0] if len(rows) > 1 else 0.5
@@ -105,7 +115,8 @@ def main() -> None:
             song = Path(name).name.split("_")[0].split(".")[0]
             if song not in beatinfo:
                 continue
-            segments = segments_from_beatinfo(annotations.read(beatinfo[song]).decode("utf-8", "replace"))
+            info = annotations.read(beatinfo[song]).decode("utf-8", "replace")
+            segments = segments_from_beatinfo(info)
             if not segments:
                 continue
             target = out / f"aam_{song}{Path(name).suffix.lower()}"
@@ -129,6 +140,7 @@ def main() -> None:
                 continue
             target.write_bytes(data)
             (out / f"aam_{song}.json").write_text(json.dumps(segments))
+            (out / f"aam_{song}.beats").write_text(" ".join(f"{b:.3f}" for b in beats_from_beatinfo(info)))
             for _, _, label in segments:
                 vocabulary[label.split(":")[-1]] = vocabulary.get(label.split(":")[-1], 0) + 1
             done += 1
