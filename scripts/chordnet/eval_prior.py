@@ -31,7 +31,9 @@ STRENGTHS = (0.0, 0.7, 1.5, 2.5, 4.0)
 def harte(name: str) -> str:
     if name == "N":
         return "N"
-    for suffix, quality in (("maj7", "maj7"), ("m7", "min7"), ("7", "7"), ("m", "min")):
+    # сначала длинные суффиксы: «m7» раньше «m», «maj7» раньше «7»
+    for suffix, quality in (("maj7", "maj7"), ("sus4", "sus4"), ("sus2", "sus2"), ("dim", "dim"),
+                            ("aug", "aug"), ("m7", "min7"), ("7", "7"), ("6", "maj6"), ("m", "min")):
         if name.endswith(suffix) and name[:-len(suffix)] in chordnet.NOTES:
             return f"{name[:-len(suffix)]}:{quality}"
     return f"{name}:maj"
