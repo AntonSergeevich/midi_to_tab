@@ -19,11 +19,12 @@ from functools import lru_cache
 from pathlib import Path
 
 # Модель с расширенными аккордами: 121 класс (к мажору/минору и септаккордам
-# добавлены sus4, sus2, dim, aug, 6), GuitarSet + 500 песен AAM + 8% синтетики.
-# Замеры 29.09.2026: гитара соло GuitarSet majmin 0.888 -> 0.890; свежая
-# синтетика majmin 0.804 -> 0.836, mirex 0.699 -> 0.824; попадания sus4 78%,
-# dim 70%, sus2 и aug 44% (прежняя не ставила их вовсе). Откат без выкладки
-# кода: NASLUX_CHORD_MODEL=r2 (прошлая, 61 класс) или v2 (самая первая).
+# добавлены sus4, sus2, dim, aug, 6), GuitarSet + 500 песен AAM + 15% синтетики.
+# Замеры 29.09.2026 против прошлой (61 класс): гитара соло GuitarSet majmin
+# 0.888 -> 0.892; свежая синтетика majmin 0.804 -> 0.870, mirex 0.699 -> 0.850;
+# попадания dim 77%, sus2 64%, sus4 59%, aug 59%, 6 11% (прежняя не ставила их
+# вовсе). Откат без выкладки кода: NASLUX_CHORD_MODEL=r2 (прошлая, 61 класс)
+# или v2 (самая первая).
 _MODELS = Path(__file__).resolve().parent / "models"
 _VARIANTS = {"r2": "chordnet_r2.onnx", "v2": "chordnet_v2.onnx"}
 MODEL = _MODELS / _VARIANTS.get(os.environ.get("NASLUX_CHORD_MODEL", ""), "chordnet.onnx")
