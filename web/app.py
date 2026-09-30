@@ -1106,7 +1106,8 @@ async def api_upload(
     # Пробная песня списывается в момент постановки в очередь, а не по
     # завершении: иначе один и тот же файл можно было бы гонять бесконечно,
     # обрывая задание на полпути.
-    if not billing.consume(storage, user):
+    spent = billing.consume(storage, user)
+    if not spent:
         # Доступ на входе в функцию проверялся по снимку, снятому до
         # загрузки файла -- у него было время устареть (например, тот же
         # пользователь параллельно запустил ещё один разбор и списал
@@ -1122,7 +1123,9 @@ async def api_upload(
         shutil.rmtree(upload_dir, ignore_errors=True)
         storage.update_job(job.id, status="error", error=race_reason)
         raise HTTPException(402, race_reason)
-    storage.update_job(job.id, counted=True)
+    # charged_kind запоминает, ЧЕМ расплатились -- если разбор в фоне
+    # упадёт с ошибкой, _analyze по нему вернёт списанное (см. jobs.py).
+    storage.update_job(job.id, counted=True, charged_kind=spent)
     runner.submit_analysis(job.id, target)
 
     response = JSONResponse({"jobId": job.id})
@@ -1922,11 +1925,12 @@ def api_studio_to_tabs(job_id: str, request: Request, file: str = Form("")):
     os.makedirs(upload_dir, exist_ok=True)
     target = os.path.join(upload_dir, f"{safe_stem(file)}{Path(file).suffix.lower()}")
     shutil.copyfile(source, target)
-    if not billing.consume(storage, user):
+    spent = billing.consume(storage, user)
+    if not spent:
         shutil.rmtree(upload_dir, ignore_errors=True)
         storage.update_job(job.id, status="error", error="Лимит разборов уже израсходован")
         raise HTTPException(402, "Лимит разборов уже израсходован — пополните баланс на странице тарифов.")
-    storage.update_job(job.id, counted=True)
+    storage.update_job(job.id, counted=True, charged_kind=spent)
     runner.submit_analysis(job.id, target)
     return {"jobId": job.id}
 

@@ -12,7 +12,12 @@ dependencies = [
 # Внимание: basic-pitch тянет tensorflow, которого нет под Python 3.13.
 # Рабочая установка -- через requirements-audio.txt + pip install --no-deps basic-pitch.
 audio = ["onnxruntime>=1.16", "librosa>=0.10", "mir_eval>=0.6", "resampy>=0.4", "soundfile>=0.12"]
-dev = ["pytest>=7.0"]
+# httpx -- не нужен приложению, только tests/test_web.py и test_studio.py:
+# fastapi.testclient.TestClient молча требует его для отправки запросов
+# в приложение без реального сервера. Без него добрая половина тестов не
+# падает по делу, а падает на импорте ("requires the httpx2 package"),
+# и это легко принять за нерабочий тестовый файл, а не нехватку зависимости.
+dev = ["pytest>=7.0", "httpx>=0.23"]
 
 [project.scripts]
 midi2tab = "midi2tab.cli:main"

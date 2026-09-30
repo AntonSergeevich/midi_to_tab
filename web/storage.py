@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     settings     TEXT NOT NULL DEFAULT '{}',
     result       TEXT,
     counted      INTEGER NOT NULL DEFAULT 0,
+    charged_kind TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
@@ -157,6 +158,7 @@ class Job:
     settings: dict = field(default_factory=dict)
     result: dict | None = None
     counted: bool = False
+    charged_kind: str | None = None  # чем расплатились: free|credit|balance|unlimited
 
 
 class Storage:
@@ -187,6 +189,11 @@ class Storage:
         job_columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
         if "progress" not in job_columns:
             conn.execute("ALTER TABLE jobs ADD COLUMN progress REAL NOT NULL DEFAULT 0")
+        # Чем именно расплатились за разбор (пробная песня / кредит / баланс)
+        # -- чтобы вернуть ровно это, если разбор потом упадёт с ошибкой, а
+        # не молча оставить деньги списанными за ничего (см. billing.refund).
+        if "charged_kind" not in job_columns:
+            conn.execute("ALTER TABLE jobs ADD COLUMN charged_kind TEXT")
 
         existing = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
         for column, definition in (
@@ -636,6 +643,22 @@ class Storage:
             ).rowcount
         return bool(changed)
 
+    def refund_free(self, user_id: str) -> None:
+        """
+        Вернуть одну пробную песню.
+
+        Для случая, когда разбор списал пробную попытку, а сам не
+        состоялся (упал с ошибкой) -- человек не должен терять пробу за
+        то, что не получил. Не уходит ниже нуля: `MAX(0, ...)` в самом
+        запросе, а не проверкой до него -- по тем же причинам атомарности,
+        что и у spend_free.
+        """
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE users SET free_used = MAX(0, free_used - 1) WHERE id = ?",
+                (user_id,),
+            )
+
     def set_flags(
         self,
         user_id: str,
@@ -791,6 +814,7 @@ class Storage:
             settings=json.loads(row["settings"] or "{}"),
             result=json.loads(row["result"]) if row["result"] else None,
             counted=bool(row["counted"]),
+            charged_kind=row["charged_kind"],
         )
 
     def update_job(self, job_id: str, **fields) -> None:

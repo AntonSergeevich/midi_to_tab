@@ -32,6 +32,7 @@ from midi2tab.chords import pitch_class_weights as midi_pitch_weights
 from midi2tab.convert import Settings, convert
 from midi2tab.timing import TPQ
 
+from . import billing
 from .storage import Storage
 
 MIDI_SUFFIXES = (".mid", ".midi")
@@ -379,8 +380,16 @@ class JobRunner:
             )
         except Exception as exc:
             bar.stop()
+            # Разбор списывается ДО запуска (см. api_upload) -- упал он или
+            # нет, человек не должен терять пробную песню, кредит или
+            # деньги за то, чего не получил.
+            note = ""
+            if job.charged_kind:
+                billing.refund(self.storage, job.user_id, job.charged_kind)
+                self.storage.update_job(job_id, counted=False, charged_kind=None)
+                note = " Списанное за разбор вернули."
             self.storage.update_job(
-                job_id, status="error", stage="", progress=0.0, error=str(exc)
+                job_id, status="error", stage="", progress=0.0, error=str(exc) + note
             )
             print(f"[analyze {job_id}] {exc}\n{traceback.format_exc()}")
 

@@ -129,9 +129,14 @@ def check_access(user: User) -> Access:
     )
 
 
-def consume(storage: Storage, user: User) -> bool:
+def consume(storage: Storage, user: User) -> str | None:
     """
-    Списать одну песню. Возвращает, действительно ли было с чего.
+    Списать одну песню. Возвращает, ЧЕМ расплатились -- "unlimited",
+    "free", "credit" или "balance" -- или None, если списывать было не с
+    чего. Возвращаемое значение стоит хранить рядом с заданием (поле
+    Job.charged_kind): если разбор потом упадёт с ошибкой, по нему
+    `refund` вернёт ровно то, что списалось, а не гадает, откуда деньги
+    взять обратно.
 
     Порядок: у безлимитных и подписчиков не списывается ничего; дальше
     сначала расходуются бесплатные пробы, потом оплаченные поштучно
@@ -150,14 +155,34 @@ def consume(storage: Storage, user: User) -> bool:
     разбор запускать не на что, а не бесплатно.
     """
     if user.unlimited or user.subscribed:
-        return True
+        return "unlimited"
     if storage.spend_free(user.id, FREE_SONGS):
-        return True
+        return "free"
     if storage.spend_credit(user.id):
-        return True
+        return "credit"
     if user.balance >= PRICE_SINGLE_RUB:
-        return storage.spend_balance(user.id, PRICE_SINGLE_RUB)
-    return False
+        return "balance" if storage.spend_balance(user.id, PRICE_SINGLE_RUB) else None
+    return None
+
+
+def refund(storage: Storage, user_id: str, kind: str | None) -> None:
+    """
+    Вернуть то, что списал `consume`, когда результата не получилось.
+
+    Разбор списывается ДО того, как запущен (иначе один и тот же файл
+    гоняли бы бесконечно, обрывая его на середине) -- а значит, ошибка
+    посреди разбора (битый файл, упавший Demucs, нехватка памяти) не
+    должна стоить человеку пробной песни, кредита или денег за то, что он
+    не получил. "unlimited" и None возвращать нечего: в первом случае
+    ничего не списывалось, во втором -- списывать было не с чего с самого
+    начала.
+    """
+    if kind == "free":
+        storage.refund_free(user_id)
+    elif kind == "credit":
+        storage.add_credits(user_id, 1)
+    elif kind == "balance":
+        storage.add_balance(user_id, PRICE_SINGLE_RUB)
 
 
 def apply_plan(storage: Storage, user_id: str, plan: str, amount: float | None = None) -> None:

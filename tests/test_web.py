@@ -637,8 +637,8 @@ def test_consume_falls_back_when_the_first_tier_loses_the_race(store):
     stale = store.user(user.id)
     assert stale.credits == 1
 
-    assert billing.consume(store, stale) is True
-    assert billing.consume(store, stale) is True
+    assert billing.consume(store, stale) == "credit"
+    assert billing.consume(store, stale) == "balance"
 
     fresh = store.user(user.id)
     assert fresh.credits == 0
@@ -1715,3 +1715,76 @@ def test_uploaded_midi_gets_chords_and_key_not_just_a_paid_empty_result(tmp_path
     assert [c["name"] for c in result["chords"]] == ["C", "G"]
     assert result["key"]
     assert result["shapes"]["C"]
+
+
+def test_a_failed_paid_analysis_refunds_what_it_charged(tmp_path, monkeypatch):
+    """Разбор списывается ДО запуска (api_upload) -- если фоновая обработка
+    потом падает (битый файл, Demucs, нехватка памяти), списанное должно
+    вернуться, а не пропасть за разбор, которого не получилось."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    import web.app as app_module
+
+    source = tmp_path / "song.mp3"
+    source.write_bytes(b"ID3" + b"\x00" * 128)
+
+    def boom(*a, **kw):
+        raise RuntimeError("модель не смогла прочитать запись")
+
+    monkeypatch.setattr(app_module.audiochords, "detect_from_audio", boom)
+
+    user = app_module.storage.ensure_user(None)
+    for _ in range(app_module.billing.FREE_SONGS - 1):
+        app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+    user = app_module.storage.user(user.id)
+    assert user.free_used == app_module.billing.FREE_SONGS - 1  # одна проба ещё осталась
+
+    spent = app_module.billing.consume(app_module.storage, user)
+    assert spent == "free"                                     # списали последнюю пробу
+    job = app_module.storage.create_job(user.id, "song.mp3", {})
+    app_module.storage.update_job(job.id, counted=True, charged_kind=spent)
+
+    app_module.runner._analyze(job.id, str(source))
+
+    failed = app_module.storage.job(job.id)
+    assert failed.status == "error"
+    assert "вернули" in failed.error
+    assert not failed.counted
+    assert failed.charged_kind is None
+    # Проба вернулась -- у пользователя снова есть одна свободная попытка.
+    assert app_module.storage.user(user.id).free_used == app_module.billing.FREE_SONGS - 1
+    assert app_module.billing.check_access(app_module.storage.user(user.id)).allowed
+
+
+def test_a_failed_free_chords_analysis_refunds_nothing(tmp_path, monkeypatch):
+    """Бесплатный разбор аккордов ничего не списывал -- падение не должно
+    трогать счётчик пробных песен вовсе (charged_kind не задан)."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    import web.app as app_module
+
+    source = tmp_path / "song.mp3"
+    source.write_bytes(b"ID3" + b"\x00" * 128)
+
+    def boom(*a, **kw):
+        raise RuntimeError("модель не смогла прочитать запись")
+
+    monkeypatch.setattr(app_module.audiochords, "detect_from_audio", boom)
+
+    user = app_module.storage.ensure_user(None)
+    job = app_module.storage.create_job(user.id, "song.mp3", {})
+
+    app_module.runner._analyze(job.id, str(source))
+
+    failed = app_module.storage.job(job.id)
+    assert failed.status == "error"
+    assert "вернули" not in failed.error
+    assert app_module.storage.user(user.id).free_used == 0
