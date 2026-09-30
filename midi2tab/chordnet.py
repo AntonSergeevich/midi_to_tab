@@ -19,14 +19,16 @@ from functools import lru_cache
 from pathlib import Path
 
 # Модель с расширенными аккордами: 121 класс (к мажору/минору и септаккордам
-# добавлены sus4, sus2, dim, aug, 6), GuitarSet + 500 песен AAM + 15% синтетики.
-# Замеры 29.09.2026 против прошлой (61 класс): гитара соло GuitarSet majmin
-# 0.888 -> 0.892; свежая синтетика majmin 0.804 -> 0.870, mirex 0.699 -> 0.850;
-# попадания dim 77%, sus2 64%, sus4 59%, aug 59%, 6 11% (прежняя не ставила их
-# вовсе). Откат без выкладки кода: NASLUX_CHORD_MODEL=r2 (прошлая, 61 класс)
+# добавлены sus4, sus2, dim, aug, 6), GuitarSet + 1940 песен AAM (было 500)
+# + 15% синтетики. Замеры 30.09.2026 против прошлой (ext15, 500 песен AAM):
+# свежая синтетика majmin 0.870 -> 0.875, mirex 0.850 -> 0.862, септаккорды
+# 0.710 -> 0.728; sus4 59% -> 77%, dim 77% -> 78%, aug 59% -> 60%, sus2 64%,
+# 6 11% -> 0%. Независимо (chord-eval, подсказка тональности 2.5): гитара
+# соло GuitarSet 0.890 -> 0.885, неслышанный блок AAM 0.956 -> 0.959.
+# Откат без выкладки кода: NASLUX_CHORD_MODEL=ext15 (прошлая), r2 (61 класс)
 # или v2 (самая первая).
 _MODELS = Path(__file__).resolve().parent / "models"
-_VARIANTS = {"r2": "chordnet_r2.onnx", "v2": "chordnet_v2.onnx"}
+_VARIANTS = {"ext15": "chordnet_ext15.onnx", "r2": "chordnet_r2.onnx", "v2": "chordnet_v2.onnx"}
 MODEL = _MODELS / _VARIANTS.get(os.environ.get("NASLUX_CHORD_MODEL", ""), "chordnet.onnx")
 
 # Должно совпадать с scripts/chordnet/common.py
