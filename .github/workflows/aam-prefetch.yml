@@ -1,0 +1,62 @@
+name: AAM — скачать остальные песни (признаки в кэш)
+
+# Обучение аккордов берёт 500 песен AAM (zenodo 5794629, CC BY 4.0) из
+# блока 2001-3000. Ещё 1500 -- вторая половина этого блока и весь
+# 1001-2000 -- качаем здесь, шестью кусками по 250 параллельно (одна
+# задача не успела бы: ~2 часа на 500 песен), и кладём готовые признаки
+# в кэш Actions. Блок 0001-1000 не трогаем: на нём честная проверка.
+# chord-train.yml с aam_extra=1 подтягивает все куски.
+on:
+  workflow_dispatch:
+    inputs:
+      vocab:
+        description: "Словарь меток: ext (121 класс) или sevenths (61)"
+        default: ext
+
+jobs:
+  chunk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        part:
+          - { block: "2001-3000", skip: 500 }
+          - { block: "2001-3000", skip: 750 }
+          - { block: "1001-2000", skip: 0 }
+          - { block: "1001-2000", skip: 250 }
+          - { block: "1001-2000", skip: 500 }
+          - { block: "1001-2000", skip: 750 }
+    env:
+      CHORDNET_VOCAB: ${{ inputs.vocab }}
+    steps:
+      - name: Освободить место
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Кэш куска
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: aam_part
+          key: aam-${{ matrix.part.block }}-skip${{ matrix.part.skip }}-250-${{ inputs.vocab }}-feat1
+      - name: Зависимости
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q -r requirements.txt -r requirements-audio.txt remotezip
+      - name: Скачать и разобрать
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          python -u scripts/chordnet/aam.py --count 250 --skip "${{ matrix.part.skip }}" \
+            --block "${{ matrix.part.block }}" --out aam
+          python -u scripts/chordnet/prepare.py --extra aam --out aam_part --delete-synth
+          ls aam_part/*.npz | wc -l; du -sh aam_part
+      - name: В кэш
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: aam_part
+          key: aam-${{ matrix.part.block }}-skip${{ matrix.part.skip }}-250-${{ inputs.vocab }}-feat1

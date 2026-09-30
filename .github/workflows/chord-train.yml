@@ -13,9 +13,6 @@ on:
       synth:
         description: Синтетических записей по 30 с
         default: "2400"
-      test_player:
-        description: Гитарист GuitarSet для проверки (00..05), если split=player
-        default: "05"
       split:
         description: "songs -- проверка на неслышанных песнях (честно), player -- на гитаристе"
         default: songs
@@ -34,6 +31,9 @@ on:
       tricks:
         description: "Приёмы: --weights --augment --smoothing 0.05 (пусто -- как раньше)"
         default: "--weights --augment --smoothing 0.05"
+      aam_extra:
+        description: "1 -- добавить ещё 1500 песен AAM из кэша (сначала aam-prefetch.yml)"
+        default: "0"
       vocab:
         description: "Словарь: sevenths (61 класс) или ext (121: ещё sus4, sus2, dim, aug, 6)"
         default: sevenths
@@ -48,7 +48,7 @@ jobs:
     env:
       STEPS: ${{ inputs.steps }}
       SYNTH: ${{ inputs.synth }}
-      PLAYER: ${{ inputs.test_player }}
+      PLAYER: "05"   # гитарист для split=player
       SPLIT: ${{ inputs.split }}
       FOLD: ${{ inputs.fold }}
       AAM: ${{ inputs.aam }}
@@ -120,6 +120,72 @@ jobs:
           if [ "${{ inputs.aam }}" != "0" ] && [ ! -d aam_cache ]; then
             mkdir -p aam_cache && cp data/aam_*.npz aam_cache/ && du -sh aam_cache
           fi
+      - name: AAM ещё (2001-3000, с 501)
+        if: inputs.aam_extra == '1'
+        uses: actions/cache/restore@v4
+        with:
+          path: aam_part
+          key: aam-2001-3000-skip500-250-${{ inputs.vocab }}-feat1
+      - name: Перенести кусок 2001-3000/500
+        if: inputs.aam_extra == '1'
+        run: |
+          mkdir -p data && [ -d aam_part ] && mv aam_part/*.npz data/ 2>/dev/null; rm -rf aam_part
+          echo "признаков AAM в data: $(ls data/aam_*.npz 2>/dev/null | wc -l)"
+      - name: AAM ещё (2001-3000, с 751)
+        if: inputs.aam_extra == '1'
+        uses: actions/cache/restore@v4
+        with:
+          path: aam_part
+          key: aam-2001-3000-skip750-250-${{ inputs.vocab }}-feat1
+      - name: Перенести кусок 2001-3000/750
+        if: inputs.aam_extra == '1'
+        run: |
+          mkdir -p data && [ -d aam_part ] && mv aam_part/*.npz data/ 2>/dev/null; rm -rf aam_part
+          echo "признаков AAM в data: $(ls data/aam_*.npz 2>/dev/null | wc -l)"
+      - name: AAM ещё (1001-2000, с 1)
+        if: inputs.aam_extra == '1'
+        uses: actions/cache/restore@v4
+        with:
+          path: aam_part
+          key: aam-1001-2000-skip0-250-${{ inputs.vocab }}-feat1
+      - name: Перенести кусок 1001-2000/0
+        if: inputs.aam_extra == '1'
+        run: |
+          mkdir -p data && [ -d aam_part ] && mv aam_part/*.npz data/ 2>/dev/null; rm -rf aam_part
+          echo "признаков AAM в data: $(ls data/aam_*.npz 2>/dev/null | wc -l)"
+      - name: AAM ещё (1001-2000, с 251)
+        if: inputs.aam_extra == '1'
+        uses: actions/cache/restore@v4
+        with:
+          path: aam_part
+          key: aam-1001-2000-skip250-250-${{ inputs.vocab }}-feat1
+      - name: Перенести кусок 1001-2000/250
+        if: inputs.aam_extra == '1'
+        run: |
+          mkdir -p data && [ -d aam_part ] && mv aam_part/*.npz data/ 2>/dev/null; rm -rf aam_part
+          echo "признаков AAM в data: $(ls data/aam_*.npz 2>/dev/null | wc -l)"
+      - name: AAM ещё (1001-2000, с 501)
+        if: inputs.aam_extra == '1'
+        uses: actions/cache/restore@v4
+        with:
+          path: aam_part
+          key: aam-1001-2000-skip500-250-${{ inputs.vocab }}-feat1
+      - name: Перенести кусок 1001-2000/500
+        if: inputs.aam_extra == '1'
+        run: |
+          mkdir -p data && [ -d aam_part ] && mv aam_part/*.npz data/ 2>/dev/null; rm -rf aam_part
+          echo "признаков AAM в data: $(ls data/aam_*.npz 2>/dev/null | wc -l)"
+      - name: AAM ещё (1001-2000, с 751)
+        if: inputs.aam_extra == '1'
+        uses: actions/cache/restore@v4
+        with:
+          path: aam_part
+          key: aam-1001-2000-skip750-250-${{ inputs.vocab }}-feat1
+      - name: Перенести кусок 1001-2000/750
+        if: inputs.aam_extra == '1'
+        run: |
+          mkdir -p data && [ -d aam_part ] && mv aam_part/*.npz data/ 2>/dev/null; rm -rf aam_part
+          echo "признаков AAM в data: $(ls data/aam_*.npz 2>/dev/null | wc -l)"
       - name: Обучение и замер
         run: |
           mkdir -p results
@@ -131,7 +197,7 @@ jobs:
         if: always()
         run: |
           [ -n "$(ls -A results 2>/dev/null)" ] || exit 0
-          dir="chordnet-${{ github.run_id }}-$SPLIT$FOLD-aam$AAM-$CHORDNET_VOCAB"
+          dir="chordnet-${{ github.run_id }}-$SPLIT$FOLD-aam$AAM$( [ "${{ inputs.aam_extra }}" = 1 ] && echo plus1500 )-$CHORDNET_VOCAB"
           git clone -q --depth 1 --branch test-results \
             "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
           mkdir -p "out/$dir" && cp results/* "out/$dir/"
