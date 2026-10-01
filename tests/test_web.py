@@ -645,6 +645,25 @@ def test_consume_falls_back_when_the_first_tier_loses_the_race(store):
     assert fresh.balance == 0.0
 
 
+def test_claim_job_run_lets_only_one_concurrent_request_through(store):
+    """
+    Регрессия по образцу claim_job_charge: два запроса, почти одновременно
+    читающие один и тот же старый статус "done", не должны оба получить
+    право запустить фоновую обработку (разделение/текст) -- иначе оба
+    попадут в пул потоков и будут писать в одни и те же файлы на диске.
+    """
+    user = store.ensure_user(None)
+    job = store.create_job(user.id, "song.mp3", {})
+    store.update_job(job.id, status="done")
+
+    first = store.claim_job_run(job.id, allowed_from=("done",))
+    second = store.claim_job_run(job.id, allowed_from=("done",))
+
+    assert first is True
+    assert second is False
+    assert store.job(job.id).status == "running"
+
+
 def test_payment_refuses_an_anonymous_account(tmp_path, monkeypatch):
     """
     Платёж без учётной записи привязан только к куке -- нельзя.
@@ -1648,6 +1667,82 @@ def test_separating_a_midi_track_is_refused_not_charged_and_crashed(tmp_path, mo
         assert not started
         assert app_module.storage.user(user.id).balance == 100
         assert not app_module.storage.job(job.id).counted
+
+
+def test_separate_clicked_twice_at_once_starts_only_one_background_job(tmp_path, monkeypatch):
+    """
+    Регрессия: `/api/job/{id}/separate` проверял статус по снимку `job`,
+    прочитанному ДО постановки в очередь -- "running" выставлялся только
+    внутри фонового потока, уже ПОСЛЕ того, как запрос встал в очередь.
+    Два быстрых клика (или повтор из-за таймаута сети) оба успевали
+    пройти проверку и оба попадали в пул потоков, конкурентно записывая
+    в один и тот же `out_dir/stems`. Атомарный захват (claim_job_run)
+    должен пускать в обработку только одного из двух."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    started = []
+    monkeypatch.setattr(app_module.runner, "submit_separation", lambda jid: started.append(jid))
+    monkeypatch.setattr(app_module.separate, "available", lambda: (True, ""))
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        for _ in range(app_module.billing.FREE_SONGS):          # пробы кончились
+            app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+        app_module.storage.add_balance(user.id, 100)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+        job = app_module.storage.create_job(user.id, "song.mp3", {})
+        app_module.storage.update_job(job.id, status="done", result={
+            "isMidi": False, "chords": [], "paths": {"parts": {"full": "song.mp3"}},
+        })
+
+        first = client.post(f"/api/job/{job.id}/separate")
+        second = client.post(f"/api/job/{job.id}/separate")
+
+        assert first.status_code == 200
+        assert second.status_code == 409
+        assert started == [job.id]
+        assert app_module.storage.user(user.id).balance == 100 - app_module.billing.PRICE_SINGLE_RUB
+
+
+def test_lyrics_clicked_twice_at_once_starts_only_one_background_job(tmp_path, monkeypatch):
+    """Та же гонка, что и у /separate (см. тест выше), только для
+    распознавания текста -- и она опаснее: `_lyrics` сама запускает
+    `_separate_later`, когда партий ещё нет, так что два одновременных
+    клика по "Распознать текст" гонялись бы за тот же `out_dir/stems`."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    started = []
+    monkeypatch.setattr(app_module.runner, "submit_lyrics", lambda jid, model: started.append(jid))
+    monkeypatch.setattr(app_module.lyrics_mod, "available", lambda: (True, ""))
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+        job = app_module.storage.create_job(user.id, "song.mp3", {})
+        app_module.storage.update_job(job.id, status="done", result={
+            "isMidi": False, "chords": [], "paths": {"source": "song.mp3", "parts": {}},
+        })
+
+        first = client.post(f"/api/job/{job.id}/lyrics")
+        second = client.post(f"/api/job/{job.id}/lyrics")
+
+        assert first.status_code == 200
+        assert second.status_code == 409
+        assert started == [job.id]
 
 
 def test_two_stem_tabs_clicked_at_once_charge_only_once(tmp_path, monkeypatch):

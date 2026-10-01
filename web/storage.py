@@ -366,6 +366,28 @@ class Storage:
             ).rowcount
         return bool(changed)
 
+    def claim_job_run(self, job_id: str, allowed_from: tuple[str, ...]) -> bool:
+        """
+        Атомарно перевести трек в "running" -- и сказать, получилось ли.
+
+        Разделение на партии и распознавание текста запускаются по снимку
+        `job`, прочитанному ДО запуска: два клика подряд (или повтор из-за
+        таймаута сети) почти одновременно видят один и тот же старый
+        статус и оба проходят проверку. Без атомарной отметки оба запроса
+        попадали бы в пул потоков и писали бы в одни и те же файлы на
+        диске конкурентно. Условие на текущий статус в том же запросе,
+        что и запись, -- как в claim_job_charge -- гарантирует, что
+        перевести трек в "running" получится только у одного из
+        одновременных запросов.
+        """
+        placeholders = ",".join("?" * len(allowed_from))
+        with self._connect() as conn:
+            changed = conn.execute(
+                f"UPDATE jobs SET status = 'running' WHERE id = ? AND status IN ({placeholders})",
+                (job_id, *allowed_from),
+            ).rowcount
+        return bool(changed)
+
     # ------------------------------------------------------ учётные записи
 
     def user_by_email(self, email: str) -> User | None:

@@ -525,7 +525,12 @@ class JobRunner:
 
         source = paths.get("vocals") or full
         if not source or not os.path.isfile(source):
-            self.storage.update_job(job_id, error="Нет дорожки для распознавания текста")
+            # Статус возвращаем в "done": запрос на распознавание атомарно
+            # переводит его в "running" ДО запуска (web/app.py:api_make_lyrics),
+            # и если здесь просто выйти, трек навсегда повиснет "в работе".
+            self.storage.update_job(
+                job_id, status="done", error="Нет дорожки для распознавания текста"
+            )
             return
 
         used_vocals = "vocals" in paths
@@ -544,11 +549,11 @@ class JobRunner:
             payload["lyricsSource"] = "вокальная дорожка" if used_vocals else "весь трек"
             bar.stop()
             self.storage.update_job(
-                job_id, result=payload, stage="Текст готов", progress=100.0
+                job_id, status="done", result=payload, stage="Текст готов", progress=100.0
             )
         except Exception as exc:
             bar.stop()
-            self.storage.update_job(job_id, stage=f"Текст не распознан: {exc}")
+            self.storage.update_job(job_id, status="done", stage=f"Текст не распознан: {exc}")
             print(f"[lyrics {job_id}] {exc}\n{traceback.format_exc()}")
 
     # ----------------------------------------------------------------- табы

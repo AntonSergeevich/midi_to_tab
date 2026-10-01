@@ -1233,11 +1233,19 @@ def api_make_lyrics(
     """Распознать текст песни по вокальной партии."""
     user = current_user(request)
     job = storage.job(job_id)
-    if not job or job.user_id != user.id or job.status != "done" or not job.result:
+    if not job or job.user_id != user.id or not job.result:
         raise HTTPException(404, "Разбор ещё не готов")
     ok, why = lyrics_mod.available()
     if not ok:
         raise HTTPException(503, why)
+    # Атомарный захват -- та же гонка, что и у /separate (см. claim_job_run):
+    # без него два быстрых клика по "Распознать текст" оба читают один и
+    # тот же статус "done" и оба попадают в фоновый пул, включая тот
+    # случай, когда распознавание само запускает разделение на партии
+    # (`_lyrics` -> `_separate_later`) -- тогда гонка идёт уже за общий
+    # `out_dir/stems` на диске.
+    if not storage.claim_job_run(job_id, allowed_from=("done",)):
+        raise HTTPException(409, "Этот трек сейчас обрабатывается")
     # Язык кладём в настройки задания: на пении автоопределение ошибается
     # заметно чаще, чем на речи, и, приняв русский за болгарский, Whisper
     # выдаёт правдоподобную бессмыслицу вместо текста.
@@ -1261,8 +1269,6 @@ def api_separate_later(job_id: str, request: Request):
     job = storage.job(job_id)
     if not job or job.user_id != user.id:
         raise HTTPException(404, "Трек не найден")
-    if job.status == "running":
-        raise HTTPException(409, "Этот трек сейчас обрабатывается")
     if not job.result:
         raise HTTPException(409, "Разбор ещё не готов")
     if (job.result.get("paths") or {}).get("parts", {}).keys() - {"full"}:
@@ -1276,7 +1282,20 @@ def api_separate_later(job_id: str, request: Request):
     ok, why = separate.available()
     if not ok:
         raise HTTPException(503, why)
-    _charge_song_once(user, job)
+    # Атомарный захват ДО списания и запуска -- см. docstring claim_job_run.
+    # Проверка `job.status` по снимку, прочитанному в начале обработчика,
+    # не годится: статус в "running" выставляется только внутри фонового
+    # потока, уже ПОСЛЕ того как запрос встал в очередь, так что два
+    # быстрых клика оба успевали бы пройти проверку. Захват -- ДО списания,
+    # а не после: иначе проигравший гонку за обработку запрос мог бы уже
+    # успеть списать деньги и получить 409 вместо результата.
+    if not storage.claim_job_run(job_id, allowed_from=("done",)):
+        raise HTTPException(409, "Этот трек сейчас обрабатывается")
+    try:
+        _charge_song_once(user, job)
+    except HTTPException:
+        storage.update_job(job_id, status="done")
+        raise
     runner.submit_separation(job_id)
     return {"ok": True}
 
