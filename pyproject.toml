@@ -29,5 +29,14 @@ midi2tab-gui = "midi2tab.gui:main"
 requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+# Без этого setuptools сам ищет пакеты по каталогам верхнего уровня и
+# находит web/, relay/, cover/, deploy/, worker/ рядом с midi2tab/ --
+# отдельные части деплоя, не часть этого пакета -- и отказывается
+# собирать что бы то ни было ("Multiple top-level packages discovered in
+# a flat-layout"). Из-за этого `pip install -e ".[dev]"` (см. README) не
+# ставил вообще ничего -- ни сам пакет, ни httpx/pytest из extras.
+packages = ["midi2tab"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

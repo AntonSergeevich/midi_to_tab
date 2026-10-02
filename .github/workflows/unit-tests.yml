@@ -1,0 +1,28 @@
+name: Юнит-тесты
+
+# До этого файла юнит-тесты не гонялись в CI вообще -- только руками
+# перед пушем (см. README). Автодеплой по вебхуку срабатывает на пуш
+# независимо от результата этого шага, так что он не блокирует и не
+# замедляет выкладку, но даёт видимый сигнал, если тесты всё же разошлись
+# с тем, что было проверено локально перед коммитом.
+#
+# Тяжёлые зависимости (torch/demucs, faster-whisper) не ставим: тесты,
+# которым они нужны, сами пропускают себя через pytest.importorskip.
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Зависимости
+        run: |
+          pip install -q -r requirements-web.txt -e ".[dev,audio]"
+      - name: pytest
+        run: python -m pytest -q

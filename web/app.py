@@ -1292,15 +1292,21 @@ def api_separate_later(job_id: str, request: Request):
     if not storage.claim_job_run(job_id, allowed_from=("done",)):
         raise HTTPException(409, "Этот трек сейчас обрабатывается")
     try:
-        _charge_song_once(user, job)
+        kind = _charge_song_once(user, job)
     except HTTPException:
         storage.update_job(job_id, status="done")
         raise
+    # charged_kind запоминает, ЧЕМ расплатились -- если разделение в фоне
+    # упадёт с ошибкой, _separate_later по нему вернёт списанное. kind
+    # пуст, если трек уже был оплачен раньше (job.counted) -- тогда
+    # возвращать при неудаче нечего, это не новое списание.
+    if kind:
+        storage.update_job(job_id, charged_kind=kind)
     runner.submit_separation(job_id)
     return {"ok": True}
 
 
-def _charge_song_once(user, job) -> None:
+def _charge_song_once(user, job) -> str | None:
     """Трек разобран бесплатно (только аккорды) -- за партии и табы
     списывается один раз, как за обычный разбор; дальше всё включено.
 
@@ -1311,19 +1317,28 @@ def _charge_song_once(user, job) -> None:
     атомарно (claim_job_charge) прежде, чем списывать деньги -- иначе оба
     запроса прошли бы проверку `job.counted` и оплата ушла бы дважды.
     Если списать не удалось (или доступа нет), метка снимается: иначе
-    трек остался бы помеченным оплаченным, ничего не списав."""
+    трек остался бы помеченным оплаченным, ничего не списав.
+
+    Возвращает, ЧЕМ расплатились (см. billing.consume), если списание
+    произошло именно сейчас, или None, если трек уже был оплачен раньше
+    (повторный вызов для другой партии того же трека) -- вызывающий
+    обязан запомнить непустое значение рядом с тем заданием, которое
+    может упасть, чтобы вернуть списанное при неудаче, и не трогать его,
+    если ничего нового не списалось."""
     if job.counted:
-        return
+        return None
     if not storage.claim_job_charge(job.id):
-        return
+        return None
     access = billing.check_access(user)
     if not access.allowed:
         storage.update_job(job.id, counted=False)
         raise HTTPException(402, "Аккорды — бесплатно, а партии, табы и MIDI — по тарифу. "
                                  + access.reason)
-    if not billing.consume(storage, user):
+    spent = billing.consume(storage, user)
+    if not spent:
         storage.update_job(job.id, counted=False)
         raise HTTPException(402, "Не получилось списать разбор — обновите страницу и попробуйте снова")
+    return spent
 
 
 @app.post("/api/job/{job_id}/tabs/{stem_key}")
@@ -1351,10 +1366,17 @@ def api_make_tabs(job_id: str, stem_key: str, request: Request):
                 "«Разделить на партии» под списком.",
             )
 
-    _charge_song_once(user, parent)
+    kind = _charge_song_once(user, parent)
     child = storage.create_job(
         user.id, f"{parent.filename} — {stem_key}", {"parent": job_id, "stem": stem_key}
     )
+    # Деньги списываются с РОДИТЕЛЯ (весь трек оплачивается один раз), а
+    # падать при разборе может именно этот новый job табов -- charged_kind
+    # кладём на него, чтобы _tabs вернул списанное, только если списание
+    # произошло именно сейчас (kind непуст), а не было оплачено раньше
+    # отдельным разделением или табами другой партии того же трека.
+    if kind:
+        storage.update_job(child.id, charged_kind=kind)
     runner.submit_tabs(child.id, job_id, stem_key)
     return {"jobId": child.id}
 

@@ -453,9 +453,18 @@ class JobRunner:
             )
         except Exception as exc:
             bar.stop()
+            # charged_kind непуст только если именно ЭТОТ запрос на
+            # разделение списал деньги (см. api_separate_later) -- трек
+            # ещё не был оплачен раньше. Разделение не удалось -- значит,
+            # и возвращать разбор не на что, деньги должны вернуться.
+            note = ""
+            if job.charged_kind:
+                billing.refund(self.storage, job.user_id, job.charged_kind)
+                self.storage.update_job(job_id, counted=False, charged_kind=None)
+                note = " Списанное вернули."
             self.storage.update_job(
                 job_id, status="done", stage="Разделить не удалось",
-                progress=100.0, error=str(exc),
+                progress=100.0, error=str(exc) + note,
             )
             print(f"[separate {job_id}] {exc}\n{traceback.format_exc()}")
 
@@ -629,7 +638,22 @@ class JobRunner:
             )
         except Exception as exc:
             bar.stop()
+            # Деньги за весь трек списываются один раз и хранятся на
+            # РОДИТЕЛЕ (parent.counted) -- но charged_kind на этом, новом
+            # для каждого запроса job_id кладёт api_make_tabs только если
+            # списание произошло именно сейчас (не было оплачено раньше
+            # разделением или табами другой партии того же трека). Табы
+            # не получились -- значит, и возвращать не на что, а раз
+            # списание было новым, деньги должны вернуться, а трек --
+            # снова стать неоплаченным, чтобы его можно было купить снова.
+            note = ""
+            child = self.storage.job(job_id)
+            if child and child.charged_kind:
+                billing.refund(self.storage, parent.user_id, child.charged_kind)
+                self.storage.update_job(parent_id, counted=False)
+                self.storage.update_job(job_id, charged_kind=None)
+                note = " Списанное вернули."
             self.storage.update_job(
-                job_id, status="error", stage="", progress=0.0, error=str(exc)
+                job_id, status="error", stage="", progress=0.0, error=str(exc) + note
             )
             print(f"[tabs {job_id}] {exc}\n{traceback.format_exc()}")

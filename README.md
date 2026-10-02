@@ -271,9 +271,23 @@ uvicorn web.app:app --host 127.0.0.1 --port 8000
 ## Разработка
 
 ```powershell
-python -m pip install pytest
+python -m pip install -r requirements-web.txt -e ".[dev,audio]"
 python -m pytest -q
 ```
+
+`[dev]` (`pyproject.toml`) ставит `pytest` и `httpx`: тесты веб-приложения
+(`tests/test_web.py`, `test_studio.py`, `test_auth.py`, `test_seo.py`)
+поднимают FastAPI через `TestClient`, а тот -- через
+`starlette.testclient` -- молча нуждается именно в `httpx`. Без него (и
+без `requirements-web.txt`) эти файлы не падают явной ошибкой, а просто не
+собираются (`ERROR` при сборе тестов). Без `[audio]` (или
+`requirements-audio.txt`) часть проверок (аудио, аккорды) тоже не падает,
+а пропускается через `importorskip`.
+
+**Не ставьте `httpx2`.** Это другой пакет с похожим именем, а не новая
+версия `httpx` -- новые версии starlette в сообщении об ошибке иногда
+предлагают поставить именно его, но для работы `TestClient` достаточно
+обычного `httpx`, которым и покрыты все тесты здесь.
 
 78 тестов: точность разложения длительностей, заполнение тактов при
 размерах 4/4, 3/4, 6/8, 5/4, 7/8, 12/8, лиги через тактовую черту,

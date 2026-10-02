@@ -1883,3 +1883,166 @@ def test_a_failed_free_chords_analysis_refunds_nothing(tmp_path, monkeypatch):
     assert failed.status == "error"
     assert "вернули" not in failed.error
     assert app_module.storage.user(user.id).free_used == 0
+
+
+def test_a_failed_paid_separation_refunds_what_it_charged(tmp_path, monkeypatch):
+    """Разделение на партии списывает разбор через `_charge_song_once`
+    (web/app.py) ДО запуска -- если Demucs в фоне падает, списанное должно
+    вернуться, а не пропасть за партии, которых не получилось. До этой
+    правки `_separate_later` (web/jobs.py) ничего не возвращала: ни
+    `charged_kind` не сохранялся при оплате, ни сам обработчик не знал о
+    `billing.refund`."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    def boom(*a, **kw):
+        raise RuntimeError("Demucs не смог разделить запись")
+
+    monkeypatch.setattr(app_module.separate, "available", lambda: (True, ""))
+    monkeypatch.setattr(app_module.separate, "separate", boom)
+    monkeypatch.setattr(app_module.audioin, "duration_seconds", lambda path: 5.0)
+    started = []
+    monkeypatch.setattr(app_module.runner, "submit_separation", lambda jid: started.append(jid))
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        for _ in range(app_module.billing.FREE_SONGS):           # пробы кончились
+            app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+        app_module.storage.add_balance(user.id, 100)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+        source = tmp_path / "song.mp3"
+        source.write_bytes(b"ID3" + b"\x00" * 128)
+        job = app_module.storage.create_job(user.id, "song.mp3", {})
+        app_module.storage.update_job(job.id, status="done", result={
+            "isMidi": False, "chords": [],
+            "paths": {"source": str(source), "parts": {"full": str(source)}},
+        })
+
+        response = client.post(f"/api/job/{job.id}/separate")
+        assert response.status_code == 200
+        assert started == [job.id]
+        assert app_module.storage.job(job.id).counted  # списалось сразу, до фонового разделения
+        assert app_module.storage.user(user.id).balance == 100 - app_module.billing.PRICE_SINGLE_RUB
+
+        app_module.runner._separate_later(job.id)
+
+        failed = app_module.storage.job(job.id)
+        assert failed.status == "done"
+        assert "вернули" in failed.error
+        assert not failed.counted
+        assert failed.charged_kind is None
+        assert app_module.storage.user(user.id).balance == 100  # деньги вернулись
+
+
+def test_a_failed_paid_tabs_generation_refunds_what_it_charged(tmp_path, monkeypatch):
+    """Табы по партии списывают разбор как обычно, одним разом за весь
+    трек (`_charge_song_once` на родителе, web/app.py:api_make_tabs) -- но
+    падать может именно фоновый разбор НОВОГО задания табов. Списанное
+    должно вернуться, а родитель -- снова стать неоплаченным, чтобы его
+    можно было купить снова."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    def boom(*a, **kw):
+        raise RuntimeError("Basic Pitch не смог прочитать партию")
+
+    monkeypatch.setattr(app_module.jobs_module, "convert", boom)
+    monkeypatch.setattr(app_module.jobs_module.audioin, "duration_seconds", lambda path: 5.0)
+    started = []
+    monkeypatch.setattr(app_module.runner, "submit_tabs",
+                        lambda cid, pid, stem: started.append((cid, pid, stem)))
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        for _ in range(app_module.billing.FREE_SONGS):           # пробы кончились
+            app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+        app_module.storage.add_balance(user.id, 100)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+        guitar = tmp_path / "guitar.wav"
+        guitar.write_bytes(b"\x00" * 44)
+        parent = app_module.storage.create_job(user.id, "song.mp3", {})
+        app_module.storage.update_job(parent.id, status="done", result={
+            "isMidi": False, "chords": [], "tempo": 120,
+            "paths": {"parts": {"full": "song.mp3", "guitar": str(guitar)}},
+        })
+
+        response = client.post(f"/api/job/{parent.id}/tabs/guitar")
+        assert response.status_code == 200
+        child_id = response.json()["jobId"]
+        assert started == [(child_id, parent.id, "guitar")]
+        assert app_module.storage.job(parent.id).counted
+        assert app_module.storage.job(child_id).charged_kind
+        assert app_module.storage.user(user.id).balance == 100 - app_module.billing.PRICE_SINGLE_RUB
+
+        app_module.runner._tabs(child_id, parent.id, "guitar")
+
+        failed = app_module.storage.job(child_id)
+        assert failed.status == "error"
+        assert "вернули" in failed.error
+        assert failed.charged_kind is None
+        assert not app_module.storage.job(parent.id).counted
+        assert app_module.storage.user(user.id).balance == 100  # деньги вернулись
+
+
+def test_a_failed_tabs_for_an_already_paid_track_refunds_nothing(tmp_path, monkeypatch):
+    """Если трек уже оплачен раньше (например, разделение прошло удачно),
+    `_charge_song_once` для табов по ЕЩЁ ОДНОЙ партии ничего не списывает
+    (всё уже включено) -- и падение именно этого разбора табов не должно
+    возвращать деньги за то, что было честно оплачено и доставлено ранее."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    def boom(*a, **kw):
+        raise RuntimeError("Basic Pitch не смог прочитать партию")
+
+    monkeypatch.setattr(app_module.jobs_module, "convert", boom)
+    monkeypatch.setattr(app_module.jobs_module.audioin, "duration_seconds", lambda path: 5.0)
+    monkeypatch.setattr(app_module.runner, "submit_tabs", lambda cid, pid, stem: None)
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        app_module.storage.add_balance(user.id, 100)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+        bass = tmp_path / "bass.wav"
+        bass.write_bytes(b"\x00" * 44)
+        parent = app_module.storage.create_job(user.id, "song.mp3", {})
+        app_module.storage.update_job(parent.id, status="done", result={
+            "isMidi": False, "chords": [], "tempo": 120,
+            "paths": {"parts": {"full": "song.mp3", "bass": str(bass)}},
+        })
+        # Трек уже оплачен раньше (напр. успешным разделением) -- баланс
+        # за это списан один раз и дальше не трогается.
+        app_module.storage.update_job(parent.id, counted=True, charged_kind="balance")
+        app_module.storage.add_balance(user.id, -app_module.billing.PRICE_SINGLE_RUB)
+        paid_balance = app_module.storage.user(user.id).balance
+
+        response = client.post(f"/api/job/{parent.id}/tabs/bass")
+        assert response.status_code == 200
+        child_id = response.json()["jobId"]
+        assert app_module.storage.job(child_id).charged_kind is None  # списания не было
+
+        app_module.runner._tabs(child_id, parent.id, "bass")
+
+        failed = app_module.storage.job(child_id)
+        assert failed.status == "error"
+        assert "вернули" not in failed.error
+        assert app_module.storage.job(parent.id).counted   # родитель остался оплаченным
+        assert app_module.storage.user(user.id).balance == paid_balance  # ничего не вернулось
