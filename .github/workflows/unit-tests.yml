@@ -23,6 +23,13 @@ jobs:
           python-version: "3.11"
       - name: Зависимости
         run: |
+          # Без ffmpeg три теста test_studio.py падают с FileNotFoundError:
+          # они сами зовут `ffmpeg -f lavfi` подпроцессом, чтобы синтезировать
+          # короткие mp3/wav-записи для фикстур (настоящий кодек нужен --
+          # разбор не должен спотыкаться на формате файла). Обнаружено по
+          # первому прогону этого workflow (run 37068706318): ubuntu-latest
+          # его не ставит заранее.
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
           pip install -q -r requirements-web.txt -e ".[dev,audio]"
       - name: pytest
         run: python -m pytest -q
