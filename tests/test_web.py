@@ -1940,6 +1940,91 @@ def test_a_failed_paid_separation_refunds_what_it_charged(tmp_path, monkeypatch)
         assert app_module.storage.user(user.id).balance == 100  # деньги вернулись
 
 
+def test_separation_with_source_deleted_by_cleanup_refunds_and_unsticks_the_job(tmp_path, monkeypatch):
+    """Регрессия: трек разобрали на аккорды давно, исходник в uploads/ уже
+    стёрла ежедневная уборка диска (deploy/cleanup.py), а «Разделить на
+    партии» нажали только сейчас. `/separate` списывает деньги и переводит
+    задание в "running" ДО фонового запуска (claim_job_run) -- но
+    `_separate_later` находил, что исходника нет, и просто дописывал
+    ошибку, не трогая ни статус, ни списанное: трек замирал в "running"
+    навсегда, деньги пропадали. `_separate_later` обязана вернуть и то и
+    другое, как и при падении самого Demucs."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    monkeypatch.setattr(app_module.separate, "available", lambda: (True, ""))
+    started = []
+    monkeypatch.setattr(app_module.runner, "submit_separation", lambda jid: started.append(jid))
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        for _ in range(app_module.billing.FREE_SONGS):           # пробы кончились
+            app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+        app_module.storage.add_balance(user.id, 100)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+        # Исходник НЕ создаём на диске -- как будто его стёрла уборка.
+        missing_source = str(tmp_path / "song.mp3")
+        job = app_module.storage.create_job(user.id, "song.mp3", {})
+        app_module.storage.update_job(job.id, status="done", result={
+            "isMidi": False, "chords": [],
+            "paths": {"source": missing_source, "parts": {"full": missing_source}},
+        })
+
+        response = client.post(f"/api/job/{job.id}/separate")
+        assert response.status_code == 200
+        assert started == [job.id]
+        assert app_module.storage.job(job.id).counted  # списалось сразу
+        assert app_module.storage.user(user.id).balance == 100 - app_module.billing.PRICE_SINGLE_RUB
+
+        app_module.runner._separate_later(job.id)
+
+        failed = app_module.storage.job(job.id)
+        assert failed.status == "done"          # не застрял в "running"
+        assert "вернули" in failed.error
+        assert not failed.counted
+        assert failed.charged_kind is None
+        assert app_module.storage.user(user.id).balance == 100  # деньги вернулись
+
+
+def test_separate_refuses_a_studio_job_instead_of_leaving_it_stuck(tmp_path, monkeypatch):
+    """Регрессия: `/api/job/{id}/separate` не отличал обычный разбор от
+    задачи Студии (web/studio.py) -- у неё другой формат result (нет ни
+    "paths", ни "isMidi"), и проверки на MIDI/уже-разделено её не отсеивали.
+    Запрос на уже готовую, оплаченную задачу Студии переводил бы её в
+    "running" (claim_job_run), а `_separate_later` не умеет её разобрать и
+    просто расходится с ней -- задача Студии застревала бы в работе
+    навсегда и переставала открываться на удаление."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    started = []
+    monkeypatch.setattr(app_module.runner, "submit_separation", lambda jid: started.append(jid))
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+        job = app_module.storage.create_job(user.id, "cover.mp3", {"kind": "studio", "mode": "stems"})
+        app_module.storage.update_job(job.id, status="done", counted=True, result={"files": []})
+
+        response = client.post(f"/api/job/{job.id}/separate")
+
+        assert response.status_code == 409
+        assert not started
+        assert app_module.storage.job(job.id).status == "done"
+
+
 def test_a_failed_paid_tabs_generation_refunds_what_it_charged(tmp_path, monkeypatch):
     """Табы по партии списывают разбор как обычно, одним разом за весь
     трек (`_charge_song_once` на родителе, web/app.py:api_make_tabs) -- но

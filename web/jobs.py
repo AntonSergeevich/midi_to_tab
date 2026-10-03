@@ -408,12 +408,19 @@ class JobRunner:
             return
         source = (job.result.get("paths") or {}).get("source")
         if not source or not os.path.isfile(source):
-            self.storage.update_job(job_id, error="Исходный файл не найден")
+            # Бывает на треке, разобранном только на аккорды давно: исходник
+            # уже стёрт уборкой диска (deploy/cleanup.py), а партии с него
+            # запросили только сейчас. Раньше здесь только писалась ошибка,
+            # а claim_job_run (web/app.py) к этому моменту уже перевёл
+            # задание в "running" и списал деньги -- без возврата статуса в
+            # "done" и денег трек замирал в работе навсегда и не поддавался
+            # ни повтору, ни удалению.
+            self._abort_separation(job_id, job, "Исходный файл не найден")
             return
 
         ok, why = separate.available()
         if not ok:
-            self.storage.update_job(job_id, error=why)
+            self._abort_separation(job_id, job, why)
             return
 
         out_dir = os.path.join(self.data_dir, "results", job_id)
@@ -453,20 +460,30 @@ class JobRunner:
             )
         except Exception as exc:
             bar.stop()
-            # charged_kind непуст только если именно ЭТОТ запрос на
-            # разделение списал деньги (см. api_separate_later) -- трек
-            # ещё не был оплачен раньше. Разделение не удалось -- значит,
-            # и возвращать разбор не на что, деньги должны вернуться.
-            note = ""
-            if job.charged_kind:
-                billing.refund(self.storage, job.user_id, job.charged_kind)
-                self.storage.update_job(job_id, counted=False, charged_kind=None)
-                note = " Списанное вернули."
-            self.storage.update_job(
-                job_id, status="done", stage="Разделить не удалось",
-                progress=100.0, error=str(exc) + note,
-            )
+            self._abort_separation(job_id, job, str(exc), stage="Разделить не удалось")
             print(f"[separate {job_id}] {exc}\n{traceback.format_exc()}")
+
+    def _abort_separation(self, job_id: str, job, message: str, stage: str = "") -> None:
+        """
+        Вернуть деньги за несостоявшееся разделение и снять трек с "running".
+
+        Общее для всех путей отказа: само разделение упало (см. except
+        ниже), исходник уже стёрт уборкой диска, или Demucs недоступен.
+        charged_kind непуст только если именно ЭТОТ запрос на разделение
+        списал деньги (см. api_separate_later) -- трек ещё не был оплачен
+        раньше. Без сброса status в "done" трек замирал бы в "running"
+        навсегда: страница продолжала бы показывать разбор как идущий, а
+        повторный запрос на разделение отказывал бы с 409 ("уже
+        обрабатывается") вместо того, чтобы дать попробовать ещё раз.
+        """
+        note = ""
+        if job.charged_kind:
+            billing.refund(self.storage, job.user_id, job.charged_kind)
+            self.storage.update_job(job_id, counted=False, charged_kind=None)
+            note = " Списанное вернули."
+        self.storage.update_job(
+            job_id, status="done", stage=stage, progress=100.0, error=message + note,
+        )
 
     def _chords_from_stems(self, job_id, payload, out_dir, options, bar) -> None:
         """

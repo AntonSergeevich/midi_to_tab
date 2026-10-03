@@ -1269,6 +1269,15 @@ def api_separate_later(job_id: str, request: Request):
     job = storage.job(job_id)
     if not job or job.user_id != user.id:
         raise HTTPException(404, "Трек не найден")
+    if (job.settings or {}).get("kind") == "studio":
+        # У задач Студии (web/studio.py) совсем другой формат result --
+        # ни "paths", ни "isMidi" в нём нет, и проверки ниже их бы не
+        # отсеяли. Без этой проверки запрос перевёл бы уже готовую,
+        # оплаченную задачу Студии в "running" (claim_job_run ниже), а
+        # _separate_later, не найдя привычных полей, тут же откатил бы её
+        # обратно в "done" с чужой по смыслу ошибкой "исходный файл не
+        # найден" -- отдельная, понятная проверка здесь честнее.
+        raise HTTPException(409, "Это задача Студии — разделить на партии её можно со страницы Студии")
     if not job.result:
         raise HTTPException(409, "Разбор ещё не готов")
     if (job.result.get("paths") or {}).get("parts", {}).keys() - {"full"}:
