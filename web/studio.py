@@ -262,7 +262,7 @@ def relay_run(task: dict, timeout: int = 900) -> dict:
         time.sleep(3)
         job = call("GET", f"{RUNPOD_API}/{endpoint}/status/{job['id']}")
     if job.get("status") != "COMPLETED":
-        raise RuntimeError(f"ретранслятор: {job.get('status')} {str(job.get('error'))[:200]}")
+        raise RuntimeError(f"ретранслятор: {job.get('status')} {short_error(str(job.get('error')))}")
     return job.get("output") or {}
 
 
@@ -1114,6 +1114,13 @@ class StudioRunner:
                                          "label": f"MIDI · {STEM_LABELS.get(stem, stem.capitalize())}"})
             if not files and not midi:
                 raise RuntimeError("Mureka закончила, но партии до сайта не дошли")
+            if files and os.path.isfile(stems_zip):
+                # Архив Mureka -- WAV, сотни мегабайт: для скачивания пересобираем
+                # его из наших mp3 (в разы меньше), исходник не храним
+                os.remove(stems_zip)
+                with zipfile.ZipFile(stems_zip, "w", zipfile.ZIP_STORED) as archive:
+                    for f in files:
+                        archive.write(os.path.join(folder, f["name"]), f["name"])
             order = list(STEM_LABELS)
             files.sort(key=lambda f: order.index(f["name"][:-4]) if f["name"][:-4] in order else 99)
             self.storage.update_job(job_id, status="done", stage="Готово", progress=100, result={

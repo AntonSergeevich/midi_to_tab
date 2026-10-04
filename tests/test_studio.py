@@ -965,6 +965,7 @@ def test_create_from_reference_sends_reference_without_prompt(studio_app, monkey
 def test_stems_pro_unpacks_parts_and_midi(studio_app, monkeypatch):
     """Глубокое разделение: архивы Mureka -> партии mp3 + MIDI каждой; из MIDI -- табы."""
     import io
+    import os
     import zipfile
 
     app_module, client, user, submitted = studio_app
@@ -995,6 +996,9 @@ def test_stems_pro_unpacks_parts_and_midi(studio_app, monkeypatch):
     assert job.status == "done", job.error
     assert [f["label"] for f in job.result["files"]] == ["Вокал", "Гитара", "Струнные"]
     assert [m["label"] for m in job.result["midi"]] == ["MIDI · Гитара", "MIDI · Вокал"]
+    # огромный WAV-архив Mureka не храним: для скачивания -- архив из наших mp3
+    with zipfile.ZipFile(os.path.join(app_module.studio_runner.folder(job_id), "stems.zip")) as z:
+        assert sorted(z.namelist()) == ["guitar.mp3", "strings.mp3", "vocals.mp3"]
     listed = client.get("/api/studio").json()["jobs"][0]
     assert listed["pro"] and listed["midi"][0]["url"].endswith("/guitar.mid")
     response = client.get(listed["midi"][0]["url"])

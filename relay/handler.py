@@ -17,6 +17,8 @@
 import base64
 import json
 import os
+import shutil
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -83,14 +85,20 @@ def handler(job):
                 "url": f"data:audio/mp3;base64,{data}",
                 "model": task.get("model") or "audio-separation-2"}, timeout=900)
         if op == "fetch":
-            content = _get(task["url"])
-            request = urllib.request.Request(task["upload_url"], data=content, method="POST", headers={
-                "Content-Type": "application/octet-stream", "User-Agent": UA,
-                "X-File-Name": urllib.parse.quote(task["name"])})
-            status, raw = _open(request)
+            # Через диск, а не память: архив 12 дорожек WAV -- сотни мегабайт
+            with tempfile.TemporaryFile() as buffer:
+                with urllib.request.urlopen(urllib.request.Request(task["url"], headers={"User-Agent": UA}),
+                                            timeout=600) as response:
+                    shutil.copyfileobj(response, buffer, 1 << 20)
+                size = buffer.tell()
+                buffer.seek(0)
+                request = urllib.request.Request(task["upload_url"], data=buffer, method="POST", headers={
+                    "Content-Type": "application/octet-stream", "User-Agent": UA,
+                    "Content-Length": str(size), "X-File-Name": urllib.parse.quote(task["name"])})
+                status, raw = _open(request, timeout=900)
             if status >= 400:
                 return {"ok": False, "status": status, "error": raw[:500].decode(errors="replace")}
-            return {"ok": True, "status": status, "bytes": len(content)}
+            return {"ok": True, "status": status, "bytes": size}
         return {"ok": False, "status": 400, "error": f"неизвестная операция {op!r}"}
     except Exception as error:  # noqa: BLE001 -- ответ сайту вместо падения воркера
         return {"ok": False, "status": 599, "error": str(error)[:1000]}

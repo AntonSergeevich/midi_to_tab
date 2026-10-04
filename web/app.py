@@ -2183,7 +2183,8 @@ async def api_studio_upload(job_id: str, request: Request, e: int = 0, s: str = 
     if not name:
         raise HTTPException(400, "Недопустимое имя файла")
     target = os.path.join(studio_runner.folder(job_id), name)
-    size, limit = 0, 200 * 1024 * 1024
+    # 12 дорожек WAV глубокого разделения -- сотни мегабайт одним архивом
+    size, limit = 0, 1024 * 1024 * 1024
     with open(target, "wb") as out:
         async for chunk in request.stream():
             size += len(chunk)
