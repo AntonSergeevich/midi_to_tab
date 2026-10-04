@@ -78,7 +78,8 @@ const MODE = {
   enrich: { title: 'Дописать', hint: 'Допишем к вашей записи барабаны, бас или другую партию.', button: 'Дописать' },
 };
 const MODE_ICON = { create: '✦', restyle: '↻', stems: '≡', enrich: '+', upload: '⤒' };
-let fresh = null;          // только что запущенный трек -- подсветить в списке
+let fresh = null;
+let seeking = false;      // тянут ползунок нижнего плеера -- время не перерисовываем          // только что запущенный трек -- подсветить в списке
 
 // Обложка трека: свой градиент для каждого id -- чтобы список не был серым.
 function cover(j, big) {
@@ -634,7 +635,9 @@ function syncTime() {
   const audio = $('audio');
   const dur = audio.duration || 0;
   const cur = audio.currentTime || 0;
-  $('pBar').style.width = dur ? `${(cur / dur) * 100}%` : '0';
+  if (!seeking) $('pBar').style.width = dur ? `${(cur / dur) * 100}%` : '0';
+  $('pSeek').setAttribute('aria-valuenow', dur ? Math.round((cur / dur) * 100) : 0);
+  $('pSeek').setAttribute('aria-valuetext', `${time(cur) || '0:00'} из ${time(dur) || '0:00'}`);
   $('pTime').textContent = `${time(cur) || '0:00'} / ${time(dur) || '0:00'}`;
   $('fCur').textContent = time(cur) || '0:00';
   $('fDur').textContent = time(dur) || '0:00';
@@ -1153,6 +1156,62 @@ function afterPayment(restored) {
 ['play', 'pause'].forEach((ev) => $('audio').addEventListener(ev, syncButtons));
 $('audio').addEventListener('ended', () => { if (qi < queue.length - 1) step(1); else syncButtons(); });
 ['timeupdate', 'loadedmetadata'].forEach((ev) => $('audio').addEventListener(ev, syncTime));
+// Полоса над нижним плеером -- ползунок: клик, перетаскивание (мышь и
+// палец), стрелки с клавиатуры; над полосой -- время, куда перемотаем
+function seekFrac(e) {
+  const box = $('pSeek').getBoundingClientRect();
+  return Math.max(0, Math.min(1, (e.clientX - box.left) / box.width));
+}
+function showSeek(frac, e) {
+  const dur = $('audio').duration || 0;
+  $('pBar').style.width = `${frac * 100}%`;
+  if (!dur || !e) return;
+  $('pTip').hidden = false;
+  $('pTip').textContent = time(frac * dur) || '0:00';
+  const box = $('pSeek').getBoundingClientRect();
+  $('pTip').style.left = `${Math.max(24, Math.min(box.width - 24, e.clientX - box.left))}px`;
+}
+$('pSeek').addEventListener('pointerdown', (e) => {
+  if (!$('audio').duration) return;
+  seeking = true;
+  $('pSeek').classList.add('dragging');
+  $('pSeek').setPointerCapture(e.pointerId);
+  showSeek(seekFrac(e), e);
+  e.preventDefault();
+});
+$('pSeek').addEventListener('pointermove', (e) => {
+  if (seeking) showSeek(seekFrac(e), e);
+  else if (e.pointerType === 'mouse' && $('audio').duration) {
+    const dur = $('audio').duration;
+    const box = $('pSeek').getBoundingClientRect();
+    $('pTip').hidden = false;
+    $('pTip').textContent = time(seekFrac(e) * dur) || '0:00';
+    $('pTip').style.left = `${Math.max(24, Math.min(box.width - 24, e.clientX - box.left))}px`;
+  }
+});
+function endSeek(e) {
+  if (!seeking) return;
+  seeking = false;
+  $('pSeek').classList.remove('dragging');
+  const audio = $('audio');
+  if (audio.duration) audio.currentTime = seekFrac(e) * audio.duration;
+  $('pTip').hidden = true;
+  syncTime();
+}
+$('pSeek').addEventListener('pointerup', endSeek);
+$('pSeek').addEventListener('pointercancel', (e) => { seeking = false; $('pSeek').classList.remove('dragging'); $('pTip').hidden = true; syncTime(); });
+$('pSeek').addEventListener('pointerleave', () => { if (!seeking) $('pTip').hidden = true; });
+$('pSeek').addEventListener('keydown', (e) => {
+  const audio = $('audio');
+  if (!audio.duration) return;
+  const step = { ArrowLeft: -5, ArrowRight: 5, PageDown: -30, PageUp: 30 }[e.key];
+  if (step === undefined && !['Home', 'End'].includes(e.key)) return;
+  e.preventDefault();
+  audio.currentTime = e.key === 'Home' ? 0 : e.key === 'End' ? audio.duration - 0.5
+    : Math.max(0, Math.min(audio.duration - 0.2, audio.currentTime + step));
+  syncTime();
+});
+
 $('fSeek').addEventListener('input', () => {
   const audio = $('audio');
   if (audio.duration) audio.currentTime = ($('fSeek').value / 1000) * audio.duration;

@@ -789,8 +789,25 @@ body.working .flow, body.working .studio-card, body.working .pay-note { display:
   background: rgba(21,22,28,.94); border-top: 1px solid var(--border); backdrop-filter: blur(14px);
 }
 .st-player[hidden] { display: none; }
-.st-pprogress { position: absolute; left: 0; right: 0; top: -1px; height: 3px; background: transparent; }
-.st-pprogress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s linear; }
+/* Полоса прогресса -- ползунок: видно 3 px, но ловит касание в 18 px */
+.st-pprogress { position: absolute; left: 0; right: 0; top: -9px; height: 18px; cursor: pointer; touch-action: none;
+  outline: none; }
+.st-pprogress::before { content: ""; position: absolute; left: 0; right: 0; top: 8px; height: 3px;
+  background: rgba(255,255,255,.08); transition: height .12s, top .12s; }
+.st-pprogress i { position: absolute; left: 0; top: 8px; display: block; height: 3px; width: 0; background: var(--accent);
+  transition: width .25s linear, height .12s, top .12s; pointer-events: none; }
+.st-pprogress i::after { content: ""; position: absolute; right: -6px; top: 50%; width: 12px; height: 12px;
+  margin-top: -6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgba(217,154,78,.25);
+  opacity: 0; transition: opacity .12s; }
+.st-pprogress:hover::before, .st-pprogress:focus-visible::before, .st-pprogress.dragging::before,
+.st-pprogress:hover i, .st-pprogress:focus-visible i, .st-pprogress.dragging i { top: 7px; height: 5px; }
+.st-pprogress:hover i::after, .st-pprogress:focus-visible i::after, .st-pprogress.dragging i::after { opacity: 1; }
+.st-pprogress.dragging i { transition: none; }
+.st-pprogress b { position: absolute; bottom: 18px; transform: translateX(-50%); padding: 3px 7px; border-radius: 7px;
+  background: var(--panel-hi, #262833); color: var(--text); font-size: 12px; font-weight: 600; pointer-events: none;
+  white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+.st-pprogress b[hidden] { display: none; }
+@media (hover: none) { .st-pprogress i::after { opacity: 1; } .st-pprogress::before, .st-pprogress i { top: 7px; height: 5px; } }
 .st-popen { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 0;
   background: none; border: 0; color: var(--text); text-align: left; cursor: pointer; }
 .st-pcover { width: 44px; height: 44px; border-radius: 10px; flex: none; background: var(--panel-hi) center/cover; }

@@ -243,7 +243,8 @@
 
 <!-- Плеер: полоска внизу, по нажатию -- во весь экран (как в Яндекс Музыке) -->
 <div class="st-player" id="player" hidden>
-  <div class="st-pprogress"><i id="pBar"></i></div>
+  <div class="st-pprogress" id="pSeek" role="slider" tabindex="0" aria-label="Перемотка"
+       aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="pBar"></i><b id="pTip" hidden></b></div>
   <button type="button" class="st-popen" id="pOpen" aria-label="Открыть плеер">
     <span class="st-pcover" id="pCover"></span>
     <span class="st-player-info"><b id="playerTitle"></b><small id="playerSub"></small></span>
