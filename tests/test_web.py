@@ -2131,3 +2131,398 @@ def test_a_failed_tabs_for_an_already_paid_track_refunds_nothing(tmp_path, monke
         assert "вернули" not in failed.error
         assert app_module.storage.job(parent.id).counted   # родитель остался оплаченным
         assert app_module.storage.user(user.id).balance == paid_balance  # ничего не вернулось
+
+
+def test_recognizing_lyrics_charges_the_track_once(tmp_path, monkeypatch):
+    """Текст песни -- платная часть разбора наравне с партиями и табами
+    (см. web/static/pricing.html: «В любой [план]: партии, табы, MIDI,
+    текст песни»), а не бесплатное дополнение к аккордам. Раньше
+    `/api/job/{id}/lyrics` не вызывал ни `_charge_song_once`, ни
+    `billing.consume` вовсе -- любой, у кого кончились пробы и кредиты,
+    получал текст песни бесплатно и сколько угодно раз."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    started = []
+    monkeypatch.setattr(app_module.runner, "submit_lyrics", lambda jid, model: started.append(jid))
+    monkeypatch.setattr(app_module.lyrics_mod, "available", lambda: (True, ""))
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        for _ in range(app_module.billing.FREE_SONGS):           # пробы кончились
+            app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+        app_module.storage.add_balance(user.id, 100)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+        job = app_module.storage.create_job(user.id, "song.mp3", {})
+        app_module.storage.update_job(job.id, status="done", result={
+            "isMidi": False, "chords": [], "paths": {"source": "song.mp3", "parts": {}},
+        })
+
+        response = client.post(f"/api/job/{job.id}/lyrics")
+
+        assert response.status_code == 200
+        assert started == [job.id]
+        assert app_module.storage.job(job.id).counted
+        assert app_module.storage.job(job.id).charged_kind == "balance"
+        assert app_module.storage.user(user.id).balance == 100 - app_module.billing.PRICE_SINGLE_RUB
+
+
+def test_lyrics_on_an_already_paid_track_is_free(tmp_path, monkeypatch):
+    """Если трек уже оплачен (например, разделением или табами другой
+    партии), текст песни достаётся бесплатно -- "дальше всё включено",
+    как и обещано на тарифах. `_charge_song_once` сам возвращает None,
+    когда `job.counted` уже True; эта проверка — что api_make_lyrics не
+    списывает поверх неё ещё раз."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    monkeypatch.setattr(app_module.runner, "submit_lyrics", lambda jid, model: None)
+    monkeypatch.setattr(app_module.lyrics_mod, "available", lambda: (True, ""))
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+        job = app_module.storage.create_job(user.id, "song.mp3", {})
+        app_module.storage.update_job(job.id, status="done", counted=True, result={
+            "isMidi": False, "chords": [], "paths": {"source": "song.mp3", "parts": {}},
+        })
+        balance_before = app_module.storage.user(user.id).balance
+
+        response = client.post(f"/api/job/{job.id}/lyrics")
+
+        assert response.status_code == 200
+        assert app_module.storage.job(job.id).charged_kind is None
+        assert app_module.storage.user(user.id).balance == balance_before
+
+
+def test_lyrics_on_a_midi_track_is_refused_not_charged(tmp_path, monkeypatch):
+    """В MIDI нет звука вообще, а значит и вокала -- распознавать нечего.
+    Без этой проверки запрос дошёл бы до `_lyrics`, увидел бы отсутствие
+    дорожки "vocals" и попытался бы разделить .mid Demucs'ом (тот не умеет
+    его читать), списав деньги за операцию, которая не могла получиться."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    started = []
+    monkeypatch.setattr(app_module.runner, "submit_lyrics", lambda jid, model: started.append(jid))
+    monkeypatch.setattr(app_module.lyrics_mod, "available", lambda: (True, ""))
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        app_module.storage.add_balance(user.id, 100)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+        job = app_module.storage.create_job(user.id, "song.mid", {})
+        app_module.storage.update_job(job.id, status="done", result={
+            "isMidi": True, "chords": [], "paths": {"parts": {"full": "song.mid"}},
+        })
+
+        response = client.post(f"/api/job/{job.id}/lyrics")
+
+        assert response.status_code == 409
+        assert not started
+        assert app_module.storage.user(user.id).balance == 100
+        assert not app_module.storage.job(job.id).counted
+
+
+def test_a_failed_lyrics_recognition_refunds_what_it_charged(tmp_path, monkeypatch):
+    """Текст песни теперь платный (см. тест выше) -- если Whisper в фоне
+    падает (битая дорожка, нехватка памяти), списанное должно вернуться,
+    как это уже устроено для разбора, разделения и табов."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    def boom(*a, **kw):
+        raise RuntimeError("Whisper не смог прочитать дорожку")
+
+    monkeypatch.setattr(app_module.lyrics_mod, "available", lambda: (True, ""))
+    monkeypatch.setattr(app_module.jobs_module.lyrics_mod, "transcribe", boom)
+    monkeypatch.setattr(app_module.jobs_module.audioin, "duration_seconds", lambda path: 5.0)
+    monkeypatch.setattr(app_module.runner, "submit_lyrics", lambda jid, model: None)
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        for _ in range(app_module.billing.FREE_SONGS):           # пробы кончились
+            app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+        app_module.storage.add_balance(user.id, 100)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+        source = tmp_path / "song.mp3"
+        source.write_bytes(b"ID3" + b"\x00" * 128)
+        job = app_module.storage.create_job(user.id, "song.mp3", {})
+        app_module.storage.update_job(job.id, status="done", result={
+            "isMidi": False, "chords": [],
+            "paths": {"source": str(source), "parts": {"vocals": str(source)}},
+        })
+
+        response = client.post(f"/api/job/{job.id}/lyrics")
+        assert response.status_code == 200
+        assert app_module.storage.job(job.id).charged_kind == "balance"
+        assert app_module.storage.user(user.id).balance == 100 - app_module.billing.PRICE_SINGLE_RUB
+
+        app_module.runner._lyrics(job.id, app_module.lyrics_mod.DEFAULT_MODEL)
+
+        failed = app_module.storage.job(job.id)
+        assert failed.status == "done"
+        assert not failed.counted
+        assert failed.charged_kind is None
+        assert app_module.storage.user(user.id).balance == 100  # деньги вернулись
+
+
+def test_tabs_refund_when_the_parent_result_is_gone(tmp_path, monkeypatch):
+    """Регрессия: если у родительского задания пропал `result` (или сама
+    партия исчезла с диска -- см. ниже) к моменту, когда до табов дошла
+    очередь в фоновом пуле, `_tabs` только писал "Разбор не найден" или
+    "Партия не найдена" и выходил -- деньги, списанные `api_make_tabs` за
+    уже несуществующий результат, пропадали без возврата."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    import web.app as app_module
+
+    user = app_module.storage.ensure_user(None)
+    for _ in range(app_module.billing.FREE_SONGS):
+        app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+    app_module.storage.add_balance(user.id, 100)
+    user = app_module.storage.user(user.id)
+    parent = app_module.storage.create_job(user.id, "song.mp3", {})
+    app_module.storage.update_job(parent.id, status="done", counted=True)
+
+    spent = app_module.billing.consume(app_module.storage, user)
+    child = app_module.storage.create_job(user.id, "song.mp3 — guitar", {"parent": parent.id})
+    app_module.storage.update_job(child.id, charged_kind=spent)
+
+    app_module.runner._tabs(child.id, parent.id, "guitar")
+
+    failed = app_module.storage.job(child.id)
+    assert failed.status == "error"
+    assert "Разбор не найден" in failed.error
+    assert "вернули" in failed.error
+    assert failed.charged_kind is None
+    assert not app_module.storage.job(parent.id).counted
+    assert app_module.storage.user(user.id).balance == 100  # деньги вернулись
+
+
+def test_tabs_refund_when_the_stem_file_is_gone(tmp_path, monkeypatch):
+    """Тот же возврат, но для случая, когда родитель на месте, а сам файл
+    партии стёрла уборка диска (deploy/cleanup.py, старше двух недель) --
+    ключ в result.paths.parts остаётся, файла по нему уже нет."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    import web.app as app_module
+
+    user = app_module.storage.ensure_user(None)
+    for _ in range(app_module.billing.FREE_SONGS):
+        app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+    app_module.storage.add_balance(user.id, 100)
+    user = app_module.storage.user(user.id)
+    parent = app_module.storage.create_job(user.id, "song.mp3", {})
+    app_module.storage.update_job(parent.id, status="done", counted=True, result={
+        "isMidi": False, "paths": {"parts": {"guitar": str(tmp_path / "давно-стёрто.wav")}},
+    })
+
+    spent = app_module.billing.consume(app_module.storage, user)
+    child = app_module.storage.create_job(user.id, "song.mp3 — guitar", {"parent": parent.id})
+    app_module.storage.update_job(child.id, charged_kind=spent)
+
+    app_module.runner._tabs(child.id, parent.id, "guitar")
+
+    failed = app_module.storage.job(child.id)
+    assert failed.status == "error"
+    assert "Партия не найдена" in failed.error
+    assert "вернули" in failed.error
+    assert failed.charged_kind is None
+    assert not app_module.storage.job(parent.id).counted
+    assert app_module.storage.user(user.id).balance == 100  # деньги вернулись
+
+
+def test_webhook_rolls_back_status_when_crediting_raises(tmp_path, monkeypatch):
+    """Регрессия: `mark_paid_once` коммитит status='succeeded' отдельной
+    транзакцией ДО того, как `billing.apply_plan` на самом деле начисляет
+    подписку/кредиты/баланс. Если apply_plan упадёт (блокировка SQLite,
+    перезапуск сервиса между этими двумя шагами), платёж навсегда
+    оставался бы "succeeded" без начисления: повторное уведомление от
+    платёжного сервиса видело бы его уже оплаченным и писало бы "повтор,
+    начислять нечего", хотя пользователь ничего не получил."""
+    import hashlib
+    import hmac
+    import sys
+
+    key = "f" * 64
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("PAYMENT_PROVIDER", "getplatinum")
+    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", key)
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        app_module.storage.create_payment(user.id, 19.0, "zakaz-1", plan="single")
+
+        body = b'{"notificationType": 1, "dealId": "zakaz-1", "isSuccess": true}'
+        checksum = hmac.new(key.encode(), body, hashlib.sha256).hexdigest().upper()
+        headers = {"X-Checksum": checksum, "Content-Type": "application/json"}
+
+        broken = True
+        real_apply_plan = app_module.billing.apply_plan
+
+        def flaky(*a, **kw):
+            if broken:
+                raise RuntimeError("база заблокирована")
+            return real_apply_plan(*a, **kw)
+
+        monkeypatch.setattr(app_module.billing, "apply_plan", flaky)
+        first = client.post("/api/webhook/getplatinum", content=body, headers=headers)
+        assert first.status_code == 502
+        # Статус откатился -- платёж не застрял "оплаченным" без начисления.
+        assert app_module.storage.payment_by_provider("zakaz-1")["status"] != "succeeded"
+        assert app_module.storage.user(user.id).credits == 0
+
+        broken = False  # apply_plan снова работает -- как после восстановления
+        second = client.post("/api/webhook/getplatinum", content=body, headers=headers)
+        assert second.status_code == 200
+        assert app_module.storage.user(user.id).credits == 1
+
+
+def test_recover_interrupted_jobs_refunds_and_unsticks_them(tmp_path, monkeypatch):
+    """Регрессия: после перезапуска службы (автодеплой делает это на
+    каждый пуш, см. deploy/update.sh) задания, которые считались ПОТОКОМ
+    ВНУТРИ процесса, остаются "running" навсегда -- поток убит вместе с
+    процессом, а claim_job_run больше не находит их в "done", отказывая
+    409 на любой повтор. JobRunner.recover_interrupted должен вернуть
+    списанное и снять трек с мёртвой точки при каждом старте приложения."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    import web.app as app_module
+
+    user = app_module.storage.ensure_user(None)
+    for _ in range(app_module.billing.FREE_SONGS):
+        app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+    app_module.storage.add_balance(user.id, 100)
+    user = app_module.storage.user(user.id)
+
+    # 1. Свежий разбор, убитый на середине -- ни разу не было result.
+    spent1 = app_module.billing.consume(app_module.storage, user)
+    fresh = app_module.storage.create_job(user.id, "a.mp3", {})
+    app_module.storage.update_job(fresh.id, status="running", charged_kind=spent1)
+
+    # 2. Уже разобранный и оплаченный трек, поверх которого шло БЕСПЛАТНОЕ
+    #    повторное разделение (счёт уже оплачен раньше -- charged_kind
+    #    пуст, как и у настоящего api_separate_later в этом случае).
+    app_module.billing.consume(app_module.storage, user)
+    resumed = app_module.storage.create_job(user.id, "b.mp3", {})
+    app_module.storage.update_job(
+        resumed.id, status="running", counted=True,
+        result={"isMidi": False, "chords": [], "paths": {"source": "b.mp3", "parts": {}}},
+    )
+
+    # 3. Табы по партии, застрявшие "queued" -- деньги на родителе.
+    parent = app_module.storage.create_job(user.id, "c.mp3", {})
+    app_module.storage.update_job(parent.id, status="done", counted=True)
+    spent3 = app_module.billing.consume(app_module.storage, user)
+    tabs_child = app_module.storage.create_job(
+        user.id, "c.mp3 — guitar", {"parent": parent.id}
+    )
+    app_module.storage.update_job(tabs_child.id, status="queued", charged_kind=spent3)
+
+    # Студию (другой runner, свой resume()) recover_interrupted не трогает.
+    studio_job = app_module.storage.create_job(
+        user.id, "студия", {"kind": "studio", "engine": "mureka"}
+    )
+    app_module.storage.update_job(studio_job.id, status="running")
+
+    recovered = app_module.runner.recover_interrupted()
+
+    assert recovered == 3
+    assert app_module.storage.job(fresh.id).status == "error"
+    assert app_module.storage.job(resumed.id).status == "done"
+    assert app_module.storage.job(resumed.id).counted           # сам трек остался оплаченным
+    assert app_module.storage.job(tabs_child.id).status == "error"
+    assert not app_module.storage.job(parent.id).counted        # а вот табы вернули деньги
+    assert app_module.storage.job(studio_job.id).status == "running"  # Студию не тронули
+
+    # Списанное за прерванные операции (1 и 3) вернулось; законная более
+    # ранняя оплата трека "b.mp3" (сценарий 2, charged_kind уже пуст) --
+    # нет: 100 - 3 * 19 (все три consume) + 2 * 19 (возврат за 1 и 3).
+    assert app_module.storage.user(user.id).balance == 100 - app_module.billing.PRICE_SINGLE_RUB
+
+
+def test_yookassa_create_payment_accepts_the_same_arguments_as_getplatinum(monkeypatch):
+    """Регрессия: `api_subscribe` (web/app.py) вызывает
+    `gateway.create_payment(..., title=, notify_url=, email=, fail_url=)`
+    одинаково для ЛЮБОГО провайдера -- `YooKassaProvider.create_payment`
+    принимал только три первых позиционных аргумента, и переключение
+    PAYMENT_PROVIDER на yookassa роняло создание платежа TypeError'ом на
+    каждой попытке подписки или пополнения."""
+    from web import billing
+
+    monkeypatch.setenv("YOOKASSA_SHOP_ID", "shop1")
+    monkeypatch.setenv("YOOKASSA_SECRET_KEY", "secret1")
+    gateway = billing.YooKassaProvider()
+
+    captured = {}
+
+    class FakeResponse:
+        def read(self):
+            return b'{"id": "p1", "confirmation": {"confirmation_url": "https://pay/1"}}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(request, timeout=None):
+        import json
+
+        captured["body"] = json.loads(request.data)
+        return FakeResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    result = gateway.create_payment(
+        "u1", 199.0, "https://example.com/ok",
+        title="«Музыкант» на месяц",
+        notify_url="https://example.com/api/webhook/yookassa",
+        email="user@example.com",
+        fail_url="https://example.com/fail",
+    )
+
+    assert result["id"] == "p1"
+    assert captured["body"]["description"] == "«Музыкант» на месяц"

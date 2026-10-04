@@ -156,6 +156,12 @@ async def lifespan(_app: FastAPI):
     resumed = studio_runner.resume()
     if resumed:
         print(f"  Студия: продолжаем следить за задачами — {resumed}")
+    # Разборы, разделения, текст и табы из потока, который автодеплой убил
+    # прошлым перезапуском, иначе остаются "running" и деньги за них --
+    # списанными навсегда (см. JobRunner.recover_interrupted).
+    recovered = runner.recover_interrupted()
+    if recovered:
+        print(f"  Разбор: закрыли прерванные перезапуском задания — {recovered}")
     port = _running_port()
     print()
     print("  NASLUX запущен. Откройте в браузере:")
@@ -1230,11 +1236,25 @@ def api_make_lyrics(
     model: str = Form(lyrics_mod.DEFAULT_MODEL),
     language: str = Form(lyrics_mod.DEFAULT_LANGUAGE),
 ):
-    """Распознать текст песни по вокальной партии."""
+    """Распознать текст песни по вокальной партии.
+
+    Текст -- платная часть разбора наравне с партиями и табами (см.
+    web/static/pricing.html: «В любой [план]: партии, табы, MIDI, текст
+    песни»), а не бесплатное дополнение к аккордам. Трек оплачивается один
+    раз (_charge_song_once) -- дальше текст, партии и табы того же трека
+    уже включены.
+    """
     user = current_user(request)
     job = storage.job(job_id)
     if not job or job.user_id != user.id or not job.result:
         raise HTTPException(404, "Разбор ещё не готов")
+    if job.result.get("isMidi"):
+        # В MIDI нет ни голоса, ни звука вообще -- распознавать нечего, и
+        # дальше по коду это читалось бы как "нет дорожки для вокала" и
+        # запускало бы разделение на партии прямо на .mid-файле, который
+        # Demucs не умеет читать (см. /separate -- там для MIDI такой же
+        # отказ, не допускающий до списания).
+        raise HTTPException(409, "В MIDI нет вокала — распознавать нечего.")
     ok, why = lyrics_mod.available()
     if not ok:
         raise HTTPException(503, why)
@@ -1246,6 +1266,17 @@ def api_make_lyrics(
     # `out_dir/stems` на диске.
     if not storage.claim_job_run(job_id, allowed_from=("done",)):
         raise HTTPException(409, "Этот трек сейчас обрабатывается")
+    # Списание -- как у /separate: если трек ещё не оплачен (job.counted),
+    # это первая платная операция над ним и платит она здесь; если уже
+    # оплачен разделением или табами другой партии, _charge_song_once
+    # вернёт None и текст достанется бесплатно, как и обещано на тарифах.
+    try:
+        kind = _charge_song_once(user, job)
+    except HTTPException:
+        storage.update_job(job_id, status="done")
+        raise
+    if kind:
+        storage.update_job(job_id, charged_kind=kind)
     # Язык кладём в настройки задания: на пении автоопределение ошибается
     # заметно чаще, чем на речи, и, приняв русский за болгарский, Whisper
     # выдаёт правдоподобную бессмыслицу вместо текста.
@@ -1374,7 +1405,6 @@ def api_make_tabs(job_id: str, stem_key: str, request: Request):
                 "бесполезны — в них попадут и вокал, и барабаны. Кнопка "
                 "«Разделить на партии» под списком.",
             )
-
     kind = _charge_song_once(user, parent)
     child = storage.create_job(
         user.id, f"{parent.filename} — {stem_key}", {"parent": job_id, "stem": stem_key}
@@ -2517,9 +2547,28 @@ async def api_webhook(gateway_name: str, request: Request):
     # платёж два трека или два месяца подписки -- уже нет.
     first_time = storage.mark_paid_once(record["id"])
     if first_time:
-        billing.apply_plan(
-            storage, record["user_id"], record.get("plan") or "month", record.get("amount")
-        )
+        try:
+            billing.apply_plan(
+                storage, record["user_id"], record.get("plan") or "month", record.get("amount")
+            )
+        except Exception as error:                   # noqa: BLE001
+            # mark_paid_once уже закоммитил status='succeeded' отдельной
+            # транзакцией -- если начисление здесь упадёт (блокировка
+            # SQLite, перезапуск сервиса между этими двумя шагами), платёж
+            # навсегда остался бы "succeeded", а mark_paid_once на
+            # повторном уведомлении от сервиса увидел бы его уже оплаченным
+            # и молча пропустил начисление. Откатываем статус, чтобы
+            # ближайший повтор уведомления (платёжные сервисы их шлют)
+            # попробовал начислить ещё раз, а не ушёл "succeeded (повтор,
+            # начислять нечего)".
+            storage.set_payment_status(record["id"], "pending")
+            storage.save_notice(
+                gateway_name, payload, False,
+                f"оплата зачтена, но начисление упало: {error!r}",
+            )
+            raise HTTPException(
+                502, "Платёж принят, но начисление не удалось — повторите уведомление"
+            ) from error
     # Комиссия -- для финансового отчёта: GetPlatinum присылает её в
     # копейках в paymentData успешного уведомления.
     commission = (payload.get("paymentData") or {}).get("commission")

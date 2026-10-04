@@ -909,6 +909,23 @@ class Storage:
             ).fetchall()
         return [j for j in (self.job(r["id"]) for r in rows) if j]
 
+    def unfinished_jobs(self) -> list[Job]:
+        """Разборы, разделения, текст и табы, застрявшие в очереди или в
+        работе -- в отличие от Студии (unfinished_studio_jobs), это не
+        задачи на удалённом GPU: сам расчёт идёт потоком внутри ЭТОГО
+        процесса, и при его перезапуске (автодеплой перезапускает службу
+        на каждый пуш, см. deploy/update.sh) этот поток просто убит вместе
+        с процессом -- результата от него больше не будет, и такое
+        задание нужно не доследить, а явно завершить."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM jobs WHERE"
+                " (json_extract(settings, '$.kind') IS NULL"
+                "  OR json_extract(settings, '$.kind') <> 'studio')"
+                " AND status IN ('queued', 'running')"
+            ).fetchall()
+        return [j for j in (self.job(r["id"]) for r in rows) if j]
+
     def add_voice(self, user_id: str, name: str, vocal_id: str, consent: dict) -> str:
         voice_id = uuid.uuid4().hex
         with self._connect() as conn:

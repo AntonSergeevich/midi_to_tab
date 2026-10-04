@@ -230,6 +230,58 @@ class JobRunner:
     def shutdown(self) -> None:
         self.pool.shutdown(wait=False, cancel_futures=True)
 
+    def recover_interrupted(self) -> int:
+        """После перезапуска -- закрыть задания, которые он прервал.
+
+        В отличие от Студии (StudioRunner.resume), которая на перезапуске
+        просто продолжает ОПРАШИВАТЬ уже запущенную на RunPod/Mureka
+        задачу, у этих заданий расчёт шёл потоком внутри самого процесса:
+        после `systemctl restart nasluh` (его делает каждый автодеплой,
+        см. deploy/update.sh) этот поток мёртв, а задание осталось
+        "queued" или "running" навсегда. Без возврата денег за него и
+        смены статуса трек был бы не только недосчитан, но и необратимо
+        заблокирован: claim_job_run больше не нашёл бы его в "done", и
+        повторный разбор или разделение отказывали бы 409 вечно.
+        """
+        pending = self.storage.unfinished_jobs()
+        for job in pending:
+            parent_id = (job.settings or {}).get("parent")
+            if parent_id:
+                # Табы по партии: деньги (если списаны именно этим
+                # запросом) лежат на родителе -- тот же путь возврата,
+                # что и при обычной неудаче табов.
+                note = self._refund_tabs_charge(job.id, parent_id)
+                self.storage.update_job(
+                    job.id, status="error",
+                    error="Сервис перезапускался во время обработки." + note,
+                )
+            elif job.result:
+                # Уже разобранный трек, поверх которого шло разделение или
+                # распознавание текста -- откатываем к прежнему "done" тем
+                # же способом, что и обычная неудача этих операций.
+                note = ""
+                if job.charged_kind:
+                    billing.refund(self.storage, job.user_id, job.charged_kind)
+                    self.storage.update_job(job.id, counted=False, charged_kind=None)
+                    note = " Списанное вернули."
+                self.storage.update_job(
+                    job.id, status="done",
+                    error="Сервис перезапускался во время обработки — попробуйте ещё раз."
+                    + note,
+                )
+            else:
+                # Свежий разбор, так и не успевший завершиться.
+                note = ""
+                if job.charged_kind:
+                    billing.refund(self.storage, job.user_id, job.charged_kind)
+                    self.storage.update_job(job.id, counted=False, charged_kind=None)
+                    note = " Списанное за разбор вернули."
+                self.storage.update_job(
+                    job.id, status="error",
+                    error="Сервис перезапускался во время разбора — попробуйте ещё раз." + note,
+                )
+        return len(pending)
+
     # --------------------------------------------------------------- разбор
 
     def _analyze(self, job_id: str, source_path: str) -> None:
@@ -374,9 +426,15 @@ class JobRunner:
                 },
             }
             bar.stop()
+            # charged_kind сбрасываем: разбор доставлен, и это списание
+            # больше не "в процессе". Без сброса последующая неудачная
+            # операция над тем же треком (например, разделение внутри
+            # _lyrics на .mid, которое Demucs не умеет читать) находила бы
+            # здесь чужой, уже отработавший платёж и возвращала бы его
+            # деньги — отдавая готовый разбор бесплатно.
             self.storage.update_job(
                 job_id, status="done", stage="Готово", progress=100.0,
-                result=result_data, error=None,
+                result=result_data, error=None, charged_kind=None,
             )
         except Exception as exc:
             bar.stop()
@@ -454,9 +512,11 @@ class JobRunner:
             self._chords_from_stems(job_id, payload, out_dir, options, bar)
 
             bar.stop()
+            # charged_kind сбрасываем так же, как в _analyze: разделение
+            # доставлено, списание больше не "в процессе" этого задания.
             self.storage.update_job(
                 job_id, status="done", stage="Готово", progress=100.0,
-                result=payload, error=None,
+                result=payload, error=None, charged_kind=None,
             )
         except Exception as exc:
             bar.stop()
@@ -533,17 +593,35 @@ class JobRunner:
         paths = (job.result.get("paths") or {}).get("parts", {})
         options = job.settings or {}
         full = (job.result.get("paths") or {}).get("source")
+        # Списание (если это первая платная операция над треком) сделал
+        # api_make_lyrics ДО запуска и положил сюда же, в charged_kind
+        # этого задания -- вернуть его должны именно мы, если текст в
+        # итоге не распознался, а не внутренний вызов _separate_later ниже
+        # (см. комментарий перед ним).
+        charged_kind = job.charged_kind
 
         # Разделить трек ПЕРЕД распознаванием, если это ещё не сделано.
         # Разница не в процентах: на полном миксе Whisper слышит гитару и
         # барабаны наравне с голосом и выдумывает слова там, где их нет.
         # Ради текста стоит подождать разделение -- иначе результат всё
         # равно негодный, и ожидание потрачено впустую.
-        if "vocals" not in paths and full and os.path.isfile(full):
+        if not job.result.get("isMidi") and "vocals" not in paths and full and os.path.isfile(full):
             ok, _why = separate.available()
             if ok:
                 try:
+                    # charged_kind временно прячем: он принадлежит ЭТОМУ,
+                    # текстовому списанию, а не разделению. _separate_later
+                    # на успехе обнуляет charged_kind, а на неудаче
+                    # возвращает деньги по нему и тоже обнуляет -- не спрячь
+                    # мы его, неудачное разделение вернуло бы деньги за
+                    # текст раньше времени (хотя распознавание ещё могло бы
+                    # получиться по целому миксу) и стёрло бы маркер
+                    # возврата для настоящей неудачи ниже.
+                    if charged_kind:
+                        self.storage.update_job(job_id, charged_kind=None)
                     self._separate_later(job_id)
+                    if charged_kind:
+                        self.storage.update_job(job_id, charged_kind=charged_kind)
                     job = self.storage.job(job_id)
                     paths = ((job.result or {}).get("paths") or {}).get("parts", {})
                 except Exception as exc:
@@ -554,6 +632,7 @@ class JobRunner:
             # Статус возвращаем в "done": запрос на распознавание атомарно
             # переводит его в "running" ДО запуска (web/app.py:api_make_lyrics),
             # и если здесь просто выйти, трек навсегда повиснет "в работе".
+            self._refund_lyrics_charge(job_id, charged_kind)
             self.storage.update_job(
                 job_id, status="done", error="Нет дорожки для распознавания текста"
             )
@@ -575,23 +654,66 @@ class JobRunner:
             payload["lyricsSource"] = "вокальная дорожка" if used_vocals else "весь трек"
             bar.stop()
             self.storage.update_job(
-                job_id, status="done", result=payload, stage="Текст готов", progress=100.0
+                job_id, status="done", result=payload, stage="Текст готов", progress=100.0,
+                charged_kind=None,
             )
         except Exception as exc:
             bar.stop()
+            self._refund_lyrics_charge(job_id, charged_kind)
             self.storage.update_job(job_id, status="done", stage=f"Текст не распознан: {exc}")
             print(f"[lyrics {job_id}] {exc}\n{traceback.format_exc()}")
 
+    def _refund_lyrics_charge(self, job_id: str, charged_kind: str | None) -> None:
+        """Вернуть списанное за распознавание текста, если оно не удалось.
+
+        Текст песни -- платная часть разбора наравне с партиями и табами
+        (api_make_lyrics списывает первую такую операцию над треком через
+        _charge_song_once). Раньше распознавание было бесплатным и падать
+        без возврата было не на чем -- с платой это стало бы молчаливой
+        потерей денег при любой неудаче Whisper или нехватке дорожки."""
+        if not charged_kind:
+            return
+        job = self.storage.job(job_id)
+        if job and job.charged_kind == charged_kind:
+            billing.refund(self.storage, job.user_id, charged_kind)
+            self.storage.update_job(job_id, counted=False, charged_kind=None)
+
     # ----------------------------------------------------------------- табы
+
+    def _refund_tabs_charge(self, job_id: str, parent_id: str) -> str:
+        """Вернуть списанное за табы, если списание было новым (см. _tabs).
+
+        Деньги за весь трек хранятся на РОДИТЕЛЕ (parent.counted), а
+        charged_kind на этом, новом для каждого запроса job_id кладёт
+        api_make_tabs, только если списание произошло именно сейчас -- не
+        было оплачено раньше разделением или табами другой партии того же
+        трека. Возвращает ", Списанное вернули." для сообщения об ошибке,
+        когда что-то правда вернулось, иначе пустую строку."""
+        child = self.storage.job(job_id)
+        if not child or not child.charged_kind:
+            return ""
+        billing.refund(self.storage, child.user_id, child.charged_kind)
+        self.storage.update_job(parent_id, counted=False)
+        self.storage.update_job(job_id, charged_kind=None)
+        return " Списанное вернули."
 
     def _tabs(self, job_id: str, parent_id: str, stem_key: str) -> None:
         parent = self.storage.job(parent_id)
         if parent is None or not parent.result:
-            self.storage.update_job(job_id, status="error", error="Разбор не найден")
+            # Без возврата здесь трек, списанный, но лишившийся своего
+            # result (например, родительское задание стёрли) навсегда
+            # оставался бы "оплачен", а эти табы -- без результата.
+            note = self._refund_tabs_charge(job_id, parent_id)
+            self.storage.update_job(job_id, status="error", error="Разбор не найден" + note)
             return
         source = (parent.result.get("paths") or {}).get("parts", {}).get(stem_key)
         if not source or not os.path.isfile(source):
-            self.storage.update_job(job_id, status="error", error="Партия не найдена")
+            # Бывает, когда уборка диска (deploy/cleanup.py) стёрла старые
+            # партии, а табы по ним запросили только сейчас: деньги уже
+            # списаны (api_make_tabs проверяет только наличие ключа в
+            # result.paths.parts, не сам файл на диске), а партии нет.
+            note = self._refund_tabs_charge(job_id, parent_id)
+            self.storage.update_job(job_id, status="error", error="Партия не найдена" + note)
             return
 
         out_dir = os.path.join(self.data_dir, "results", job_id)
@@ -655,21 +777,7 @@ class JobRunner:
             )
         except Exception as exc:
             bar.stop()
-            # Деньги за весь трек списываются один раз и хранятся на
-            # РОДИТЕЛЕ (parent.counted) -- но charged_kind на этом, новом
-            # для каждого запроса job_id кладёт api_make_tabs только если
-            # списание произошло именно сейчас (не было оплачено раньше
-            # разделением или табами другой партии того же трека). Табы
-            # не получились -- значит, и возвращать не на что, а раз
-            # списание было новым, деньги должны вернуться, а трек --
-            # снова стать неоплаченным, чтобы его можно было купить снова.
-            note = ""
-            child = self.storage.job(job_id)
-            if child and child.charged_kind:
-                billing.refund(self.storage, parent.user_id, child.charged_kind)
-                self.storage.update_job(parent_id, counted=False)
-                self.storage.update_job(job_id, charged_kind=None)
-                note = " Списанное вернули."
+            note = self._refund_tabs_charge(job_id, parent_id)
             self.storage.update_job(
                 job_id, status="error", stage="", progress=0.0, error=str(exc) + note
             )

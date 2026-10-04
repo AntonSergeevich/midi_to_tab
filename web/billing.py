@@ -616,7 +616,19 @@ class YooKassaProvider(PaymentProvider):
     def configured(self) -> bool:
         return bool(self.shop_id and self.secret)
 
-    def create_payment(self, user_id: str, amount: float, return_url: str) -> dict:
+    def create_payment(self, user_id: str, amount: float, return_url: str,
+                       title: str = "", notify_url: str = "",
+                       email: str = "", fail_url: str = "") -> dict:
+        """
+        notify_url и fail_url ЮKassa не принимает при создании платежа --
+        адрес уведомлений настраивается в личном кабинете магазина, а
+        отказ и успех ведут на один и тот же return_url (его страница сама
+        разбирает результат по данным в URL). Эти параметры нужны только
+        затем, чтобы вызов был взаимозаменяем с GetPlatinumProvider
+        (api_subscribe вызывает gateway.create_payment одинаково для
+        любого провайдера) -- раньше их отсутствие в сигнатуре роняло
+        создание платежа TypeError'ом при каждой попытке включить ЮKassa.
+        """
         if not self.configured():
             raise RuntimeError(
                 "Приём оплаты не настроен. Задайте YOOKASSA_SHOP_ID и "
@@ -632,7 +644,7 @@ class YooKassaProvider(PaymentProvider):
                 "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
                 "capture": True,
                 "confirmation": {"type": "redirect", "return_url": return_url},
-                "description": f"Подписка NASLUX, {PERIOD_DAYS} дней",
+                "description": title or f"Подписка NASLUX, {PERIOD_DAYS} дней",
                 "metadata": {"user_id": user_id},
             }
         ).encode()
