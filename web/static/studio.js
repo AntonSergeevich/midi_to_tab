@@ -8,6 +8,7 @@ let mode = 'create';
 let voice = '';
 let file = null;
 let again = null;
+let againFile = '';        // какая версия прошлой работы -- исходник (кавер на свой трек)
 let useReference = false;  // «Как в образце»: стиль берём из загруженной песни           // «Повторить»: исходник берём из этой прошлой работы
 let polling = null;
 let openJob = null;         // id трека, чья страница открыта
@@ -220,7 +221,7 @@ function saveDraft() {
       mode, voice, again, title: $('title').value, prompt: $('prompt').value,
       lyrics: $('lyrics').value, aiPrompt: $('aiPrompt').value,
       instrumental: $('instrumental').checked, keep: $('keepVocals').checked,
-      againName: again ? $('dropTitle').textContent : '',
+      againName: again ? $('dropTitle').textContent : '', againFile,
     }));
   } catch (error) { /* приватный режим -- просто без черновика */ }
 }
@@ -234,11 +235,12 @@ function restoreDraft() {
   $('instrumental').checked = Boolean(d.instrumental);
   $('lyrics').disabled = $('instrumental').checked;
   $('keepVocals').checked = Boolean(d.keep);
-  if (d.again) useSource(d.again, d.againName);
+  if (d.again) useSource(d.again, d.againName, d.againFile);
   return Boolean(d.prompt || d.lyrics || d.title);
 }
-function useSource(jobId, name) {
+function useSource(jobId, name, version = '') {
   again = jobId;
+  againFile = version || '';
   file = null;
   $('dropTitle').textContent = name || 'Исходник из прошлой работы';
   $('dropHint').textContent = 'берём из прошлой работы · нажмите, чтобы выбрать другой файл';
@@ -256,6 +258,7 @@ function pickFile(chosen) {
   if (!chosen) return;
   file = chosen;
   again = null;
+  againFile = '';
   $('dropTitle').textContent = chosen.name;
   $('dropHint').textContent = `${(chosen.size / 1048576).toFixed(1)} МБ · нажмите, чтобы заменить`;
   $('drop').classList.add('has');
@@ -428,7 +431,7 @@ function renderDetail(jobs) {
       ${cover(j, true)}
       <div class="st-row-main"><h2>${esc(j.name)}</h2><span class="muted">${esc(meta)}</span></div>
       ${['done', 'error'].includes(j.status)
-    ? `<button type="button" class="icon-btn" data-menu="${j.id}" data-track="1" data-upload="${j.mode === 'upload' ? 1 : ''}" title="Что сделать">${ICON.more}</button>` : ''}
+    ? `<button type="button" class="icon-btn" data-menu="${j.id}" data-track="1" data-upload="${j.mode === 'upload' ? 1 : ''}" data-done="${j.status === 'done' && j.files.length && j.mode !== 'stems' ? 1 : ''}" title="Что сделать">${ICON.more}</button>` : ''}
     </div>
     <div class="st-label">${j.mode === 'stems' ? 'Партии' : 'Версии'}</div>
     ${versions}${j.mode === 'stems' ? midiList(j) : ''}${midi}${parts}${lyrics}`;
@@ -726,7 +729,7 @@ $('start').addEventListener('click', async () => {
   form.append('rights', withFile ? rights : '');
   if (file && withFile) form.append('file', file);
   form.append('reference', mode === 'create' && useReference);
-  if (!file && again && mode !== 'create') form.append('again', again);
+  if (!file && again && mode !== 'create') { form.append('again', again); form.append('againFile', againFile); }
   form.append('mode', mode);
   form.append('preset', '');
   form.append('prompt', $('prompt').value);
@@ -815,8 +818,9 @@ function openMenu(button) {
   const item = (what, icon, text, extra = '') =>
     `<button type="button" data-act="${what}" data-job="${job}" data-file="${esc(f)}" ${extra}>${icon}<span>${text}</span></button>`;
   menu.innerHTML = button.dataset.track
-    ? (button.dataset.upload ? '' : item('again', ICON.again, 'Повторить с этими настройками') + '<hr>')
-      + item('delete', ICON.trash, 'Удалить трек', 'class="danger"')
+    ? (button.dataset.done ? item('cover', ICON.again, 'Кавер на этот трек') : '')
+      + (button.dataset.upload ? '' : item('again', ICON.again, 'Повторить с этими настройками'))
+      + '<hr>' + item('delete', ICON.trash, 'Удалить трек', 'class="danger"')
     : `<a href="${button.dataset.url}" download>${ICON.download}<span>Скачать mp3</span></a>`
       + `<a href="/studio/mix/${job}?file=${encodeURIComponent(f)}">${ICON.mix}<span>Открыть в мультитреке</span></a>`
       + item('tabs', ICON.tabs, 'Табы, аккорды и MIDI')
@@ -829,7 +833,8 @@ function openMenu(button) {
           button.dataset.busy ? 'disabled' : '')) : '')
       + item('shift', ICON.tempo, 'Темп и тональность')
       + (button.dataset.extend ? item('extend', ICON.again, 'Продлить песню') : '')
-      + '<hr>' + item('again', ICON.again, 'Повторить с этими настройками');
+      + '<hr>' + (button.dataset.stem ? '' : item('cover', ICON.again, 'Кавер на эту версию'))
+      + item('again', ICON.again, 'Повторить с этими настройками');
   const box = button.getBoundingClientRect();
   menu.hidden = false;
   const left = Math.min(window.innerWidth - menu.offsetWidth - 12, box.right - menu.offsetWidth);
@@ -858,9 +863,27 @@ function repeat(jobId) {
   toast(`Настройки в панели слева — поправьте что хотите и жмите «${MODE[mode].button}» 🎛`);
 }
 
+// «Кавер на этот трек»: сам трек (выбранная версия) -- исходник для
+// «Переделать»: мелодия и текст остаются, стиль -- новый
+function coverOf(jobId, fileName) {
+  const j = info.jobs.find((x) => x.id === jobId);
+  if (!j || !j.files || !j.files.length) return;
+  const version = j.files.find((f) => f.name === fileName) || j.files[0];
+  mode = 'restyle';
+  $('prompt').value = '';
+  const label = j.files.length > 1 && version.label ? ` · ${version.label}` : '';
+  useSource(j.id, `${j.name}${label}`, version.name);
+  showMode();
+  updateStart();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  setTimeout(() => $('prompt').focus(), 400);
+  toast(`«${esc(j.name)}» — исходник для кавера. Опишите новый стиль и жмите «Переделать» 🎸`);
+}
+
 async function act(what, jobId, fileName) {
   $('menu').hidden = true;
   if (what === 'again') { repeat(jobId); return; }
+  if (what === 'cover') { coverOf(jobId, fileName); return; }
   if (what === 'delete') {
     if (!confirm('Удалить трек вместе с файлами?')) return;
     await fetch(`/api/studio/${jobId}`, { method: 'DELETE' });

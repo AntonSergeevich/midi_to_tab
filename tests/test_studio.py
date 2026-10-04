@@ -1260,3 +1260,33 @@ def test_own_tempo_replaces_detected_one_everywhere(studio_app, monkeypatch):
     client.post(f"/api/studio/{parent.id}/tempo", data={"file": "track.mp3", "bpm": 0})
     back = client.get(f"/api/studio/{parent.id}/analysis?file=track.mp3").json()
     assert back["bpm"] == 108 and "fixed" not in back
+
+
+def test_cover_of_own_track_takes_chosen_version_as_source(studio_app):
+    """«Кавер на этот трек»: исходник «Переделать» -- выбранная версия
+    песни, созданной с нуля (у неё нет source.*), без новой загрузки."""
+    import os
+
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_balance(user.id, 500)
+    song = app_module.storage.create_job(user.id, "Для Натали", {"kind": "studio", "mode": "create"})
+    folder = app_module.studio_runner.folder(song.id)
+    os.makedirs(folder, exist_ok=True)
+    for n, data in (("create_1.mp3", b"ID3first"), ("create_2.mp3", b"ID3second")):
+        with open(os.path.join(folder, n), "wb") as out:
+            out.write(data)
+    app_module.storage.update_job(song.id, status="done", result={"files": [
+        {"name": "create_1.mp3", "label": "Версия 1"}, {"name": "create_2.mp3", "label": "Версия 2"}]})
+
+    answer = client.post("/api/studio", data={"mode": "restyle", "again": song.id, "againFile": "create_2.mp3",
+                                              "prompt": "панк-рок", "rights": "own"})
+    assert answer.status_code == 200, answer.text
+    cover = app_module.storage.job(answer.json()["jobId"])
+    assert cover.filename == "Для Натали"
+    with open(os.path.join(app_module.studio_runner.folder(cover.id), "source.mp3"), "rb") as src:
+        assert src.read() == b"ID3second"
+
+    # чужое имя файла -- не путь наружу: без source.* такого исходника нет
+    bad = client.post("/api/studio", data={"mode": "restyle", "again": song.id, "againFile": "../../etc/passwd",
+                                           "prompt": "панк-рок", "rights": "own"})
+    assert bad.status_code == 409

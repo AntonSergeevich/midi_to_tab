@@ -1561,6 +1561,7 @@ async def api_studio_start(
     voice: str = Form(""),
     keep_vocals: bool = Form(False),
     again: str = Form(""),
+    againFile: str = Form(""),
     rights: str = Form(""),
     reference: bool = Form(False),
     pro: bool = Form(False),
@@ -1594,8 +1595,13 @@ async def api_studio_start(
         previous = storage.job(again)
         if previous and previous.user_id == user.id and (previous.settings or {}).get("kind") == "studio":
             folder_before = studio_runner.folder(again)
-            again_source = next((os.path.join(folder_before, f) for f in sorted(os.listdir(folder_before))
-                                 if f.startswith("source.")), None) if os.path.isdir(folder_before) else None
+            versions = [f["name"] for f in (previous.result or {}).get("files") or []]
+            if againFile in versions and os.path.isfile(os.path.join(folder_before, againFile)):
+                # «Кавер на этот трек»: исходник -- выбранная версия самого трека
+                again_source = os.path.join(folder_before, againFile)
+            else:
+                again_source = next((os.path.join(folder_before, f) for f in sorted(os.listdir(folder_before))
+                                     if f.startswith("source.")), None) if os.path.isdir(folder_before) else None
         if not again_source:
             raise HTTPException(409, "Исходник прошлой работы уже удалён — загрузите трек заново")
     suffix = Path((file.filename if file else again_source or "") or "").suffix.lower()
