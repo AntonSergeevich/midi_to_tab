@@ -787,6 +787,38 @@ def test_chords_are_not_shifted_by_a_bar():
     assert int(np.argmax(synced[:, 1])) == 5
 
 
+def test_the_tail_after_the_last_boundary_gets_its_own_column():
+    """
+    Регрессия: `librosa.util.sync(..., pad=False)` отдаёт РОВНО на один
+    столбец меньше, чем границ (N границ -> N-1 промежутков). `_edges()`
+    честно добавляет конец записи отдельной, (N+1)-й границей, рассчитывая
+    на N промежутков -- и хвост песни после последней доли/такта не
+    попадал НИ В ОДИН столбец `_sync()`. `_segments()` ниже по коду молча
+    обрезал последний отрезок -- обычно тонику, на которой песня
+    заканчивается. Нашлось сравнением с независимой моделью BTC-ISMIR19
+    на реальном треке (docs/findings-chord-quality.md касается другой
+    находки на том же файле, не этой).
+    """
+    np = pytest.importorskip("numpy")
+    librosa = pytest.importorskip("librosa")
+
+    from midi2tab.audiochords import _sync
+
+    # Три доли на 40 кадров -- последняя на 30-м, а запись идёт до 40-го:
+    # кадры 30..40 ДОЛЖНЫ достаться отдельному, последнему столбцу.
+    chroma = np.zeros((12, 40))
+    chroma[2, 0:10] = 1.0
+    chroma[5, 10:20] = 1.0
+    chroma[7, 20:30] = 1.0
+    chroma[9, 30:40] = 1.0     # хвост песни после последней доли
+    boundaries = np.array([0, 10, 20, 30])
+
+    synced = _sync(librosa, chroma, boundaries, np)
+
+    assert synced.shape[1] == len(boundaries)        # не len(boundaries) - 1
+    assert int(np.argmax(synced[:, -1])) == 9         # хвост не потерян
+
+
 def test_confidence_asks_whether_the_notes_are_sounding():
     """
     Уверенность меряет то, что и должна: слышны ли ноты аккорда.
