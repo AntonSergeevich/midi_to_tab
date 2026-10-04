@@ -1290,3 +1290,49 @@ def test_cover_of_own_track_takes_chosen_version_as_source(studio_app):
     bad = client.post("/api/studio", data={"mode": "restyle", "again": song.id, "againFile": "../../etc/passwd",
                                            "prompt": "панк-рок", "rights": "own"})
     assert bad.status_code == 409
+
+
+def test_describe_track_gives_style_and_lyrics_once(studio_app, monkeypatch):
+    """«Повторить» / «Похожая песня» / «Кавер»: стиль трека -- из song/describe,
+    слова -- распознанные (у загруженного) или сохранённые (у созданной).
+    Второй запрос -- из кэша, Mureka не зовём."""
+    import os
+    import subprocess
+
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setattr(studio, "restyle_engine", lambda: "mureka")
+    calls = []
+
+    def fake_call(method, path, body=None, timeout=60):
+        calls.append(path)
+        assert path == "/v1/song/describe" and body["url"].startswith("data:audio/mp3;base64,")
+        return {"genres": ["Pop", "Electropop"], "instrument": ["Piano", "pop"], "tags": ["Anthemic"],
+                "description": "A dynamic pop track."}
+    monkeypatch.setattr(studio, "mureka_call", fake_call)
+    monkeypatch.setattr(studio, "recognize_lyrics", lambda task, path: calls.append("recognize") or "[Verse]\nТишина")
+    monkeypatch.setattr(app_module.studio_runner, "describe_later",
+                        lambda j, n, url: app_module.studio_runner.describe(j, n, url) and True)
+
+    def make(mode, **extra):
+        job = app_module.storage.create_job(user.id, "Тишина.mp3", {"kind": "studio", "mode": mode, **extra})
+        folder = app_module.studio_runner.folder(job.id)
+        os.makedirs(folder, exist_ok=True)
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+                        f"{folder}/track.mp3"], check=True)
+        app_module.storage.update_job(job.id, status="done", result={"files": [{"name": "track.mp3"}]})
+        return job
+
+    upload = make("upload")
+    assert client.get(f"/api/studio/{upload.id}/describe").json() == {"pending": True}
+    found = client.get(f"/api/studio/{upload.id}/describe").json()
+    assert found["style"] == "pop, electropop, piano, anthemic"
+    assert found["lyrics"] == "[Verse]\nТишина" and calls == ["/v1/song/describe", "recognize"]
+    client.get(f"/api/studio/{upload.id}/describe")                     # из кэша
+    assert calls == ["/v1/song/describe", "recognize"]
+
+    created = make("create", input={"prompt": "", "lyrics": "Свой текст"})
+    client.get(f"/api/studio/{created.id}/describe")
+    assert client.get(f"/api/studio/{created.id}/describe").json()["lyrics"] == "Свой текст"
+    assert calls.count("recognize") == 1                                  # сохранённые слова не распознаём
+    assert client.get(f"/api/studio/{created.id}/describe?file=../x").status_code == 409

@@ -121,7 +121,9 @@ function showMode() {
   $('instrumentalBox').hidden = mode !== 'create';
   $('strengthBox').hidden = !(mode === 'restyle' && !mureka);
   saveDraft();
-  $('lyricsNote').textContent = mode === 'restyle' && mureka ? '— обязателен' : '';
+  // «Инструментал» есть только у песни с нуля: в «Переделать» поле слов не гасим
+  $('lyrics').disabled = mode === 'create' && $('instrumental').checked;
+  $('lyricsNote').textContent = mode === 'restyle' && mureka ? '— необязательно' : '';
   updateStart();
 }
 
@@ -819,7 +821,8 @@ function openMenu(button) {
     `<button type="button" data-act="${what}" data-job="${job}" data-file="${esc(f)}" ${extra}>${icon}<span>${text}</span></button>`;
   menu.innerHTML = button.dataset.track
     ? (button.dataset.done ? item('cover', ICON.again, 'Кавер на этот трек') : '')
-      + (button.dataset.upload ? '' : item('again', ICON.again, 'Повторить с этими настройками'))
+      + (button.dataset.upload ? item('like', ICON.again, 'Похожая песня: стиль и слова из трека')
+        : item('again', ICON.again, 'Повторить с этими настройками'))
       + '<hr>' + item('delete', ICON.trash, 'Удалить трек', 'class="danger"')
     : `<a href="${button.dataset.url}" download>${ICON.download}<span>Скачать mp3</span></a>`
       + `<a href="/studio/mix/${job}?file=${encodeURIComponent(f)}">${ICON.mix}<span>Открыть в мультитреке</span></a>`
@@ -861,6 +864,66 @@ function repeat(jobId) {
   showMode();
   window.scrollTo({ top: 0, behavior: 'smooth' });
   toast(`Настройки в панели слева — поправьте что хотите и жмите «${MODE[mode].button}» 🎛`);
+  // Стиль или слова не сохранились (например, «как в образце») -- услышим их в треке
+  const missingLyrics = !j.lyrics && !(mode === 'create' && $('instrumental').checked && j.style);
+  if ((!j.style || missingLyrics) && j.files && j.files.length) {
+    fillFromTrack(j.id, j.files[0].name, { style: !j.style, lyrics: missingLyrics });
+  }
+}
+
+// Стиль и слова готового трека (Mureka song/describe + recognize), с
+// кэшем на сервере. null -- не вышло (сообщение уже показано).
+async function describeTrack(jobId, fileName) {
+  const url = `/api/studio/${jobId}/describe?file=${encodeURIComponent(fileName || '')}`;
+  for (let tries = 0; tries < 90; tries++) {
+    const answer = await fetch(url);
+    const data = await answer.json().catch(() => ({}));
+    if (!answer.ok || data.error) {
+      toast(`Не получилось распознать стиль и слова: ${esc(data.detail || data.error || 'попробуйте позже')}`, 7000);
+      return null;
+    }
+    if (!data.pending) return data;
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  toast('Распознавание затянулось — попробуйте ещё раз через минуту');
+  return null;
+}
+
+// Заполнить пустые поля тем, что услышали в треке; написанное не трогаем
+async function fillFromTrack(jobId, fileName, { style = true, lyrics = true } = {}) {
+  if (info.restyleEngine !== 'mureka') return;
+  toast('Слушаем трек: распознаём стиль и слова… 🎧', 60000);
+  const found = await describeTrack(jobId, fileName);
+  if (!found) return;
+  if (style && found.style && !$('prompt').value.trim()) $('prompt').value = found.style;
+  if (!style && found.style) $('prompt').placeholder = `Новый стиль. В оригинале: ${found.style}`;
+  if (lyrics && found.lyrics && !$('lyrics').value.trim()) $('lyrics').value = found.lyrics;
+  if (lyrics && !found.lyrics && mode === 'create') {
+    $('instrumental').checked = true;
+    $('lyrics').disabled = true;
+  }
+  lyricsCount();
+  saveDraft();
+  updateStart();
+  toast(found.lyrics || found.style
+    ? 'Готово: стиль и слова — в панели слева, поправьте что хотите ✍️'
+    : 'Слов в треке не нашли — похоже, это инструментал');
+}
+
+// «Похожая песня» из загруженного трека: песня с нуля в его стиле и со
+// словами из него -- полный перенос того, что слышно в записи
+function likeOf(jobId, fileName) {
+  const j = info.jobs.find((x) => x.id === jobId);
+  if (!j) return;
+  mode = 'create';
+  $('title').value = j.name.replace(/\.[a-z0-9]{2,4}$/i, '');
+  $('prompt').value = '';
+  $('lyrics').value = '';
+  $('instrumental').checked = false;
+  $('lyrics').disabled = false;
+  showMode();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  fillFromTrack(jobId, fileName || (j.files[0] && j.files[0].name));
 }
 
 // «Кавер на этот трек»: сам трек (выбранная версия) -- исходник для
@@ -873,17 +936,21 @@ function coverOf(jobId, fileName) {
   $('prompt').value = '';
   const label = j.files.length > 1 && version.label ? ` · ${version.label}` : '';
   useSource(j.id, `${j.name}${label}`, version.name);
+  $('lyrics').value = j.lyrics || '';
   showMode();
   updateStart();
   window.scrollTo({ top: 0, behavior: 'smooth' });
   setTimeout(() => $('prompt').focus(), 400);
   toast(`«${esc(j.name)}» — исходник для кавера. Опишите новый стиль и жмите «Переделать» 🎸`);
+  // слова -- в поле, чтобы их можно было поправить; стиль оригинала -- подсказкой
+  fillFromTrack(j.id, version.name, { style: false, lyrics: !j.lyrics });
 }
 
 async function act(what, jobId, fileName) {
   $('menu').hidden = true;
   if (what === 'again') { repeat(jobId); return; }
   if (what === 'cover') { coverOf(jobId, fileName); return; }
+  if (what === 'like') { likeOf(jobId, fileName); return; }
   if (what === 'delete') {
     if (!confirm('Удалить трек вместе с файлами?')) return;
     await fetch(`/api/studio/${jobId}`, { method: 'DELETE' });

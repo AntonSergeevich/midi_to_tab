@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -421,6 +422,40 @@ def recognize_lyrics(task_input: dict, path: str) -> str:
     return text[:3000]
 
 
+def style_from_description(described: dict) -> str:
+    """Ответ song/describe -> строка стиля для поля «Стиль»: жанры,
+    инструменты, настроение -- без повторов, как пишут в Suno/Mureka."""
+    words: list[str] = []
+    for part in [*(described.get("genres") or []), *(described.get("instrument") or []),
+                 *(described.get("tags") or [])]:
+        word = str(part).strip().lower()
+        if word and word not in words:
+            words.append(word)
+    return ", ".join(words)[:400]
+
+
+def describe_style(path: str, folder: str) -> dict:
+    """Стиль песни (Mureka song/describe): ей хватает минуты из середины,
+    base64 до 10 МБ -- отдаём кусок mp3 128 кбит/с (~1 МБ) прямо в запросе."""
+    snippet = os.path.join(folder, "describe.mp3")
+    start = 0.0
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+                             capture_output=True, text=True, timeout=60)
+        start = max(0.0, float(out.stdout.strip() or 0) * 0.25)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        start = 0.0
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{start:.1f}", "-i", path, "-t", "75",
+                    "-ac", "2", "-b:a", "128k", snippet], check=True, timeout=300)
+    try:
+        data = base64.b64encode(open(snippet, "rb").read()).decode()
+    finally:
+        os.remove(snippet)
+    described = mureka_call("POST", "/v1/song/describe", {"url": f"data:audio/mp3;base64,{data}"}, timeout=300)
+    return {"style": style_from_description(described),
+            "description": str(described.get("description") or "")[:600]}
+
+
 # Пометки голоса в строках текста: (Male), (Female voice, fast rap), (Мужской)...
 VOICE_MARK = re.compile(r"^\s*\((?:[^)]*?)\b(male|female|together|both|duet|мужск\w*|женск\w*|вместе|дуэт)\b[^)]*\)\s*",
                         re.IGNORECASE)
@@ -823,6 +858,54 @@ class StudioRunner:
                     self.transcribing.discard(key)
 
         self.midi_pool.submit(work)
+        return True
+
+    def describe(self, job_id: str, name: str, mureka_url: str) -> dict:
+        """Стиль и слова готового трека -- для «Повторить» и «Кавер на этот
+        трек»: стиль -- song/describe, слова -- сохранённые при создании или
+        song/recognize. Кэш -- в задаче, второй раз Mureka не зовём."""
+        job = self.storage.job(job_id)
+        folder = self.folder(job_id)
+        found: dict = {"v": 1}
+        try:
+            prepared = mureka_source(os.path.join(folder, name), folder)
+            try:
+                found.update(describe_style(prepared, folder))
+            except Exception as error:  # noqa: BLE001 -- без стиля слова всё равно нужны
+                found["styleError"] = short_error(str(error))
+            settings = job.settings or {}
+            stored = ((job.result or {}).get("lyrics") or (settings.get("input") or {}).get("lyrics") or "").strip()
+            if stored and settings.get("mode") != "upload":
+                found["lyrics"] = stored
+            else:
+                try:
+                    found["lyrics"] = recognize_lyrics({"mureka_url": mureka_url}, prepared)
+                except RuntimeError:
+                    found["lyrics"] = ""        # инструментал или слов не разобрать
+        except Exception as error:  # noqa: BLE001
+            found = {"v": 1, "error": short_error(str(error))}
+        with self._analysis_lock:
+            job = self.storage.job(job_id)
+            result = dict(job.result or {})
+            result["described"] = {**(result.get("described") or {}), name: found}
+            self.storage.update_job(job_id, result=result)
+        return found
+
+    def describe_later(self, job_id: str, name: str, mureka_url: str) -> bool:
+        key = (job_id, "describe:" + name)
+        with self._analysis_lock:
+            if key in self._analyzing:
+                return False
+            self._analyzing.add(key)
+
+        def work():
+            try:
+                self.describe(job_id, name, mureka_url)
+            finally:
+                with self._analysis_lock:
+                    self._analyzing.discard(key)
+
+        threading.Thread(target=work, daemon=True).start()
         return True
 
     def analyze_later(self, job_id: str, name: str) -> bool:

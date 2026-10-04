@@ -1880,6 +1880,39 @@ def api_studio_tempo(job_id: str, request: Request, file: str = Form(""), bpm: f
     return {"ok": True}
 
 
+DESCRIBE_PER_DAY = 30
+_describe_calls: dict[str, list[float]] = {}
+
+
+@app.get("/api/studio/{job_id}/describe")
+def api_studio_describe(job_id: str, request: Request, file: str = ""):
+    """Стиль и слова готового трека (Mureka song/describe + recognize) -- для
+    «Повторить» и «Кавер на этот трек». Первый запрос запускает разбор в фоне
+    и отвечает pending; результат хранится при треке."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if (not job or job.user_id != user.id or (job.settings or {}).get("kind") != "studio"
+            or job.status != "done"):
+        raise HTTPException(404, "Готовая работа не найдена")
+    names = [f["name"] for f in (job.result or {}).get("files") or []]
+    file = file or (names[0] if names else "")
+    if file not in names or not os.path.isfile(os.path.join(studio_runner.folder(job_id), file)):
+        raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
+    cached = ((job.result or {}).get("described") or {}).get(file)
+    if cached and not cached.get("error"):
+        return cached
+    if studio.restyle_engine() != "mureka":
+        raise HTTPException(503, "Распознавание стиля пока не подключено")
+    now = time.time()
+    recent = [t for t in _describe_calls.get(user.id, []) if now - t < 86400]
+    if len(recent) >= DESCRIBE_PER_DAY and not user.unlimited:
+        raise HTTPException(429, "На сегодня распознаваний достаточно — попробуйте завтра")
+    base = str(request.base_url).rstrip("/")
+    if studio_runner.describe_later(job_id, file, studio.link(base, SECRET, job_id, "mureka")):
+        _describe_calls[user.id] = [*recent, now]
+    return {"pending": True}
+
+
 DRUMS = re.compile(r"drum|барабан|ударн", re.IGNORECASE)
 
 
