@@ -127,10 +127,18 @@ function showMode() {
   updateStart();
 }
 
+// «Дописать → Все партии»: на деле это переделка с вашим голосом (Mureka
+// пишет новую аранжировку под записанный вокал) -- так и отправляем, и цена её
+function sendMode() {
+  if (mode === 'enrich' && $('track').value === 'all') return { mode: 'restyle', keep: true, all: true };
+  return { mode, keep: mode === 'restyle' && $('keepVocals').checked, all: false };
+}
+
 function updateStart() {
   if (!info) return;
-  const service = mode === 'stems' && $('stemsPro').checked ? info.services.stems_pro : info.services[mode];
-  const packCost = (mode === 'restyle' && $('keepVocals').checked ? service.packKeep : service.pack) || 0;
+  const send = sendMode();
+  const service = mode === 'stems' && $('stemsPro').checked ? info.services.stems_pro : info.services[send.mode];
+  const packCost = (send.keep ? service.packKeep : service.pack) || 0;
   const byPack = packCost && info.studioCredits >= packCost;
   const enough = info.unlimited || byPack || info.balance >= service.price;
   const lyrics = $('lyrics').value.trim();
@@ -138,7 +146,7 @@ function updateStart() {
   let problem = '';
   if (!info.ready) problem = info.why;
   else if (mode === 'create' && !info.createOpen) problem = 'Песни с нуля скоро появятся.';
-  else if (mode === 'restyle' && !info.restyleOpen) problem = 'Переделка скоро вернётся.';
+  else if (send.mode === 'restyle' && !info.restyleOpen) problem = 'Переделка скоро вернётся.';
   else if (mode !== 'create' && !file && !again) problem = 'Загрузите трек.';
   else if (mode === 'create' && useReference && !file) problem = 'Загрузите песню-образец (возьмём ~30 секунд).';
   else if (mode === 'create' && !lyrics && !$('instrumental').checked) problem = 'Добавьте текст или отметьте «инструментал».';
@@ -149,12 +157,13 @@ function updateStart() {
   $('start').disabled = Boolean(problem);
   const price = info.unlimited ? '' : byPack
     ? ` · ${packCost} ${plural(packCost, 'кредит', 'кредита', 'кредитов')}` : ` · ${rub(service.price)}`;
-  $('start').textContent = needPay ? `Оплатить и ${MODE[mode].button.toLowerCase()}${price}`
-    : `${MODE[mode].button}${price}`;
+  const button = send.all ? 'Переписать все партии' : MODE[mode].button;
+  $('start').textContent = needPay ? `Оплатить и ${button.toLowerCase()}${price}` : `${button}${price}`;
+  $('trackHint').hidden = !send.all;
   $('msg').innerHTML = problem || (needPay
     ? (info.registered ? 'Пополните баланс — всё заполненное дождётся вас здесь.'
       : 'Заведите аккаунт и пополните баланс — всё заполненное дождётся вас здесь.')
-    : ['create', 'restyle'].includes(mode) ? 'Две версии на выбор, обычно 1–3 минуты.' : 'Обычно пара минут.');
+    : ['create', 'restyle'].includes(send.mode) ? 'Две версии на выбор, обычно 1–3 минуты.' : 'Обычно пара минут.');
 }
 
 let needPay = false;
@@ -484,8 +493,9 @@ async function load() {
     if (ask.get('mode') in MODE) mode = ask.get('mode');
     if (ask.get('style') && !$('prompt').value) $('prompt').value = ask.get('style').slice(0, 300);
     renderVoices();
-    $('track').innerHTML = Object.entries(info.tracks).map(([key, title]) =>
-      `<option value="${key}">${esc(title)}</option>`).join('');
+    $('track').innerHTML = (info.restyleEngine === 'mureka'
+      ? '<option value="all">Все партии — голос остаётся ваш</option>' : '')
+      + Object.entries(info.tracks).map(([key, title]) => `<option value="${key}">${esc(title)}</option>`).join('');
     lyricsCount();
     showMode();
     afterPayment(restored);
@@ -673,6 +683,7 @@ $('drop').addEventListener('drop', (e) => {
 });
 $('lyrics').addEventListener('input', () => { lyricsCount(); saveDraft(); updateStart(); });
 $('keepVocals').addEventListener('change', showMode);
+$('track').addEventListener('change', () => { updateStart(); saveDraft(); });
 $('stemsPro').addEventListener('change', showMode);
 $('instrumental').addEventListener('change', () => {
   $('lyrics').disabled = $('instrumental').checked;
@@ -732,7 +743,8 @@ $('start').addEventListener('click', async () => {
   if (file && withFile) form.append('file', file);
   form.append('reference', mode === 'create' && useReference);
   if (!file && again && mode !== 'create') { form.append('again', again); form.append('againFile', againFile); }
-  form.append('mode', mode);
+  const send = sendMode();
+  form.append('mode', send.mode);
   form.append('preset', '');
   form.append('prompt', $('prompt').value);
   form.append('title', $('title').value);
@@ -743,7 +755,7 @@ $('start').addEventListener('click', async () => {
   form.append('melody', $('melodyKnob').value / 100);
   form.append('track', $('track').value);
   form.append('voice', voice);
-  form.append('keep_vocals', mode === 'restyle' && $('keepVocals').checked);
+  form.append('keep_vocals', send.keep);
   form.append('pro', mode === 'stems' && $('stemsPro').checked);
   $('start').disabled = true;
   $('msg').textContent = mode === 'create' ? 'Отправляем…' : 'Загружаем трек…';
