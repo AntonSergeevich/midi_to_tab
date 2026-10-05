@@ -928,7 +928,7 @@ async function fillFromTrack(jobId, fileName, { style = true, lyrics = true } = 
 }
 
 // ---------------------------------------------------------- сверка с эталоном
-const MODEL_NAME = { main: 'На сайте', ext15: 'Прошлая (500 песен)', r2: 'Без sus/dim (61 класс)', v2: 'Самая первая' };
+const MODEL_NAME = { main: 'На сайте', ext15: 'Прошлая (500 песен)', r2: 'Без sus/dim (61 класс)', v2: 'Самая первая', ens: 'Ансамбль (сайт + 500)' };
 const pct = (x) => `${Math.round((x || 0) * 100)}%`;
 const reference = { job: '', file: '' };
 

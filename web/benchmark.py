@@ -125,8 +125,15 @@ def run_models(path: str) -> dict[str, list[tuple[float, float, str]]]:
     harmonic = librosa.effects.harmonic(y, margin=3.0)
     chroma = librosa.feature.chroma_cqt(y=harmonic, sr=sr, bins_per_octave=36)
     key = audiochords.guess_key(chroma)
-    out = {}
+    out, probs = {}, {}
     for name, model in chordnet.variants().items():
-        found = chordnet.detect(y, sr, key=key, chroma=chroma, model=model)
+        probs[name] = chordnet.probabilities(y, sr, model)
+    # Ансамбль: модель сайта и «прошлая» голосуют вместе. На шести песнях
+    # владельца (05.10) они шли вровень (87.2% и 87.5%), но сильны на
+    # разных песнях -- проверяем, не точнее ли они вдвоём.
+    if {"main", "ext15"} <= probs.keys() and probs["main"].shape == probs["ext15"].shape:
+        probs["ens"] = (probs["main"] + probs["ext15"]) / 2
+    for name, p in probs.items():
+        found = chordnet.decode(chordnet.with_key(p, key, chroma))
         out[name] = [(round(a, 2), round(b, 2), c) for a, b, c, _ in found]
     return out
