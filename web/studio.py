@@ -682,7 +682,7 @@ def audio_seconds(path: str) -> int:
 
 # Версия разбора: сменилась (модель, подсказка тональности) -- старый кеш
 # в задачах пересчитывается при следующем открытии
-ANALYSIS_VERSION = 9
+ANALYSIS_VERSION = 10
 
 
 def analyze_audio(path: str) -> dict:

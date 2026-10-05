@@ -59,6 +59,11 @@ def test_key_settles_major_minor_doubt_but_not_confident_chords():
     assert chordnet.with_key(doubtful, key, strength=2.5)[0].argmax() == d_minor
     assert chordnet.with_key(confident, key, strength=2.5)[0].argmax() == d_major
     assert chordnet.with_key(doubtful, key, strength=0.0) is doubtful
+    # Мажорная доминанта минора (A в ре миноре) -- без штрафа: решает сеть
+    a_major, a_minor = 9, 12 + 9
+    dominant = np.full((1, k), 0.15 / (k - 2))
+    dominant[0, a_major], dominant[0, a_minor] = 0.45, 0.40
+    assert chordnet.with_key(dominant, key, strength=2.5)[0].argmax() == a_major
     assert chordnet.parallel(2 * 12 + 7) == 4 * 12 + 7 and chordnet.parallel(3 * 12) == 3 * 12
 
 
