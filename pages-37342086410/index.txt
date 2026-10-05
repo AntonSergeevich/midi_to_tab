@@ -1,0 +1,3 @@
+200 https://huggingface.co/m-a-p/YuE2-3B/raw/main/README.md
+200 https://huggingface.co/api/models/m-a-p/YuE2-3B
+200 https://huggingface.co/m-a-p/YuE2-Vae/raw/main/README.md
