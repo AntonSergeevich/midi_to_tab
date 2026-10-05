@@ -999,8 +999,9 @@ async function showAll() {
   const waiting = data.rows.filter((r) => r.pending).length;
   // Пока идёт пересверка -- таблица обновляется сама
   if (waiting) allTimer = setTimeout(showAll, 5000);
-  $('refResult').innerHTML = `<p>${waiting ? `Пересверяем по очереди: осталось ${waiting} ⏳<br>`
-    : '<button type="button" class="ghost" id="refRerun">Пересверить все</button> '}Все эталоны: ${data.rows.length}. В среднем — ${models.map((m) =>
+  // Кнопка видна всегда: уже идущие сверки сервер второй раз не ставит
+  $('refResult').innerHTML = `<p><button type="button" id="refRerun">Пересверить все</button>
+    ${waiting ? ` Пересверяем по очереди: осталось ${waiting} ⏳` : ''}<br>Все эталоны: ${data.rows.length}. В среднем — ${models.map((m) =>
     `${esc(MODEL_NAME[m] || m)}: <b>${pct(data.average[m])}</b>`).join(' · ')}</p>
     <table class="st-ref-table"><thead><tr><th>Песня</th>${models.map((m) => `<th>${esc(MODEL_NAME[m] || m)}</th>`).join('')}</tr></thead>
     <tbody>${data.rows.map((r) => `<tr><td>${esc(r.name)}</td>${models.map((m) =>
