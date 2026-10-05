@@ -310,6 +310,7 @@ def render_landing(landing: dict) -> str:
       <a href="/pricing" id="navBalance" class="badge" hidden></a>
     </nav>
   </header>
+  <script src="/static/nav.js"></script>
   <main class="landing">
     <section class="hero">
       <h1>{_e(landing['h1'])}</h1>
@@ -335,7 +336,6 @@ def render_landing(landing: dict) -> str:
     <span>© NASLUX</span>
   </footer>
 </div>
-<script src="/static/nav.js" defer></script>
 </body>
 </html>
 """

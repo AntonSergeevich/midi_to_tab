@@ -26,6 +26,18 @@ body {
 a { color: var(--accent); }
 
 .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 20px 60px; }
+/* Шапка одной ширины на всех страницах. Студия и мультитрек шире
+   остальных (1320 против 1120), кабинет и документы -- уже, и меню при
+   переходе прыгало вбок. Шапка всегда растянута на ширину Студии; полоса
+   прокрутки зарезервирована всегда, иначе длинная страница сдвигала всё
+   на её ширину. --page -- ширина окна без полосы, её ставит nav.js. */
+html { scrollbar-gutter: stable; }
+@media (min-width: 721px) {
+  .wrap > header.top {
+    margin-left: calc((100% - min(1280px, var(--page, calc(100vw - 17px)) - 40px)) / 2);
+    margin-right: calc((100% - min(1280px, var(--page, calc(100vw - 17px)) - 40px)) / 2);
+  }
+}
 
 header.top {
   display: flex; align-items: center; justify-content: space-between;
@@ -853,7 +865,6 @@ body.working .flow, body.working .studio-card, body.working .pay-note { display:
   .st-go { position: static; }
 }
 @media (max-width: 640px) {
-  .studio-page .wrap { padding-left: 16px; padding-right: 16px; }
   .st-tabs button { font-size: 13px; }
   .st-ptime, .st-pexpand, #pPrev { display: none; }
   .st-cover.big { width: 60px; height: 60px; }
@@ -1139,7 +1150,7 @@ header.top > nav.topnav {
 .studio-app > * { min-width: 0; }
 @media (max-width: 360px) {
   .st-tabs button { font-size: 12.5px; padding: 8px 2px; }
-  .studio-page .wrap { padding-left: 10px; padding-right: 10px; }
+  .wrap { padding-left: 10px; padding-right: 10px; }   /* у всех страниц одинаково -- шапка не сдвигается */
 }
 
 /* Сверка с эталоном */

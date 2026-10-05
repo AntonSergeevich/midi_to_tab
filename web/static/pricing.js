@@ -26,28 +26,7 @@ const ready = (async () => {
 
 async function load() {
   await ready;
-  $('account').textContent = me.registered ? me.email : 'Вход';
-
-  const badge = $('access');
-  if (me.unlimited) {
-    badge.textContent = me.isAdmin ? 'Владелец · безлимит' : 'Безлимитный доступ';
-    badge.className = 'badge pro';
-  } else if (me.subscribed) {
-    badge.textContent = 'Подписка активна';
-    badge.className = 'badge pro';
-  } else if (me.credits > 0) {
-    badge.textContent = `Оплачено треков: ${me.credits}`;
-    badge.className = 'badge pro';
-  } else if (me.balance > 0) {
-    badge.textContent = `Баланс: ${me.balance} ₽`;
-    badge.className = 'badge pro';
-  } else {
-    badge.textContent = `Бесплатно песен: ${me.freeLeft} из ${me.freeSongs}`;
-  }
-  // Баланс -- живые деньги, он виден при любом виде доступа.
-  if (me.balance > 0 && !badge.textContent.includes('₽')) {
-    badge.textContent += ` · ${me.balance} ₽`;
-  }
+  if (window.refreshNav) window.refreshNav(me);   // шапка -- общая, nav.js
 
   // Что у человека уже есть -- одной строкой: подписка, кредиты, деньги
   const have = [

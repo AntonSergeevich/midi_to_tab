@@ -13,17 +13,7 @@ let timer = null;
 
 async function load() {
   const me = await (await fetch('/api/me')).json();
-  const badge = $('access');
-  $('account').textContent = me.registered ? me.email : 'Вход';
-  if (me.unlimited) {
-    badge.textContent = 'Безлимит';
-    badge.className = 'badge pro';
-  } else if (me.subscribed) {
-    badge.textContent = 'Подписка активна';
-    badge.className = 'badge pro';
-  } else {
-    badge.textContent = `Бесплатных песен: ${me.freeLeft} из ${me.freeSongs}`;
-  }
+  if (window.refreshNav) window.refreshNav(me);   // шапка -- общая, nav.js
 
   const { tracks } = await (await fetch('/api/library')).json();
 

@@ -29,30 +29,7 @@ async function loadMe() {
   fill($('grid'), me.grids);
   $('grid').value = me.grids.find((g) => g.includes('1/16')) || me.grids[0];
 
-  const account = $('account');
-  if (account) account.textContent = me.registered ? me.email : 'Вход';
-  const badge = $('access');
-  if (me.unlimited) {
-    badge.textContent = me.isAdmin ? 'Владелец · безлимит' : 'Безлимитный доступ';
-    badge.className = 'badge pro';
-  } else if (me.subscribed) {
-    badge.textContent = 'Подписка активна';
-    badge.className = 'badge pro';
-  } else if (me.credits > 0) {
-    badge.textContent = `Оплачено треков: ${me.credits}`;
-    badge.className = 'badge pro';
-  } else if (me.balance > 0) {
-    badge.textContent = `Баланс: ${me.balance} ₽`;
-    badge.className = 'badge pro';
-  } else {
-    badge.textContent = `Бесплатно песен: ${me.freeLeft} из ${me.freeSongs}`;
-    badge.className = 'badge';
-  }
-  // Баланс виден и при безлимите/подписке: это живые деньги, и прятать их
-  // за видом доступа нельзя -- владелец пополнял счёт и не видел суммы.
-  if (me.balance > 0 && !badge.textContent.includes('₽')) {
-    badge.textContent += ` · ${me.balance} ₽`;
-  }
+  if (window.refreshNav) window.refreshNav(me);   // шапка -- общая, nav.js
 
   const missing = [];
   if (!me.recognitionReady) missing.push('распознавание нот');

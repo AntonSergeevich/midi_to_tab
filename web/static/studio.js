@@ -483,10 +483,9 @@ function closeDetail() {
 
 async function load() {
   info = await (await fetch('/api/studio')).json();
-  $('account').textContent = info.registered ? info.email : 'Вход';
-  $('balance').textContent = info.unlimited ? 'Безлимит' : `Баланс: ${rub(info.balance)}`
-    + (info.studioCredits > 0 ? ` · ${info.studioCredits} ${plural(info.studioCredits, 'кредит', 'кредита', 'кредитов')}` : '');
-  $('balance').className = info.unlimited || info.balance > 0 ? 'badge pro' : 'badge';
+  // Шапка -- общая (nav.js); обновляем, только когда изменились деньги
+  const money = `${info.unlimited}|${info.balance}|${info.studioCredits}|${info.email}`;
+  if (money !== load.money && window.refreshNav) { load.money = money; window.refreshNav(); }
   if (!$('voices').children.length) {
     const restored = restoreDraft();
     // Ссылки со страниц возможностей: /?mode=stems, /?style=рок
