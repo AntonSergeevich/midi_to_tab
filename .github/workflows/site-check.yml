@@ -1,0 +1,27 @@
+name: Проверка сайта — загрузка трека в Студию
+
+# Живой naslux.ru глазами анонимного посетителя: открыть Студию,
+# загрузить 10 секунд тона, записать ответы сервера и ошибки страницы.
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Браузер
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q playwright && python -m playwright install --with-deps chromium
+      - name: Загрузка
+        run: python -u scripts/sitecheck/upload.py https://naslux.ru
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upload-screenshot
+          path: upload.png
