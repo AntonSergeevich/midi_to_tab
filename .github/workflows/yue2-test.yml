@@ -1,0 +1,54 @@
+name: Проба YuE2 на RunPod (только оценка, CC BY-NC)
+
+# Песня с нуля на YuE2-3B -- послушать качество русского вокала. Веса под
+# CC BY-NC 4.0: на сайт не подключаются без коммерческой лицензии M-A-P.
+# Свой эндпоинт naslux-yue2 (workersMin=0 -- без задач не платим).
+# Результаты -- в ветку test-results (папка yue2-<номер прогона>).
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Файл задания (стиль, текст, seed)
+        default: scripts/yue2_job_ru.json
+      image:
+        description: Тег образа (пусто -- latest)
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      JOB: ${{ inputs.job }}
+      TAG: ${{ inputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -q requests
+      - name: Эндпоинт (создать или обновить образ)
+        run: |
+          export WORKER_NAME=naslux-yue2
+          export WORKER_IMAGE="ghcr.io/antonsergeevich/naslux-yue2:${TAG:-latest}"
+          python scripts/runpod_endpoint.py
+      - name: Генерация
+        run: python -u scripts/yue2_test.py "$JOB" --out results
+      - name: В ветку test-results
+        if: always()
+        run: |
+          [ -n "$(ls -A results 2>/dev/null)" ] || exit 0
+          dir="yue2-${{ github.run_id }}"
+          git clone -q --depth 1 --branch test-results \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
+          mkdir -p "out/$dir" && cp results/* "out/$dir/"
+          cd out
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "YuE2: прогон ${{ github.run_id }}"
+          git push -q origin HEAD:test-results
+          echo "Файлы: test-results/$dir"
