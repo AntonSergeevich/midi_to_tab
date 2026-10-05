@@ -18,6 +18,14 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
           pip install -q playwright && python -m playwright install --with-deps chromium
+      - name: Ждём выкладку последнего коммита
+        run: |
+          # Сайт обновляется сам после пуша; проверяем уже новую версию
+          for i in $(seq 1 30); do
+            curl -fsS https://naslux.ru/static/nav.js | grep -q -- '--page' && { echo "выложено"; exit 0; }
+            sleep 10
+          done
+          echo "::warning::новая версия за 5 минут не появилась -- проверяем то, что есть"
       - name: Загрузка
         run: python -u scripts/sitecheck/upload.py https://naslux.ru
       - uses: actions/upload-artifact@v4
