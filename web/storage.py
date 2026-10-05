@@ -945,7 +945,7 @@ class Storage:
             return bool(conn.execute("DELETE FROM voices WHERE id = ? AND user_id = ?",
                                      (voice_id, user_id)).rowcount)
 
-    def studio_jobs(self, user_id: str, limit: int = 30) -> list[Job]:
+    def studio_jobs(self, user_id: str, limit: int = 400) -> list[Job]:
         """Задачи Студии: переделки, дописанные партии, разделения на GPU."""
         with self._connect() as conn:
             rows = conn.execute(
