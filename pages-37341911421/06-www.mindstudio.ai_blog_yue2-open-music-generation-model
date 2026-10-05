@@ -1,0 +1,920 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="sitemap" href="/sitemap-index.xml"><link rel="alternate" type="application/rss+xml" title="MindStudio Blog" href="/rss.xml"><link rel="preload" href="/_astro/InterVariable.DiVDrmQJ.woff2" as="font" type="font/woff2" crossorigin><title>YuE2: How to Run This Open-Source Music Generation Model Locally | MindStudio</title><meta name="description" content="YuE2 is an open-weight 3B music model that reportedly outscores Suno V6 on benchmarks. Here's how to run it locally and what quality to expect."><meta name="robots" content="max-snippet:-1, max-image-preview:large, max-video-preview:-1"><link rel="canonical" href="https://www.mindstudio.ai/blog/yue2-open-music-generation-model"><!-- Open Graph --><meta property="og:type" content="article"><meta property="og:title" content="YuE2: How to Run This Open-Source Music Generation Model Locally"><meta property="og:description" content="YuE2 is an open-weight 3B music model that reportedly outscores Suno V6 on benchmarks. Here's how to run it locally and what quality to expect."><meta property="og:image" content="https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/25f8c10e-9beb-4687-865a-d6609866c4fc.png?fm=auto&amp;w=1200&amp;h=630&amp;fit=crop"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:url" content="https://www.mindstudio.ai/blog/yue2-open-music-generation-model"><meta property="og:site_name" content="MindStudio"><meta property="article:published_time" content="2026-09-12T00:00:00.000Z"><meta property="article:modified_time" content="2026-09-12T00:00:00.000Z"><meta property="article:author" content="Luis Chavez-Mattos"><meta property="article:section" content="YuE2 music model"><meta property="article:tag" content="YuE2 music model"><meta property="article:tag" content="open source music generation"><meta property="article:tag" content="run YuE2 locally"><meta property="article:tag" content="AI music generator"><meta property="article:tag" content="Suno alternative"><meta property="article:tag" content="text to music model"><meta property="article:tag" content="local music AI"><!-- Twitter --><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@mindstudioai"><meta name="twitter:creator" content="@Luchamedia"><meta name="twitter:title" content="YuE2: How to Run This Open-Source Music Generation Model Locally"><meta name="twitter:description" content="YuE2 is an open-weight 3B music model that reportedly outscores Suno V6 on benchmarks. Here's how to run it locally and what quality to expect."><meta name="twitter:image" content="https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/25f8c10e-9beb-4687-865a-d6609866c4fc.png?fm=auto&amp;w=1200&amp;h=630&amp;fit=crop"><!-- CookieYes Consent --><script id="cookieyes" type="text/javascript" src="https://cdn-cookieyes.com/client_data/cfb9cb88e1b98070c3fb09f2/script.js"></script><!-- Google Tag Manager --><script>(function(){const GTM_ID = "GTM-MGRB9WXW";
+
+        (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+        new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+        j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+        'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+        })(window,document,'script','dataLayer',GTM_ID);
+      })();</script><!-- Plausible Analytics --><script async src="https://plausible.io/js/pa-Gq4HSvRyySBTxhAYct6cA.js"></script><script>(function(){const pageTrack = "news";
+
+        window.plausible = window.plausible || function () { (plausible.q = plausible.q || []).push(arguments); };
+        plausible.init = plausible.init || function (i) { plausible.o = i || {}; };
+        // Disable auto pageview + fire manually with explicit URL — Plausible's
+        // internal trailing-slash normalization strips `/` to `""`, splitting
+        // the homepage across two Entry Page rows. Custom locations bypass it.
+        plausible.init({ autoCapturePageviews: false });
+        plausible('pageview', {
+          url: window.location.origin + (window.location.pathname || '/') + window.location.search,
+          ...(pageTrack ? { props: { track: pageTrack } } : {}),
+        });
+      })();</script><!-- Structured Data --><script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https://www.mindstudio.ai/#organization","name":"MindStudio","legalName":"GoMeta, Inc.","url":"https://www.mindstudio.ai","logo":{"@type":"ImageObject","@id":"https://www.mindstudio.ai/#logo","url":"https://www.mindstudio.ai/MindStudio-lockup-blk.svg","contentUrl":"https://www.mindstudio.ai/MindStudio-lockup-blk.svg","caption":"MindStudio"},"image":{"@id":"https://www.mindstudio.ai/#logo"},"publishingPrinciples":"https://www.mindstudio.ai/editorial-standards","sameAs":["https://x.com/mindstudioai","https://www.linkedin.com/company/mindstudioai"]},{"@type":"WebSite","@id":"https://www.mindstudio.ai/#website","name":"MindStudio","url":"https://www.mindstudio.ai","publisher":{"@id":"https://www.mindstudio.ai/#organization"},"inLanguage":"en-US"}]}</script><script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","@id":"https://www.mindstudio.ai/blog/yue2-open-music-generation-model","mainEntityOfPage":{"@type":"WebPage","@id":"https://www.mindstudio.ai/blog/yue2-open-music-generation-model","isPartOf":{"@id":"https://www.mindstudio.ai/#website"}},"headline":"YuE2: How to Run This Open-Source Music Generation Model Locally","description":"YuE2 is an open-weight 3B music model that reportedly outscores Suno V6 on benchmarks. Here's how to run it locally and what quality to expect.","url":"https://www.mindstudio.ai/blog/yue2-open-music-generation-model","datePublished":"2026-09-12T00:00:00.000Z","dateModified":"2026-09-12T00:00:00.000Z","author":{"@id":"https://www.mindstudio.ai/#organization"},"editor":{"@type":"Person","@id":"https://www.mindstudio.ai/#editor","name":"Luis Chavez-Mattos","jobTitle":"Director of Product","url":"https://www.mindstudio.ai/editorial-standards","sameAs":["https://x.com/Luchamedia","https://www.linkedin.com/in/luchamedia/"]},"publisher":{"@id":"https://www.mindstudio.ai/#organization"},"inLanguage":"en-US","image":{"@type":"ImageObject","url":"https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/25f8c10e-9beb-4687-865a-d6609866c4fc.png?fm=auto&w=1200&fit=cover","width":1200,"height":675},"keywords":"YuE2 music model, open source music generation, run YuE2 locally, AI music generator, Suno alternative, text to music model, local music AI","articleSection":"YuE2 music model","wordCount":1326}</script><script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Blog","item":"https://www.mindstudio.ai/blog"},{"@type":"ListItem","position":2,"name":"YuE2: How to Run This Open-Source Music Generation Model Locally","item":"https://www.mindstudio.ai/blog/yue2-open-music-generation-model"}]}</script><script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How many parameters does YuE2 have?","acceptedAnswer":{"@type":"Answer","text":"YuE2 is reported as roughly a 3 billion parameter model, small enough to run locally on a single consumer or prosumer GPU rather than requiring data-center hardware."}},{"@type":"Question","name":"How much VRAM does YuE2 need?","acceptedAnswer":{"@type":"Answer","text":"In local testing on a 48GB Nvidia GPU, end-to-end song generation consumed under 8GB of VRAM, suggesting it should run comfortably on GPUs with significantly less memory than high-end data-center cards."}},{"@type":"Question","name":"Can YuE2 generate music in languages other than English?","acceptedAnswer":{"@type":"Answer","text":"Yes. It was tested across many languages including Mandarin, Russian, Polish, Hindi, Urdu, Arabic, Bengali, Spanish, Brazilian Portuguese, French, German, Swedish, Indonesian, Dutch, Tagalog, Persian, and others. Quality varies significantly by language, with Brazilian Portuguese, French, Tagalog, and Bengali sounding notably strong, and Hindi and Urdu sounding weaker."}},{"@type":"Question","name":"Does YuE2 let you edit a generated song?","acceptedAnswer":{"@type":"Answer","text":"Yes. Because the pipeline generates an intermediate symbolic score in ABC notation before rendering final audio, you can edit melody, chords, or lyrics at that stage and regenerate the song, something most end-to-end music generation models don't offer."}},{"@type":"Question","name":"Is YuE2 actually better than Suno?","acceptedAnswer":{"@type":"Answer","text":"Benchmark charts on YuE2's model card show it outperforming Suno V6 and slightly edging out Suno v5.5 on measures of song quality and prompt adherence. Independent hands-on testing found instrumentation often convincing but vocals still identifiably synthetic in most languages, so real-world quality depends heavily on language and use case."}}]}</script><link rel="preconnect" href="https://api.fontshare.com" crossorigin><link rel="preconnect" href="https://fonts.googleapis.com" crossorigin><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=gambarino@400&display=swap"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap"><link rel="stylesheet" href="/_astro/_..ByNjwy0f.css"><link rel="stylesheet" href="/_astro/Base.ChpIMnXg.css"><link rel="stylesheet" href="/_astro/utilities.J5eY1e29.css"></head><body class="flex min-h-screen flex-col"><a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-100 focus:rounded-lg focus:bg-brand-500 focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-white focus:shadow-lg">Skip to main content</a><!-- GTM noscript fallback --><noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-MGRB9WXW" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript><header class="sticky top-0 z-50 w-full border-b border-neutral-200 bg-neutral-50/80 backdrop-blur-lg"><nav class="mx-auto flex max-w-content items-center justify-between px-6 py-2.5"><a href="/" class="inline-flex items-center"><img src="/MindStudio-lockup-blk.svg" alt="MindStudio" width="140" height="17"></a><div class="hidden items-center gap-8 md:flex"><div class="relative flex items-center" data-dropdown><button type="button" aria-expanded="false" aria-haspopup="true" class="inline-flex items-center gap-1 text-body-sm text-neutral-600 hover:text-neutral-950 transition-colors" data-dropdown-toggle>Product<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="transition-transform" data-dropdown-chevron="true"><path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+  <path d="M6 9l6 6l6 -6" /></svg></button><div class="absolute left-1/2 top-full hidden -translate-x-1/2 pt-2" data-dropdown-menu><div class="w-56 rounded-card border border-neutral-200 bg-white py-1 shadow-lg"><a href="/models" class="block px-4 py-2 text-body-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950">AI Models</a><a href="/product/ai-media-workbench" class="block px-4 py-2 text-body-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950">AI Media Workbench</a><a href="/product/agent-skills-plugin" class="block px-4 py-2 text-body-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950">Agent Skills Plugin</a><a href="/capabilities" class="block px-4 py-2 text-body-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950">Workflow Capabilities</a></div></div></div><a href="/pricing" class="text-body-sm text-neutral-600 hover:text-neutral-950 transition-colors">Pricing</a><div class="relative flex items-center" data-dropdown><button type="button" aria-expanded="false" aria-haspopup="true" class="inline-flex items-center gap-1 text-body-sm text-neutral-600 hover:text-neutral-950 transition-colors" data-dropdown-toggle>Learn<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="transition-transform" data-dropdown-chevron="true"><path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+  <path d="M6 9l6 6l6 -6" /></svg></button><div class="absolute left-1/2 top-full hidden -translate-x-1/2 pt-2" data-dropdown-menu><div class="w-48 rounded-card border border-neutral-200 bg-white py-1 shadow-lg"><a href="https://university.mindstudio.ai/" target="_blank" rel="noopener noreferrer" class="block px-4 py-2 text-body-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950">University</a><a href="https://docs.mindstudio.ai/" target="_blank" rel="noopener noreferrer" class="block px-4 py-2 text-body-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950">Documentation</a></div></div></div><a href="/blog" class="text-body-sm text-neutral-600 hover:text-neutral-950 transition-colors">Blog</a><a href="/about" class="text-body-sm text-neutral-600 hover:text-neutral-950 transition-colors">About</a></div><div class="hidden items-center gap-4 md:flex"><div visibility="signed-out" class="mindstudio-hidden"><div class="flex items-center gap-4"><a href="https://app.mindstudio.ai/login" class="text-body-sm text-neutral-600 hover:text-neutral-950 transition-colors">Log in</a><a href="/pricing" class="inline-flex items-center rounded-xl bg-brand-500 px-3.5 py-1.5 text-body-sm font-medium text-white hover:bg-brand-600 transition-colors" data-cta="get-started" data-cta-location="header">Get Started</a></div></div><a visibility="signed-in" href="https://app.mindstudio.ai" class="mindstudio-hidden inline-flex items-center rounded-xl bg-neutral-950 px-3.5 py-1.5 text-body-sm font-medium text-white hover:bg-neutral-800 transition-colors" data-cta="my-workspace" data-cta-location="header">My Workspace</a></div><button class="md:hidden text-neutral-700" aria-label="Open menu" aria-expanded="false" data-mobile-menu-toggle><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+  <path d="M4 6l16 0" />
+  <path d="M4 12l16 0" />
+  <path d="M4 18l16 0" /></svg></button></nav></header><!-- Mobile drawer backdrop --><div class="fixed inset-0 z-60 bg-neutral-950/40 opacity-0 pointer-events-none transition-opacity duration-300 md:hidden" data-mobile-backdrop></div><!-- Mobile drawer --><div class="fixed top-0 right-0 z-70 h-full w-72 translate-x-full bg-neutral-50 shadow-xl transition-transform duration-300 ease-in-out md:hidden" data-mobile-drawer><div class="flex items-center justify-between border-b border-neutral-200 px-6 py-3"><a href="/" class="inline-flex items-center"><img src="/MindStudio-lockup-blk.svg" alt="MindStudio" width="120" height="15"></a><button class="text-neutral-700" aria-label="Close menu" data-mobile-drawer-close><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+  <path d="M18 6l-12 12" />
+  <path d="M6 6l12 12" /></svg></button></div><div class="flex flex-col gap-1 px-6 py-4"><div data-mobile-accordion><button type="button" aria-expanded="false" class="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-body-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950" data-mobile-accordion-toggle>Product<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="transition-transform duration-200" data-mobile-accordion-chevron="true"><path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+  <path d="M6 9l6 6l6 -6" /></svg></button><div class="hidden" data-mobile-accordion-content><a href="/models" class="block rounded-lg py-2.5 pl-8 pr-3 text-body-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-950">AI Models</a><a href="/product/ai-media-workbench" class="block rounded-lg py-2.5 pl-8 pr-3 text-body-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-950">AI Media Workbench</a><a href="/product/agent-skills-plugin" class="block rounded-lg py-2.5 pl-8 pr-3 text-body-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-950">Agent Skills Plugin</a><a href="/capabilities" class="block rounded-lg py-2.5 pl-8 pr-3 text-body-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-950">Workflow Capabilities</a></div></div><a href="/pricing" class="block rounded-lg px-3 py-2.5 text-body-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950">Pricing</a><div data-mobile-accordion><button type="button" aria-expanded="false" class="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-body-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950" data-mobile-accordion-toggle>Learn<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="transition-transform duration-200" data-mobile-accordion-chevron="true"><path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+  <path d="M6 9l6 6l6 -6" /></svg></button><div class="hidden" data-mobile-accordion-content><a href="https://university.mindstudio.ai/" target="_blank" rel="noopener noreferrer" class="block rounded-lg py-2.5 pl-8 pr-3 text-body-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-950">University</a><a href="https://docs.mindstudio.ai/" target="_blank" rel="noopener noreferrer" class="block rounded-lg py-2.5 pl-8 pr-3 text-body-sm text-neutral-500 hover:bg-neutral-100 hover:text-neutral-950">Documentation</a></div></div><a href="/blog" class="block rounded-lg px-3 py-2.5 text-body-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950">Blog</a><a href="/about" class="block rounded-lg px-3 py-2.5 text-body-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950">About</a></div><div class="mt-auto border-t border-neutral-200 px-6 py-4 space-y-3"><div visibility="signed-out" class="mindstudio-hidden"><div class="space-y-3"><a href="https://app.mindstudio.ai/login" class="block rounded-lg px-3 py-2.5 text-center text-body-sm text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950">Log in</a><a href="/pricing" class="block rounded-xl bg-brand-500 px-3 py-2.5 text-center text-body-sm font-medium text-white hover:bg-brand-600 transition-colors" data-cta="get-started" data-cta-location="header-mobile">Get Started</a></div></div><a visibility="signed-in" href="https://app.mindstudio.ai" class="mindstudio-hidden block rounded-xl bg-neutral-950 px-3 py-2.5 text-center text-body-sm font-medium text-white hover:bg-neutral-800 transition-colors" data-cta="my-workspace" data-cta-location="header-mobile">My Workspace</a></div></div><script>
+ document.addEventListener('DOMContentLoaded', () => {
+ // Mobile drawer
+ const toggle = document.querySelector('[data-mobile-menu-toggle]');
+ const drawer = document.querySelector('[data-mobile-drawer]');
+ const backdrop = document.querySelector('[data-mobile-backdrop]');
+ const closeBtn = document.querySelector('[data-mobile-drawer-close]');
+
+ function openDrawer() {
+ if (!drawer || !backdrop) return;
+ drawer.classList.remove('translate-x-full');
+ drawer.classList.add('translate-x-0');
+ backdrop.classList.remove('opacity-0', 'pointer-events-none');
+ backdrop.classList.add('opacity-100', 'pointer-events-auto');
+ document.body.classList.add('overflow-hidden');
+ if (toggle) toggle.setAttribute('aria-expanded', 'true');
+ }
+
+ function closeDrawer() {
+ if (!drawer || !backdrop) return;
+ drawer.classList.remove('translate-x-0');
+ drawer.classList.add('translate-x-full');
+ backdrop.classList.remove('opacity-100', 'pointer-events-auto');
+ backdrop.classList.add('opacity-0', 'pointer-events-none');
+ document.body.classList.remove('overflow-hidden');
+ if (toggle) toggle.setAttribute('aria-expanded', 'false');
+ }
+
+ if (toggle) toggle.addEventListener('click', openDrawer);
+ if (closeBtn) closeBtn.addEventListener('click', closeDrawer);
+ if (backdrop) backdrop.addEventListener('click', closeDrawer);
+
+ // Close drawer on Escape key
+ document.addEventListener('keydown', (e) => {
+ if (e.key === 'Escape' && toggle && toggle.getAttribute('aria-expanded') === 'true') {
+ closeDrawer();
+ }
+ });
+
+ // Mobile accordion (Learn dropdown in drawer)
+ document.querySelectorAll('[data-mobile-accordion]').forEach((acc) => {
+ const btn = acc.querySelector('[data-mobile-accordion-toggle]');
+ const content = acc.querySelector('[data-mobile-accordion-content]');
+ const chevron = acc.querySelector('[data-mobile-accordion-chevron]');
+ if (!btn || !content) return;
+
+ btn.addEventListener('click', () => {
+ const isOpen = !content.classList.contains('hidden');
+ content.classList.toggle('hidden', isOpen);
+ btn.setAttribute('aria-expanded', String(!isOpen));
+ if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+ });
+ });
+
+ // Dropdown menus
+ document.querySelectorAll('[data-dropdown]').forEach((dropdown) => {
+ const btn = dropdown.querySelector('[data-dropdown-toggle]');
+ const menu = dropdown.querySelector('[data-dropdown-menu]');
+ const chevron = dropdown.querySelector('[data-dropdown-chevron]');
+ if (!btn || !menu) return;
+
+ btn.addEventListener('click', () => {
+ const open = !menu.classList.contains('hidden');
+ menu.classList.toggle('hidden', open);
+ btn.setAttribute('aria-expanded', String(!open));
+ if (chevron) chevron.style.transform = open ? '' : 'rotate(180deg)';
+ });
+
+ document.addEventListener('click', (e) => {
+ if (!dropdown.contains(e.target)) {
+ menu.classList.add('hidden');
+ btn.setAttribute('aria-expanded', 'false');
+ if (chevron) chevron.style.transform = '';
+ }
+ });
+ });
+ });
+</script><main id="main-content" class="flex-1"><div class="ms-page"><article class="ms-blog-article"><nav class="ms-blog-breadcrumb" aria-label="Breadcrumb"><a href="/blog">Blog</a><span aria-hidden="true">/</span><span>YuE2: How to Run This Open-Source Music Generation Model Locally</span></nav><header class="ms-blog-header"><div class="ms-blog-keywords"><span class="ms-badge ms-badge-sm ms-badge-blue">YuE2 music model</span><span class="ms-badge ms-badge-sm ms-badge-blue">open source music generation</span><span class="ms-badge ms-badge-sm ms-badge-blue">run YuE2 locally</span></div><h1>YuE2: How to Run This Open-Source Music Generation Model Locally</h1><p class="ms-blog-header-desc">YuE2 is an open-weight 3B music model that reportedly outscores Suno V6 on benchmarks. Here&#39;s how to run it locally and what quality to expect.</p><div class="ms-blog-header-meta"><span>Edited by <a href="https://www.linkedin.com/in/luchamedia/" class="ms-blog-editor-link" target="_blank" rel="noopener noreferrer" data-cta="editor-profile" data-cta-location="blog-byline">Luis Chavez-Mattos</a><span class="ms-blog-editor-title">, Director of Product</span></span><span aria-hidden="true">&middot;</span><time datetime="2026-09-12T00:00:00.000Z">September 12, 2026</time><span aria-hidden="true">&middot;</span><a href="/rss.xml" class="ms-blog-rss-link"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+  <path d="M4 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+  <path d="M4 4a16 16 0 0 1 16 16" />
+  <path d="M4 11a9 9 0 0 1 9 9" /></svg>RSS</a></div></header><img src="https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/25f8c10e-9beb-4687-865a-d6609866c4fc.png?fm=auto&amp;w=1200&amp;fit=cover?fm=auto&amp;w=1200&amp;fit=cover" alt="YuE2: How to Run This Open-Source Music Generation Model Locally" class="ms-blog-hero-img" width="1200" height="675" loading="eager"><div class="prose prose-lg max-w-none ms-blog-content"><section aria-labelledby="s-1"><h2 id="s-1">What is YuE2?</h2>
+<p>YuE2 is an open-weight music generation model with roughly 3 billion parameters that you can download and run on your own GPU. It takes lyrics and a style prompt and produces a full song, complete with vocals, instrumentation, and structure (intro, verse, pre-chorus, chorus, bridge, outro). Unlike most music generators that just spit out a waveform, YuE2 also produces an editable symbolic score, essentially sheet music in ABC notation, that sits in the middle of its pipeline. That means you can, in theory, go back and adjust melody, chords, or lyrics before regenerating the final audio.</p>
+<p>According to benchmark charts shared on the model’s card, YuE2 (and a variant called YuE2 BO8) lands in what’s called the “pareto optimal” zone on a chart plotting song quality against prompt adherence, outperforming Suno V6 and edging past Suno v5.5 on those two axes simultaneously. That’s a notable claim since Suno is a closed, paid commercial product, and YuE2 is free and open. Benchmarks like this always deserve skepticism since sample sets are curated, but the fact that an open 3B model is even in the conversation with Suno is worth paying attention to.</p>
+</section><section aria-labelledby="s-2"><h2 id="s-2">TL;DR</h2>
+<ul>
+<li><strong>YuE2 is a 3B parameter open-weight model</strong> that generates full songs from lyrics and a style prompt, and can also do cover generation and score editing.</li>
+<li><strong>Benchmark charts show it beating Suno V6</strong> and nudging past Suno v5.5 on a chart measuring song quality against prompt adherence, though these figures come from curated samples and deserve independent verification.</li>
+<li><strong>The pipeline is genuinely different from typical music generators</strong>: it first writes a symbolic score (ABC notation, essentially sheet music) before converting that into audio, which means the intermediate output is human-editable.</li>
+<li><strong>Local testing showed VRAM usage under 8GB</strong>, and a roughly 2-minute song took about 2 minutes to generate on a 48GB card, suggesting it’s approachable on consumer-grade hardware too.</li>
+<li><strong>Multilingual quality varies a lot by language</strong>: Russian, Bengali, Brazilian Portuguese, French, Indonesian, and Tagalog came out sounding solid, while Hindi and Urdu vocals were noticeably weaker in hands-on testing.</li>
+<li><strong>Vocals still sound identifiably synthetic</strong> in most languages even when the instrumentation and arrangement are convincing, which remains the biggest giveaway that a track is AI-made.</li>
+</ul>
+<div class="not-prose"><div class="v3-frame" data-v3-variant="gc15" data-v3-angle="aesthetic"><div class="gc15">
+    <div class="gc15-grid" aria-hidden="true"></div>
+    <h2 class="gc15-headline">
+      <span class="gc15-line">Plans first.</span>
+      <span class="gc15-line"><em class="gc15-accent">Then code.</em></span>
+    </h2>
+    <div class="gc15-titleblock">
+      <div class="gc15-tb-cell"><span class="gc15-tb-label">PROJECT</span><span class="gc15-tb-value">YOUR APP</span></div>
+      <div class="gc15-tb-cell"><span class="gc15-tb-label">SCREENS</span><span class="gc15-tb-value">12</span></div>
+      <div class="gc15-tb-cell"><span class="gc15-tb-label">DB TABLES</span><span class="gc15-tb-value">6</span></div>
+      <div class="gc15-tb-cell"><span class="gc15-tb-label">BUILT BY</span><span class="gc15-tb-value">REMY</span></div>
+    </div>
+    <div class="gc15-drawing">
+      <svg class="gc15-dim" viewBox="0 0 400 14" preserveAspectRatio="none" aria-hidden="true">
+        <line x1="0" y1="7" x2="400" y2="7" stroke="rgba(138,198,232,.55)" stroke-width="1"></line>
+        <line x1="0" y1="0" x2="0" y2="14" stroke="rgba(138,198,232,.55)" stroke-width="1"></line>
+        <line x1="400" y1="0" x2="400" y2="14" stroke="rgba(138,198,232,.55)" stroke-width="1"></line>
+      </svg>
+      <span class="gc15-dim-label">1280 px · TYP.</span>
+      <div class="gc15-window">
+        <div class="gc15-window-bar">
+          <span class="gc15-dot"></span><span class="gc15-dot"></span><span class="gc15-dot"></span>
+          <span class="gc15-url">yourapp.msagent.ai</span>
+        </div>
+        <div class="gc15-window-body">
+          <div class="gc15-nav">
+            <span class="gc15-nav-item gc15-nav-active"></span>
+            <span class="gc15-nav-item"></span>
+            <span class="gc15-nav-item"></span>
+          </div>
+          <div class="gc15-hero-stub"></div>
+          <div class="gc15-line-stub gc15-line-stub-1"></div>
+          <div class="gc15-line-stub gc15-line-stub-2"></div>
+          <div class="gc15-cta-stub"></div>
+        </div>
+      </div>
+      <span class="gc15-drawing-label">A · UI · FRONT END</span>
+    </div>
+    <p class="gc15-closing">Remy writes the spec, manages the build, and ships the app.</p>
+  </div><div class="v3-footer-bar"><img class="v3-wordmark" src="/remy/lockup-h-md.svg" alt="Remy" width="80" height="22" loading="lazy"><span class="v3-tagline">The world's most powerful product manager agent</span><a class="v3-cta" href="https://goremy.ai/?utm_source=blog&#x26;utm_medium=interstitial&#x26;utm_campaign=remy-blog" target="_blank" rel="noopener noreferrer" data-cta="try-remy-today" data-cta-location="blog-interstitial" data-cta-format="b02-15" data-cta-angle="aesthetic" data-cta-copy-index="0" data-cta-variant-id="b02-15">Try Remy today</a></div></div></div>
+</section><section aria-labelledby="s-3"><h2 id="s-3">How does YuE2 actually generate a song?</h2>
+<p>YuE2’s architecture breaks song generation into three separate stages rather than jumping straight from text to audio.</p>
+<p>First, an “AR expert,” a causal left-to-right autoregressive model, takes your lyrics and style prompt and writes a symbolic score in ABC notation, essentially a written-out piece of sheet music. That score then gets converted into semantic tokens.</p>
+<p>Second, an “N expert” model takes those semantic tokens and performs flow matching to generate acoustic latents, a compressed internal representation of audio that isn’t directly listenable but encodes the acoustic detail needed to reconstruct sound.</p>
+<p>Third, a variational autoencoder (VAE), referred to as a V decoder, converts those latents into an actual 48kHz waveform, the audio file you actually hear.</p>
+<p>The practical upshot of this three-stage design is that the middle output, the symbolic score, is a checkpoint you can inspect and edit like real sheet music before the model renders final audio. That’s a meaningfully different workflow from end-to-end diffusion or autoregressive audio models that only let you tweak the input prompt and re-roll the output.</p>
+</section><section aria-labelledby="s-4"><h2 id="s-4">How do you install and run YuE2 locally?</h2>
+<p>Running YuE2 locally involves downloading the YuE2 code package from Hugging Face, which provides the pipeline needed to load and run the model. Once installed, the model and an example configuration (a JSON file specifying lyrics and style) get pulled down automatically on first run.</p>
+<p>In testing on an Nvidia GPU with 48GB of VRAM, actual consumption stayed under 8GB for a full end-to-end song generation, suggesting the model is well within reach of mid-range consumer GPUs, not just data-center cards. A roughly 212-second (about 3.5 minute) song took around 2 minutes to generate.</p>
+<p>The input format is straightforward: a title, a style prompt (for example, “city pop, upbeat, danceable, groovy bass”), and full lyrics broken into standard song sections. No fine-tuning or extra configuration was required to get a complete, structured song out the other end.</p>
+</section><section aria-labelledby="s-5"><h2 id="s-5">Is the music quality actually good?</h2>
+<p>This is where results get more mixed, and where benchmarks alone can’t tell the full story.</p>
+<p>On the instrumental side, arrangements were frequently convincing. A city pop track generated from Mandarin lyrics and a style prompt came out with a cohesive groove and structure. English, French, Brazilian Portuguese, and Indonesian tracks in particular had arrangements and percussion that sounded close to human-produced music, and a Tagalog track was singled out as carrying real emotional weight in its delivery.</p>
+<p>Vocals are the weaker link. Across nearly every language tested, the singing voice retained an identifiable synthetic quality, even when the underlying music didn’t. This lines up with where most current music generation models, open or closed, still struggle: instrumentation has gotten very good, but AI-generated singing voices remain the easiest way to tell a track wasn’t made by a human.</p>
+<aside class="not-prose my-10" role="complementary" aria-label="Remy" style="background:#FAFAFA;color:#141414;font-family:&#x27;Switzer&#x27;,-apple-system,system-ui,sans-serif;border:1px solid rgba(20,20,20,0.12);border-radius:2px;padding:32px">
+		<div style="display:flex;align-items:center;gap:10px;margin-bottom:24px">
+		<img src="/remy/logo-256-red.svg" alt="" width="20" height="20" style="display:block" loading="lazy">
+		<p style="font-family:&#x27;Switzer&#x27;,-apple-system,system-ui,sans-serif;font-size:12px;font-weight:500;letter-spacing:2px;text-transform:uppercase;color:#6B6B6B;margin:0;color:#A52B2B">Introducing Remy</p>
+		</div>
+		<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding-bottom:24px;border-bottom:1px solid rgba(20,20,20,0.12)"><div style="text-align:left"><p style="font-family:&#x27;Gambarino&#x27;,&#x27;Playfair Display&#x27;,Georgia,serif;font-weight:400;font-size:36px;line-height:1.08;letter-spacing:-0.02em;color:#141414;margin:0;letter-spacing:-0.03em">200+</p><p style="font-family:&#x27;Switzer&#x27;,-apple-system,system-ui,sans-serif;font-size:12px;font-weight:500;letter-spacing:2px;text-transform:uppercase;color:#6B6B6B;margin:0;margin-top:8px">AI models</p></div><div style="text-align:left"><p style="font-family:&#x27;Gambarino&#x27;,&#x27;Playfair Display&#x27;,Georgia,serif;font-weight:400;font-size:36px;line-height:1.08;letter-spacing:-0.02em;color:#141414;margin:0;letter-spacing:-0.03em">1000+</p><p style="font-family:&#x27;Switzer&#x27;,-apple-system,system-ui,sans-serif;font-size:12px;font-weight:500;letter-spacing:2px;text-transform:uppercase;color:#6B6B6B;margin:0;margin-top:8px">Integrations</p></div><div style="text-align:left"><p style="font-family:&#x27;Gambarino&#x27;,&#x27;Playfair Display&#x27;,Georgia,serif;font-weight:400;font-size:36px;line-height:1.08;letter-spacing:-0.02em;color:#141414;margin:0;letter-spacing:-0.03em">Years</p><p style="font-family:&#x27;Switzer&#x27;,-apple-system,system-ui,sans-serif;font-size:12px;font-weight:500;letter-spacing:2px;text-transform:uppercase;color:#6B6B6B;margin:0;margin-top:8px">Of production use</p></div></div>
+		<div style="margin-top:24px">
+		<p style="font-family:&#x27;Gambarino&#x27;,&#x27;Playfair Display&#x27;,Georgia,serif;font-weight:400;font-size:26px;line-height:1.08;letter-spacing:-0.02em;color:#141414;margin:0;max-width:28ch">200+ AI models. 1000+ integrations. Built in from day one.</p>
+		<p style="font-family:&#x27;Switzer&#x27;,-apple-system,system-ui,sans-serif;font-size:16px;line-height:1.6;color:#6B6B6B;margin:0;margin-top:10px;max-width:52ch">Remy runs on MindStudio — infrastructure we've been building for years. Every model and every integration is ready the moment your app needs it.</p>
+		</div>
+		<div style="margin-top:24px"><a href="https://goremy.ai/?utm_source=blog&#x26;utm_medium=interstitial&#x26;utm_campaign=remy-blog" target="_blank" rel="noopener noreferrer" data-cta="try-remy-today" data-cta-location="blog-interstitial" data-cta-format="metric-grid" data-cta-angle="credibility" data-cta-copy-index="0" data-cta-variant-id="metric-grid-credibility-0" data-cta-slot-index="2" class="remy-cta-outline" style="display:inline-block;padding:12px 28px;border:1px solid #141414;border-radius:2px;background:transparent;color:#141414;font-family:&#x27;Switzer&#x27;,-apple-system,system-ui,sans-serif;font-size:15px;font-weight:500;letter-spacing:0.15px;text-decoration:none;line-height:1;transition:background-color .15s ease,color .15s ease">Try Remy today →</a></div>
+	</aside>
+<p>Language performance was also uneven. Russian, Bengali, Brazilian Portuguese, French, German, Swedish, Indonesian, Dutch, Tagalog, and Persian all produced passable to good results in informal listening tests. Hindi and Urdu vocals, however, came out notably rough, described as sounding like a low-quality cover band rather than anything close to Bollywood-style production. The model’s own documentation doesn’t specify which languages it officially supports, so this kind of manual language-by-language testing is currently the only way to gauge real-world coverage.</p>
+</section><section aria-labelledby="s-6"><h2 id="s-6">Is YuE2 a real alternative to Suno?</h2>
+<p>For anyone who wants full control, local hosting, and zero subscription cost, YuE2 is a legitimate option to try, especially given how it undercuts Suno on price (free and open versus a paid closed service) while claiming to match or beat it on quality metrics. The editable symbolic score is also a genuine differentiator: no mainstream closed model currently gives you sheet-music-level access to edit melody or chords before final rendering.</p>
+<p>That said, benchmark charts showing YuE2 beating Suno V6 should be treated as a starting point, not a verdict. Curated demo samples on a model card are, by definition, the best-case output. Hands-on generation across many languages showed a wider range of quality, from genuinely impressive (Brazilian Portuguese, Tagalog, French) to rough around the edges (Hindi, Urdu). If your use case involves a specific language, it’s worth generating a few test tracks yourself before drawing conclusions from any leaderboard position.</p>
+</section><section aria-labelledby="s-7"><h2 id="s-7">Frequently Asked Questions</h2>
+<h3 id="how-many-parameters-does-yue2-have">How many parameters does YuE2 have?</h3>
+<p>YuE2 is reported as roughly a 3 billion parameter model, small enough to run locally on a single consumer or prosumer GPU rather than requiring data-center hardware.</p>
+<h3 id="how-much-vram-does-yue2-need">How much VRAM does YuE2 need?</h3>
+<p>In local testing on a 48GB Nvidia GPU, end-to-end song generation consumed under 8GB of VRAM, suggesting it should run comfortably on GPUs with significantly less memory than high-end data-center cards.</p>
+<h3 id="can-yue2-generate-music-in-languages-other-than-english">Can YuE2 generate music in languages other than English?</h3>
+<p>Yes. It was tested across many languages including Mandarin, Russian, Polish, Hindi, Urdu, Arabic, Bengali, Spanish, Brazilian Portuguese, French, German, Swedish, Indonesian, Dutch, Tagalog, Persian, and others. Quality varies significantly by language, with Brazilian Portuguese, French, Tagalog, and Bengali sounding notably strong, and Hindi and Urdu sounding weaker.</p>
+<h3 id="does-yue2-let-you-edit-a-generated-song">Does YuE2 let you edit a generated song?</h3>
+<p>Yes. Because the pipeline generates an intermediate symbolic score in ABC notation before rendering final audio, you can edit melody, chords, or lyrics at that stage and regenerate the song, something most end-to-end music generation models don’t offer.</p>
+<h3 id="is-yue2-actually-better-than-suno">Is YuE2 actually better than Suno?</h3>
+<p>Benchmark charts on YuE2’s model card show it outperforming Suno V6 and slightly edging out Suno v5.5 on measures of song quality and prompt adherence. Independent hands-on testing found instrumentation often convincing but vocals still identifiably synthetic in most languages, so real-world quality depends heavily on language and use case.</p></section></div><p class="ms-blog-standards"><a href="/editorial-standards">Editorial standards</a></p></article><section class="py-section-sm" aria-label="Related articles"><div class="mx-auto max-w-content px-6"><h2 class="text-heading font-semibold text-neutral-950 dark:text-neutral-50 mb-8">Related Articles</h2><div class="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-4"><a href="/blog/yue2-local-ai-music-install" class="group flex h-full flex-col rounded-card border border-neutral-200 bg-white transition-shadow hover:shadow-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"><div class="overflow-hidden rounded-t-card"><img src="https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/7c5ee1cf-3bdc-4ebc-9726-21120c4ca6dc.png?fm=auto&amp;w=360&amp;fit=cover" srcset="https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/7c5ee1cf-3bdc-4ebc-9726-21120c4ca6dc.png?fm=auto&amp;w=360&amp;fit=cover 360w, https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/7c5ee1cf-3bdc-4ebc-9726-21120c4ca6dc.png?fm=auto&amp;w=720&amp;fit=cover 720w" sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 360px" alt="" class="aspect-video w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" width="640" height="360"></div><div class="flex flex-1 flex-col p-6"><time datetime="2026-09-17T00:00:00.000Z" class="text-caption text-neutral-500">September 17, 2026</time><h3 class="mt-3 text-body-lg font-semibold leading-snug text-neutral-950 group-hover:text-brand-600 transition-colors">How to Run YuE2 Locally for Free AI Music Generation</h3><p class="mt-2 line-clamp-2 text-body-sm text-neutral-600">Install YuE2, an open-source AI music generator, on your own GPU using Pinocchio. Runs on just 4.5GB VRAM, no coding required.</p><div class="mt-auto flex flex-wrap gap-2 pt-4"><span class="rounded-full bg-brand-50 px-2.5 py-0.5 text-caption font-medium text-brand-700">YuE2 local install</span><span class="rounded-full bg-brand-50 px-2.5 py-0.5 text-caption font-medium text-brand-700">run YuE2 locally</span><span class="rounded-full bg-brand-50 px-2.5 py-0.5 text-caption font-medium text-brand-700">Pinocchio AI music</span></div></div></a><a href="/blog/happyshrimp-ai-music-generator" class="group flex h-full flex-col rounded-card border border-neutral-200 bg-white transition-shadow hover:shadow-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"><div class="overflow-hidden rounded-t-card"><img src="https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/faac3cf0-65b1-4c6e-8272-9051342e275c.png?fm=auto&amp;w=360&amp;fit=cover" srcset="https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/faac3cf0-65b1-4c6e-8272-9051342e275c.png?fm=auto&amp;w=360&amp;fit=cover 360w, https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/faac3cf0-65b1-4c6e-8272-9051342e275c.png?fm=auto&amp;w=720&amp;fit=cover 720w" sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 360px" alt="" class="aspect-video w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" width="640" height="360"></div><div class="flex flex-1 flex-col p-6"><time datetime="2026-08-19T00:00:00.000Z" class="text-caption text-neutral-500">August 19, 2026</time><h3 class="mt-3 text-body-lg font-semibold leading-snug text-neutral-950 group-hover:text-brand-600 transition-colors">What Is HappyShrimp? Alibaba&#39;s New AI Music Generator Explained</h3><p class="mt-2 line-clamp-2 text-body-sm text-neutral-600">HappyShrimp is Alibaba&#39;s new AI music platform, a fresh challenger to Suno. Here&#39;s what it does, how it sounds, and what to know before trying it.</p><div class="mt-auto flex flex-wrap gap-2 pt-4"><span class="rounded-full bg-brand-50 px-2.5 py-0.5 text-caption font-medium text-brand-700">HappyShrimp</span><span class="rounded-full bg-brand-50 px-2.5 py-0.5 text-caption font-medium text-brand-700">Alibaba AI music</span><span class="rounded-full bg-brand-50 px-2.5 py-0.5 text-caption font-medium text-brand-700">AI music generator</span></div></div></a><a href="/blog/suno-v6-vs-yue2-music-generation" class="group flex h-full flex-col rounded-card border border-neutral-200 bg-white transition-shadow hover:shadow-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"><div class="overflow-hidden rounded-t-card"><img src="https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/bd45d57e-27d1-46a2-a80b-664b5779fd17.png?fm=auto&amp;w=360&amp;fit=cover" srcset="https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/bd45d57e-27d1-46a2-a80b-664b5779fd17.png?fm=auto&amp;w=360&amp;fit=cover 360w, https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/bd45d57e-27d1-46a2-a80b-664b5779fd17.png?fm=auto&amp;w=720&amp;fit=cover 720w" sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 360px" alt="" class="aspect-video w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" width="640" height="360"></div><div class="flex flex-1 flex-col p-6"><time datetime="2026-09-17T00:00:00.000Z" class="text-caption text-neutral-500">September 17, 2026</time><h3 class="mt-3 text-body-lg font-semibold leading-snug text-neutral-950 group-hover:text-brand-600 transition-colors">Suno V6 vs YuE2: Which AI Music Generator Should You Use?</h3><p class="mt-2 line-clamp-2 text-body-sm text-neutral-600">Suno V6&#39;s polish against YuE2&#39;s free, local generation. A genre-by-genre look at quality, cost, and control to help you pick.</p><div class="mt-auto flex flex-wrap gap-2 pt-4"><span class="rounded-full bg-brand-50 px-2.5 py-0.5 text-caption font-medium text-brand-700">Suno V6 vs YuE2</span><span class="rounded-full bg-brand-50 px-2.5 py-0.5 text-caption font-medium text-brand-700">AI music generator comparison</span><span class="rounded-full bg-brand-50 px-2.5 py-0.5 text-caption font-medium text-brand-700">open source music AI</span></div></div></a><a href="/blog/minimax-music-3-open-weight" class="group flex h-full flex-col rounded-card border border-neutral-200 bg-white transition-shadow hover:shadow-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"><div class="overflow-hidden rounded-t-card"><img src="https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/901da8d1-a564-45e8-ab20-ed056b1e7887.png?fm=auto&amp;w=360&amp;fit=cover" srcset="https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/901da8d1-a564-45e8-ab20-ed056b1e7887.png?fm=auto&amp;w=360&amp;fit=cover 360w, https://i.mscdn.ai/o/iZl0kkZU2R9KXyy7/a/3V2ICO3oSq2QZPii/generated-images/901da8d1-a564-45e8-ab20-ed056b1e7887.png?fm=auto&amp;w=720&amp;fit=cover 720w" sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 360px" alt="" class="aspect-video w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" width="640" height="360"></div><div class="flex flex-1 flex-col p-6"><time datetime="2026-08-14T00:00:00.000Z" class="text-caption text-neutral-500">August 14, 2026</time><h3 class="mt-3 text-body-lg font-semibold leading-snug text-neutral-950 group-hover:text-brand-600 transition-colors">MiniMax Music 3: The Open-Weight AI Music Model, Explained</h3><p class="mt-2 line-clamp-2 text-body-sm text-neutral-600">MiniMax Music 3 is an open-weight AI music generator you can run locally. Here&#39;s how it works, what it needs, and how it stacks up to Suno.</p><div class="mt-auto flex flex-wrap gap-2 pt-4"><span class="rounded-full bg-brand-50 px-2.5 py-0.5 text-caption font-medium text-brand-700">MiniMax Music 3</span><span class="rounded-full bg-brand-50 px-2.5 py-0.5 text-caption font-medium text-brand-700">open source AI music</span><span class="rounded-full bg-brand-50 px-2.5 py-0.5 text-caption font-medium text-brand-700">Suno alternative</span></div></div></a></div></div></section><dialog id="ms-newsletter-popup" class="ms-newsletter-dialog" data-form-id="bd8f1e3f-11fb-4619-a593-cb9ce6bb5be1" aria-labelledby="ms-newsletter-title" data-astro-cid-uy4kdpfw><div class="ms-newsletter-inner" data-astro-cid-uy4kdpfw><button class="ms-newsletter-close" aria-label="Close newsletter signup" data-cta="newsletter-dismiss" data-cta-location="newsletter-popup" data-astro-cid-uy4kdpfw><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-astro-cid-uy4kdpfw><line x1="18" y1="6" x2="6" y2="18" data-astro-cid-uy4kdpfw></line><line x1="6" y1="6" x2="18" y2="18" data-astro-cid-uy4kdpfw></line></svg></button><div id="ms-newsletter-content" data-astro-cid-uy4kdpfw><p class="ms-newsletter-presented" data-astro-cid-uy4kdpfw>Presented by MindStudio</p><h2 id="ms-newsletter-title" class="ms-newsletter-headline" data-astro-cid-uy4kdpfw></h2><p class="ms-newsletter-subheading" data-astro-cid-uy4kdpfw></p><form id="ms-newsletter-form" class="ms-newsletter-form" novalidate data-astro-cid-uy4kdpfw><div class="ms-newsletter-field-row" data-astro-cid-uy4kdpfw><input type="email" name="email" placeholder="you@company.com" required autocomplete="email" class="ms-newsletter-input" aria-label="Email address" data-astro-cid-uy4kdpfw><button type="submit" class="ms-newsletter-submit" data-cta="newsletter-subscribe" data-cta-location="newsletter-popup" data-astro-cid-uy4kdpfw></button></div><p id="ms-newsletter-error" class="ms-newsletter-error" role="alert" aria-live="assertive" hidden data-astro-cid-uy4kdpfw></p></form><p class="ms-newsletter-privacy" data-astro-cid-uy4kdpfw>No spam. Unsubscribe anytime.</p></div><div id="ms-newsletter-success" class="ms-newsletter-success" hidden data-astro-cid-uy4kdpfw><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-astro-cid-uy4kdpfw><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" data-astro-cid-uy4kdpfw></path><polyline points="22 4 12 14.01 9 11.01" data-astro-cid-uy4kdpfw></polyline></svg><p class="ms-newsletter-success-text" data-astro-cid-uy4kdpfw>You're in! Check your inbox.</p></div></div></dialog><div id="ms-newsletter-bar" class="ms-newsletter-bar" hidden role="complementary" aria-label="Newsletter signup" data-astro-cid-uy4kdpfw><div class="ms-newsletter-bar-inner" data-astro-cid-uy4kdpfw><p class="ms-newsletter-bar-text" data-astro-cid-uy4kdpfw><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-astro-cid-uy4kdpfw><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" data-astro-cid-uy4kdpfw></path><polyline points="22,6 12,13 2,6" data-astro-cid-uy4kdpfw></polyline></svg>Get weekly AI insights from MindStudio</p><button class="ms-newsletter-bar-btn" data-cta="newsletter-bar-subscribe" data-cta-location="newsletter-bar" data-astro-cid-uy4kdpfw>Subscribe</button></div></div><script>
+(function () {
+  var dialog = document.getElementById('ms-newsletter-popup');
+  var bar = document.getElementById('ms-newsletter-bar');
+  if (!dialog || !bar) return;
+
+  var variant = {
+    headline: "The AI builder's briefing",
+    subheading: 'New models, automation patterns, and what actually works in production \u2014 delivered weekly to your inbox.',
+    cta: 'Get the briefing'
+  };
+  var variantSlug = 'the-ai-builders-briefing';
+
+  // Populate content
+  dialog.querySelector('#ms-newsletter-title').textContent = variant.headline;
+  dialog.querySelector('.ms-newsletter-subheading').textContent = variant.subheading;
+  dialog.querySelector('.ms-newsletter-submit').textContent = variant.cta;
+
+  // Frequency cap check
+  var STORAGE_KEY = 'mindstudio_newsletter_popup';
+  var COOLDOWN_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
+  var wasDismissed = false;
+  try {
+    var stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (stored) {
+      if (stored.subscribed) return;
+      if (stored.dismissed && (Date.now() - stored.dismissed) < COOLDOWN_MS) {
+        wasDismissed = true;
+      }
+    }
+  } catch (e) { /* ignore parse errors */ }
+
+  // If previously dismissed within cooldown, show the sticky bar instead of the popup
+  // (showBar is defined below, so we defer this with a minimal timeout)
+  if (wasDismissed) {
+    setTimeout(function () { showBar(); }, 500);
+  } else {
+    // Scroll trigger — only if not already dismissed
+    var triggered = false;
+    var pageLoadTime = Date.now();
+
+    function onScroll() {
+      if (triggered) return;
+      var docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      if (docHeight <= 0) return;
+      var pct = (window.scrollY / docHeight) * 100;
+      if (pct >= 35 && (Date.now() - pageLoadTime) >= 5000) {
+        triggered = true;
+        window.removeEventListener('scroll', onScroll);
+        showPopup();
+      }
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+  }
+
+  function track(eventName, extraProps) {
+    if (typeof window.plausible === 'function') {
+      var props = { variant: variantSlug, page: window.location.pathname };
+      if (extraProps) {
+        for (var k in extraProps) props[k] = extraProps[k];
+      }
+      window.plausible(eventName, { props: props });
+    }
+  }
+
+  function lockScroll() {
+    document.body.style.overflow = 'hidden';
+  }
+  function unlockScroll() {
+    document.body.style.overflow = '';
+  }
+
+  function showPopup() {
+    dialog.showModal();
+    lockScroll();
+    dialog.querySelector('input[name="email"]').focus();
+    track('Newsletter Popup View');
+  }
+
+  // Sticky bar helpers
+  function showBar() {
+    bar.hidden = false;
+    // Force reflow before adding attribute for transition
+    bar.offsetHeight;
+    bar.setAttribute('data-visible', '');
+    track('Newsletter Bar View');
+  }
+
+  function hideBar() {
+    bar.removeAttribute('data-visible');
+    bar.addEventListener('transitionend', function handler() {
+      bar.hidden = true;
+      bar.removeEventListener('transitionend', handler);
+    });
+  }
+
+  // Dismiss handling
+  function recordDismiss(method) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ dismissed: Date.now(), subscribed: false }));
+    } catch (e) { /* ignore storage errors */ }
+    track('Newsletter Popup Dismiss', { method: method });
+    showBar();
+  }
+
+  dialog.querySelector('.ms-newsletter-close').addEventListener('click', function () {
+    dialog.close();
+    unlockScroll();
+    recordDismiss('close-button');
+  });
+
+  dialog.addEventListener('cancel', function () {
+    unlockScroll();
+    recordDismiss('escape');
+  });
+
+  dialog.addEventListener('click', function (e) {
+    if (e.target === dialog) {
+      dialog.close();
+      unlockScroll();
+      recordDismiss('backdrop');
+    }
+  });
+
+  // Bar interactions
+  bar.querySelector('.ms-newsletter-bar-btn').addEventListener('click', function () {
+    hideBar();
+    // Reset popup form state in case it was previously errored
+    dialog.querySelector('#ms-newsletter-content').hidden = false;
+    dialog.querySelector('#ms-newsletter-success').hidden = true;
+    dialog.querySelector('#ms-newsletter-error').hidden = true;
+    var emailInput = dialog.querySelector('input[name="email"]');
+    emailInput.value = '';
+    var btn = dialog.querySelector('.ms-newsletter-submit');
+    btn.disabled = false;
+    btn.textContent = variant.cta;
+    showPopup();
+  });
+
+
+  // Form submission
+  var form = dialog.querySelector('#ms-newsletter-form');
+  var submitBtn = dialog.querySelector('.ms-newsletter-submit');
+  var errorEl = dialog.querySelector('#ms-newsletter-error');
+  var formId = dialog.getAttribute('data-form-id');
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var emailInput = form.querySelector('input[name="email"]');
+    var email = emailInput.value.trim();
+
+    if (!email || !emailInput.validity.valid) {
+      emailInput.reportValidity();
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Subscribing\u2026';
+    errorEl.hidden = true;
+
+    fetch('https://api.hsforms.com/submissions/v3/integration/submit/46257612/' + formId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: [{ objectTypeId: '0-1', name: 'email', value: email }],
+        context: { pageUri: window.location.href, pageName: document.title }
+      })
+    }).then(function (res) {
+      if (res.ok) {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ subscribed: true }));
+        } catch (e) { /* ignore */ }
+        dialog.querySelector('#ms-newsletter-content').hidden = true;
+        dialog.querySelector('#ms-newsletter-success').hidden = false;
+        track('Newsletter Popup Signup');
+        setTimeout(function () { dialog.close(); unlockScroll(); hideBar(); }, 2000);
+      } else {
+        errorEl.textContent = 'Something went wrong. Please try again.';
+        errorEl.hidden = false;
+        submitBtn.disabled = false;
+        submitBtn.textContent = variant.cta;
+      }
+    }).catch(function () {
+      errorEl.textContent = 'Network error. Please try again.';
+      errorEl.hidden = false;
+      submitBtn.disabled = false;
+      submitBtn.textContent = variant.cta;
+    });
+  });
+})();
+</script></div><script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var blocks = document.querySelectorAll('.ms-blog-content pre');
+      blocks.forEach(function (pre) {
+        var code = pre.querySelector('code');
+        if (!code) return;
+
+        var lang = pre.getAttribute('data-language') || '';
+        if (!lang) {
+          var match = (code.className || '').match(/language-(\w+)/);
+          if (match) lang = match[1];
+        }
+
+        var header = document.createElement('div');
+        header.className = 'ms-blog-code-header';
+
+        var langEl = document.createElement('span');
+        langEl.className = 'ms-blog-code-lang';
+        langEl.textContent = lang || 'code';
+
+        var btn = document.createElement('button');
+        btn.className = 'ms-code-copy';
+        btn.setAttribute('aria-label', 'Copy code to clipboard');
+        btn.innerHTML =
+          '<svg class="ms-icon-copy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>' +
+          '<svg class="ms-icon-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>' +
+          '<span class="ms-copy-label">Copy</span>' +
+          '<span class="ms-copy-label-copied">Copied!</span>';
+
+        btn.addEventListener('click', function () {
+          navigator.clipboard.writeText(code.textContent);
+          btn.classList.add('copied');
+          setTimeout(function () { btn.classList.remove('copied'); }, 2000);
+        });
+
+        header.appendChild(langEl);
+        header.appendChild(btn);
+        pre.insertBefore(header, pre.firstChild);
+      });
+    });
+  </script><script>
+    (function () {
+      // Parse a plain-text spec into segments: each segment becomes a DOM
+      // element (heading or paragraph). Paragraph breaks are \n\n.
+      function parseSpec(spec) {
+        return spec.split(/\n\n+/).map(function (para) {
+          para = para.trim();
+          if (/^#+\s/.test(para)) {
+            return { tag: 'h3', text: para.replace(/^#+\s+/, '') };
+          }
+          return { tag: 'p', text: para };
+        }).filter(function (seg) { return seg.text.length > 0; });
+      }
+
+      function renderStatic(stream, spec) {
+        var segs = parseSpec(spec);
+        segs.forEach(function (seg) {
+          var el = document.createElement(seg.tag);
+          el.className = 'remy-typewriter-' + (seg.tag === 'h3' ? 'heading' : 'paragraph');
+          el.textContent = seg.text;
+          stream.appendChild(el);
+        });
+      }
+
+      function start(viewport) {
+        // Idempotency: guard against double-start (HMR reloads, repeat intersects).
+        if (viewport.__remyStarted) return;
+        viewport.__remyStarted = true;
+
+        var stream = viewport.querySelector('.remy-typewriter-stream');
+        var specs;
+        try { specs = JSON.parse(viewport.getAttribute('data-remy-specs') || '[]'); } catch (e) { return; }
+        if (!stream || !specs.length) return;
+
+        var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (reduced) {
+          renderStatic(stream, specs[Math.floor(Math.random() * specs.length)]);
+          viewport.scrollTop = 0;
+          return;
+        }
+
+        // Shuffle per-viewport so different placements on the page start
+        // with different specs and cycle in different orders.
+        function shuffle(arr) {
+          var a = arr.slice();
+          for (var i = a.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+          }
+          return a;
+        }
+        var order = shuffle(specs);
+
+        var specIdx = 0;
+        var segs = parseSpec(order[0]);
+        var segIdx = 0;
+        var charIdx = 0;
+        var currentEl = null;
+        var running = true;
+        var pendingTimer = null;
+
+        // Pause when the viewport leaves the screen; cancel any queued step
+        // so it doesn't fire during the pause, and resume cleanly.
+        var pauseObserver = new IntersectionObserver(function (entries) {
+          entries.forEach(function (e) {
+            var nowRunning = e.isIntersecting;
+            if (!nowRunning && pendingTimer !== null) { clearTimeout(pendingTimer); pendingTimer = null; }
+            running = nowRunning;
+            if (running && pendingTimer === null) schedule(0);
+          });
+        }, { threshold: 0 });
+        pauseObserver.observe(viewport);
+
+        // Single-flight scheduler — always cancels the previous timer so
+        // we never get two step() loops racing into the same element.
+        function schedule(delay) {
+          if (!running) return;
+          if (pendingTimer !== null) clearTimeout(pendingTimer);
+          pendingTimer = setTimeout(function () { pendingTimer = null; step(); }, delay);
+        }
+
+        function ensureCurrentEl() {
+          if (currentEl) return;
+          var seg = segs[segIdx];
+          currentEl = document.createElement(seg.tag);
+          currentEl.className = 'remy-typewriter-' + (seg.tag === 'h3' ? 'heading' : 'paragraph') + ' is-typing';
+          stream.appendChild(currentEl);
+        }
+
+        function step() {
+          if (!running) return;
+          var seg = segs[segIdx];
+          if (charIdx < seg.text.length) {
+            ensureCurrentEl();
+            var ch = seg.text.charAt(charIdx);
+            currentEl.appendChild(document.createTextNode(ch));
+            charIdx++;
+            var delay;
+            if (ch === '.' || ch === '!' || ch === '?') delay = 240;
+            else if (ch === ',' || ch === ';' || ch === ':') delay = 100;
+            else delay = 18 + Math.random() * 30;
+            schedule(delay);
+          } else if (segIdx < segs.length - 1) {
+            // Next segment in the current spec.
+            if (currentEl) { currentEl.classList.remove('is-typing'); currentEl = null; }
+            segIdx++;
+            charIdx = 0;
+            schedule(220);
+          } else {
+            // Full spec done. Pause to let the reader absorb, then fade the
+            // whole stream out, clear it, and start the next spec fresh.
+            if (currentEl) { currentEl.classList.remove('is-typing'); currentEl = null; }
+            if (pendingTimer !== null) clearTimeout(pendingTimer);
+            pendingTimer = setTimeout(function () {
+              pendingTimer = null;
+              if (!running) return;
+              stream.classList.add('is-fading');
+              pendingTimer = setTimeout(function () {
+                pendingTimer = null;
+                if (!running) return;
+                while (stream.firstChild) stream.removeChild(stream.firstChild);
+                stream.classList.remove('is-fading');
+                specIdx++;
+                // End of the shuffled cycle — re-shuffle so the next round
+                // plays in a different order. The last spec of the previous
+                // cycle won't repeat as the first of the next one.
+                if (specIdx >= order.length) {
+                  var last = order[order.length - 1];
+                  do { order = shuffle(specs); } while (order.length > 1 && order[0] === last);
+                  specIdx = 0;
+                }
+                segs = parseSpec(order[specIdx]);
+                segIdx = 0;
+                charIdx = 0;
+                schedule(350);
+              }, 700);
+            }, 2200);
+          }
+        }
+        schedule(400);
+      }
+
+      function init() {
+        var viewports = document.querySelectorAll('.remy-typewriter-viewport');
+        if (!viewports.length) return;
+        if (!('IntersectionObserver' in window)) {
+          viewports.forEach(start);
+          return;
+        }
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) {
+              start(entry.target);
+              io.unobserve(entry.target);
+            }
+          });
+        }, { threshold: 0.25 });
+        viewports.forEach(function (v) { io.observe(v); });
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+      } else {
+        init();
+      }
+    })();
+  </script><script>
+    (function () {
+      function fireView(anchor) {
+        if (!anchor || typeof window.plausible !== 'function') return;
+        var ctaName = anchor.getAttribute('data-cta');
+        if (!ctaName) return;
+        var props = {
+          cta_name: ctaName,
+          cta_location: anchor.getAttribute('data-cta-location') || 'unknown',
+          page: window.location.pathname,
+        };
+        var fmt = anchor.getAttribute('data-cta-format');
+        if (fmt) props.cta_format = fmt;
+        var ang = anchor.getAttribute('data-cta-angle');
+        if (ang) props.cta_angle = ang;
+        var vid = anchor.getAttribute('data-cta-variant-id');
+        if (vid) props.cta_variant_id = vid;
+        var cidx = anchor.getAttribute('data-cta-copy-index');
+        if (cidx) props.cta_copy_index = cidx;
+        var sidx = anchor.getAttribute('data-cta-slot-index');
+        if (sidx) props.cta_slot_index = sidx;
+        if (window.__msExperiments) {
+          Object.keys(window.__msExperiments).forEach(function (expId) {
+            props['exp_' + expId.replace(/-/g, '_')] = window.__msExperiments[expId];
+          });
+        }
+        window.plausible('CTA View', { props: props });
+      }
+
+      function init() {
+        // Legacy template variants render as <aside aria-label="Remy">; v3
+        // (b02-*) prebaked variants render as <div class="v3-frame">. Both
+        // need view tracking — same selector pair as the click-forward script
+        // below.
+        var nodes = document.querySelectorAll('aside[aria-label="Remy"], .v3-frame');
+        if (!nodes.length) return;
+        if (!('IntersectionObserver' in window)) {
+          nodes.forEach(function (n) { fireView(n.querySelector('a[data-cta]')); });
+          return;
+        }
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) {
+              fireView(entry.target.querySelector('a[data-cta]'));
+              io.unobserve(entry.target);
+            }
+          });
+        }, { threshold: 0.4 });
+        nodes.forEach(function (n) { io.observe(n); });
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+      } else {
+        init();
+      }
+    })();
+  </script><script>
+    document.addEventListener('click', function (e) {
+      var frame = e.target.closest('.v3-frame, .remy-v3-wrap');
+      if (!frame) return;
+      if (e.target.closest('a, button, input, textarea, select, label')) return;
+      if (window.getSelection && window.getSelection().toString()) return;
+      var cta = frame.querySelector('a[data-cta]');
+      if (cta) cta.click();
+    });
+  </script></main><footer class="border-t border-neutral-800 bg-neutral-950 text-neutral-50"><div class="mx-auto max-w-content px-6 py-section-sm"><div class="grid grid-cols-2 gap-8 md:grid-cols-3 lg:grid-cols-5"><div><h3 class="text-body-sm font-semibold text-neutral-50">Compare</h3><ul class="mt-3 space-y-2"><li><a href="/blog/mindstudio-vs-n8n" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">n8n vs MindStudio</a></li><li><a href="/blog/mindstudio-vs-make" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Make vs MindStudio</a></li><li><a href="/blog/mindstudio-vs-zapier" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Zapier vs MindStudio</a></li><li><a href="/blog/mindstudio-vs-botpress" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Botpress vs MindStudio</a></li><li><a href="/blog/mindstudio-vs-langchain" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">LangChain vs MindStudio</a></li><li><a href="/blog/mindstudio-vs-crewai" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">CrewAI vs MindStudio</a></li><li><a href="/blog/mindstudio-vs-retool" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Retool vs MindStudio</a></li></ul></div><div><h3 class="text-body-sm font-semibold text-neutral-50">Use Cases</h3><ul class="mt-3 space-y-2"><li><a href="/blog/ai-agents-for-product-managers" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Product Management</a></li><li><a href="/blog/ai-agents-for-marketing-teams" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Marketing</a></li><li><a href="/blog/ai-agents-for-sales-teams" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Sales</a></li><li><a href="/blog/ai-agents-for-customer-success" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Customer Success</a></li><li><a href="/blog/ai-agents-for-hr-teams" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Human Resources</a></li><li><a href="/blog/ai-agents-for-legal-professionals" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Legal</a></li><li><a href="/blog/ai-agents-lead-generation" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Lead Generation</a></li></ul></div><div><h3 class="text-body-sm font-semibold text-neutral-50">Capabilities</h3><ul class="mt-3 space-y-2"><li><a href="/blog/how-to-generate-ai-images-in-mindstudio" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Image Generation</a></li><li><a href="/blog/prompt-engineering-ai-agents" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Prompt Engineering</a></li><li><a href="/blog/what-is-rag" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">RAG</a></li><li><a href="/blog/human-in-the-loop-ai" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Human-in-the-Loop</a></li><li><a href="/blog/what-are-mcp-servers" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">MCP Servers</a></li><li><a href="/blog/multi-step-reasoning" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Multi-Step Reasoning</a></li></ul></div><div><h3 class="text-body-sm font-semibold text-neutral-50">MindStudio</h3><ul class="mt-3 space-y-2"><li><a href="/about" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">About</a></li><li><a href="/pricing" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Pricing</a></li><li><a href="/blog" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Blog</a></li><li><a href="/newsroom" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Newsroom</a></li><li><a href="/contact" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors">Contact</a></li><li><a href="https://trust.mindstudio.ai/" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors" target="_blank" rel="noopener noreferrer">Trust Center</a></li><li><a href="https://community.mindstudio.ai/" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors" target="_blank" rel="noopener noreferrer">Community</a></li><li><a href="https://university.mindstudio.ai/" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors" target="_blank" rel="noopener noreferrer">Documentation</a></li></ul></div><div><h3 class="text-body-sm font-semibold text-neutral-50">Programs</h3><ul class="mt-3 space-y-2"><li><a href="https://university.mindstudio.ai/programs/mindstudio-for-enterprises" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors" target="_blank" rel="noopener noreferrer">Enterprise</a></li><li><a href="https://university.mindstudio.ai/programs/mindstudio-for-developers" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors" target="_blank" rel="noopener noreferrer">Developers</a></li><li><a href="https://university.mindstudio.ai/programs/mindstudio-solutions-partners" class="text-body-sm text-neutral-400 hover:text-neutral-50 transition-colors" target="_blank" rel="noopener noreferrer">Partners</a></li></ul></div></div><div class="mt-12 flex flex-col items-center justify-between gap-4 border-t border-neutral-800 pt-8 md:flex-row"><div class="flex items-center gap-6"><a href="/" class="text-heading-sm font-bold text-neutral-50">MindStudio</a><div class="flex items-center gap-4"><a href="https://www.youtube.com/channel/UCvv4fwj_uxsUZMx-Dq5W71A" target="_blank" rel="noopener noreferrer" aria-label="YouTube" class="text-neutral-500 hover:text-neutral-300 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" ><path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+  <path d="M18 3a5 5 0 0 1 5 5v8a5 5 0 0 1 -5 5h-12a5 5 0 0 1 -5 -5v-8a5 5 0 0 1 5 -5zm-9 6v6a1 1 0 0 0 1.514 .857l5 -3a1 1 0 0 0 0 -1.714l-5 -3a1 1 0 0 0 -1.514 .857z" /></svg></a><a href="https://x.com/mindstudioai" target="_blank" rel="noopener noreferrer" aria-label="X" class="text-neutral-500 hover:text-neutral-300 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" ><path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+  <path d="M8.267 3a1 1 0 0 1 .73 .317l.076 .092l4.274 5.828l5.946 -5.944a1 1 0 0 1 1.497 1.32l-.083 .094l-6.163 6.162l6.262 8.54a1 1 0 0 1 -.697 1.585l-.109 .006h-4.267a1 1 0 0 1 -.73 -.317l-.076 -.092l-4.276 -5.829l-5.944 5.945a1 1 0 0 1 -1.497 -1.32l.083 -.094l6.161 -6.163l-6.26 -8.539a1 1 0 0 1 .697 -1.585l.109 -.006h4.267z" /></svg></a><a href="https://www.linkedin.com/company/mindstudioai" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn" class="text-neutral-500 hover:text-neutral-300 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" ><path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+  <path d="M17 2a5 5 0 0 1 5 5v10a5 5 0 0 1 -5 5h-10a5 5 0 0 1 -5 -5v-10a5 5 0 0 1 5 -5zm-9 8a1 1 0 0 0 -1 1v5a1 1 0 0 0 2 0v-5a1 1 0 0 0 -1 -1m6 0a3 3 0 0 0 -1.168 .236l-.125 .057a1 1 0 0 0 -1.707 .707v5a1 1 0 0 0 2 0v-3a1 1 0 0 1 2 0v3a1 1 0 0 0 2 0v-3a3 3 0 0 0 -3 -3m-6 -3a1 1 0 0 0 -.993 .883l-.007 .127a1 1 0 0 0 1.993 .117l.007 -.127a1 1 0 0 0 -1 -1" /></svg></a></div></div><div class="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-caption text-neutral-500"><a href="/legal/terms-of-use" class="hover:text-neutral-300 transition-colors">Terms of Use</a><a href="/legal/privacy-policy" class="hover:text-neutral-300 transition-colors">Privacy Policy</a><a href="/legal/dpa" class="hover:text-neutral-300 transition-colors">DPA</a><span>&copy; 2026 MindStudio (GoMeta, Inc.). All rights reserved.</span></div></div></div></footer><!-- HubSpot --><script type="text/javascript" id="hs-script-loader" async defer src="//js.hs-scripts.com/46257612.js"></script><!-- Auth Detection --><script>
+      var getAuthData = function () {
+        var cookies = Object.fromEntries(document.cookie.split(/; */).map(function(c) {
+          var index = c.indexOf("=");
+          var key   = c.slice(0, index);
+          var value = c.slice(index + 1);
+          return [ decodeURIComponent(key), decodeURIComponent(value) ];
+        }));
+        var userData = false;
+        for (var key in cookies) {
+          if (key.startsWith('CognitoIdentityServiceProvider') && (key.endsWith('.idToken') || key.endsWith('.accessToken'))) {
+            userData = true;
+          }
+        }
+        return userData;
+      };
+      try {
+        window.__mindstudioWebflowAuthData = getAuthData();
+      } catch (e) {}
+    </script><!-- Signed-in / Signed-out Visibility --><script>
+      function updateElementVisibility() {
+        var isLoggedIn = !!window.__mindstudioWebflowAuthData;
+        var elements = document.querySelectorAll('[visibility]');
+        elements.forEach(function (element) {
+          var value = element.getAttribute('visibility');
+          if (isLoggedIn) {
+            if (value === 'signed-out') element.classList.add('mindstudio-hidden');
+            if (value === 'signed-in') element.classList.remove('mindstudio-hidden');
+          } else {
+            if (value === 'signed-out') element.classList.remove('mindstudio-hidden');
+            if (value === 'signed-in') element.classList.add('mindstudio-hidden');
+          }
+        });
+      }
+      updateElementVisibility();
+      document.addEventListener('DOMContentLoaded', updateElementVisibility);
+    </script><!-- Attribution Data --><script>
+      var localStorageKey = 'mindstudio_attributionData';
+      var cookieKey = 'mindstudio_attributionData';
+
+      function setAttrCookie(name, value, days) {
+        var date = new Date();
+        date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
+        var expires = 'expires=' + date.toUTCString();
+        document.cookie = name + '=' + encodeURIComponent(JSON.stringify(value)) + ';' + expires + ';path=/;domain=.mindstudio.ai;Secure;SameSite=Lax';
+      }
+
+      function getAttrCookie(name, jsonParse) {
+        var nameEQ = name + '=';
+        var cookies = document.cookie.split(';');
+        for (var i = 0; i < cookies.length; i++) {
+          var c = cookies[i];
+          while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+          if (c.indexOf(nameEQ) === 0) {
+            var contents = decodeURIComponent(c.substring(nameEQ.length, c.length));
+            return jsonParse ? JSON.parse(contents) : contents;
+          }
+        }
+        return null;
+      }
+
+      function setAttrLocalStorage(name, value) {
+        localStorage.setItem(name, JSON.stringify(value));
+      }
+
+      function getAttrLocalStorage(name) {
+        var item = localStorage.getItem(name);
+        return item ? JSON.parse(item) : null;
+      }
+
+      function isConsentToAnalytics() {
+        var consentCookie = getAttrCookie('cookieyes-consent');
+        if (!consentCookie) return false;
+        return consentCookie.includes('analytics:yes');
+      }
+
+      function storeAttributionData() {
+        var params = new URL(window.document.location.href).searchParams;
+        var utmSource = params.get('utm-source') || params.get('utm_source') || '';
+        var inviteCode = params.get('invite-code') || '';
+        var partnerStackId = params.get('ps_xid') || '';
+        var partnerStackKey = params.get('ps_partner_key') || '';
+        var partnerStackCoupon = params.get('ps_coupon') || '';
+        var referrer = window.document.location.href;
+
+        var conversionParams = {
+          facebook: { fbclid: params.get('fbclid') || '' },
+          google: { gclid: params.get('gclid') || '', wbraid: params.get('wbraid') || '', gbraid: params.get('gbraid') || '' },
+          linkedin: { li_fat_id: params.get('li_fat_id') || '' },
+          reddit: { rdt_cid: params.get('rdt_cid') || '' }
+        };
+
+        var existingAttribution = isConsentToAnalytics()
+          ? getAttrCookie(cookieKey, true)
+          : getAttrLocalStorage(localStorageKey);
+
+        function mergeConversionParams(existing, incoming) {
+          var merged = {};
+          var allKeys = new Set([].concat(Object.keys(existing || {}), Object.keys(incoming || {})));
+          allKeys.forEach(function (platform) {
+            merged[platform] = {};
+            var existPlatform = (existing && existing[platform]) || {};
+            var incomingPlatform = (incoming && incoming[platform]) || {};
+            var paramKeys = new Set([].concat(Object.keys(existPlatform), Object.keys(incomingPlatform)));
+            paramKeys.forEach(function (key) {
+              merged[platform][key] = incomingPlatform[key] || existPlatform[key] || '';
+            });
+          });
+          return merged;
+        }
+
+        var attributionData;
+        if (existingAttribution) {
+          attributionData = Object.assign({}, existingAttribution, {
+            referrer: referrer || existingAttribution.referrer,
+            inviteCode: inviteCode || existingAttribution.inviteCode,
+            partnerStackId: partnerStackId || existingAttribution.partnerStackId,
+            partnerStackKey: partnerStackKey || existingAttribution.partnerStackKey,
+            partnerStackCoupon: partnerStackCoupon || existingAttribution.partnerStackCoupon,
+            conversionParams: mergeConversionParams(existingAttribution.conversionParams, conversionParams)
+          });
+        } else {
+          attributionData = {
+            utmSource: utmSource,
+            inviteCode: inviteCode,
+            partnerStackId: partnerStackId,
+            partnerStackKey: partnerStackKey,
+            partnerStackCoupon: partnerStackCoupon,
+            referrer: referrer,
+            initialLandingPage: window.document.location.href,
+            initialReferrer: window.document.referrer,
+            conversionParams: conversionParams,
+            trialIntent: false
+          };
+        }
+
+        if (isConsentToAnalytics()) {
+          setAttrCookie(cookieKey, attributionData, 30);
+        } else {
+          setAttrLocalStorage(localStorageKey, attributionData);
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', function () {
+        try { storeAttributionData(); } catch (e) { console.log(e); }
+      });
+
+      document.addEventListener('cookieyes_consent_update', function (eventData) {
+        try {
+          if (eventData.detail.accepted.includes('analytics')) {
+            var attributionData = getAttrLocalStorage(localStorageKey);
+            if (attributionData) {
+              setAttrCookie(cookieKey, attributionData, 30);
+              localStorage.removeItem(localStorageKey);
+            }
+          }
+        } catch (e) { console.log(e); }
+      });
+    </script><!-- Persist Query Params Across Links --><script>
+      document.addEventListener('DOMContentLoaded', function () {
+        var search = window.location.search;
+        if (!search) return;
+
+        var params = new URLSearchParams(search);
+        if (!params.toString()) return;
+
+        var links = document.querySelectorAll('a[href]');
+        links.forEach(function (link) {
+          var href = link.getAttribute('href');
+          if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('javascript:')) return;
+
+          try {
+            var url = new URL(href, window.location.origin);
+            params.forEach(function (value, key) {
+              if (!url.searchParams.has(key)) {
+                url.searchParams.set(key, value);
+              }
+            });
+
+            if (href.startsWith('/') || href.startsWith('./') || href.startsWith('../') || !href.includes('://')) {
+              link.setAttribute('href', url.pathname + url.search + url.hash);
+            } else {
+              link.setAttribute('href', url.toString());
+            }
+          } catch (e) {}
+        });
+      });
+    </script><!-- A/B Testing: Inject experiment assignments --><script>(function(){const experimentAssignments = "{}";
+
+      window.__msExperiments = JSON.parse(experimentAssignments);
+    })();</script><!-- A/B Testing: Fire Experiment View events --><script>
+      if (window.__msExperiments && typeof window.plausible === 'function') {
+        Object.keys(window.__msExperiments).forEach(function (expId) {
+          window.plausible('Experiment View', {
+            props: {
+              experiment: expId,
+              variant: window.__msExperiments[expId],
+              page: window.location.pathname,
+            },
+          });
+        });
+      }
+    </script><!-- Plausible Custom Events: CTA Clicks + Scroll Depth --><script>
+      (function () {
+        // CTA Click tracking — fires on elements with data-cta attribute
+        document.addEventListener('click', function (e) {
+          var el = e.target.closest('[data-cta]');
+          if (!el || typeof window.plausible !== 'function') return;
+          var ctaName = el.getAttribute('data-cta');
+          if (!ctaName) return;
+          var ctaProps = {
+            cta_name: ctaName,
+            cta_location: el.getAttribute('data-cta-location') || 'unknown',
+            page: window.location.pathname,
+          };
+          var ctaFormat = el.getAttribute('data-cta-format');
+          if (ctaFormat) ctaProps.cta_format = ctaFormat;
+          var ctaAngle = el.getAttribute('data-cta-angle');
+          if (ctaAngle) ctaProps.cta_angle = ctaAngle;
+          var ctaVariantId = el.getAttribute('data-cta-variant-id');
+          if (ctaVariantId) ctaProps.cta_variant_id = ctaVariantId;
+          var ctaCopyIndex = el.getAttribute('data-cta-copy-index');
+          if (ctaCopyIndex) ctaProps.cta_copy_index = ctaCopyIndex;
+          var ctaSlotIndex = el.getAttribute('data-cta-slot-index');
+          if (ctaSlotIndex) ctaProps.cta_slot_index = ctaSlotIndex;
+          if (window.__msExperiments) {
+            Object.keys(window.__msExperiments).forEach(function (expId) {
+              ctaProps['exp_' + expId.replace(/-/g, '_')] = window.__msExperiments[expId];
+            });
+          }
+          window.plausible('CTA Click', { props: ctaProps });
+        });
+
+        // Scroll Depth tracking — fires at 25%, 50%, 75%, 100% milestones
+        var fired = {};
+        var thresholds = [25, 50, 75, 100];
+        function checkScroll() {
+          var docHeight = document.documentElement.scrollHeight - window.innerHeight;
+          if (docHeight <= 0) return;
+          var pct = Math.round((window.scrollY / docHeight) * 100);
+          for (var i = 0; i < thresholds.length; i++) {
+            var t = thresholds[i];
+            if (pct >= t && !fired[t] && typeof window.plausible === 'function') {
+              fired[t] = true;
+              window.plausible('Scroll Depth', {
+                props: { depth: t + '%', page: window.location.pathname },
+              });
+            }
+          }
+        }
+        window.addEventListener('scroll', checkScroll, { passive: true });
+        // Check once on load for short pages
+        window.addEventListener('load', checkScroll);
+      })();
+    </script><!-- Vercel Web Analytics --><script defer src="/_vercel/insights/script.js"></script></body></html>

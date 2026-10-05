@@ -1,0 +1,1047 @@
+<!doctype html>
+<!--
+  Minimal Mistakes Jekyll Theme 4.24.0 by Michael Rose
+  Copyright 2013-2020 Michael Rose - mademistakes.com | @mmistakes
+  Free for personal and commercial use under the MIT license
+  https://github.com/mmistakes/minimal-mistakes/blob/master/LICENSE
+-->
+<html lang="en" class="no-js">
+  <head>
+    <meta charset="utf-8"><!-- begin _includes/seo.html --><title>            A 3B Model Resets the On-Premise Music Generation Bar: YuE2 - Thaki Cloud Tech Blog      ThakiCloud      다키클라우드 기술 블로그      </title>
+<meta name="description" content="M-A-P’s open-weight music generation model YuE2-3B is out. It produces finished songs with vocals and accompaniment from lyrics plus a style prompt, at 48kHz stereo. With a community-measured 71 seconds per 3.6-minute track on an RTX 4090, the first thing to check before adoption is the license: the weights are CC BY-NC 4.0.">
+
+
+<meta name="keywords" content="Thaki Cloud, ThakiCloud, 다키클라우드, thaki cloud, thaki-cloud, THAKI CLOUD, AI/ML Engineering, LLMOps, DevOps, 인공지능, 머신러닝, 클라우드, 쿠버네티스, 기술블로그, AI엔지니어링, 타키 클라우드, 다키클라우드 기술블로그">
+
+
+<!-- Brand name variations for better SEO -->
+<meta name="alternate-names" content="Thaki Cloud, ThakiCloud, 다키클라우드, thaki cloud, thaki-cloud, THAKI CLOUD">
+<meta name="brand" content="Thaki Cloud">
+<meta name="brand-keywords" content="thaki cloud, thakicloud, 다키클라우드, 타키 클라우드">
+<meta name="organization" content="Thaki Cloud">
+<meta name="language" content="ko-KR, en">
+<meta name="coverage" content="Worldwide">
+
+
+
+<meta property="og:type" content="article">
+<meta property="og:locale" content="ko_KR">
+<meta property="og:site_name" content="Thaki Cloud Tech Blog | ThakiCloud | 다키클라우드 기술 블로그">
+<meta property="og:title" content="A 3B Model Resets the On-Premise Music Generation Bar: YuE2">
+<meta property="og:url" content="https://thakicloud.com/tech-blog/en/owm/yue2-open-source-music-generation/">
+
+
+  <meta property="og:description" content="M-A-P’s open-weight music generation model YuE2-3B is out. It produces finished songs with vocals and accompaniment from lyrics plus a style prompt, at 48kHz stereo. With a community-measured 71 seconds per 3.6-minute track on an RTX 4090, the first thing to check before adoption is the license: the weights are CC BY-NC 4.0.">
+
+
+
+  <meta property="og:image" content="https://thakicloud.com/tech-blog/assets/images/thakicloud-og-image.jpg">
+
+
+
+  <meta name="twitter:site" content="@thakicloud">
+  <meta name="twitter:title" content="A 3B Model Resets the On-Premise Music Generation Bar: YuE2">
+  <meta name="twitter:description" content="M-A-P’s open-weight music generation model YuE2-3B is out. It produces finished songs with vocals and accompaniment from lyrics plus a style prompt, at 48kHz stereo. With a community-measured 71 seconds per 3.6-minute track on an RTX 4090, the first thing to check before adoption is the license: the weights are CC BY-NC 4.0.">
+  <meta name="twitter:url" content="https://thakicloud.com/tech-blog/en/owm/yue2-open-source-music-generation/">
+
+  
+    <meta name="twitter:card" content="summary">
+    
+      <meta name="twitter:image" content="https://thakicloud.com/tech-blog/assets/images/thakicloud-og-image.jpg">
+    
+  
+
+  
+
+
+
+  <meta property="article:published_time" content="2026-09-11T00:00:00+09:00">
+
+
+
+  <meta property="article:modified_time" content="2026-09-11T00:00:00+09:00">
+
+
+
+  
+
+  
+
+
+<link rel="canonical" href="https://thakicloud.com/tech-blog/en/owm/yue2-open-source-music-generation/">
+
+
+
+
+<script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    
+      "@type": "Organization",
+      "url": "https://thakicloud.com/tech-blog/",
+      "logo": "https://thakicloud.com/tech-blog/assets/images/thakicloud-og-image.jpg"
+    
+  }
+</script>
+
+
+  <meta name="google-site-verification" content="vTtIRRz5XMsZ10-HAT-4-xuTZEmXG-zUCArAl3ANtAI" />
+
+
+
+
+
+
+<!-- end _includes/seo.html -->
+
+
+
+  <link href="/tech-blog/feed.xml" type="application/atom+xml" rel="alternate" title="Thaki Cloud Tech Blog | ThakiCloud | 다키클라우드 기술 블로그 Feed">
+
+
+<!-- https://t.co/dKP3o1e -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script>
+  document.documentElement.className = document.documentElement.className.replace(/\bno-js\b/g, '') + ' js ';
+</script>
+
+<!-- For all browsers -->
+<link rel="stylesheet" href="/tech-blog/assets/css/main.css?v=1791157375">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/css/all.min.css"></noscript>
+
+
+
+    <!-- start custom head snippets -->
+
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-78BFTNGGJX"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-78BFTNGGJX');
+</script>
+
+<!-- Pin the theme before first paint (no flash), honouring the reader's own choice.
+     ⛔ 2026-08-19: this used to hard-code 'light' with the comment "no theme toggle" —
+     but masthead.html DOES ship a toggle that writes localStorage['theme']. So every
+     navigation snapped dark-mode readers back to light and the toggle looked broken.
+     The pin must read what the toggle wrote; theme-color is synced for the same reason. -->
+<script>
+  (function () {
+    var t = 'light';
+    try { if (localStorage.getItem('theme') === 'dark') t = 'dark'; } catch (e) {}
+    document.documentElement.setAttribute('data-theme', t);
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute('content', t === 'dark' ? '#0a0a0a' : '#ffffff');
+  })();
+</script>
+
+<!-- Typefaces: Pretendard (KO/EN), JetBrains Mono (code), IBM Plex Sans Arabic (ar) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<!-- Mona Sans — matches the thakicloud.com corporate site's display typeface -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mona+Sans:ital,wght@0,200..900;1,200..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<!-- insert favicons. use https://realfavicongenerator.net/ -->
+<link rel="shortcut icon" type="image/x-icon" href="/tech-blog/favicon.ico">
+<link rel="apple-touch-icon" sizes="180x180" href="/tech-blog/assets/favicon/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/tech-blog/assets/favicon/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/tech-blog/assets/favicon/favicon-16x16.png">
+<meta name="msapplication-TileColor" content="#da532c">
+<meta name="theme-color" content="#ffffff">
+
+<!-- Mermaid.js — library only; init + light/dark theme handled in scripts.html -->
+<link rel="stylesheet" href="/tech-blog/assets/css/mermaid-custom.css">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+
+<!-- PWA web app manifest -->
+<link rel="manifest" href="/tech-blog/site.webmanifest">
+
+<!-- Structured data (JSON-LD): BlogPosting / BreadcrumbList / WebSite -->
+<!-- start structured data (JSON-LD): BlogPosting + BreadcrumbList for posts, WebSite+SearchAction for home --><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "mainEntityOfPage": { "@type": "WebPage", "@id": "https://thakicloud.com/tech-blog/en/owm/yue2-open-source-music-generation/" },
+  "headline": "A 3B Model Resets the On-Premise Music Generation Bar: YuE2",
+  "description": "M-A-P's open-weight music generation model YuE2-3B is out. It produces finished songs with vocals and accompaniment from lyrics plus a style prompt, at 48kHz stereo. With a community-measured 71 se...",
+  "image": "https://thakicloud.com/tech-blog/assets/images/thakicloud-og-image.jpg",
+  "inLanguage": "en",
+  "datePublished": "2026-09-11T00:00:00+09:00",
+  "dateModified": "2026-09-11T00:00:00+09:00",
+  "author": { "@type": "Organization", "name": "Thaki Cloud", "url": "https://thakicloud.com/tech-blog/" },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Thaki Cloud",
+    "logo": { "@type": "ImageObject", "url": "https://thakicloud.com/tech-blog/assets/images/thakicloud-og-image.jpg" }
+  }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://thakicloud.com/tech-blog/en/" },
+    
+    { "@type": "ListItem", "position": 2, "name": "owm", "item": "https://thakicloud.com/tech-blog/en/?category=owm" },
+    { "@type": "ListItem", "position": 3, "name": "A 3B Model Resets the On-Premise Music Generation Bar: YuE2", "item": "https://thakicloud.com/tech-blog/en/owm/yue2-open-source-music-generation/" }
+  ]
+}
+</script><!-- end structured data -->
+<!-- hreflang alternates for this post.
+     The sitemaps already carry these, but the page-level links are also what the
+     injected site chrome (thaki-chrome.js, from the homepage repo) reads to send
+     its EN/KO toggle to the real translation. Without them the toggle can only
+     guess by swapping the language segment, which 404s wherever the category
+     segment differs between languages. -->
+<link rel="alternate" hreflang="ko" href="https://thakicloud.com/tech-blog/ko/owm/yue2-open-source-music-generation/">
+<link rel="alternate" hreflang="en" href="https://thakicloud.com/tech-blog/en/owm/yue2-open-source-music-generation/">
+
+<!-- end custom head snippets -->
+
+  </head>
+
+  <body class="layout--single">
+    <nav class="skip-links">
+  <ul>
+    <li><a href="#site-nav" class="screen-reader-shortcut">Skip to primary navigation</a></li>
+    <li><a href="#main" class="screen-reader-shortcut">Skip to content</a></li>
+    <li><a href="#footer" class="screen-reader-shortcut">Skip to footer</a></li>
+  </ul>
+</nav>
+<style>
+      #thaki-nav { height: 57px; }
+      html.is-embedded #thaki-nav { display: none; }
+      #thaki-nav .thaki-nav-fallback { position: fixed; top: 0; left: 0; right: 0; height: 57px;
+        display: flex; align-items: center; padding: 0 20px; background: #000; z-index: 40;
+        color: #fff; font-family: "Mona Sans", sans-serif; font-weight: 700; text-decoration: none; }
+    </style>
+    <div id="thaki-nav">
+      <a class="thaki-nav-fallback" href="https://thakicloud.com/">THAKI Cloud</a>
+    </div>
+    <script>
+      (function () {
+        // Inside the homepage iframe shell the parent provides the nav, so hide
+        // the injected nav (html.is-embedded). The footer still renders in both
+        // views — the homepage /blog iframe has no footer of its own.
+        if (window.top !== window.self) { document.documentElement.classList.add("is-embedded"); }
+        var s = document.createElement("script");
+        s.src = "https://thakicloud.com/assets/thaki-chrome.js";
+        s.defer = true;
+        document.head.appendChild(s);
+      })();
+    </script>
+
+    <div class="initial-content">
+      
+
+
+
+
+
+<div id="main" role="main">
+  
+  <div class="sidebar sticky">
+  
+
+
+<div itemscope itemtype="https://schema.org/Person" class="h-card">
+
+  
+
+  <div class="author__content">
+    <h3 class="author__name p-name" itemprop="name">
+      <a class="u-url" rel="me" href="https://thakicloud.com/tech-blog/" itemprop="url"></a>
+    </h3>
+    
+  </div>
+
+  <div class="author__urls-wrapper">
+    <button class="btn btn--inverse">팔로우</button>
+    <ul class="author__urls social-icons">
+      
+
+      
+        
+          
+            <li><a href="https://thakicloud.co.kr" rel="nofollow noopener noreferrer me" itemprop="sameAs"><i class="fas fa-fw fa-link" aria-hidden="true"></i><span class="label">Website</span></a></li>
+          
+        
+          
+            <li><a href="https://github.com/thakicloud" rel="nofollow noopener noreferrer me" itemprop="sameAs"><i class="fab fa-fw fa-github" aria-hidden="true"></i><span class="label">GitHub</span></a></li>
+          
+        
+          
+            <li><a href="https://www.linkedin.com/company/thakicloud" rel="nofollow noopener noreferrer me" itemprop="sameAs"><i class="fab fa-fw fa-linkedin" aria-hidden="true"></i><span class="label">LinkedIn</span></a></li>
+          
+        
+          
+            <li><a href="https://x.com/thakicloud" rel="nofollow noopener noreferrer me" itemprop="sameAs"><i class="fab fa-fw fa-x-twitter" aria-hidden="true"></i><span class="label">X</span></a></li>
+          
+        
+      
+
+      
+
+      
+        <li>
+          <a href="mailto:info@thakicloud.co.kr" rel="me" class="u-email">
+            <meta itemprop="email" content="info@thakicloud.co.kr" />
+            <i class="fas fa-fw fa-envelope-square" aria-hidden="true"></i><span class="label">이메일</span>
+          </a>
+        </li>
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      <!--
+  <li>
+    <a href="http://link-to-whatever-social-network.com/user/" itemprop="sameAs" rel="nofollow noopener noreferrer me">
+      <i class="fas fa-fw" aria-hidden="true"></i> Custom Social Profile Link
+    </a>
+  </li>
+-->
+    </ul>
+  </div>
+</div>
+
+  
+  
+
+
+
+
+
+<nav class="nav__list">
+  <input id="ac-toc" name="accordion-toc" type="checkbox" />
+  <label for="ac-toc">토글 메뉴</label>
+  <ul class="nav__items" id="category_tag_menu">
+      
+      
+
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+
+      
+
+      
+      
+      <li>
+        <span class="nav__sub-title" v-on:click='togglec()'><a href="/tech-blog/en/">📂 Total Posts: 757</a></span>
+      </li>
+      <li>
+        <span class="nav__sub-title" v-on:click='togglec()'><a href="/tech-blog/en/?category=dev">🚀 DevOps (72)</a></span>
+        <span class="nav__sub-title" v-on:click='togglec()'><a href="/tech-blog/en/?category=owm">📀 OWM (20)</a></span>
+        <span class="nav__sub-title" v-on:click='togglec()'><a href="/tech-blog/en/?category=llmops">🤖 LLMOps (146)</a></span>
+        <span class="nav__sub-title" v-on:click='togglec()'><a href="/tech-blog/en/?category=agentops">🏗️ AgentOps (160)</a></span>
+        <span class="nav__sub-title" v-on:click='togglec()'><a href="/tech-blog/en/?category=tutorials">💻 Tutorials (24)</a></span>
+        <span class="nav__sub-title" v-on:click='togglec()'><a href="/tech-blog/en/?category=careers">🤝 Careers (9)</a></span>
+        <span class="nav__sub-title" v-on:click='togglec()'><a href="/tech-blog/en/?category=culture">🎨 Culture (13)</a></span>
+        <span class="nav__sub-title" v-on:click='togglec()'><a href="/tech-blog/en/?category=news">🌐 News (66)</a></span>
+        <span class="nav__sub-title" v-on:click='togglec()'><a href="/tech-blog/en/?category=research">📒 Research (174)</a></span>
+        <span class="nav__sub-title" v-on:click='togglec()'><a href="/tech-blog/en/?category=datasets">☁️ Datasets (13)</a></span>
+        <span class="nav__sub-title" v-on:click='togglec()'><a href="/tech-blog/en/?category=comics">💬 Comics (72)</a></span>
+
+      </li>
+  </ul>
+</nav>
+  </div>
+
+
+
+  <article class="page h-entry" itemscope itemtype="https://schema.org/CreativeWork">
+    <meta itemprop="headline" content="A 3B Model Resets the On-Premise Music Generation Bar: YuE2">
+    <meta itemprop="description" content="M-A-P’s open-weight music generation model YuE2-3B is out. It produces finished songs with vocals and accompaniment from lyrics plus a style prompt, at 48kHz stereo. With a community-measured 71 seconds per 3.6-minute track on an RTX 4090, the first thing to check before adoption is the license: the weights are CC BY-NC 4.0.">
+    <meta itemprop="datePublished" content="2026-09-11T00:00:00+09:00">
+    <meta itemprop="dateModified" content="2026-09-11T00:00:00+09:00">
+
+    <div class="page__inner-wrap">
+      
+        <header>
+          <h1 id="page-title" class="page__title p-name" itemprop="headline">
+            <a href="https://thakicloud.com/tech-blog/en/owm/yue2-open-source-music-generation/" class="u-url" itemprop="url">A 3B Model Resets the On-Premise Music Generation Bar: YuE2
+</a>
+          </h1>
+          
+
+
+        </header>
+      
+      <div class="thaki-share thaki-share--top">
+  <p class="thaki-share__label">Share this article:</p>
+  <ul class="thaki-share__list">
+    <li><a class="thaki-share__btn" href="https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fthakicloud.com%2Ftech-blog%2Fen%2Fowm%2Fyue2-open-source-music-generation%2F" target="_blank" rel="noopener noreferrer" aria-label="Share on LinkedIn"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 11v5"/><path d="M8 8v.01"/><path d="M12 16v-5"/><path d="M16 16v-3a2 2 0 1 0 -4 0"/><path d="M3 7a4 4 0 0 1 4 -4h10a4 4 0 0 1 4 4v10a4 4 0 0 1 -4 4h-10a4 4 0 0 1 -4 -4l0 -10"/></svg></a></li>
+    <li><a class="thaki-share__btn" href="https://twitter.com/intent/tweet?url=https%3A%2F%2Fthakicloud.com%2Ftech-blog%2Fen%2Fowm%2Fyue2-open-source-music-generation%2F&amp;text=A+3B+Model+Resets+the+On-Premise+Music+Generation+Bar%3A+YuE2" target="_blank" rel="noopener noreferrer" aria-label="Share on X"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4l11.733 16h4.267l-11.733 -16l-4.267 0"/><path d="M4 20l6.768 -6.768m2.46 -2.46l6.772 -6.772"/></svg></a></li>
+    <li><a class="thaki-share__btn" href="https://www.facebook.com/sharer/sharer.php?u=https%3A%2F%2Fthakicloud.com%2Ftech-blog%2Fen%2Fowm%2Fyue2-open-source-music-generation%2F" target="_blank" rel="noopener noreferrer" aria-label="Share on Facebook"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v4h3v7h4v-7h3l1 -4h-4v-2a1 1 0 0 1 1 -1h3v-4h-3a5 5 0 0 0 -5 5v2h-3"/></svg></a></li>
+    <li><a class="thaki-share__btn" href="mailto:?subject=A%203B%20Model%20Resets%20the%20On-Premise%20Music%20Generation%20Bar%3A%20YuE2&amp;body=https%3A%2F%2Fthakicloud.com%2Ftech-blog%2Fen%2Fowm%2Fyue2-open-source-music-generation%2F" aria-label="Share by email"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-10"/><path d="M3 7l9 6l9 -6"/></svg></a></li>
+    <li><button type="button" class="thaki-share__btn thaki-share__copy" data-url="https://thakicloud.com/tech-blog/en/owm/yue2-open-source-music-generation/" data-label="Copy link" data-done="Link copied" aria-label="Copy link"><svg class="thaki-share__icon-link" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 15l6 -6"/><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464"/><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463"/></svg><svg class="thaki-share__icon-check" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5l10 -10"/></svg></button></li>
+  </ul>
+</div>
+
+
+      <section class="page__content e-content" itemprop="text">
+        
+          <aside class="sidebar__right ">
+            <nav class="toc">
+              <header><h4 class="nav__title"><i class="fas fa-chip"></i> Contents</h4></header>
+              <ul class="toc__menu"><li><a href="#why-read-this">Why Read This</a></li><li><a href="#overview">Overview</a></li><li><a href="#what-it-is">What It Is</a><ul><li><a href="#model-card-summary">Model Card Summary</a></li></ul></li><li><a href="#installation-and-integration">Installation and Integration</a></li><li><a href="#actual-experiment-results">Actual Experiment Results</a><ul><li><a href="#an-honest-line-on-benchmarks">An honest line on benchmarks</a></li></ul></li><li><a href="#thakicloud-product-implications">ThakiCloud Product Implications</a></li><li><a href="#limitations-and-counterarguments">Limitations and Counterarguments</a></li><li><a href="#wrap-up">Wrap-up</a></li><li><a href="#sources">Sources</a></li></ul>
+
+            </nav>
+          </aside>
+        
+        
+        
+        <h2 id="why-read-this">Why Read This</h2>
+
+<p>If you are on an on-premise AI infrastructure team and have been asked “can we run generative audio on our cluster,” this post is for you. It puts the open-weight option for music generation in one place: what spec it arrived at, and under which license. The conclusion up front: YuE2-3B runs finished-song generation on a single roughly-24GB-VRAM GPU, but the weights are CC BY-NC 4.0, so the moment you point it at a commercial service the conditions change. Check the license before anything else.</p>
+
+<h2 id="overview">Overview</h2>
+
+<p>YuE2 is an open-weight music generation model published by Multimodal Art Projection (M-A-P) on September 10, 2026. It is available on the <a href="https://github.com/multimodal-art-projection/YuE">GitHub repository</a> and the <a href="https://huggingface.co/m-a-p/YuE2-3B">Hugging Face model card</a>, with the current release size at 3B parameters. On release day, community threads compared it against commercial models such as Mureka v9 and Minimax 3, and <a href="https://gigazine.net/gsc_news/en/20260911-yue2-music-generation-ai/">outlets including Gigazine covered it</a>.</p>
+
+<p>To see what YuE2 moved, look at the terrain of open music generation first. Until now, the open side drew attention mainly for background and instrumental audio, while finished songs with vocals were the domain of closed API services such as Suno and Mureka. YuE2 pulls the “finished song with vocals” territory itself into open weights.</p>
+
+<p>Three reasons it matters. First, it is open-weight. Second, it outputs finished songs with vocals and accompaniment, not stems. Third, it runs on a single consumer-grade GPU (roughly 24GB VRAM).</p>
+
+<h2 id="what-it-is">What It Is</h2>
+
+<p>YuE2-3B takes lyrics plus a style prompt and generates a finished song with vocals. Output is 48kHz stereo audio. It supports multiple genres and languages, with Japanese vocal generation being the one most often mentioned. A text prompt is not the only input: the model also accepts ABC notation (music scores) as an input path. In other words, on top of the general “lyrics plus style” path, a second path opens where the melody is specified in score form.</p>
+
+<pre><code class="language-mermaid">flowchart TB
+    A[Input&lt;br/&gt;lyrics + style prompt&lt;br/&gt;or ABC notation] --&gt; B[YuE2-3B&lt;br/&gt;3B-parameter music generation model]
+    B --&gt; C[Finished-song generation&lt;br/&gt;vocals + accompaniment]
+    C --&gt; D[48kHz stereo audio output]
+    D --&gt; E[Local GPU execution&lt;br/&gt;24GB VRAM recommended on RTX 4090]
+</code></pre>
+
+<p>The difference from prior open music models is that finished-song generation, including vocals, now runs on-premise. Until now, vocal-complete songs were mostly the territory of API services (Suno, Mureka, and others). YuE2 pulls that territory into local execution.</p>
+
+<h3 id="model-card-summary">Model Card Summary</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th>Detail</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Model</td>
+      <td>YuE2-3B (M-A-P)</td>
+    </tr>
+    <tr>
+      <td>Released</td>
+      <td>2026-09-10</td>
+    </tr>
+    <tr>
+      <td>Parameters</td>
+      <td>3B</td>
+    </tr>
+    <tr>
+      <td>Output</td>
+      <td>48kHz stereo, finished song with vocals + accompaniment</td>
+    </tr>
+    <tr>
+      <td>Input</td>
+      <td>Lyrics + style prompt, ABC notation</td>
+    </tr>
+    <tr>
+      <td>Weights license</td>
+      <td>CC BY-NC 4.0 (non-commercial)</td>
+    </tr>
+    <tr>
+      <td>Code license</td>
+      <td>Apache 2.0</td>
+    </tr>
+    <tr>
+      <td>Recommended runtime</td>
+      <td>Linux, Python 3.10+/3.12, NVIDIA GPU (BF16), ~24GB VRAM unquantized</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="installation-and-integration">Installation and Integration</h2>
+
+<p>Per the model card, the recommended runtime is Linux, Python 3.10 or 3.12, an NVIDIA GPU with BF16 support, and roughly 24GB VRAM for the unquantized weights. The repository and model card provide official run scripts, and the <a href="https://huggingface.co/spaces/mrfakename/yue2-3b">Hugging Face demo Space</a> lets you generate without touching a GPU.</p>
+
+<p>From the serving side, plug the VRAM figure into the cluster. 24GB is comfortably inside H100 (80GB), H200 (140GB), and B200 (192GB), and it runs on a single RTX 4090-class card. It is a job that needs no multi-GPU configuration.</p>
+
+<p>Quantization paths are in progress in the community. Attempts to run on roughly-8GB GPUs are mentioned (some via the audio.cpp DEV branch), but they are not officially supported. The 24GB figure is for the unquantized model, so FP8 or INT4 quantization has room to lower the memory requirement, with no confirmed numbers yet.</p>
+
+<h2 id="actual-experiment-results">Actual Experiment Results</h2>
+
+<p>Reproduction attempt failed: this publishing window did not have a GPU execution environment available, so we did not reproduce the generation directly. The numbers below are from the model card and community measurements.</p>
+
+<ul>
+  <li>Roughly 71 seconds to generate a 3.6-minute song on an RTX 4090</li>
+  <li>Peak memory of roughly 14.08 GiB in the same run</li>
+</ul>
+
+<p>Those two figures back up the point that finished-song generation runs in near real time on a single consumer GPU. 71 seconds for about 216 seconds of 48kHz audio is an RTF of 0.33: generation moves faster than the output plays. The peak memory of 14.08 GiB landing below the recommended 24GB suggests that even the unquantized weights could run on a 16GB-class card. Caveat: this is a community-reported measurement, not an independent re-measurement in a ThakiCloud runtime (B200/H200/H100).</p>
+
+<p>For serving, the number matters because it confirms music generation as a single-GPU-job workload. At 71 seconds per 3.6-minute song, a batch of 10 songs takes roughly 12 minutes on one GPU. A queue-on-one-GPU structure holds.</p>
+
+<h3 id="an-honest-line-on-benchmarks">An honest line on benchmarks</h3>
+
+<p>The claim that YuE2 beats Mureka v9 and Minimax 3 circulated on release day, but no independent benchmark table has been published to back it. The model card carries the softer framing of being comparable to Suno v5 in quality and text alignment. Until the compared models and measured dimensions (vocal naturalness, text alignment, genre variety) are published with numbers, this post reports the benchmark status only as “community assessment comparable to commercial models.”</p>
+
+<h2 id="thakicloud-product-implications">ThakiCloud Product Implications</h2>
+
+<p><strong>ai-platform (serving infrastructure).</strong> The 24GB VRAM figure matters for a GPUaaS. H100 (80GB), H200 (140GB), and B200 (192GB) all absorb it with room to spare, and a quantization path could eventually reach consumer cards. This is a concrete case of “finished-song music generation” running as a single-GPU job on our cluster. The serving path, though, is not off the shelf: YuE2 is not currently exposed through vLLM or SGLang and ships its own run scripts. Multi-tenant serving requires wrapping those scripts as GPU jobs first.</p>
+
+<p><strong>License (important).</strong> CC BY-NC 4.0 on the weights is a direct constraint for commercial platform operators. “Open-weight” and “non-commercial conditions” are different statements. Using YuE2 for (a) internal experimentation and PoC, or (b) demoing in a customer’s on-premise environment, fits the conditions. Exposing it as a (c) paid feature of a ThakiCloud SaaS requires a commercial license discussion with M-A-P. This is exactly the point our TDD (technical due diligence) model-license audit exists for. The honest handling: register YuE2 in the open-weight catalog with the license field marked NC, and block the path from serving to commercial workloads.</p>
+
+<p><strong>Paxis (agents).</strong> A music generation workflow is a natural agent workflow. In the sequence lyrics (LLM) → style decision → YuE2 run → output verification → publish, the ObservationPack pattern covered in the SoL-Pi post applies directly: large audio artifacts are handled as references, not inlined. It is the same shape as Paxis’ sandbox execution model triggering a GPU job and pushing artifacts to S3. The calculation for moving a music slot in a content-production pipeline from an external API call to an internal GPU job takes this post’s serving numbers as its input.</p>
+
+<h2 id="limitations-and-counterarguments">Limitations and Counterarguments</h2>
+
+<p>First, the license. CC BY-NC 4.0 presumes non-commercial use. The headline “an open-weight music model is here” hides that clause, so verify the weights and code licenses separately before adoption (the code is Apache 2.0).</p>
+
+<p>Second, subjective quality. Music generation quality is not settled by one aggregate metric. Vocal naturalness, genre fit, and lyric-pitch alignment need listening. The model card’s numbers do not say how far the intended style is restored from a text prompt.</p>
+
+<p>Third, no measured Korean vocal. Japanese vocal generation is mentioned; there is no measured report on Korean vocals yet. How pronunciation and intonation render with Korean lyrics requires a direct run.</p>
+
+<p>Fourth, ABC notation practicality. Scores are an accepted input, but the relationship between typical users’ ABC notation skill and generation quality has not been published.</p>
+
+<h2 id="wrap-up">Wrap-up</h2>
+
+<p>YuE2-3B is the model that shows “finished-song generation with vocals” has moved into open-weight, on-premise territory. The 24GB VRAM spec means a single consumer GPU, and the community-measured 71 seconds per 3.6-minute track means finished-song generation runs faster than real time.</p>
+
+<p>Three takeaways from the ThakiCloud side. (1) Serving: it is a single-GPU-job workload, confirmed. (2) License: mark CC BY-NC 4.0 explicitly in the catalog and block the commercial serving path. (3) Experiment: queue a Korean vocal measurement on the next GPU experiment run.</p>
+
+<p>The model is good. The remaining question is “where do we use it,” and that answer only stands after the license check.</p>
+
+<h2 id="sources">Sources</h2>
+
+<ul>
+  <li><a href="https://github.com/multimodal-art-projection/YuE">M-A-P YuE GitHub</a></li>
+  <li><a href="https://huggingface.co/m-a-p/YuE2-3B">YuE2-3B Hugging Face model card</a></li>
+  <li><a href="https://huggingface.co/spaces/mrfakename/yue2-3b">YuE2-3B Hugging Face demo Space</a></li>
+  <li><a href="https://gigazine.net/gsc_news/en/20260911-yue2-music-generation-ai/">Gigazine YuE2 coverage (2026-09-11)</a></li>
+  <li><a href="https://yueai.ai/">YuE official site</a></li>
+</ul>
+
+        
+      </section>
+
+      <div class="thaki-share thaki-share--bottom">
+  <p class="thaki-share__label">Share this article:</p>
+  <ul class="thaki-share__list">
+    <li><a class="thaki-share__btn" href="https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fthakicloud.com%2Ftech-blog%2Fen%2Fowm%2Fyue2-open-source-music-generation%2F" target="_blank" rel="noopener noreferrer" aria-label="Share on LinkedIn"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 11v5"/><path d="M8 8v.01"/><path d="M12 16v-5"/><path d="M16 16v-3a2 2 0 1 0 -4 0"/><path d="M3 7a4 4 0 0 1 4 -4h10a4 4 0 0 1 4 4v10a4 4 0 0 1 -4 4h-10a4 4 0 0 1 -4 -4l0 -10"/></svg></a></li>
+    <li><a class="thaki-share__btn" href="https://twitter.com/intent/tweet?url=https%3A%2F%2Fthakicloud.com%2Ftech-blog%2Fen%2Fowm%2Fyue2-open-source-music-generation%2F&amp;text=A+3B+Model+Resets+the+On-Premise+Music+Generation+Bar%3A+YuE2" target="_blank" rel="noopener noreferrer" aria-label="Share on X"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4l11.733 16h4.267l-11.733 -16l-4.267 0"/><path d="M4 20l6.768 -6.768m2.46 -2.46l6.772 -6.772"/></svg></a></li>
+    <li><a class="thaki-share__btn" href="https://www.facebook.com/sharer/sharer.php?u=https%3A%2F%2Fthakicloud.com%2Ftech-blog%2Fen%2Fowm%2Fyue2-open-source-music-generation%2F" target="_blank" rel="noopener noreferrer" aria-label="Share on Facebook"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v4h3v7h4v-7h3l1 -4h-4v-2a1 1 0 0 1 1 -1h3v-4h-3a5 5 0 0 0 -5 5v2h-3"/></svg></a></li>
+    <li><a class="thaki-share__btn" href="mailto:?subject=A%203B%20Model%20Resets%20the%20On-Premise%20Music%20Generation%20Bar%3A%20YuE2&amp;body=https%3A%2F%2Fthakicloud.com%2Ftech-blog%2Fen%2Fowm%2Fyue2-open-source-music-generation%2F" aria-label="Share by email"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-10"/><path d="M3 7l9 6l9 -6"/></svg></a></li>
+    <li><button type="button" class="thaki-share__btn thaki-share__copy" data-url="https://thakicloud.com/tech-blog/en/owm/yue2-open-source-music-generation/" data-label="Copy link" data-done="Link copied" aria-label="Copy link"><svg class="thaki-share__icon-link" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 15l6 -6"/><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464"/><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463"/></svg><svg class="thaki-share__icon-check" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5l10 -10"/></svg></button></li>
+  </ul>
+</div>
+<script>
+  /* Copy-link buttons (both bars). Shows a check for 1.6s; if the clipboard is
+     unavailable it stays quiet — the address bar still has the URL. */
+  document.querySelectorAll('.thaki-share__copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (!navigator.clipboard) return;
+      navigator.clipboard.writeText(btn.dataset.url).then(function () {
+        btn.classList.add('is-copied');
+        btn.setAttribute('aria-label', btn.dataset.done);
+        setTimeout(function () {
+          btn.classList.remove('is-copied');
+          btn.setAttribute('aria-label', btn.dataset.label);
+        }, 1600);
+      }).catch(function () {});
+    });
+  });
+</script>
+
+
+      <footer class="page__meta">
+        
+        
+  
+
+  <p class="page__taxonomy">
+    <strong><i class="fas fa-fw fa-tags" aria-hidden="true"></i> Tags: </strong>
+    <span itemprop="keywords">
+    <span class="page__taxonomy-item p-category">local-inference</span><span class="sep">, </span>
+    <span class="page__taxonomy-item p-category">m-a-p</span><span class="sep">, </span>
+    <span class="page__taxonomy-item p-category">music-generation</span><span class="sep">, </span>
+    <span class="page__taxonomy-item p-category">open-weight</span><span class="sep">, </span>
+    <span class="page__taxonomy-item p-category">text-to-audio</span><span class="sep">, </span>
+    <span class="page__taxonomy-item p-category">yue2</span>
+    
+    </span>
+  </p>
+
+
+
+
+
+  
+
+  
+
+  <p class="page__taxonomy">
+    <strong><i class="fas fa-fw fa-folder-open" aria-hidden="true"></i> Categories: </strong>
+    <span itemprop="keywords">
+    
+      
+      <a href="/tech-blog/en/?category=owm" class="page__taxonomy-item p-category" rel="tag">OWM</a>
+    
+    </span>
+  </p>
+
+
+
+        
+
+  <p class="page__date"><strong><svg class="tbi page__date-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5m0 2a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/><path d="M8 15h2v2h-2z"/></svg> Updated:</strong> <time class="dt-published" datetime="2026-09-11">September 11, 2026</time></p>
+
+
+      </footer>
+
+      
+<nav class="postnav" aria-label="Post navigation">
+    
+      <a href="/tech-blog/en/dev/the-error-budget/" class="postnav__link postnav__link--prev" title="Error Budgets Turn ‘Should I Ship Tonight’ Into Arithmetic
+">
+        <svg class="tbi" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6l6 6"/></svg>
+        <span>Previous</span>
+      </a>
+    
+
+    
+      <a href="/tech-blog/en/research/deepseek-v4-1-flash-kv-compression/" class="postnav__link postnav__link--next" title="One-Quarter the KV Cache: The Compression-First Design of DeepSeek V4.1-Flash
+">
+        <span>Next</span>
+        <svg class="tbi" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6l-6 6"/></svg>
+      </a>
+    
+  </nav>
+
+
+    </div>
+
+    
+  </article>
+
+  
+  
+  <div class="page__related">
+      <h2 class="page__related-title">You may also enjoy</h2>
+      <div class="grid__wrapper">
+          
+          
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/tech-blog/en/news/chip-took-a-loan/" rel="permalink">The Day the Chip Took a Loan
+</a>
+      
+    </h2>
+    
+    <p class="page__meta">
+      
+      
+        <svg class="tbi card-date-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5m0 2a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/><path d="M8 15h2v2h-2z"/></svg> <time datetime="2026-10-05">2026년 10월 05일</time>&emsp;
+      
+    </p>
+    
+    
+
+
+    <p class="archive__item-excerpt" itemprop="description">Amazon is reviewing a structure in which it sells $8 billion of chips and leases them back. The BIS warns on circular financing, and the physical world has a...</p>
+  </article>
+</div>
+
+          
+          
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/tech-blog/en/agentops/openai-tolerate-bad-fix-daily/" rel="permalink">Accept the Bad, and We Will Fix It Daily
+</a>
+      
+    </h2>
+    
+    <p class="page__meta">
+      
+      
+        <svg class="tbi card-date-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5m0 2a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/><path d="M8 15h2v2h-2z"/></svg> <time datetime="2026-10-05">2026년 10월 05일</time>&emsp;
+      
+    </p>
+    
+    
+
+
+    <p class="archive__item-excerpt" itemprop="description">OpenAI sent two contradictory messages on the same day. Its CEO said the world should accept negative outcomes for the benefit of AI, and its product organiz...</p>
+  </article>
+</div>
+
+          
+          
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/tech-blog/en/research/grader-confound-agentic-rankings/" rel="permalink">Grader Confound: Change the Grading Instrument, and the Measured Rankings Can Flip
+</a>
+      
+    </h2>
+    
+    <p class="page__meta">
+      
+      
+        <svg class="tbi card-date-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5m0 2a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/><path d="M8 15h2v2h-2z"/></svg> <time datetime="2026-10-04T00:00:00+09:00">October 04, 2026 </time>&emsp;
+      
+    </p>
+    
+    
+
+
+    <p class="archive__item-excerpt" itemprop="description">When you switch the grader from deterministic matching to an LLM judge, the measured rankings of the agent tool-calling arms can flip. This paper gives the f...</p>
+  </article>
+</div>
+
+          
+          
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/tech-blog/en/research/silent-reroute-skill-router-drift/" rel="permalink">The Silent Reroute: When One Line of a Skill Description Changes, the Routing of Untouched Tasks Changes Too
+</a>
+      
+    </h2>
+    
+    <p class="page__meta">
+      
+      
+        <svg class="tbi card-date-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5m0 2a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/><path d="M8 15h2v2h-2z"/></svg> <time datetime="2026-10-03T00:00:00+09:00">October 03, 2026 </time>&emsp;
+      
+    </p>
+    
+    
+
+
+    <p class="archive__item-excerpt" itemprop="description">Change one line of a skill description and the routing of tasks you never touched can change too. This paper measures that silent reroute as a law and gives ...</p>
+  </article>
+</div>
+
+          
+          
+      </div>
+    </div>
+  
+</div>
+
+    </div>
+
+    
+      <div class="search-content">
+        <div class="search-content__inner-wrap"><form class="search-content__form" onkeydown="return event.key != 'Enter';" role="search">
+    <label class="sr-only" for="search">
+      Enter your search term...
+    </label>
+    <input type="search" id="search" class="search-input" tabindex="-1" placeholder="검색어를 입력하세요..." />
+  </form>
+  <div id="results" class="results"></div></div>
+
+      </div>
+    
+
+    <div id="footer" class="page__footer"><style>
+        /* Static fallback: rendered only while #thaki-footer has no shadow root.
+           thaki-chrome.js mounts the real Footer via attachShadow(), and a shadow
+           root with no <slot> stops light-DOM children from rendering -- so this
+           block disappears on its own once the bundle mounts, and stays visible if
+           the bundle ever fails to load. Same contract as .thaki-nav-fallback. */
+        #thaki-footer .thaki-footer-fallback { background: #000; color: #fff; padding: 32px 20px;
+          font-family: "Mona Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        #thaki-footer .thaki-footer-fallback a { color: #fff; text-decoration: none; }
+        #thaki-footer .thaki-footer-fallback a:hover { text-decoration: underline; }
+        #thaki-footer .thaki-footer-fallback .tff-brand { font-weight: 700; font-size: 18px;
+          display: inline-block; margin-bottom: 12px; }
+        #thaki-footer .thaki-footer-fallback .tff-links { margin: 0 0 12px; padding: 0;
+          list-style: none; display: flex; flex-wrap: wrap; gap: 16px; font-size: 14px; }
+        #thaki-footer .thaki-footer-fallback .tff-copy { margin: 0; font-size: 13px; opacity: 0.7; }
+      </style>
+      <div id="thaki-footer">
+        <div class="thaki-footer-fallback">
+          <a class="tff-brand" href="https://thakicloud.com/">THAKI Cloud</a>
+          <ul class="tff-links">
+            <li><a href="https://thakicloud.com/">Home</a></li>
+            <li><a href="https://thakicloud.com/company">Company</a></li>
+            <li><a href="https://thakicloud.com/contact">Contact</a></li>
+            <li><a href="https://thakicloud.com/privacy-statement">Privacy</a></li>
+          </ul>
+          <p class="tff-copy">&copy; 2026 Thaki Cloud. All rights reserved.</p>
+        </div>
+      </div>
+    </div>
+
+    
+  <script src="/tech-blog/assets/js/main.min.js"></script>
+
+
+<script src="/tech-blog/assets/js/simple-jekyll-search.min.js"></script>
+<!-- <script src="https://cdn.jsdelivr.net/gh/kimjy99/kimjy99.github.io@master/assets/js/simple-jekyll-search.min.js"></script> -->
+
+<script type="text/javascript">
+document.addEventListener('DOMContentLoaded', function() {
+  var sjs = SimpleJekyllSearch({
+    searchInput: document.getElementById('search'),
+    resultsContainer: document.getElementById('results'),
+    json: '/search.json',
+    searchResultTemplate: '<div class="list__item"><article class="archive__item"><h2 class="archive__item-title"><a href="{url}" rel="permalink">{title}</a></h2><p class="archive__item-excerpt">{excerpt}</p><div class="archive__item-teaser"><span class="page__meta"><i class="far fa-calendar-alt"></i> {date}</span></div></article></div>',
+    noResultsText: '검색 결과가 없습니다.',
+    limit: 20,
+    fuzzy: false,
+    exclude: ['url']
+  });
+  
+  // 검색 입력 이벤트 리스너
+  var searchInput = document.getElementById('search');
+  if (searchInput) {
+    searchInput.addEventListener('input', function(e) {
+      console.log('검색어: "' + e.target.value + '"');
+      setTimeout(function() {
+        var results = document.querySelectorAll('#results .list__item');
+        console.log('검색 결과 개수:', results.length);
+      }, 100);
+    });
+  }
+});
+</script><!-- Multilingual Search Enhancement -->
+<script src="/tech-blog/assets/js/multilingual-search.js"></script>
+
+
+
+
+
+<!-- Language dropdown functionality -->
+<script src="/tech-blog/assets/js/dropdown.js"></script>
+
+
+
+<!-- MathJax: $...$ is enabled as inline math, which collides with currency ($20 billion).
+     Posts that use $ only for currency (news, finance) set `disable_mathjax: true` in front
+     matter to opt out — otherwise currency pairs render as non-wrapping math and overflow sideways. -->
+
+<script type="text/javascript" async
+  src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/latest.js?config=TeX-MML-AM_CHTML">
+</script>
+
+<script type="text/x-mathjax-config">
+MathJax.Hub.Config({
+  extensions: ["tex2jax.js"],
+  jax: ["input/TeX", "output/HTML-CSS"],
+  tex2jax: {
+  inlineMath: [ ['$','$'], ["\\(","\\)"] ],
+  displayMath: [ ['$$','$$'], ["\\[","\\]"] ],
+  processEscapes: true
+  },
+  "HTML-CSS": { availableFonts: ["TeX"] }
+});
+</script>
+
+
+<!-- Mermaid diagram initialization (theme-aware: follows light/dark toggle) -->
+<script>
+  (function () {
+    function mermaidTheme() {
+      return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default';
+    }
+    function convert() {
+      // Convert rouge ```mermaid code blocks into .mermaid divs once, caching source.
+      document.querySelectorAll('pre code.language-mermaid, code.language-mermaid').forEach(function (element, index) {
+        var code = element.textContent;
+        var div = document.createElement('div');
+        div.className = 'mermaid';
+        div.setAttribute('data-src', code);
+        div.textContent = code;
+        div.id = 'mermaid-' + index;
+        element.parentNode.replaceWith(div);
+      });
+    }
+    function render() {
+      if (typeof mermaid === 'undefined') return;
+      mermaid.initialize({ startOnLoad: false, theme: mermaidTheme(), securityLevel: 'loose' });
+      document.querySelectorAll('.mermaid').forEach(function (el) {
+        el.removeAttribute('data-processed');
+        var src = el.getAttribute('data-src'); // restore source (render replaces it with SVG)
+        if (src) { el.innerHTML = src; }
+      });
+      try { mermaid.init(undefined, document.querySelectorAll('.mermaid')); }
+      catch (e) { console.warn('mermaid render failed:', e); }
+    }
+    // Click-to-zoom lightbox for rendered Mermaid diagrams (GitHub-style:
+    // click to open fullscreen, wheel/buttons to zoom, drag to pan, Esc to close).
+    function setupMermaidZoom() {
+      if (document.getElementById('mmd-lightbox')) return; // build once
+      var lb = document.createElement('div');
+      lb.id = 'mmd-lightbox';
+      lb.className = 'mmd-lightbox';
+      lb.setAttribute('hidden', '');
+      lb.innerHTML =
+        '<div class="mmd-lb-toolbar">' +
+          '<button type="button" data-act="out" aria-label="Zoom out">−</button>' +
+          '<button type="button" data-act="reset" aria-label="Reset zoom">↻</button>' +
+          '<button type="button" data-act="in" aria-label="Zoom in">+</button>' +
+          '<button type="button" data-act="close" aria-label="Close">✕</button>' +
+        '</div>' +
+        '<div class="mmd-lb-stage"><div class="mmd-lb-canvas"></div></div>';
+      document.body.appendChild(lb);
+
+      var canvas = lb.querySelector('.mmd-lb-canvas');
+      var stage = lb.querySelector('.mmd-lb-stage');
+      var scale = 1, tx = 0, ty = 0, dragging = false, sx = 0, sy = 0;
+
+      function apply() { canvas.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')'; }
+      function reset() { scale = 1; tx = 0; ty = 0; apply(); }
+      function zoom(f) { scale = Math.min(8, Math.max(0.2, scale * f)); apply(); }
+      function open(svg) {
+        canvas.innerHTML = '';
+        var clone = svg.cloneNode(true); // mermaid v10 inlines <style>, so colors survive
+        // Mermaid SVGs carry width="100%"/small intrinsic sizing, so a plain clone
+        // stays thumbnail-sized. Force an explicit fit-to-viewport size from the
+        // viewBox aspect ratio so it opens large (then transform scale zooms further).
+        var vb = (svg.getAttribute('viewBox') || '').split(/[\s,]+/).map(parseFloat);
+        var r = svg.getBoundingClientRect();
+        var iw = (vb.length === 4 && vb[2]) ? vb[2] : (parseFloat(svg.getAttribute('width')) || r.width || 800);
+        var ih = (vb.length === 4 && vb[3]) ? vb[3] : (parseFloat(svg.getAttribute('height')) || r.height || 600);
+        var aspect = iw / ih;
+        var maxW = window.innerWidth * 0.92, maxH = window.innerHeight * 0.82;
+        var w, h;
+        if (maxW / maxH > aspect) { h = maxH; w = h * aspect; } else { w = maxW; h = w / aspect; }
+        clone.removeAttribute('style');
+        clone.setAttribute('width', w);
+        clone.setAttribute('height', h);
+        clone.style.width = w + 'px';
+        clone.style.height = h + 'px';
+        clone.style.maxWidth = 'none';
+        clone.style.maxHeight = 'none';
+        canvas.appendChild(clone);
+        reset();
+        lb.removeAttribute('hidden');
+        document.body.style.overflow = 'hidden';
+      }
+      function close() { lb.setAttribute('hidden', ''); document.body.style.overflow = ''; canvas.innerHTML = ''; }
+
+      lb.querySelector('.mmd-lb-toolbar').addEventListener('click', function (e) {
+        var b = e.target.closest('button'); if (!b) return;
+        e.stopPropagation();
+        var a = b.getAttribute('data-act');
+        if (a === 'in') zoom(1.25); else if (a === 'out') zoom(0.8);
+        else if (a === 'reset') reset(); else if (a === 'close') close();
+      });
+      stage.addEventListener('wheel', function (e) { e.preventDefault(); zoom(e.deltaY < 0 ? 1.12 : 0.89); }, { passive: false });
+      stage.addEventListener('pointerdown', function (e) { dragging = true; sx = e.clientX - tx; sy = e.clientY - ty; try { stage.setPointerCapture(e.pointerId); } catch (_) {} });
+      stage.addEventListener('pointermove', function (e) { if (!dragging) return; tx = e.clientX - sx; ty = e.clientY - sy; apply(); });
+      stage.addEventListener('pointerup', function () { dragging = false; });
+      lb.addEventListener('click', function (e) { if (e.target === lb || e.target === stage) close(); });
+      document.addEventListener('keydown', function (e) { if (!lb.hasAttribute('hidden') && e.key === 'Escape') close(); });
+
+      // Delegated: click any rendered .mermaid diagram to open it zoomed.
+      document.addEventListener('click', function (e) {
+        var m = e.target.closest('.mermaid');
+        if (!m || lb.contains(m)) return;
+        var svg = m.querySelector('svg');
+        if (svg) open(svg);
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      convert();
+      render();
+      setupMermaidZoom();
+      // Re-render diagrams whenever the light/dark theme flips.
+      new MutationObserver(function (muts) {
+        muts.forEach(function (m) { if (m.attributeName === 'data-theme') render(); });
+      }).observe(document.documentElement, { attributes: true });
+    });
+  })();
+</script>
+
+  </body>
+</html>

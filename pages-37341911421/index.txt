@@ -1,0 +1,7 @@
+200 https://huggingface.co/api/models?search=YuE&limit=40
+200 https://huggingface.co/api/models?author=m-a-p&limit=100
+200 https://comfyui-wiki.com/en/news/2026-09-11-yue2-3b
+200 https://comfyui-wiki.com/en/models/yue2
+200 https://map-yue.github.io/
+200 https://www.mindstudio.ai/blog/yue2-open-music-generation-model
+200 https://thakicloud.com/tech-blog/en/owm/yue2-open-source-music-generation/
