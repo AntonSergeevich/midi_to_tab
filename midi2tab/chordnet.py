@@ -178,16 +178,18 @@ def with_key(probs, key, chroma=None, strength: float = KEY_STRENGTH):
     names = [class_name(i, k) for i in range(k - 1)]
     outside = audiochords.key_penalties(names, key, chroma, strength=1.0)
     penalty = np.array([outside[i] if outside[parallel(i)] < outside[i] else 0.0 for i in range(k - 1)])
+    # Мажорная доминанта минора (A в ре миноре, G в до миноре) -- норма
+    # русской песни, а подсказка толкала её в минор: на эталонах владельца
+    # (05.10) все три минорные песни потеряли на этом аккорде (A->Am,
+    # G->Gm, C->Cm). Спор V/v решает сама сеть. Тональность по звуку часто
+    # выходит параллельным мажором (F вместо Dm), поэтому та же доминанта
+    # освобождается и в мажоре -- это III ступень (A в фа мажоре, E в до).
     tonic, is_major = key
-    if not is_major:
-        # Мажорная доминанта в миноре (A в ре миноре, G в до миноре) --
-        # норма русской песни, а подсказка толкала её в минор: на эталонах
-        # владельца (05.10) все три минорные песни потеряли на этом
-        # аккорде (A->Am, G->Gm, C->Cm). Спор V/v решает сама сеть.
-        dominant = (tonic + 7) % 12
-        for i, name in enumerate(names):
-            if name in (NOTES[dominant], NOTES[dominant] + "7"):
-                penalty[i] = 0.0
+    minor_tonic = tonic if not is_major else (tonic + 9) % 12
+    dominant = NOTES[(minor_tonic + 7) % 12]
+    for i, name in enumerate(names):
+        if name in (dominant, dominant + "7"):
+            penalty[i] = 0.0
     doubt = np.minimum(1.0, 2.0 * (1.0 - probs.max(axis=1, keepdims=True)))
     out = probs.copy()
     out[:, :-1] *= np.exp(-strength * doubt * penalty[None, :])

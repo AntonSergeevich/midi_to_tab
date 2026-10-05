@@ -136,4 +136,9 @@ def run_models(path: str) -> dict[str, list[tuple[float, float, str]]]:
     for name, p in probs.items():
         found = chordnet.decode(chordnet.with_key(p, key, chroma))
         out[name] = [(round(a, 2), round(b, 2), c) for a, b, c, _ in found]
+    # Модель сайта без подсказки тональности: помогает подсказка или мешает
+    if "main" in probs:
+        found = chordnet.decode(probs["main"])
+        out["nokey"] = [(round(a, 2), round(b, 2), c) for a, b, c, _ in found]
+    out["_key"] = audiochords.key_name(key)        # какую тональность услышали
     return out

@@ -747,6 +747,9 @@ def label_of(mode: str, name: str) -> str:
 # нейросети) упёрли службу в предел памяти, и сайт перестал отвечать
 # (05.10). Тяжёлый разбор -- строго по одному, остальные ждут очереди.
 HEAVY = threading.Semaphore(int(os.environ.get("NASLUX_HEAVY_SLOTS", "1")))
+# Сверки -- ещё и в своей очереди: «пересверить все» ставит их пачкой, и
+# разбор трека человека ждёт не больше одной сверки, а не всю пачку.
+BENCH = threading.Semaphore(1)
 
 
 class StudioRunner:
@@ -983,8 +986,9 @@ class StudioRunner:
         job = self.storage.job(job_id)
         entry = dict(((job.result or {}).get("reference") or {}).get(name) or {})
         try:
-            with HEAVY:
+            with BENCH, HEAVY:
                 runs = bench.run_models(os.path.join(self.folder(job_id), name))
+            entry["key"] = runs.pop("_key", None)
             entry["scores"] = {model: bench.compare(entry.get("chords") or [], segments)
                                for model, segments in runs.items()}
             entry.pop("error", None)

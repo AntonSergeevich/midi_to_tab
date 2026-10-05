@@ -928,7 +928,7 @@ async function fillFromTrack(jobId, fileName, { style = true, lyrics = true } = 
 }
 
 // ---------------------------------------------------------- сверка с эталоном
-const MODEL_NAME = { main: 'На сайте', ext15: 'Прошлая (500 песен)', r2: 'Без sus/dim (61 класс)', v2: 'Самая первая', ens: 'Ансамбль (сайт + 500)' };
+const MODEL_NAME = { main: 'На сайте', ext15: 'Прошлая (500 песен)', r2: 'Без sus/dim (61 класс)', v2: 'Самая первая', ens: 'Ансамбль (сайт + 500)', nokey: 'На сайте без подсказки тональности' };
 const pct = (x) => `${Math.round((x || 0) * 100)}%`;
 const reference = { job: '', file: '' };
 
@@ -955,7 +955,7 @@ function showReference(data) {
   const shift = main.shift ? `<p class="muted">Похоже, эталон записан в другом строе: совпадение лучше со сдвигом на
     ${main.shift} полутон(а) — каподастр или другая тональность. Без сдвига — ${pct(main.unshifted)}.</p>` : '';
   $('refResult').innerHTML = `
-    <p>Эталон: ${data.chords} аккордов. Модель на сайте нашла: <b>${esc(main.found.join(' ') || '—')}</b>
+    <p>Эталон: ${data.chords} аккордов.${data.key ? ` Тональность по звуку: <b>${esc(data.key)}</b>.` : ''} Модель на сайте нашла: <b>${esc(main.found.join(' ') || '—')}</b>
       ${main.missed.length ? `· не нашла: <b class="bad">${esc(main.missed.join(' '))}</b>` : '· все'}
       ${main.extra.length ? `· лишние: ${esc(main.extra.join(' '))}` : ''}</p>${shift}
     <table class="st-ref-table"><thead><tr><th>Модель</th><th>Итог</th><th title="доля звучания, где наш аккорд есть в эталоне">Покрытие</th>
@@ -989,16 +989,32 @@ $('refGo').addEventListener('click', async () => {
 });
 $('refClose').addEventListener('click', () => { $('refModal').hidden = true; });
 $('refModal').addEventListener('click', (e) => { if (e.target === $('refModal')) $('refModal').hidden = true; });
-$('refAll').addEventListener('click', async () => {
+let allTimer = 0;
+async function showAll() {
+  clearTimeout(allTimer);
+  if ($('refModal').hidden) return;
   const data = await fetch('/api/studio/benchmark').then((r) => r.json()).catch(() => null);
   if (!data || !data.rows.length) { $('refResult').innerHTML = '<p class="muted">Эталонов пока нет.</p>'; return; }
   const models = Object.keys(data.average).sort((a, b) => data.average[b] - data.average[a]);
-  $('refResult').innerHTML = `<p>Все эталоны: ${data.rows.length}. В среднем — ${models.map((m) =>
+  const waiting = data.rows.filter((r) => r.pending).length;
+  // Пока идёт пересверка -- таблица обновляется сама
+  if (waiting) allTimer = setTimeout(showAll, 5000);
+  $('refResult').innerHTML = `<p>${waiting ? `Пересверяем по очереди: осталось ${waiting} ⏳<br>`
+    : '<button type="button" class="ghost" id="refRerun">Пересверить все</button> '}Все эталоны: ${data.rows.length}. В среднем — ${models.map((m) =>
     `${esc(MODEL_NAME[m] || m)}: <b>${pct(data.average[m])}</b>`).join(' · ')}</p>
     <table class="st-ref-table"><thead><tr><th>Песня</th>${models.map((m) => `<th>${esc(MODEL_NAME[m] || m)}</th>`).join('')}</tr></thead>
     <tbody>${data.rows.map((r) => `<tr><td>${esc(r.name)}</td>${models.map((m) =>
-      `<td>${r.scores[m] ? pct(r.scores[m].score) : r.pending ? '…' : '—'}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
-});
+      `<td>${r.pending ? '…' : r.scores[m] ? pct(r.scores[m].score) : '—'}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  const rerun = $('refRerun');
+  if (rerun) {
+    rerun.addEventListener('click', async () => {
+      rerun.disabled = true;
+      await fetch('/api/studio/benchmark/rerun', { method: 'POST' }).catch(() => null);
+      showAll();
+    });
+  }
+}
+$('refAll').addEventListener('click', showAll);
 
 // «Похожая песня» из загруженного трека: песня с нуля в его стиле и со
 // словами из него -- полный перенос того, что слышно в записи

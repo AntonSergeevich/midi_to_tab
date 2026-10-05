@@ -1944,6 +1944,28 @@ def api_studio_reference_get(job_id: str, request: Request, file: str = ""):
     return {k: v for k, v in entry.items() if k != "chords"} | {"chords": len(entry.get("chords") or [])}
 
 
+@app.post("/api/studio/benchmark/rerun")
+def api_studio_benchmark_rerun(request: Request):
+    """Пересверить все эталоны человека -- после правки моделей, без
+    повторной вставки листов. Сверки идут по одной (studio.HEAVY)."""
+    user = current_user(request)
+    queued = 0
+    for job in storage.user_jobs(user.id, limit=500):
+        for file, entry in ((job.result or {}).get("reference") or {}).items():
+            if entry.get("pending") or not os.path.isfile(os.path.join(studio_runner.folder(job.id), file)):
+                continue
+            with studio_runner._analysis_lock:
+                fresh = storage.job(job.id)
+                result = dict(fresh.result or {})
+                refs = dict(result.get("reference") or {})
+                refs[file] = {**refs[file], "pending": True}
+                result["reference"] = refs
+                storage.update_job(job.id, result=result)
+            studio_runner.benchmark_later(job.id, file)
+            queued += 1
+    return {"queued": queued}
+
+
 @app.get("/api/studio/benchmark")
 def api_studio_benchmark(request: Request):
     """Все эталоны человека: итог каждой модели по песням и в среднем."""

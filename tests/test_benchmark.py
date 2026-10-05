@@ -67,3 +67,7 @@ def test_reference_endpoints(tmp_path, monkeypatch):
         assert got["scores"]["main"]["score"] > got["scores"]["r2"]["score"] and got["chords"] == 8
         summary = client.get("/api/studio/benchmark").json()
         assert summary["rows"][0]["name"] == "Мальчик.mp3" and set(summary["average"]) == {"main", "r2"}
+        # «Пересверить все» -- без повторной вставки листа
+        assert client.post("/api/studio/benchmark/rerun").json()["queued"] == 1
+        again = client.get(f"/api/studio/{job.id}/reference").json()
+        assert not again["pending"] and again["chords"] == 8 and "main" in again["scores"]
