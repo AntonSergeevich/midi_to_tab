@@ -6,6 +6,8 @@
   enrich   -- дописать партию поверх трека (ACE-Step lego, модель base),
               track: drums / bass / guitar / keyboard / strings / ...;
   extract  -- вытащить одну партию силами ACE-Step (extract, base);
+  create   -- песня с нуля по описанию и тексту (ACE-Step text2music, SFT),
+              без исходника; seconds -- длина (иначе -- по длине текста);
   stems    -- разделить на 6 партий (Demucs htdemucs_6s): вокал, гитара,
               бас, барабаны, клавиши, остальное;
   ping     -- проверить воркер: какая видеокарта, какие модели загружены.
@@ -266,6 +268,39 @@ def restyle(job_input, source):
     return [(f"restyle_{i + 1}.mp3", a) for i, a in enumerate(audios)], info
 
 
+def song_seconds(job_input):
+    """Длина песни с нуля: заданная или по тексту -- около 5 с на строку,
+    плюс вступление и концовка; без текста -- 2 минуты инструментала."""
+    asked = job_input.get("song_seconds")
+    if asked:
+        return max(30, min(240, int(asked)))
+    lines = [l for l in (job_input.get("lyrics") or "").splitlines() if l.strip() and not l.strip().startswith("[")]
+    return max(60, min(240, 20 + 5 * len(lines))) if lines else 120
+
+
+def create(job_input):
+    """Песня с нуля: ACE-Step text2music на модели SFT -- запасной путь,
+    когда Mureka недоступна. Текст -- со структурой [verse]/[chorus], как
+    и у Mureka; без текста -- инструментал."""
+    variants = max(1, min(4, int(job_input.get("variants") or 2)))
+    lyrics = (job_input.get("lyrics") or "").strip() or "[inst]"
+    body = {"task_type": "text2music", "model": SFT,
+            "prompt": job_input.get("prompt") or "", "lyrics": lyrics,
+            "vocal_language": job_input.get("language") or "ru",
+            "audio_duration": song_seconds(job_input),
+            "thinking": False, "use_cot_caption": False, "use_cot_language": False,
+            "guidance_scale": float(job_input.get("guidance") or 7.0),
+            "inference_steps": int(job_input.get("steps") or 50),
+            "batch_size": variants, "audio_format": "wav",
+            "use_random_seed": job_input.get("seed") in (None, -1, ""),
+            "seed": job_input.get("seed") if job_input.get("seed") not in (None, "") else -1}
+    body.update(job_input.get("raw") or {})
+    audios, info = ace_step(body)
+    info["settings"] = {k: body.get(k) for k in ("model", "audio_duration", "guidance_scale",
+                                                 "inference_steps", "vocal_language")}
+    return [(f"create_{i + 1}.mp3", a) for i, a in enumerate(audios[:variants])], info
+
+
 def enrich(job_input, source, task_type):
     track = (job_input.get("track") or "").lower()
     if track not in TRACKS:
@@ -332,6 +367,10 @@ def handler(job):
     try:
         if mode == "ping":
             return {"ok": True, **diagnostics(job_input), "seconds": round(time.time() - started, 1)}
+        if mode == "create":
+            files, info = create(job_input)
+            return {"ok": True, "mode": mode, "files": deliver(job_input, files), "info": info,
+                    "seconds": round(time.time() - started, 1)}
         with tempfile.TemporaryDirectory() as workdir:
             source = fetch_source(job_input, workdir)
             if mode == "restyle":

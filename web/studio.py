@@ -170,6 +170,61 @@ def mureka_key() -> str:
     return os.environ.get("MUREKA_API_KEY", "")
 
 
+# Деньги на счету Mureka кончились -- сайт не ломается, а сам переходит
+# на свой движок (ACE-Step на RunPod): переделка и песни с нуля идут там,
+# возможности, которых у ACE-Step нет (12 дорожек, сочинение текста,
+# распознавание стиля), временно скрыты. Через полчаса Mureka пробуется
+# снова: пополнили счёт -- всё вернулось само.
+MUREKA_RECHECK = 30 * 60
+_mureka_broke = {"at": 0.0, "why": "", "file": ""}
+
+
+class MurekaNoMoney(RuntimeError):
+    """Mureka отказала из-за денег на счёте, а не из-за очереди."""
+
+
+def mureka_broke() -> bool:
+    if os.environ.get("NASLUX_MUREKA_OFF", "") == "1":
+        return True
+    if not _mureka_broke["at"] and _mureka_broke["file"]:
+        try:
+            with open(_mureka_broke["file"]) as f:
+                _mureka_broke.update({k: v for k, v in json.load(f).items() if k in ("at", "why")})
+        except (OSError, ValueError):
+            _mureka_broke["at"] = -1.0          # файла нет -- не читать его каждый раз
+    return time.time() - max(_mureka_broke["at"], 0) < MUREKA_RECHECK
+
+
+def mark_mureka_broke(why: str) -> None:
+    _mureka_broke.update(at=time.time(), why=why[:300])
+    print(f"[mureka] кончились деньги, переходим на ACE-Step: {why[:200]}", file=sys.stderr, flush=True)
+    if _mureka_broke["file"]:
+        try:
+            with open(_mureka_broke["file"], "w") as f:
+                json.dump({"at": _mureka_broke["at"], "why": _mureka_broke["why"]}, f)
+        except OSError:
+            pass
+
+
+def mark_mureka_ok() -> None:
+    if _mureka_broke["at"] > 0:
+        _mureka_broke["at"] = 0.0
+        if _mureka_broke["file"]:
+            try:
+                os.remove(_mureka_broke["file"])
+            except OSError:
+                pass
+
+
+def ace_create_open() -> bool:
+    """Песни с нуля на ACE-Step (text2music) -- когда Mureka недоступна."""
+    return bool(api_key()) and os.environ.get("NASLUX_ACE_CREATE", "1") == "1"
+
+
+def create_open() -> bool:
+    return restyle_engine() == "mureka" or ace_create_open()
+
+
 def restyle_engine() -> str:
     """Переделка и песни с нуля -- Mureka, если на сервере есть её ключ.
 
@@ -178,7 +233,7 @@ def restyle_engine() -> str:
     unavailable»), поэтому запросы к ней идут через ретранслятор на RunPod
     (relay/) -- см. use_relay()."""
     wanted = os.environ.get("NASLUX_RESTYLE_ENGINE", "mureka").strip().lower()
-    return "mureka" if wanted == "mureka" and mureka_key() else "runpod"
+    return "mureka" if wanted == "mureka" and mureka_key() and not mureka_broke() else "runpod"
 
 
 def use_relay() -> bool:
@@ -266,8 +321,23 @@ def relay_run(task: dict, timeout: int = 900) -> dict:
     return job.get("output") or {}
 
 
+def runpod_restyle_recipe(audio_influence: float, melody: float) -> dict:
+    """Рецепт переделки на RunPod поверх умолчаний воркера (поле raw).
+
+    Живые пробы владельца на we_angel: с подмешиванием исходного звука
+    (cover_noise_strength, «удержание мелодии») новые инструменты звучали
+    поверх оригинала; без него -- как переписанные партии, и лучшей
+    вышла версия с силой исходника 0.5 (nomix_v2). Поэтому удержание по
+    умолчанию 0, а человек может добавить его сам (0..0.25) -- ближе к
+    мелодии ценой того самого наложения."""
+    return {"raw": {"audio_cover_strength": round(max(0.1, audio_influence), 3),
+                    "cover_noise_strength": round(0.25 * melody, 3)}}
+
+
 def restyle_open() -> bool:
-    return restyle_engine() == "mureka" or RESTYLE_OPEN
+    # Пока Mureka без денег -- переделка на ACE-Step открыта всем: лучше
+    # чуть проще звук, чем закрытая услуга
+    return restyle_engine() == "mureka" or RESTYLE_OPEN or (bool(mureka_key()) and mureka_broke())
 
 
 def short_error(detail: str) -> str:
@@ -299,13 +369,18 @@ def mureka_call(method: str, path: str, body: dict | None = None, timeout: int =
             out = relay_run({"op": "call", "method": method, "path": path, "body": body,
                              "timeout": max(timeout, 300)})
             if out.get("ok"):
+                mark_mureka_ok()
                 return out.get("json") or {}
             code, detail = out.get("status") or 0, out.get("error") or ""
         else:
             code, detail, answer = _mureka_direct(method, path, body, timeout)
             if answer is not None:
+                mark_mureka_ok()
                 return answer
         money = any(word in detail.lower() for word in MUREKA_NOT_BUSY)
+        if money and code in (400, 402, 403, 429):
+            mark_mureka_broke(detail)
+            raise MurekaNoMoney(f"Mureka ответила {code}: {short_error(detail)}")
         if code == 429 and not money and time.time() < deadline:
             print(f"[mureka] {path}: 429, ждём очереди -- {detail[:150]}",
                   file=sys.stderr, flush=True)
@@ -671,6 +746,7 @@ class StudioRunner:
     """Ставит задачи на RunPod и следит за ними в фоне."""
 
     def __init__(self, storage: Storage, data_dir: str) -> None:
+        _mureka_broke.update(file=os.path.join(data_dir, "mureka_broke.json"), at=0.0)
         self.storage = storage
         self.data_dir = data_dir
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="studio")
@@ -1223,7 +1299,13 @@ class StudioRunner:
             if not remote:
                 self.storage.update_job(job_id, status="running", stage="Отправляем в Mureka",
                                         progress=3)
-                remote = self._mureka_start(mode, task_input, folder)
+                try:
+                    remote = self._mureka_start(mode, task_input, folder)
+                except MurekaNoMoney:
+                    if self._to_ace(job_id, mode):
+                        return
+                    raise RuntimeError("эта возможность временно недоступна — "
+                                       "попробуйте переделку или песню с нуля") from None
                 settings["remote"] = remote
                 self.storage.update_job(job_id, settings=settings)
             status = self._mureka_wait(job_id, remote.get("kind", "song"), remote["id"],
@@ -1248,6 +1330,30 @@ class StudioRunner:
                 "seconds": (status.get("finished_at") or 0) - (status.get("created_at") or 0)})
         except Exception as error:  # noqa: BLE001 -- любая ошибка -> деньги назад
             self._fail(job_id, str(error))
+
+    def _to_ace(self, job_id: str, mode: str) -> bool:
+        """У Mureka кончились деньги: та же задача уходит на ACE-Step, за ту
+        же цену и без повторной загрузки. False -- у ACE-Step такого нет
+        (продление, «как в образце», голос оригинала), задача падает с
+        возвратом денег."""
+        job = self.storage.job(job_id)
+        settings = dict(job.settings or {})
+        task_input = dict(settings.get("input") or {})
+        if not api_key() or task_input.get("keep_vocals") or task_input.get("reference"):
+            return False
+        if mode == "restyle":
+            task_input.update(runpod_restyle_recipe(float(task_input.get("audio_influence", 0.5)), 0.0))
+        elif mode != "create" or not ace_create_open():
+            return False
+        # Голос у ACE-Step -- только словами в описании стиля
+        voice = VOICES.get(task_input.get("voice", ""), ("", ""))[1]
+        task_input["prompt"] = ", ".join(p for p in (task_input.get("prompt", ""), voice) if p)[:1024]
+        settings.update(engine="runpod", input=task_input, fellBack="mureka")
+        settings.pop("remote", None)
+        self.storage.update_job(job_id, settings=settings, status="running", progress=3,
+                                stage="Делаем на своём движке")
+        self._run(job_id)
+        return True
 
     def _mureka_start(self, mode: str, task_input: dict, folder: str) -> dict:
         voice, lyrics, gender = voice_plan(task_input.get("voice", ""),

@@ -117,7 +117,7 @@ function showMode() {
   const keep = mode === 'restyle' && mureka && $('keepVocals').checked;
   $('keepBox').hidden = !(mode === 'restyle' && mureka);
   $('proBox').hidden = !(mode === 'stems' && mureka);
-  $('voiceBox').hidden = !['create', 'restyle'].includes(mode) || !mureka || keep;
+  $('voiceBox').hidden = !['create', 'restyle'].includes(mode) || keep;
   $('lyricsBox').hidden = !['create', 'restyle'].includes(mode) || keep;
   $('instrumentalBox').hidden = mode !== 'create';
   $('strengthBox').hidden = !(mode === 'restyle' && !mureka);
@@ -328,10 +328,11 @@ function renderVoices() {
   const learning = info.jobs.filter((j) => j.mode === 'voice' && ['queued', 'running'].includes(j.status));
   $('voices').innerHTML = Object.entries(info.voices || {}).map(([key, title]) =>
     `<button type="button" class="preset${key === voice ? ' selected' : ''}" data-voice="${key}">${esc(title)}</button>`).join('')
-    + (info.myVoices || []).map((v) =>
+    // Свои голоса и «Мой голос» -- только у Mureka; на запасном движке их нет
+    + (info.restyleEngine === 'mureka' ? info.myVoices || [] : []).map((v) =>
       `<button type="button" class="preset mine${`my:${v.id}` === voice ? ' selected' : ''}" data-voice="my:${v.id}">🎙 ${esc(v.name)}</button>`).join('')
     + learning.map((j) => `<button type="button" class="preset mine" disabled>🎙 ${esc(j.name)} · учим…</button>`).join('')
-    + (info.voiceCloneOpen ? '<button type="button" class="preset add" data-voice="add">＋ Мой голос</button>' : '');
+    + (info.voiceCloneOpen && info.restyleEngine === 'mureka' ? '<button type="button" class="preset add" data-voice="add">＋ Мой голос</button>' : '');
 }
 
 // Поиск и страницы: список перерисовывается при каждом опросе сервера,

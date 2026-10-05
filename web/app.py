@@ -1556,7 +1556,7 @@ def api_studio(request: Request):
         "services": {k: {"title": v.title, "price": v.price, "pack": studio.credit_cost(k),
                          "packKeep": studio.credit_cost(k, True)}
                      for k, v in studio.SERVICES.items()},
-        "createOpen": studio.restyle_engine() == "mureka",
+        "createOpen": studio.create_open(),
         "presets": {k: v[0] for k, v in studio.PRESETS.items()},
         "tracks": studio.TRACKS,
         "voices": {k: v[0] for k, v in studio.VOICES.items()},
@@ -1609,8 +1609,10 @@ async def api_studio_start(
         raise HTTPException(503, "Глубокое разделение пока не подключено")
     if pro:
         service = studio.SERVICES["stems_pro"]
-    if mode == "create" and engine != "mureka":
+    if mode == "create" and engine != "mureka" and not studio.ace_create_open():
         raise HTTPException(503, "Песни с нуля пишет Mureka, а она на сервере не подключена")
+    if reference and mode == "create" and engine != "mureka":
+        raise HTTPException(503, "Песня «как в образце» временно недоступна — опишите стиль словами")
     if mode == "restyle" and not (studio.restyle_open() or user.unlimited):
         raise HTTPException(409, "Переделка в другой стиль переезжает на новый движок и скоро "
                                  "вернётся. Разделение на партии и дописывание партии работают.")
@@ -1653,6 +1655,9 @@ async def api_studio_start(
     style = prompt.strip()[:500] or (studio.PRESETS[preset][1] if preset in studio.PRESETS else "")
     if mode in ("restyle", "enrich") and not style:
         raise HTTPException(400, "Опишите стиль: жанр, настроение, инструменты")
+    if engine == "runpod" and mode in ("create", "restyle") and voice in studio.VOICES:
+        # У ACE-Step нет переключателя голоса -- просим словами в стиле
+        style = ", ".join(p for p in (style, studio.VOICES[voice][1]) if p)[:1024]
     cost_key = "stems_pro" if pro else mode
     by_pack = user.studio_credits >= studio.credit_cost(cost_key, keep_vocals) > 0
     if not user.unlimited and not by_pack and user.balance < service.price:
@@ -1698,7 +1703,7 @@ async def api_studio_start(
         # Две версии за раз: авторы ACE-Step советуют выбирать из
         # нескольких, а GPU на вторую тратит секунды.
         "variants": 2,
-        **(_runpod_restyle_recipe(knobs["audio_influence"], clamp(melody))
+        **(studio.runpod_restyle_recipe(knobs["audio_influence"], clamp(melody))
            if mode == "restyle" and engine == "runpod" else {}),
         "track": track, "language": language if language in ("ru", "en") else "ru",
         "voice": "" if vocal_id else voice, "keep_vocals": keep_vocals, "cost_key": cost_key,
@@ -1707,19 +1712,6 @@ async def api_studio_start(
     response = JSONResponse({"jobId": job.id})
     attach_cookie(response, user.id)
     return response
-
-
-def _runpod_restyle_recipe(audio_influence: float, melody: float) -> dict:
-    """Рецепт переделки на RunPod поверх умолчаний воркера (поле raw).
-
-    Живые пробы владельца на we_angel: с подмешиванием исходного звука
-    (cover_noise_strength, «удержание мелодии») новые инструменты звучали
-    поверх оригинала; без него -- как переписанные партии, и лучшей
-    вышла версия с силой исходника 0.5 (nomix_v2). Поэтому удержание по
-    умолчанию 0, а человек может добавить его сам (0..0.25) -- ближе к
-    мелодии ценой того самого наложения."""
-    return {"raw": {"audio_cover_strength": round(max(0.1, audio_influence), 3),
-                    "cover_noise_strength": round(0.25 * melody, 3)}}
 
 
 def _studio_charge_and_submit(request: Request, user, job_id: str, service, folder: str,
@@ -1990,7 +1982,7 @@ def api_studio_describe(job_id: str, request: Request, file: str = ""):
     if cached and not cached.get("error"):
         return cached
     if studio.restyle_engine() != "mureka":
-        raise HTTPException(503, "Распознавание стиля пока не подключено")
+        raise HTTPException(503, "Распознавание стиля временно недоступно")
     now = time.time()
     recent = [t for t in _describe_calls.get(user.id, []) if now - t < 86400]
     if len(recent) >= DESCRIBE_PER_DAY and not user.unlimited:
@@ -2150,7 +2142,7 @@ def api_studio_lyrics(request: Request, prompt: str = Form(...)):
     стоит нам доли цента, -- но не больше LYRICS_PER_DAY раз в сутки."""
     user = current_user(request)
     if studio.restyle_engine() != "mureka":
-        raise HTTPException(503, "Сочинение текста пока не подключено")
+        raise HTTPException(503, "Сочинение текста временно недоступно")
     if not prompt.strip():
         raise HTTPException(400, "Опишите, о чём песня")
     now = time.time()
@@ -2170,7 +2162,7 @@ def api_studio_lyrics_extend(request: Request, lyrics: str = Form(...)):
     """Дописать продолжение текста (Mureka lyrics/extend) -- для «Продлить песню»."""
     user = current_user(request)
     if studio.restyle_engine() != "mureka":
-        raise HTTPException(503, "Сочинение текста пока не подключено")
+        raise HTTPException(503, "Сочинение текста временно недоступно")
     now = time.time()
     recent = [t for t in _lyrics_calls.get(user.id, []) if now - t < 86400]
     if len(recent) >= studio.LYRICS_PER_DAY and not user.unlimited:
