@@ -12,6 +12,7 @@ SITE = sys.argv[1] if len(sys.argv) > 1 else "https://naslux.ru"
 
 
 async def main() -> None:
+    tracks = []
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=330:duration=10",
                     "-b:a", "128k", "probe.mp3"], check=True)
     log = []
@@ -35,10 +36,17 @@ async def main() -> None:
             log.append(f"окно прав не появилось: {error}")
         await page.wait_for_timeout(12000)
         print("тост:", await page.inner_text("#toast") if await page.is_visible("#toast") else "(скрыт)")
-        print("треки:", await page.eval_on_selector_all(".st-row b", "e => e.map(x => x.textContent)"))
+        tracks = await page.eval_on_selector_all(".st-row b", "e => e.map(x => x.textContent)")
+        print("треки:", tracks)
         await page.screenshot(path="upload.png", full_page=False)
         await browser.close()
     print("\n".join(log))
+    uploads = [line for line in log if "/api/studio/upload" in line]
+    # Итог -- в аннотацию: её видно через API, даже когда лог не скачать
+    ok = any("probe" in t for t in tracks)
+    print(f"::{'notice' if ok else 'error'}::загрузка {'работает' if ok else 'НЕ работает'}: "
+          f"{'; '.join(uploads)[:300] or 'запроса загрузки нет'}")
+    sys.exit(0 if ok else 1)
 
 
 asyncio.run(main())
