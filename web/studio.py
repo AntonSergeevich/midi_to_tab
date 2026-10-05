@@ -989,6 +989,7 @@ class StudioRunner:
             with BENCH, HEAVY:
                 runs = bench.run_models(os.path.join(self.folder(job_id), name))
             entry["key"] = runs.pop("_key", None)
+            entry["tuning"] = runs.pop("_tuning", None)
             entry["scores"] = {model: bench.compare(entry.get("chords") or [], segments)
                                for model, segments in runs.items()}
             entry.pop("error", None)
@@ -1001,6 +1002,10 @@ class StudioRunner:
             result["reference"] = {**(result.get("reference") or {}), name: entry}
             self.storage.update_job(job_id, result=result)
         return entry
+
+    def benchmarking(self, job_id: str, name: str) -> bool:
+        with self._analysis_lock:
+            return (job_id, "bench:" + name) in self._analyzing
 
     def benchmark_later(self, job_id: str, name: str) -> bool:
         key = (job_id, "bench:" + name)

@@ -928,7 +928,7 @@ async function fillFromTrack(jobId, fileName, { style = true, lyrics = true } = 
 }
 
 // ---------------------------------------------------------- сверка с эталоном
-const MODEL_NAME = { main: 'На сайте', ext15: 'Прошлая (500 песен)', r2: 'Без sus/dim (61 класс)', v2: 'Самая первая', ens: 'Ансамбль (сайт + 500)', nokey: 'На сайте без подсказки тональности' };
+const MODEL_NAME = { main: 'На сайте', ext15: 'Прошлая (500 песен)', r2: 'Без sus/dim (61 класс)', v2: 'Самая первая', ens: 'Ансамбль (сайт + 500)', nokey: 'На сайте без подсказки тональности', tuned: 'На сайте с подстройкой строя' };
 const pct = (x) => `${Math.round((x || 0) * 100)}%`;
 const reference = { job: '', file: '' };
 
@@ -955,7 +955,7 @@ function showReference(data) {
   const shift = main.shift ? `<p class="muted">Похоже, эталон записан в другом строе: совпадение лучше со сдвигом на
     ${main.shift} полутон(а) — каподастр или другая тональность. Без сдвига — ${pct(main.unshifted)}.</p>` : '';
   $('refResult').innerHTML = `
-    <p>Эталон: ${data.chords} аккордов.${data.key ? ` Тональность по звуку: <b>${esc(data.key)}</b>.` : ''} Модель на сайте нашла: <b>${esc(main.found.join(' ') || '—')}</b>
+    <p>Эталон: ${data.chords} аккордов.${data.key ? ` Тональность по звуку: <b>${esc(data.key)}</b>.` : ''}${data.tuning ? ` Строй записи: ${data.tuning > 0 ? '+' : ''}${Math.round(data.tuning * 100)} центов.` : ''} Модель на сайте нашла: <b>${esc(main.found.join(' ') || '—')}</b>
       ${main.missed.length ? `· не нашла: <b class="bad">${esc(main.missed.join(' '))}</b>` : '· все'}
       ${main.extra.length ? `· лишние: ${esc(main.extra.join(' '))}` : ''}</p>${shift}
     <table class="st-ref-table"><thead><tr><th>Модель</th><th>Итог</th><th title="доля звучания, где наш аккорд есть в эталоне">Покрытие</th>

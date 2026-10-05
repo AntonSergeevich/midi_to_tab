@@ -78,3 +78,20 @@ def test_extended_vocabulary_names():
     assert chordnet.class_name(9 * 12 + 7, 121) == "G6"
     assert chordnet.class_name(120, 121) == "N"
     assert chordnet.class_name(2 * 12 + 7, 61) == "G7"          # старые модели -- как раньше
+
+
+def test_tuning_follows_detuned_recording():
+    """Запись, настроенная на 40 центов выше 440 Гц: без подстройки сеть
+    путает аккорды, с оценённым строем -- слышит как надо."""
+    librosa = pytest.importorskip("librosa")
+    sr = chordnet.SR
+    seq = [("Am", [57, 60, 64]), ("F", [53, 57, 60]), ("C", [48, 52, 55]), ("G", [55, 59, 62])] * 2
+    t = np.arange(int(sr * 2)) / sr
+    y = np.concatenate([sum(sum(np.sin(2 * np.pi * 440 * 2 ** ((m - 69 + 0.4) / 12) * k * t) / k
+                                    for k in (1, 2, 3)) for m in notes + [notes[0] - 12]) * np.exp(-t * 0.6)
+                        for _, notes in seq]).astype(np.float32) * 0.1
+    tuning = float(librosa.estimate_tuning(y=y, sr=sr, n_fft=8192, resolution=0.01))
+    assert abs(tuning - 0.4) < 0.05
+    segments = chordnet.decode(chordnet.probabilities(y, sr, tuning=tuning))
+    heard = [next((c for a, b, c, _ in segments if a <= i * 2 + 1 < b), None) for i in range(len(seq))]
+    assert heard == [name for name, _ in seq]

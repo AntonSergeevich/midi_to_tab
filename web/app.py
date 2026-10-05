@@ -1938,9 +1938,12 @@ def api_studio_reference_get(job_id: str, request: Request, file: str = ""):
     if not job or job.user_id != user.id:
         raise HTTPException(404, "Готовая работа не найдена")
     names = [f["name"] for f in (job.result or {}).get("files") or []]
-    entry = ((job.result or {}).get("reference") or {}).get(file or (names[0] if names else ""))
+    file = file or (names[0] if names else "")
+    entry = ((job.result or {}).get("reference") or {}).get(file)
     if not entry:
         raise HTTPException(404, "Эталона ещё нет")
+    if entry.get("pending") and not studio_runner.benchmarking(job_id, file):
+        studio_runner.benchmark_later(job_id, file)      # оборвал перезапуск сайта
     return {k: v for k, v in entry.items() if k != "chords"} | {"chords": len(entry.get("chords") or [])}
 
 
@@ -1952,7 +1955,9 @@ def api_studio_benchmark_rerun(request: Request):
     queued = 0
     for job in storage.user_jobs(user.id, limit=500):
         for file, entry in ((job.result or {}).get("reference") or {}).items():
-            if entry.get("pending") or not os.path.isfile(os.path.join(studio_runner.folder(job.id), file)):
+            # «Ждёт» без живой сверки -- её оборвал перезапуск сайта: ставим заново
+            if studio_runner.benchmarking(job.id, file) \
+                    or not os.path.isfile(os.path.join(studio_runner.folder(job.id), file)):
                 continue
             with studio_runner._analysis_lock:
                 fresh = storage.job(job.id)

@@ -136,6 +136,16 @@ def run_models(path: str) -> dict[str, list[tuple[float, float, str]]]:
     for name, p in probs.items():
         found = chordnet.decode(chordnet.with_key(p, key, chroma))
         out[name] = [(round(a, 2), round(b, 2), c) for a, b, c, _ in found]
+    # Модель сайта с подстройкой под строй записи: сеть училась на записях
+    # ровно в 440 Гц, а песни бывают настроены ниже/выше на треть полутона
+    # n_fft 8192 и шаг в цент: со значениями по умолчанию оценка на пробе
+    # с записью, настроенной на 30 центов ниже, выдавала +5 центов
+    tuning = float(librosa.estimate_tuning(y=y, sr=sr, n_fft=8192, resolution=0.01))
+    out["_tuning"] = round(tuning, 2)
+    if "main" in probs:
+        tuned = chordnet.probabilities(y, sr, chordnet.variants()["main"], tuning=tuning)
+        found = chordnet.decode(chordnet.with_key(tuned, key, chroma))
+        out["tuned"] = [(round(a, 2), round(b, 2), c) for a, b, c, _ in found]
     # Модель сайта без подсказки тональности: помогает подсказка или мешает
     if "main" in probs:
         found = chordnet.decode(probs["main"])

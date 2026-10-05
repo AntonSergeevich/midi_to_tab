@@ -86,23 +86,25 @@ def variants() -> dict[str, Path]:
     return found
 
 
-def features(y, sr: int):
+def features(y, sr: int, tuning: float = 0.0):
+    """tuning -- отклонение строя записи в долях полутона (librosa.estimate_tuning):
+    сетка нот сдвигается вслед за записью, настроенной не на 440 Гц."""
     import librosa
     import numpy as np
 
     if sr != SR:
         y = librosa.resample(y, orig_sr=sr, target_sr=SR)
     cqt = np.abs(librosa.cqt(y, sr=SR, hop_length=HOP, fmin=librosa.note_to_hz("C1"),
-                             n_bins=N_BINS, bins_per_octave=BINS_PER_OCTAVE))
+                             n_bins=N_BINS, bins_per_octave=BINS_PER_OCTAVE, tuning=tuning))
     spec = np.log1p(100.0 * cqt).T.astype(np.float32)
     return (spec - spec.mean()) / (spec.std() + 1e-6)
 
 
-def probabilities(y, sr: int, model: Path | None = None):
+def probabilities(y, sr: int, model: Path | None = None, tuning: float = 0.0):
     """Вероятности классов по кадрам (~10.8 кадра в секунду)."""
     import numpy as np
 
-    x = features(y, sr)[:, CENTER:CENTER + WINDOW]
+    x = features(y, sr, tuning)[:, CENTER:CENTER + WINDOW]
     session = _session() if model is None else _session_for(str(model))
     logits = session.run(None, {"cqt": x[None]})[0][0]
     logits = logits - logits.max(axis=1, keepdims=True)
