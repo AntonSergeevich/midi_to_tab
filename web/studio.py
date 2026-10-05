@@ -742,6 +742,13 @@ def label_of(mode: str, name: str) -> str:
 
 # ------------------------------------------------------------------ задачи
 
+# Разбор звука (аккорды, доли, сверка с эталоном) идёт на самом сайте, а у
+# сервера 4 ГБ. Три сверки подряд (каждая -- песня целиком через четыре
+# нейросети) упёрли службу в предел памяти, и сайт перестал отвечать
+# (05.10). Тяжёлый разбор -- строго по одному, остальные ждут очереди.
+HEAVY = threading.Semaphore(int(os.environ.get("NASLUX_HEAVY_SLOTS", "1")))
+
+
 class StudioRunner:
     """Ставит задачи на RunPod и следит за ними в фоне."""
 
@@ -874,7 +881,8 @@ class StudioRunner:
         if cached and cached.get("v") == ANALYSIS_VERSION:
             return cached
         try:
-            found = analyze_audio(os.path.join(self.folder(job_id), name))
+            with HEAVY:
+                found = analyze_audio(os.path.join(self.folder(job_id), name))
         except Exception as error:  # noqa: BLE001 -- разбор -- не повод ронять задачу
             found = {"error": str(error)[:200]}
         if name == "harmony.wav" and "error" not in found:
@@ -975,7 +983,8 @@ class StudioRunner:
         job = self.storage.job(job_id)
         entry = dict(((job.result or {}).get("reference") or {}).get(name) or {})
         try:
-            runs = bench.run_models(os.path.join(self.folder(job_id), name))
+            with HEAVY:
+                runs = bench.run_models(os.path.join(self.folder(job_id), name))
             entry["scores"] = {model: bench.compare(entry.get("chords") or [], segments)
                                for model, segments in runs.items()}
             entry.pop("error", None)

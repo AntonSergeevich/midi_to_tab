@@ -120,7 +120,8 @@ def run_models(path: str) -> dict[str, list[tuple[float, float, str]]]:
 
     from midi2tab import audiochords, chordnet
 
-    y, sr = librosa.load(path, sr=chordnet.SR, mono=True)
+    # Первые 6 минут: для сверки хватает, а память сервера -- не резиновая
+    y, sr = librosa.load(path, sr=chordnet.SR, mono=True, duration=360)
     harmonic = librosa.effects.harmonic(y, margin=3.0)
     chroma = librosa.feature.chroma_cqt(y=harmonic, sr=sr, bins_per_octave=36)
     key = audiochords.guess_key(chroma)
