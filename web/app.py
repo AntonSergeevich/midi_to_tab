@@ -20,6 +20,7 @@ import subprocess
 import urllib.parse
 import shutil
 import sys
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -1346,6 +1347,21 @@ def api_separate_later(job_id: str, request: Request):
     return {"ok": True}
 
 
+# Застолбить (claim_job_charge), проверить деньги и списать -- три
+# отдельных запроса к БД, не одна атомарная операция. Между "застолбили"
+# и "откатили обратно, потому что денег не нашлось" есть окно, в котором
+# параллельный запрос по ДРУГОЙ партии/табам того же трека видит заявку
+# уже застолбленной и трактует это как "трек уже кем-то оплачен" --
+# раньше мог проехать бесплатно, хотя первый запрос ещё не подтвердил
+# оплату и секундой позже откатится ни с чем (см. findings-2026-10-04).
+# Сервис работает одним процессом (`--workers 1`, см. deploy/README.md) --
+# значит, рядовой threading.Lock на весь процесс полностью закрывает эту
+# гонку: пока первый запрос не доведёт claim до конца (спишет или
+# откатит застолбленное), второй просто ждёт лока и видит только
+# итоговое, уже непротиворечивое состояние `counted`.
+_charge_lock = threading.Lock()
+
+
 def _charge_song_once(user, job) -> str | None:
     """Трек разобран бесплатно (только аккорды) -- за партии и табы
     списывается один раз, как за обычный разбор; дальше всё включено.
@@ -1357,7 +1373,8 @@ def _charge_song_once(user, job) -> str | None:
     атомарно (claim_job_charge) прежде, чем списывать деньги -- иначе оба
     запроса прошли бы проверку `job.counted` и оплата ушла бы дважды.
     Если списать не удалось (или доступа нет), метка снимается: иначе
-    трек остался бы помеченным оплаченным, ничего не списав.
+    трек остался бы помеченным оплаченным, ничего не списав. `_charge_lock`
+    не даёт второму запросу застать этот откат в процессе (см. выше).
 
     Возвращает, ЧЕМ расплатились (см. billing.consume), если списание
     произошло именно сейчас, или None, если трек уже был оплачен раньше
@@ -1367,18 +1384,19 @@ def _charge_song_once(user, job) -> str | None:
     если ничего нового не списалось."""
     if job.counted:
         return None
-    if not storage.claim_job_charge(job.id):
-        return None
-    access = billing.check_access(user)
-    if not access.allowed:
-        storage.update_job(job.id, counted=False)
-        raise HTTPException(402, "Аккорды — бесплатно, а партии, табы и MIDI — по тарифу. "
-                                 + access.reason)
-    spent = billing.consume(storage, user)
-    if not spent:
-        storage.update_job(job.id, counted=False)
-        raise HTTPException(402, "Не получилось списать разбор — обновите страницу и попробуйте снова")
-    return spent
+    with _charge_lock:
+        if not storage.claim_job_charge(job.id):
+            return None
+        access = billing.check_access(user)
+        if not access.allowed:
+            storage.update_job(job.id, counted=False)
+            raise HTTPException(402, "Аккорды — бесплатно, а партии, табы и MIDI — по тарифу. "
+                                     + access.reason)
+        spent = billing.consume(storage, user)
+        if not spent:
+            storage.update_job(job.id, counted=False)
+            raise HTTPException(402, "Не получилось списать разбор — обновите страницу и попробуйте снова")
+        return spent
 
 
 @app.post("/api/job/{job_id}/tabs/{stem_key}")

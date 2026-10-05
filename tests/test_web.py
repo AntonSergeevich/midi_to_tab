@@ -1774,6 +1774,81 @@ def test_two_stem_tabs_clicked_at_once_charge_only_once(tmp_path, monkeypatch):
     assert app_module.storage.job(job.id).counted
 
 
+def test_charge_song_once_survives_a_true_concurrent_race(tmp_path, monkeypatch):
+    """
+    Регрессия под настоящую гонку потоков (findings-2026-10-04-security-
+    and-races.md, п.2), а не под последовательные вызовы, как в тесте выше.
+
+    `claim_job_charge` застолбливает трек ДО проверки денег, и если денег
+    не нашлось -- откатывает метку обратно. Без отдельного лока на всю эту
+    последовательность второй поток, почти одновременно запрашивающий
+    другую партию/табы того же трека, мог застать именно окно между
+    "застолбили" и "откатили": увидеть застолбленный, но ещё не
+    подтверждённо оплаченный трек и решить, что он уже кем-то оплачен,
+    проехав бесплатно -- хотя первый поток секундой позже откатится ни с
+    чем и в итоге не заплатит никто. У пользователя в этом тесте денег нет
+    вообще -- оба потока обязаны остаться без доступа.
+    """
+    import sys
+    import threading
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    import web.app as app_module
+
+    user = app_module.storage.ensure_user(None)
+    for _ in range(app_module.billing.FREE_SONGS):
+        app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+    job = app_module.storage.create_job(user.id, "song.mp3", {})
+
+    real_check_access = app_module.billing.check_access
+    entered_first = threading.Event()
+    release_first = threading.Event()
+    calls: list[None] = []
+
+    def paced_check_access(user_):
+        calls.append(None)
+        if len(calls) == 1:
+            entered_first.set()
+            release_first.wait(timeout=5)
+        return real_check_access(user_)
+
+    monkeypatch.setattr(app_module.billing, "check_access", paced_check_access)
+
+    results: dict[str, object] = {}
+
+    def attempt(name: str) -> None:
+        try:
+            results[name] = app_module._charge_song_once(
+                app_module.storage.user(user.id), job
+            )
+        except app_module.HTTPException as exc:
+            results[name] = exc
+
+    first = threading.Thread(target=attempt, args=("first",))
+    first.start()
+    assert entered_first.wait(timeout=5), "первый поток не дошёл до проверки доступа"
+
+    second = threading.Thread(target=attempt, args=("second",))
+    second.start()
+    # Второй поток обязан застать лок занятым и ждать -- не проехать мимо
+    # claim_job_charge, пока первый ещё не решил, оплачен трек или нет.
+    second.join(timeout=0.3)
+    assert second.is_alive(), "второй поток не должен проходить мимо лока, пока первый не закончил"
+
+    release_first.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert isinstance(results["first"], app_module.HTTPException)
+    assert results["first"].status_code == 402
+    assert isinstance(results["second"], app_module.HTTPException)
+    assert results["second"].status_code == 402
+    assert app_module.storage.job(job.id).counted is False
+
+
 def test_uploaded_midi_gets_chords_and_key_not_just_a_paid_empty_result(tmp_path, monkeypatch):
     """Загрузка готового MIDI -- платная (не проба аккордов из аудио), и
     должна отдавать за эти деньги настоящие аккорды и тональность, а не
