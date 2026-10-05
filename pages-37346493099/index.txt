@@ -1,0 +1,2 @@
+200 https://raw.githubusercontent.com/multimodal-art-projection/YuE/main/README.md
+200 https://www.promptus.ai/blog/yue2-commercial-licence-explained
