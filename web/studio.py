@@ -170,11 +170,11 @@ def mureka_key() -> str:
     return os.environ.get("MUREKA_API_KEY", "")
 
 
-# Деньги на счету Mureka кончились -- сайт не ломается, а сам переходит
-# на свой движок (ACE-Step на RunPod): переделка и песни с нуля идут там,
-# возможности, которых у ACE-Step нет (12 дорожек, сочинение текста,
-# распознавание стиля), временно скрыты. Через полчаса Mureka пробуется
-# снова: пополнили счёт -- всё вернулось само.
+# Деньги на счету Mureka кончились -- сайт не ломается: деньги за задачу
+# возвращаются, генерация показана «временно недоступной» (или, если
+# включено ace_fallback, уходит на свой ACE-Step), остальная Студия
+# работает. Через полчаса Mureka пробуется снова: пополнили счёт -- всё
+# вернулось само.
 MUREKA_RECHECK = 30 * 60
 _mureka_broke = {"at": 0.0, "why": "", "file": ""}
 
@@ -216,9 +216,18 @@ def mark_mureka_ok() -> None:
                 pass
 
 
+def ace_fallback() -> bool:
+    """Подменять Mureka своим ACE-Step, когда у неё нет денег. Выключено:
+    владелец послушал песни с нуля на ACE-Step (05.10) -- «сбился такт»,
+    «хуже Mureka и намного хуже Suno»; переделку на нём он забраковал ещё
+    раньше. Продавать такое за ту же цену нельзя -- услуга честно
+    «временно недоступна». NASLUX_ACE_FALLBACK=1 включает подмену."""
+    return bool(api_key()) and os.environ.get("NASLUX_ACE_FALLBACK", "0") == "1"
+
+
 def ace_create_open() -> bool:
-    """Песни с нуля на ACE-Step (text2music) -- когда Mureka недоступна."""
-    return bool(api_key()) and os.environ.get("NASLUX_ACE_CREATE", "1") == "1"
+    """Песни с нуля на ACE-Step (text2music) -- только если включена подмена."""
+    return ace_fallback()
 
 
 def create_open() -> bool:
@@ -337,7 +346,8 @@ def runpod_restyle_recipe(audio_influence: float, melody: float) -> dict:
 def restyle_open() -> bool:
     # Пока Mureka без денег -- переделка на ACE-Step открыта всем: лучше
     # чуть проще звук, чем закрытая услуга
-    return restyle_engine() == "mureka" or RESTYLE_OPEN or (bool(mureka_key()) and mureka_broke())
+    return restyle_engine() == "mureka" or RESTYLE_OPEN or (bool(mureka_key()) and mureka_broke()
+                                                            and ace_fallback())
 
 
 def short_error(detail: str) -> str:
@@ -1322,8 +1332,8 @@ class StudioRunner:
                 except MurekaNoMoney:
                     if self._to_ace(job_id, mode):
                         return
-                    raise RuntimeError("эта возможность временно недоступна — "
-                                       "попробуйте переделку или песню с нуля") from None
+                    raise RuntimeError("генерация временно недоступна — пополняем счёт "
+                                       "нейросети, попробуйте позже") from None
                 settings["remote"] = remote
                 self.storage.update_job(job_id, settings=settings)
             status = self._mureka_wait(job_id, remote.get("kind", "song"), remote["id"],
@@ -1357,7 +1367,7 @@ class StudioRunner:
         job = self.storage.job(job_id)
         settings = dict(job.settings or {})
         task_input = dict(settings.get("input") or {})
-        if not api_key() or task_input.get("keep_vocals") or task_input.get("reference"):
+        if not ace_fallback() or task_input.get("keep_vocals") or task_input.get("reference"):
             return False
         if mode == "restyle":
             task_input.update(runpod_restyle_recipe(float(task_input.get("audio_influence", 0.5)), 0.0))

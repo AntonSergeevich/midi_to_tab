@@ -625,12 +625,12 @@ def test_create_without_lyrics_is_instrumental(studio_app, monkeypatch):
 def test_create_needs_mureka_or_ace(studio_app, monkeypatch):
     app_module, client, user, submitted = studio_app
     monkeypatch.delenv("MUREKA_API_KEY", raising=False)
-    monkeypatch.setenv("NASLUX_ACE_CREATE", "0")
+    monkeypatch.setenv("NASLUX_ACE_FALLBACK", "0")
     app_module.storage.add_balance(user.id, 100)
     assert _create(client, prompt="rock").status_code == 503
     assert client.get("/api/studio").json()["createOpen"] is False
     # Запасной движок: песня с нуля на ACE-Step, голос -- словами в стиле
-    monkeypatch.setenv("NASLUX_ACE_CREATE", "1")
+    monkeypatch.setenv("NASLUX_ACE_FALLBACK", "1")
     assert client.get("/api/studio").json()["createOpen"] is True
     assert _create(client, prompt="rock", voice="female", lyrics="[verse]\nСтрока").status_code == 200
     job = app_module.storage.job(submitted[-1][0])
@@ -662,6 +662,7 @@ def test_mureka_without_money_falls_back_to_ace(studio_app, monkeypatch):
     monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
     monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
     monkeypatch.setattr(studio, "RESTYLE_OPEN", False)
+    monkeypatch.setenv("NASLUX_ACE_FALLBACK", "1")
     app_module.storage.add_balance(user.id, 300)
     assert client.get("/api/studio").json()["restyleEngine"] == "mureka"
     job_id = _start(client, lyrics="Строка", voice="male", audio_influence="0.6").json()["jobId"]
@@ -690,6 +691,29 @@ def test_mureka_without_money_falls_back_to_ace(studio_app, monkeypatch):
     # Через полчаса Mureka пробуется снова
     monkeypatch.setattr(studio.time, "time", lambda now=studio.time.time(): now + studio.MUREKA_RECHECK + 1)
     assert studio.restyle_engine() == "mureka"
+
+
+def test_out_of_money_refunds_without_fallback(studio_app, monkeypatch):
+    """Подмена выключена (по умолчанию): деньги возвращаются, генерация
+    временно недоступна, а не делается хуже за ту же цену."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
+    monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
+    monkeypatch.setattr(studio, "RESTYLE_OPEN", False)
+    app_module.storage.add_balance(user.id, 300)
+    job_id = _start(client, lyrics="Строка").json()["jobId"]
+    app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings,
+                                                    "input": submitted[0][1]})
+    _broke_mureka(monkeypatch, studio)
+    studio.StudioRunner(app_module.storage, app_module.DATA_DIR)._run(job_id)
+    job = app_module.storage.job(job_id)
+    assert job.status == "error" and "временно недоступна" in job.error
+    assert app_module.storage.user(user.id).balance == pytest.approx(300)
+    info = client.get("/api/studio").json()
+    assert not info["createOpen"] and not info["restyleOpen"]
+    assert _start(client, lyrics="Строка").status_code == 409
 
 
 def test_mureka_only_features_refund_when_out_of_money(studio_app, monkeypatch):
