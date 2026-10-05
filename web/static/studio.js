@@ -835,7 +835,8 @@ function openMenu(button) {
   const item = (what, icon, text, extra = '') =>
     `<button type="button" data-act="${what}" data-job="${job}" data-file="${esc(f)}" ${extra}>${icon}<span>${text}</span></button>`;
   menu.innerHTML = button.dataset.track
-    ? (button.dataset.done ? item('cover', ICON.again, 'Кавер на этот трек') : '')
+    ? (button.dataset.done ? item('cover', ICON.again, 'Кавер на этот трек')
+        + item('reference', ICON.tabs, 'Сверить аккорды с эталоном') : '')
       + (button.dataset.upload ? item('like', ICON.again, 'Похожая песня: стиль и слова из трека')
         : item('again', ICON.again, 'Повторить с этими настройками'))
       + '<hr>' + item('delete', ICON.trash, 'Удалить трек', 'class="danger"')
@@ -851,6 +852,7 @@ function openMenu(button) {
           button.dataset.busy ? 'disabled' : '')) : '')
       + item('shift', ICON.tempo, 'Темп и тональность')
       + (button.dataset.extend ? item('extend', ICON.again, 'Продлить песню') : '')
+      + (button.dataset.stem ? '' : item('reference', ICON.tabs, 'Сверить аккорды с эталоном'))
       + '<hr>' + (button.dataset.stem ? '' : item('cover', ICON.again, 'Кавер на эту версию'))
       + item('again', ICON.again, 'Повторить с этими настройками');
   const box = button.getBoundingClientRect();
@@ -925,6 +927,79 @@ async function fillFromTrack(jobId, fileName, { style = true, lyrics = true } = 
     : 'Слов в треке не нашли — похоже, это инструментал');
 }
 
+// ---------------------------------------------------------- сверка с эталоном
+const MODEL_NAME = { main: 'На сайте', ext15: 'Прошлая (500 песен)', r2: 'Без sus/dim (61 класс)', v2: 'Самая первая' };
+const pct = (x) => `${Math.round((x || 0) * 100)}%`;
+const reference = { job: '', file: '' };
+
+function openReference(jobId, fileName) {
+  const j = info.jobs.find((x) => x.id === jobId);
+  if (!j) return;
+  reference.job = jobId;
+  reference.file = fileName || (j.files[0] && j.files[0].name) || '';
+  $('refTitle').textContent = `Сверить аккорды: ${j.name}`;
+  $('refSheet').value = '';
+  $('refResult').innerHTML = '';
+  $('refModal').hidden = false;
+  // уже сверяли -- сразу показать итог
+  fetch(`/api/studio/${jobId}/reference?file=${encodeURIComponent(reference.file)}`)
+    .then((r) => (r.ok ? r.json() : null)).then((data) => { if (data) showReference(data); }).catch(() => {});
+}
+
+function showReference(data) {
+  if (data.pending) { $('refResult').innerHTML = '<p class="muted">Слушаем трек всеми моделями… около минуты ⏳</p>'; return; }
+  if (data.error) { $('refResult').innerHTML = `<p class="bad">Не получилось: ${esc(data.error)}</p>`; return; }
+  const rows = Object.entries(data.scores || {}).sort((a, b) => b[1].score - a[1].score);
+  if (!rows.length) { $('refResult').innerHTML = ''; return; }
+  const main = (data.scores || {}).main || rows[0][1];
+  const shift = main.shift ? `<p class="muted">Похоже, эталон записан в другом строе: совпадение лучше со сдвигом на
+    ${main.shift} полутон(а) — каподастр или другая тональность. Без сдвига — ${pct(main.unshifted)}.</p>` : '';
+  $('refResult').innerHTML = `
+    <p>Эталон: ${data.chords} аккордов. Модель на сайте нашла: <b>${esc(main.found.join(' ') || '—')}</b>
+      ${main.missed.length ? `· не нашла: <b class="bad">${esc(main.missed.join(' '))}</b>` : '· все'}
+      ${main.extra.length ? `· лишние: ${esc(main.extra.join(' '))}` : ''}</p>${shift}
+    <table class="st-ref-table"><thead><tr><th>Модель</th><th>Итог</th><th title="доля звучания, где наш аккорд есть в эталоне">Покрытие</th>
+      <th title="какую долю аккордов эталона нашли">Аккорды</th><th title="какую долю переходов эталона услышали">Переходы</th></tr></thead>
+      <tbody>${rows.map(([m, s]) => `<tr${m === 'main' ? ' class="main"' : ''}><td>${esc(MODEL_NAME[m] || m)}</td>
+        <td><b>${pct(s.score)}</b></td><td>${pct(s.coverage)}</td><td>${pct(s.vocab)}</td><td>${pct(s.transitions)}</td></tr>`).join('')}
+      </tbody></table>`;
+}
+
+async function pollReference() {
+  for (let tries = 0; tries < 120; tries++) {
+    const data = await fetch(`/api/studio/${reference.job}/reference?file=${encodeURIComponent(reference.file)}`)
+      .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (data) showReference(data);
+    if (data && !data.pending) return;
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+}
+
+$('refGo').addEventListener('click', async () => {
+  const form = new FormData();
+  form.append('file', reference.file);
+  form.append('sheet', $('refSheet').value);
+  $('refGo').disabled = true;
+  const answer = await fetch(`/api/studio/${reference.job}/reference`, { method: 'POST', body: form });
+  const data = await answer.json().catch(() => ({}));
+  $('refGo').disabled = false;
+  if (!answer.ok) { $('refResult').innerHTML = `<p class="bad">${esc(data.detail || 'Не получилось')}</p>`; return; }
+  showReference({ pending: true });
+  pollReference();
+});
+$('refClose').addEventListener('click', () => { $('refModal').hidden = true; });
+$('refModal').addEventListener('click', (e) => { if (e.target === $('refModal')) $('refModal').hidden = true; });
+$('refAll').addEventListener('click', async () => {
+  const data = await fetch('/api/studio/benchmark').then((r) => r.json()).catch(() => null);
+  if (!data || !data.rows.length) { $('refResult').innerHTML = '<p class="muted">Эталонов пока нет.</p>'; return; }
+  const models = Object.keys(data.average).sort((a, b) => data.average[b] - data.average[a]);
+  $('refResult').innerHTML = `<p>Все эталоны: ${data.rows.length}. В среднем — ${models.map((m) =>
+    `${esc(MODEL_NAME[m] || m)}: <b>${pct(data.average[m])}</b>`).join(' · ')}</p>
+    <table class="st-ref-table"><thead><tr><th>Песня</th>${models.map((m) => `<th>${esc(MODEL_NAME[m] || m)}</th>`).join('')}</tr></thead>
+    <tbody>${data.rows.map((r) => `<tr><td>${esc(r.name)}</td>${models.map((m) =>
+      `<td>${r.scores[m] ? pct(r.scores[m].score) : r.pending ? '…' : '—'}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+});
+
 // «Похожая песня» из загруженного трека: песня с нуля в его стиле и со
 // словами из него -- полный перенос того, что слышно в записи
 function likeOf(jobId, fileName) {
@@ -966,6 +1041,7 @@ async function act(what, jobId, fileName) {
   if (what === 'again') { repeat(jobId); return; }
   if (what === 'cover') { coverOf(jobId, fileName); return; }
   if (what === 'like') { likeOf(jobId, fileName); return; }
+  if (what === 'reference') { openReference(jobId, fileName); return; }
   if (what === 'delete') {
     if (!confirm('Удалить трек вместе с файлами?')) return;
     await fetch(`/api/studio/${jobId}`, { method: 'DELETE' });

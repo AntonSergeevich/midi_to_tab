@@ -891,6 +891,45 @@ class StudioRunner:
             self.storage.update_job(job_id, result=result)
         return found
 
+    def benchmark(self, job_id: str, name: str) -> dict:
+        """Сверка с эталоном: трек слушают все модели аккордов, что есть на
+        сервере; меры -- в web/benchmark.py. Итог -- рядом с эталоном."""
+        from . import benchmark as bench
+
+        job = self.storage.job(job_id)
+        entry = dict(((job.result or {}).get("reference") or {}).get(name) or {})
+        try:
+            runs = bench.run_models(os.path.join(self.folder(job_id), name))
+            entry["scores"] = {model: bench.compare(entry.get("chords") or [], segments)
+                               for model, segments in runs.items()}
+            entry.pop("error", None)
+        except Exception as error:  # noqa: BLE001
+            entry["error"] = short_error(str(error))
+        entry["pending"] = False
+        with self._analysis_lock:
+            job = self.storage.job(job_id)
+            result = dict(job.result or {})
+            result["reference"] = {**(result.get("reference") or {}), name: entry}
+            self.storage.update_job(job_id, result=result)
+        return entry
+
+    def benchmark_later(self, job_id: str, name: str) -> bool:
+        key = (job_id, "bench:" + name)
+        with self._analysis_lock:
+            if key in self._analyzing:
+                return False
+            self._analyzing.add(key)
+
+        def work():
+            try:
+                self.benchmark(job_id, name)
+            finally:
+                with self._analysis_lock:
+                    self._analyzing.discard(key)
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
     def describe_later(self, job_id: str, name: str, mureka_url: str) -> bool:
         key = (job_id, "describe:" + name)
         with self._analysis_lock:

@@ -66,6 +66,26 @@ def _session():
     return ort.InferenceSession(str(MODEL), options, providers=["CPUExecutionProvider"])
 
 
+@lru_cache(maxsize=4)
+def _session_for(path: str):
+    """Сессия конкретного файла модели -- для сверки моделей на одной песне,
+    не трогая ту, что работает на сайте."""
+    import onnxruntime as ort
+
+    options = ort.SessionOptions()
+    options.intra_op_num_threads = int(os.environ.get("MIDI2TAB_THREADS", "1") or 1)
+    return ort.InferenceSession(path, options, providers=["CPUExecutionProvider"])
+
+
+def variants() -> dict[str, Path]:
+    """Модели, что лежат рядом: «main» -- на сайте, остальные -- для отката."""
+    found = {"main": MODEL} if MODEL.is_file() else {}
+    for name, file in _VARIANTS.items():
+        if (_MODELS / file).is_file() and _MODELS / file != MODEL:
+            found[name] = _MODELS / file
+    return found
+
+
 def features(y, sr: int):
     import librosa
     import numpy as np
@@ -78,12 +98,13 @@ def features(y, sr: int):
     return (spec - spec.mean()) / (spec.std() + 1e-6)
 
 
-def probabilities(y, sr: int):
+def probabilities(y, sr: int, model: Path | None = None):
     """Вероятности классов по кадрам (~10.8 кадра в секунду)."""
     import numpy as np
 
     x = features(y, sr)[:, CENTER:CENTER + WINDOW]
-    logits = _session().run(None, {"cqt": x[None]})[0][0]
+    session = _session() if model is None else _session_for(str(model))
+    logits = session.run(None, {"cqt": x[None]})[0][0]
     logits = logits - logits.max(axis=1, keepdims=True)
     p = np.exp(logits)
     return p / p.sum(axis=1, keepdims=True)
@@ -180,7 +201,8 @@ def decode(probs, change_penalty: float = 5.0) -> list[tuple[float, float, str, 
 
 
 def detect(y, sr: int, change_penalty: float = 5.0, key=None, chroma=None,
-           key_strength: float = KEY_STRENGTH) -> list[tuple[float, float, str, float]]:
+           key_strength: float = KEY_STRENGTH, model: Path | None = None) -> list[tuple[float, float, str, float]]:
     """Запись -> [(начало, конец, аккорд, уверенность)], без участков «N»;
-    key -- (тон, мажор ли) песни для подсказки мажор/минор."""
-    return decode(with_key(probabilities(y, sr), key, chroma, key_strength), change_penalty)
+    key -- (тон, мажор ли) песни для подсказки мажор/минор; model -- другой
+    файл модели вместо того, что на сайте."""
+    return decode(with_key(probabilities(y, sr, model), key, chroma, key_strength), change_penalty)

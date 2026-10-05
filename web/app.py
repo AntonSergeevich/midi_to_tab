@@ -1910,6 +1910,64 @@ def api_studio_tempo(job_id: str, request: Request, file: str = Form(""), bpm: f
     return {"ok": True}
 
 
+@app.post("/api/studio/{job_id}/reference")
+def api_studio_reference(job_id: str, request: Request, file: str = Form(""), sheet: str = Form("")):
+    """Эталон аккордов песни (вставленный лист с сайта аккордов) -- сверка
+    разбора всеми моделями. Текст песни сразу отбрасывается: храним только
+    аккорды по порядку."""
+    from . import benchmark as bench
+
+    user = current_user(request)
+    job = storage.job(job_id)
+    if (not job or job.user_id != user.id or (job.settings or {}).get("kind") != "studio"
+            or job.status != "done"):
+        raise HTTPException(404, "Готовая работа не найдена")
+    names = [f["name"] for f in (job.result or {}).get("files") or []]
+    file = file or (names[0] if names else "")
+    if file not in names or not os.path.isfile(os.path.join(studio_runner.folder(job_id), file)):
+        raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
+    chords = bench.parse_sheet(sheet)
+    if len(chords) < 3:
+        raise HTTPException(400, "Не нашли аккордов — вставьте лист с аккордами над строками, как на сайте аккордов")
+    with studio_runner._analysis_lock:
+        fresh = storage.job(job_id)
+        result = dict(fresh.result or {})
+        result["reference"] = {**(result.get("reference") or {}),
+                               file: {"chords": chords[:2000], "at": time.time(), "pending": True}}
+        storage.update_job(job_id, result=result)
+    studio_runner.benchmark_later(job_id, file)
+    return {"pending": True, "chords": len(chords)}
+
+
+@app.get("/api/studio/{job_id}/reference")
+def api_studio_reference_get(job_id: str, request: Request, file: str = ""):
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(404, "Готовая работа не найдена")
+    names = [f["name"] for f in (job.result or {}).get("files") or []]
+    entry = ((job.result or {}).get("reference") or {}).get(file or (names[0] if names else ""))
+    if not entry:
+        raise HTTPException(404, "Эталона ещё нет")
+    return {k: v for k, v in entry.items() if k != "chords"} | {"chords": len(entry.get("chords") or [])}
+
+
+@app.get("/api/studio/benchmark")
+def api_studio_benchmark(request: Request):
+    """Все эталоны человека: итог каждой модели по песням и в среднем."""
+    user = current_user(request)
+    rows, totals = [], {}
+    for job in storage.user_jobs(user.id, limit=500):
+        for file, entry in ((job.result or {}).get("reference") or {}).items():
+            scores = entry.get("scores") or {}
+            rows.append({"id": job.id, "name": job.filename, "file": file, "pending": entry.get("pending"),
+                         "error": entry.get("error"), "scores": scores})
+            for model, score in scores.items():
+                totals.setdefault(model, []).append(score["score"])
+    average = {m: round(sum(v) / len(v), 3) for m, v in totals.items()}
+    return {"rows": rows, "average": average}
+
+
 DESCRIBE_PER_DAY = 30
 _describe_calls: dict[str, list[float]] = {}
 

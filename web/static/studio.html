@@ -224,6 +224,21 @@
 </div>
 
 <!-- Оферта, п. 6.3: чья это музыка -- до отправки записи -->
+<!-- Сверка с эталоном: лист аккордов с сайта аккордов -> точность моделей -->
+<div class="st-modal" id="refModal" hidden>
+  <div class="st-modal-box st-ref-box" role="dialog" aria-modal="true" aria-labelledby="refTitle">
+    <h3 id="refTitle">Сверить аккорды с эталоном</h3>
+    <p class="muted">Вставьте аккорды этой песни — прямо как на сайте аккордов, вместе с текстом. Текст мы
+      отбросим, сохраним только аккорды, и проверим, насколько точно их услышала каждая наша нейросеть.</p>
+    <textarea id="refSheet" rows="10" placeholder="Am        F&#10;Строка песни...&#10;C         G&#10;Ещё строка..."></textarea>
+    <div id="refResult" class="st-ref-result"></div>
+    <div class="st-modal-actions">
+      <button type="button" id="refAll">Все эталоны</button>
+      <button type="button" id="refClose">Закрыть</button>
+      <button type="button" class="primary" id="refGo">Сверить</button>
+    </div>
+  </div>
+</div>
 <div class="st-modal" id="rightsModal" hidden>
   <div class="st-modal-box" role="dialog" aria-modal="true" aria-labelledby="rightsTitle">
     <h3 id="rightsTitle">Чья это музыка?</h3>
