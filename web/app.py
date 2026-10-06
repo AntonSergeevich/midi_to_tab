@@ -1172,6 +1172,8 @@ def api_job(job_id: str, request: Request):
         "name": job.filename,
     }
     if job.status == "done" and job.result:
+        if jobs_module.upgrade_midi_timing(job.result):
+            storage.update_job(job.id, result=job.result)
         payload["result"] = {
             key: value for key, value in job.result.items() if key != "paths"
         }

@@ -1576,3 +1576,26 @@ def test_midi_analysis_audio_is_rendered_to_mp3(studio_app, tmp_path):
     assert response.status_code == 200 and response.headers["content-type"] == "audio/mpeg"
     assert response.content[:3] == b"ID3" or response.content[:2] == b"\xff\xfb"
     assert os.path.isfile(midi + ".preview.mp3")
+
+
+def test_old_midi_analysis_timing_follows_the_file(tmp_path):
+    """Старый разбор из MIDI: аккорды считались по округлённому темпу (127.6 ->
+    128), долей не было -- метроном уезжал. Пересчёт берёт время из файла."""
+    pretty_midi = pytest.importorskip("pretty_midi")
+    from midi2tab.timing import TPQ
+    from web import jobs as jobs_module
+
+    pm = pretty_midi.PrettyMIDI(initial_tempo=127.6)
+    inst = pretty_midi.Instrument(program=25)
+    beat = 60 / 127.6
+    inst.notes.append(pretty_midi.Note(velocity=90, pitch=52, start=100 * beat, end=101 * beat))
+    pm.instruments.append(inst)
+    path = str(tmp_path / "song.mid")
+    pm.write(path)
+    old_start = 100 * TPQ * 60 / 128 / TPQ                      # как считалось раньше
+    result = {"isMidi": True, "tempo": 128, "paths": {"source": path},
+              "chords": [{"name": "E", "start": round(old_start, 3), "end": round(old_start + 0.5, 3)}]}
+    assert jobs_module.upgrade_midi_timing(result)
+    assert abs(result["chords"][0]["start"] - 100 * beat) < 0.01      # было на 0.15 с раньше
+    assert abs(result["beats"][100] - 100 * beat) < 0.01
+    assert not jobs_module.upgrade_midi_timing(result)                # второй раз -- без изменений

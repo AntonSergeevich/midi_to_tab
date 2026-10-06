@@ -190,6 +190,47 @@ def _share(elapsed: float, expected: float) -> float:
     return 0.92 + 0.08 * (1.0 - 1.0 / (1.0 + (ratio - 1.0)))
 
 
+def midi_beats(path: str):
+    """Доли и сильные доли MIDI по его карте темпа (+ сам PrettyMIDI) --
+    или пустые списки, если файл не читается."""
+    try:
+        import pretty_midi
+
+        pm = pretty_midi.PrettyMIDI(path)
+        return ([round(float(b), 3) for b in pm.get_beats()],
+                [round(float(b), 3) for b in pm.get_downbeats()], pm)
+    except Exception:  # noqa: BLE001 -- метроном не повод ронять разбор
+        return [], [], None
+
+
+def midi_seconds(pm, engine_tick: int) -> float:
+    """Тик движка -> секунды по карте темпа файла (обратное midiin)."""
+    from midi2tab.timing import TPQ
+
+    return round(float(pm.tick_to_time(int(round(engine_tick / TPQ * pm.resolution)))), 3)
+
+
+def upgrade_midi_timing(result: dict) -> bool:
+    """Разборы из MIDI до 06.10: аккорды считались по первому темпу, долей не
+    было -- метроном и ленточка аккордов уезжали от звука. Пересчитать по
+    карте темпа файла. True -- результат изменился."""
+    path = (result.get("paths") or {}).get("source") or ""
+    if not result.get("isMidi") or result.get("beats") or not os.path.isfile(path):
+        return False
+    from midi2tab.timing import TPQ
+
+    beats, downbeats, pm = midi_beats(path)
+    if not pm:
+        return False
+    tempo = result.get("tempo") or 120
+    to_tick = lambda t: t * tempo * TPQ / 60.0  # noqa: E731 -- обратное span.seconds
+    for chord in result.get("chords") or []:
+        chord["start"] = midi_seconds(pm, to_tick(chord["start"]))
+        chord["end"] = midi_seconds(pm, to_tick(chord["end"]))
+    result["beats"], result["downbeats"] = beats, downbeats
+    return True
+
+
 def _shapes_for(chords, options) -> dict:
     """
     Картинки аппликатур для каждого аккорда песни.
@@ -386,20 +427,18 @@ class JobRunner:
                 doc = midiin.load(source_path)
                 if not tempo:
                     tempo = int(round(doc.tempo_bpm))
-                # Доли для метронома -- из самого MIDI: там они записаны точно
-                try:
-                    import pretty_midi
-
-                    pm = pretty_midi.PrettyMIDI(source_path)
-                    beats = [round(float(b), 3) for b in pm.get_beats()]
-                    downbeats = [round(float(b), 3) for b in pm.get_downbeats()]
-                except Exception:  # noqa: BLE001 -- метроном не повод ронять разбор
-                    beats, downbeats = [], []
+                # Доли для метронома -- из самого MIDI, по его карте темпа:
+                # та же шкала времени, по которой MIDI озвучивается в плеере
+                beats, downbeats, pm = midi_beats(source_path)
                 notes = doc.merged_notes([t.index for t in doc.tracks if not t.is_drum])
                 spans = detect_midi_chords(notes, total_ticks=doc.total_ticks)
                 chords = []
                 for span in spans:
-                    start_s, end_s = span.seconds(tempo)
+                    # Секунды -- по карте темпа файла, а не по первому темпу:
+                    # у MIDI от SheetSage2/YuE2 темп внутри песни меняется,
+                    # и аккорды уезжали от звука (06.10)
+                    start_s, end_s = (midi_seconds(pm, span.start), midi_seconds(pm, span.end)) if pm \
+                        else span.seconds(tempo)
                     chords.append({
                         "name": span.name,
                         "start": round(start_s, 3),

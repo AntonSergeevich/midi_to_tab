@@ -356,10 +356,20 @@ function renderLyrics(lyrics, source) {
 
 // ------------------------------------------------------------------ время
 
+// Плавные часы: Safari на iPhone обновляет currentTime ступеньками, и
+// метроном по таким часам щёлкал вразнобой с нотами (06.10). Между
+// обновлениями время досчитывается по точному таймеру страницы.
 function audioClock(audio) {
+  let last = { t: -1, at: 0 };
   return {
-    get time() { return audio.currentTime || 0; },
-    set time(v) { audio.currentTime = Math.max(0, v); },
+    get time() {
+      const t = audio.currentTime || 0;
+      const at = performance.now();
+      if (audio.paused || t !== last.t || at - last.at > 500) { last = { t, at }; return t; }
+      return t + ((at - last.at) / 1000) * (audio.playbackRate || 1);
+    },
+    get rate() { return audio.playbackRate || 1; },
+    set time(v) { audio.currentTime = Math.max(0, v); last = { t: -1, at: 0 }; },
     get duration() { return audio.duration || 0; },
     get paused() { return audio.paused; },
     play: () => audio.play(),
@@ -386,11 +396,12 @@ function metronome(beats, downbeats) {
   let ctx = null;
   let on = false;
   let index = 0;
+  let lastNow = null;
   const strong = new Set(downbeats.map((b) => b.toFixed(2)));
 
-  function click(strongBeat) {
+  function click(strongBeat, delay = 0) {
     if (!ctx) return;
-    const when = ctx.currentTime + 0.01;
+    const when = ctx.currentTime + 0.01 + delay;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.frequency.value = strongBeat ? 1600 : 1000;
@@ -410,16 +421,22 @@ function metronome(beats, downbeats) {
         ctx = new (window.AudioContext || window.webkitAudioContext)();
       }
       if (ctx) ctx.resume();
+      lastNow = null;                       // включили -- найти долю заново
       return on;
     },
-    sync(now) {
-      if (!on || !beats.length) return;
-      if (index >= beats.length || beats[index] > now + 0.4) {
-        index = beats.findIndex((b) => b >= now - 0.05);
+    // Щелчки планируются заранее (на 0.15 с вперёд) на точное время звуковой
+    // карты -- а не «когда кадр заметил долю»: так они ровные и на iPhone
+    sync(now, rate = 1) {
+      if (!on || !beats.length || !ctx) return;
+      // Перемотка (время скакнуло) -- начать с ближайшей доли впереди
+      if (lastNow === null || now < lastNow - 0.05 || now > lastNow + 0.5) {
+        index = beats.findIndex((b) => b >= now - 0.01);
         if (index < 0) index = beats.length;
       }
-      while (index < beats.length && beats[index] <= now + 0.02) {
-        click(strong.has(beats[index].toFixed(2)));
+      lastNow = now;
+      while (index < beats.length && beats[index] <= now + 0.15) {
+        const delay = Math.max(0, (beats[index] - now) / rate);
+        click(strong.has(beats[index].toFixed(2)), delay);
         index++;
       }
     },
@@ -739,7 +756,7 @@ function tick() {
   gripEls.forEach(({ el, name }) =>
     el.classList.toggle('now', !!playing && playing.name === name));
 
-  metro.sync(now);
+  if (clock && !clock.paused) metro.sync(now, clock.rate);
   $('time').textContent = `${mmss(now)} / ${mmss(clock.duration)}`;
   if (clock.duration) $('seek').value = (now / clock.duration) * 1000;
   requestAnimationFrame(tick);
