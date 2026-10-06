@@ -93,8 +93,8 @@ def fetch(url, workdir):
         while chunk := resp.read(1 << 20):
             f.write(chunk)
     wav = os.path.join(workdir, "source.wav")
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", path, "-t", "330", "-ac", "2", "-ar", "44100", wav],
-                   check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", path, "-t", "330", "-ac", "2", "-ar", "44100",
+                    "-c:a", "pcm_s16le", wav], check=True)
     return wav
 
 

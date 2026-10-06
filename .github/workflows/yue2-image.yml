@@ -38,6 +38,9 @@ jobs:
           push: true
           provenance: false
           tags: ${{ env.IMAGE }}:latest,${{ env.IMAGE }}:${{ github.run_number }}
+          # Слои -- из прошлого образа: правка обработчика не пересобирает 25 ГБ
+          cache-from: type=registry,ref=${{ env.IMAGE }}:latest
+          cache-to: type=inline
           labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
       - name: Итог
         run: |
