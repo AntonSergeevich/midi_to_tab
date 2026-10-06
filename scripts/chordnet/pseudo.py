@@ -77,7 +77,7 @@ def one(task):
     labels = np.where(sure >= CONFIDENT, path, common.IGNORE).astype(np.int16)
     chord = (labels >= 0) & (labels < common.N_CLASS)
     if chord.mean() < MIN_LABELED:
-        return "неуверенно"
+        return f"неуверенно {int(chord.mean() * 10) * 10}%"
     np.savez_compressed(target, x=x.astype(np.float16), y=labels)
     return "ок"
 
@@ -96,7 +96,7 @@ def main() -> None:
             counts[result] = counts.get(result, 0) + 1
             if number % 100 == 0:
                 print(f"разметка: {number}/{len(tasks)} {counts}", flush=True)
-    print(f"готово: {counts}", flush=True)
+    print(f"::notice title=FMA разметка::{counts}", flush=True)
 
 
 if __name__ == "__main__":

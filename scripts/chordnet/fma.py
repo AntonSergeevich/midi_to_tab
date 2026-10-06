@@ -59,18 +59,23 @@ def catalog(work: Path):
     return out
 
 
-def pick(found, count: int, skip: int, seed: int = 0):
-    """Одна и та же выборка при каждом запуске; skip -- для кусков по 750."""
+def pick(found, count: int, skip: int, total: int = 3000, seed: int = 0):
+    """Одна и та же выборка из total отрывков при каждом запуске; куски по
+    750 берут из неё [skip, skip + count) -- без пересечений."""
     rng = random.Random(seed)
     by_genre = {}
     for item in found:
         by_genre.setdefault(item[1], []).append(item)
     for items in by_genre.values():
         rng.shuffle(items)
-    total = count + skip
     wanted = []
     for genre, share in GENRES.items():
         wanted += by_genre.get(genre, [])[:round(total * share)]
+    # Свободных треков жанра меньше его доли -- добираем остальными жанрами
+    taken = {item[0] for item in wanted}
+    rest = [item for items in by_genre.values() for item in items if item[0] not in taken]
+    rng.shuffle(rest)
+    wanted += rest[:max(0, total - len(wanted))]
     rng.shuffle(wanted)
     return wanted[skip:skip + count]
 
@@ -84,7 +89,8 @@ def main() -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     found = catalog(out)
-    print(f"свободных треков нужных жанров: {len(found)}", flush=True)
+    genres = {g: sum(1 for f in found if f[1] == g) for g in GENRES}
+    print(f"::notice title=FMA каталог::свободных треков {len(found)}: {genres}", flush=True)
     chosen = pick(found, args.count, args.skip)
     print(f"берём {len(chosen)} (с {args.skip})", flush=True)
 
@@ -111,11 +117,12 @@ def main() -> None:
             except Exception as error:  # noqa: BLE001 -- сервер иногда рвёт соединение
                 local.archive = None
                 if attempt == 3:
+                    errors.append(repr(error)[:120])
                     print(f"{tid}: не скачался ({error!r})", file=sys.stderr, flush=True)
                 time.sleep(2 ** attempt)
         return False
 
-    done = 0
+    done, errors = 0, []
     with ThreadPoolExecutor(8) as pool:
         for number, ok in enumerate(pool.map(fetch, chosen), 1):
             done += ok
@@ -125,7 +132,8 @@ def main() -> None:
         writer = csv.writer(f)
         writer.writerow(["track_id", "genre", "artist", "title", "license", "url"])
         writer.writerows(chosen)
-    print(f"готово: {done} из {len(chosen)}", flush=True)
+    print(f"::notice title=FMA скачано::{done} из {len(chosen)}"
+          f"{'; ошибка: ' + errors[0] if errors else ''}", flush=True)
     os.remove(out / "tracks.csv")
 
 

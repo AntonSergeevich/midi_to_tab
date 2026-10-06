@@ -198,7 +198,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: fma_part
-          key: fma-skip0-750-ext-${{ hashFiles('midi2tab/models/chordnet.onnx') }}-v1
+          key: fma-skip0-750-ext-${{ hashFiles('midi2tab/models/chordnet.onnx') }}-v2
       - name: Перенести FMA 0
         if: inputs.fma == '1'
         run: |
@@ -209,7 +209,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: fma_part
-          key: fma-skip750-750-ext-${{ hashFiles('midi2tab/models/chordnet.onnx') }}-v1
+          key: fma-skip750-750-ext-${{ hashFiles('midi2tab/models/chordnet.onnx') }}-v2
       - name: Перенести FMA 750
         if: inputs.fma == '1'
         run: |
@@ -220,7 +220,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: fma_part
-          key: fma-skip1500-750-ext-${{ hashFiles('midi2tab/models/chordnet.onnx') }}-v1
+          key: fma-skip1500-750-ext-${{ hashFiles('midi2tab/models/chordnet.onnx') }}-v2
       - name: Перенести FMA 1500
         if: inputs.fma == '1'
         run: |
@@ -231,7 +231,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: fma_part
-          key: fma-skip2250-750-ext-${{ hashFiles('midi2tab/models/chordnet.onnx') }}-v1
+          key: fma-skip2250-750-ext-${{ hashFiles('midi2tab/models/chordnet.onnx') }}-v2
       - name: Перенести FMA 2250
         if: inputs.fma == '1'
         run: |
