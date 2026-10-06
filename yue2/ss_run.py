@@ -116,7 +116,9 @@ def retime(data, beats, meter=4, downbeat=None):
         events.append((pickup * ppq, mido.MetaMessage("time_signature", numerator=meter, denominator=4, time=0)))
     for i in range(len(grid) - 1):
         micro = int(round((grid[i + 1] - grid[i]) * 1_000_000))
-        events.append((i * ppq, mido.MetaMessage("set_tempo", tempo=max(200_000, min(micro, 3_000_000)), time=0)))
+        # без «разумных» пределов: обрезанная короткая доля в начале (0.18 с)
+        # сдвигала все ноты на 20 мс; MIDI допускает темп до 0xFFFFFF мкс
+        events.append((i * ppq, mido.MetaMessage("set_tempo", tempo=max(1, min(micro, 0xFFFFFF)), time=0)))
     events.sort(key=lambda e: e[0])
     now = 0
     for tick, msg in events:

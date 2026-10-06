@@ -118,14 +118,15 @@ def beats_of(wav):
         return None
 
 
-def sheetsage(wav, melody_only, out=None):
+def sheetsage(wav, melody_only, out=None, listen=None):
     """SheetSage2 в своём окружении; процесс выходит -- видеопамять свободна.
     out -- папка для MIDI частей (мелодия вокала, инструментов, аккорды);
-    их карта темпа строится по долям Beat This."""
+    их карта темпа строится по долям Beat This -- с файла listen (тот же mp3,
+    что слушает и разбирает сайт: иначе затакт мог выйти на долю раньше)."""
     args = ["/venv-ss/bin/python", "/app/ss_run.py", wav] + (["--melody-only"] if melody_only else []) \
         + (["--out", out] if out else [])
     if out:
-        grid = beats_of(wav)
+        grid = beats_of(listen or wav)
         if grid:
             path = f"{wav}.beats.json"
             with open(path, "w") as f:
@@ -208,12 +209,13 @@ def render(style, lyrics, variants, seed, **kwargs):
         with tempfile.TemporaryDirectory() as work:
             wav = f"{work}/song.wav"
             sf.write(wav, song.audio, song.sample_rate, subtype="PCM_16")
-            mp3 = subprocess.run(["ffmpeg", "-v", "error", "-i", wav, "-b:a", "256k", "-f", "mp3", "pipe:1"],
-                                 capture_output=True, check=True).stdout
-            files.append((f"yue2_{n + 1}.mp3", mp3))
+            subprocess.run(["ffmpeg", "-v", "error", "-i", wav, "-b:a", "256k", f"{work}/song.mp3"],
+                           capture_output=True, check=True)
+            with open(f"{work}/song.mp3", "rb") as f:
+                files.append((f"yue2_{n + 1}.mp3", f.read()))
             sheet = {}
             try:
-                sheet = sheetsage(wav, melody_only=False, out=f"{work}/midi")
+                sheet = sheetsage(wav, melody_only=False, out=f"{work}/midi", listen=f"{work}/song.mp3")
                 ready = next((m for m in ("transcription.mid", "melody.mid") if m in (sheet.get("midis") or [])), None)
                 if ready:
                     with open(f"{work}/midi/{ready}", "rb") as f:
