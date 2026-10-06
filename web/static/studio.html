@@ -268,8 +268,10 @@
 <!-- Сверка с эталоном: лист аккордов с сайта аккордов -> точность моделей -->
 <div class="st-modal" id="notesModal" hidden>
   <div class="st-modal-box st-notes-box" role="dialog" aria-modal="true" aria-labelledby="notesTitle">
-    <h3 id="notesTitle">Ноты</h3>
-    <p class="muted" id="notesInfo"></p>
+    <div class="st-notes-head">
+      <div><h3 id="notesTitle">Ноты</h3><p class="muted" id="notesInfo"></p></div>
+      <button type="button" class="icon-btn st-notes-x" id="notesX" aria-label="Закрыть ноты">✕</button>
+    </div>
     <div id="notesPaper" class="st-notes-paper"></div>
     <div class="st-modal-actions">
       <a class="st-modal-link" id="notesAbc" download="notes.abc">Скачать ABC</a>

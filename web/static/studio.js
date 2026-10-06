@@ -1470,10 +1470,20 @@ async function openNotes(jobId) {
   $('notesAbc').download = `${data.name.replace(/\.[a-z0-9]{2,4}$/i, '')}.abc`;
   $('notesPaper').innerHTML = '<p class="muted">Рисуем ноты…</p>';
   $('notesModal').hidden = false;
+  $('notesPaper').scrollTop = 0;
+  history.pushState({ notes: true }, '');   // «назад» закрывает ноты, а не уходит со страницы
   try {
     await loadAbcjs();
-    $('notesPaper').innerHTML = '';
-    window.ABCJS.renderAbc('notesPaper', data.abc, {
+    // Рисуем во вложенный блок: abcjs меняет стили своего контейнера, и
+    // прокрутка нот внутри окна ломалась
+    $('notesPaper').innerHTML = '<div id="notesSheet"></div>';
+    // На телефоне -- по 2 такта в строке и в натуральную ширину: ужатые
+    // под узкий экран 4 такта читать невозможно
+    const narrow = $('notesPaper').clientWidth < 600;
+    window.ABCJS.renderAbc('notesSheet', data.abc, narrow ? {
+      add_classes: true, staffwidth: Math.max(260, $('notesPaper').clientWidth - 40),
+      wrap: { minSpacing: 1.6, maxSpacing: 2.4, preferredMeasuresPerLine: 2 },
+    } : {
       responsive: 'resize', add_classes: true,
       wrap: { minSpacing: 1.8, maxSpacing: 2.7, preferredMeasuresPerLine: 4 }, staffwidth: 860,
     });
@@ -1481,8 +1491,17 @@ async function openNotes(jobId) {
     $('notesPaper').innerHTML = '<p class="bad">Не получилось нарисовать ноты — скачайте ABC или MIDI.</p>';
   }
 }
-$('notesClose').addEventListener('click', () => { $('notesModal').hidden = true; });
-$('notesModal').addEventListener('click', (e) => { if (e.target === $('notesModal')) $('notesModal').hidden = true; });
+// Закрыть ноты: ✕, «Закрыть», тап мимо окна, Esc и жест «назад» на телефоне
+function closeNotes(fromHistory) {
+  if ($('notesModal').hidden) return;
+  $('notesModal').hidden = true;
+  if (!fromHistory && history.state && history.state.notes) history.back();
+}
+$('notesClose').addEventListener('click', () => closeNotes(false));
+$('notesX').addEventListener('click', () => closeNotes(false));
+$('notesModal').addEventListener('click', (e) => { if (e.target === $('notesModal')) closeNotes(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNotes(false); });
+window.addEventListener('popstate', () => closeNotes(true));
 $('notesPrint').addEventListener('click', () => {
   document.body.classList.add('print-notes');
   window.print();

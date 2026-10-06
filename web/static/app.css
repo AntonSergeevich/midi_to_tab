@@ -1174,8 +1174,18 @@ header.top > nav.topnav {
 .st-yue2 select { width: 100%; }
 .st-sheet { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 8px 0 4px; }
 .st-chords { margin: 0; font-size: 14px; word-break: break-word; }
-.st-notes-box { width: min(980px, calc(100vw - 24px)); max-height: calc(100vh - 40px); overflow: auto; }
-.st-notes-paper { background: #fff; color: #000; border-radius: 10px; padding: 10px; min-height: 120px; }
+/* Окно нот: шапка с ✕ и кнопки внизу стоят на месте, ноты листаются внутри --
+   на телефоне длинная партитура выталкивала «Закрыть» за экран (06.10) */
+.st-notes-box { width: min(980px, calc(100vw - 24px)); max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px); display: flex; flex-direction: column; overflow: hidden; }
+.st-notes-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex: none; }
+.st-notes-head h3 { margin: 0 0 4px; }
+.st-notes-head p { margin: 0 0 10px; }
+.st-notes-x { flex: none; width: 40px; height: 40px; font-size: 18px; justify-content: center; }
+.st-notes-paper { background: #fff; color: #000; border-radius: 10px; padding: 10px; min-height: 0;
+  flex: 1 1 auto; overflow: auto; -webkit-overflow-scrolling: touch; }
+.st-notes-box.st-modal-box { max-width: 980px; }
+.st-notes-box .st-modal-actions { flex: none; flex-wrap: wrap; }
 .st-notes-paper svg { max-width: 100%; height: auto; }
 @media print {
   body.print-notes * { visibility: hidden; }
