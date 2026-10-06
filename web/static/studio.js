@@ -351,6 +351,26 @@ function renderVoices() {
 // поэтому запрос и номер страницы живут отдельно и не сбрасываются
 const PER_PAGE = 10;
 const list = { query: '', page: 0, jobs: [] };
+// Страница списка, поиск и прокрутка -- в памяти вкладки: зашёл в трек,
+// ушёл в плеер или табы, вернулся «назад» -- список там же, где был
+// (раньше всегда сбрасывался на первую страницу, 06.10)
+const LIST_KEY = 'studioList';
+let listScroll = 0;
+let listRestored = false;
+try {
+  const saved = JSON.parse(sessionStorage.getItem(LIST_KEY) || '{}');
+  list.page = Number(saved.page) || 0;
+  list.query = String(saved.query || '');
+  listScroll = Number(saved.scroll) || 0;
+  if (list.query) $('search').value = list.query;
+} catch (error) { /* нет хранилища -- с первой страницы */ }
+function saveList() {
+  try {
+    sessionStorage.setItem(LIST_KEY, JSON.stringify({
+      page: list.page, query: list.query, scroll: openJob ? listScroll : window.scrollY }));
+  } catch (error) { /* не страшно */ }
+}
+window.addEventListener('pagehide', saveList);
 const fold = (text) => String(text || '').toLowerCase().replace(/ё/g, 'е');
 
 function matches(j, words) {
@@ -406,6 +426,7 @@ $('pages').addEventListener('click', (e) => {
   if (!button || button.disabled) return;
   list.page = Number(button.dataset.page);
   renderList(list.jobs);
+  saveList();
   $('listView').scrollIntoView({ block: 'start', behavior: 'smooth' });
 });
 
@@ -413,6 +434,7 @@ $('search').addEventListener('input', () => {
   list.query = $('search').value;
   list.page = 0;
   renderList(list.jobs);
+  saveList();
 });
 
 function renderDetail(jobs) {
@@ -500,10 +522,27 @@ function midiList(c) {
   return hint;
 }
 
-function closeDetail() {
+// Открытый трек -- запись в истории: жест «назад» на телефоне закрывает
+// трек и возвращает к списку на ту же страницу и прокрутку, а не уводит с сайта
+function openDetail(id, push) {
+  if (!openJob) listScroll = window.scrollY;
+  openJob = id;
+  renderDetail(info.jobs);
+  $('listView').hidden = true;
+  $('detailView').hidden = false;
+  if (push) history.pushState({ detail: id }, '');
+  saveList();
+  window.scrollTo({ top: $('detailView').offsetTop - 80, behavior: push ? 'smooth' : 'auto' });
+}
+
+function closeDetail(fromHistory) {
+  const wasOpen = Boolean(openJob);
   openJob = null;
   $('detailView').hidden = true;
   $('listView').hidden = false;
+  if (!fromHistory && history.state && history.state.detail) history.back();
+  if (wasOpen && fromHistory) window.scrollTo({ top: listScroll, behavior: 'auto' });
+  saveList();
 }
 
 // Опрос сервера. Раньше один сорвавшийся запрос (на телефоне по LTE --
@@ -548,6 +587,12 @@ async function loadOnce() {
   renderVoices();
   renderList(info.jobs);
   if (openJob) renderDetail(info.jobs);
+  if (!listRestored) {                 // вернулись на страницу «назад»
+    listRestored = true;
+    const back = history.state && history.state.detail;
+    if (back && info.jobs.some((j) => j.id === back)) openDetail(back, false);
+    else if (listScroll && !location.search) window.scrollTo({ top: listScroll, behavior: 'auto' });
+  }
   updateStart();
   const analyzing = await ensureKeys().catch(() => false);
   if (info.jobs.some((j) => j.status === 'queued' || j.status === 'running' || (j.midiBusy || []).length)) {
@@ -880,15 +925,12 @@ document.addEventListener('click', async (e) => {
     return;
   }
   const row = e.target.closest('[data-open]');
-  if (row) {
-    openJob = row.dataset.open;
-    renderDetail(info.jobs);
-    $('listView').hidden = true;
-    $('detailView').hidden = false;
-    window.scrollTo({ top: $('detailView').offsetTop - 80, behavior: 'smooth' });
+  if (row) { openDetail(row.dataset.open, true); return; }
+  if (e.target.closest('#back')) {
+    // «Назад» в карточке = «назад» браузера: та же страница и прокрутка
+    if (history.state && history.state.detail) history.back(); else closeDetail(true);
     return;
   }
-  if (e.target.closest('#back')) { closeDetail(); return; }
   const menuBtn = e.target.closest('[data-menu]');
   if (menuBtn) { openMenu(menuBtn); return; }
   const action = e.target.closest('[data-act]');
@@ -1471,7 +1513,7 @@ async function openNotes(jobId) {
   $('notesPaper').innerHTML = '<p class="muted">Рисуем ноты…</p>';
   $('notesModal').hidden = false;
   $('notesPaper').scrollTop = 0;
-  history.pushState({ notes: true }, '');   // «назад» закрывает ноты, а не уходит со страницы
+  history.pushState({ ...(history.state || {}), notes: true }, '');   // «назад» закрывает ноты, а не уходит со страницы
   try {
     await loadAbcjs();
     // Рисуем во вложенный блок: abcjs меняет стили своего контейнера, и
@@ -1501,7 +1543,12 @@ $('notesClose').addEventListener('click', () => closeNotes(false));
 $('notesX').addEventListener('click', () => closeNotes(false));
 $('notesModal').addEventListener('click', (e) => { if (e.target === $('notesModal')) closeNotes(false); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNotes(false); });
-window.addEventListener('popstate', () => closeNotes(true));
+window.addEventListener('popstate', () => {
+  closeNotes(true);
+  const id = history.state && history.state.detail;
+  if (id && id !== openJob && info) openDetail(id, false);
+  else if (!id && openJob) closeDetail(true);
+});
 $('notesPrint').addEventListener('click', () => {
   document.body.classList.add('print-notes');
   window.print();
