@@ -506,8 +506,28 @@ function closeDetail() {
   $('listView').hidden = false;
 }
 
+// Опрос сервера. Раньше один сорвавшийся запрос (на телефоне по LTE --
+// обычное дело) обрывал цепочку навсегда, и карточка замирала до
+// перезагрузки (06.10). Теперь после ошибки -- повтор, а при возврате на
+// вкладку -- сразу свежие данные.
 async function load() {
-  info = await (await fetch('/api/studio')).json();
+  clearTimeout(polling);
+  let next = null;
+  try {
+    next = await loadOnce();
+  } catch (error) {
+    next = 8000;
+  }
+  clearTimeout(polling);
+  if (next) polling = setTimeout(load, next);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && info) load(); });
+window.addEventListener('pageshow', (e) => { if (e.persisted && info) load(); });
+
+async function loadOnce() {
+  const response = await fetch('/api/studio');
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  info = await response.json();
   // Шапка -- общая (nav.js); обновляем, только когда изменились деньги
   const money = `${info.unlimited}|${info.balance}|${info.studioCredits}|${info.email}`;
   if (money !== load.money && window.refreshNav) { load.money = money; window.refreshNav(); }
@@ -529,16 +549,16 @@ async function load() {
   renderList(info.jobs);
   if (openJob) renderDetail(info.jobs);
   updateStart();
-  clearTimeout(polling);
-  const analyzing = await ensureKeys();
+  const analyzing = await ensureKeys().catch(() => false);
   if (info.jobs.some((j) => j.status === 'queued' || j.status === 'running' || (j.midiBusy || []).length)) {
-    polling = setTimeout(load, 5000);
-  } else if (analyzing) {
-    polling = setTimeout(load, 6000);   // тональность и темп вот-вот будут
-  } else if (info.jobs.some((j) => j.status === 'done' && !j.cover
-      && ['create', 'restyle'].includes(j.mode) && Date.now() / 1000 - j.at < 900)) {
-    polling = setTimeout(load, 15000);  // обложка ещё рисуется
+    return 5000;
   }
+  if (analyzing) return 6000;            // тональность и темп вот-вот будут
+  if (info.jobs.some((j) => j.status === 'done' && !j.cover
+      && ['create', 'restyle'].includes(j.mode) && Date.now() / 1000 - j.at < 900)) {
+    return 15000;                        // обложка ещё рисуется
+  }
+  return null;
 }
 
 // Тональность и темп: разбор на сервере по запросу, не больше двух треков
