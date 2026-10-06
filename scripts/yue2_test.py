@@ -39,7 +39,11 @@ def main() -> None:
         print(f"seed {seed}:", json.dumps({k: v for k, v in output.items() if k != "files"},
                                          ensure_ascii=False)[:1500])
         with open(os.path.join(args.out, f"{seed}_info.json"), "w", encoding="utf-8") as f:
-            json.dump(output.get("info") or {}, f, ensure_ascii=False, indent=1)
+            json.dump({k: v for k, v in output.items() if k != "files"} or status, f,
+                      ensure_ascii=False, indent=1)
+        if not output.get("ok"):
+            # Итог -- в аннотацию: лог прогона из облачной сессии не скачать
+            print(f"::error::seed {seed}: {(output.get('error') or status.get('error') or '')[:900]}")
         report(status)
         if not output.get("ok"):
             failed += 1
