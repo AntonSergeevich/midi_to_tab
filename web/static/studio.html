@@ -135,8 +135,24 @@
             <span class="muted" id="lyricsCount"></span>
             <button type="button" class="primary" id="lyricsDone">Готово</button>
           </div>
+          <div class="st-tags" id="lyricsTags">
+            <button type="button" class="st-tag st-tag-auto" id="lyricsAuto"
+                    title="Найдём припев по повторам, расставим куплеты, бридж и вставки под ваш стиль">✨ Разметить</button>
+            <button type="button" class="st-tag" data-tag="[Intro]">Вступление</button>
+            <button type="button" class="st-tag" data-tag="[Verse]">Куплет</button>
+            <button type="button" class="st-tag" data-tag="[Pre-Chorus]">Предприпев</button>
+            <button type="button" class="st-tag" data-tag="[Chorus]">Припев</button>
+            <button type="button" class="st-tag" data-tag="[Bridge]">Бридж</button>
+            <button type="button" class="st-tag" data-tag="[Solo]">Соло</button>
+            <button type="button" class="st-tag" data-tag="[Interlude]">Проигрыш</button>
+            <button type="button" class="st-tag" data-tag="[Outro]">Концовка</button>
+            <span class="st-tags-sep" aria-hidden="true"></span>
+            <button type="button" class="st-tag" data-singer="male" title="Эту часть поёт мужской голос">♂ Он</button>
+            <button type="button" class="st-tag" data-singer="female" title="Эту часть поёт женский голос">♀ Она</button>
+            <button type="button" class="st-tag" data-singer="duet" title="Эту часть поют вместе">♂♀ Вместе</button>
+          </div>
           <textarea id="lyrics" rows="8" maxlength="5000"
-                    placeholder="[Куплет]&#10;Первая строка&#10;Вторая строка&#10;&#10;[Припев]&#10;…"></textarea>
+                    placeholder="[Verse]&#10;Первая строка куплета&#10;Вторая строка&#10;&#10;[Chorus]&#10;Строки припева&#10;&#10;[Bridge]&#10;…&#10;&#10;Можно вставить текст сплошняком и нажать «✨ Разметить» — куплеты и припевы расставим сами"></textarea>
         </div>
         <label class="check" id="instrumentalBox"><input type="checkbox" id="instrumental"> Без слов — инструментал</label>
       </div>
@@ -329,6 +345,7 @@
   </div>
 </div>
 
+<script src="/static/lyricstags.js"></script>
 <script src="/static/studio.js"></script>
 <script src="/static/consent.js"></script>
 </body>

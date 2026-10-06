@@ -1523,3 +1523,15 @@ def test_yue2_knobs_and_notes(studio_app, monkeypatch):
     assert len(payload["midi"]) == 2
     abc = client.get(f"/api/studio/{notes_id}/abc").json()
     assert abc["abc"].startswith("X:1") and abc["key"] == "E:minor"
+
+
+def test_russian_section_tags_become_english(studio_app):
+    """«[Куплет 1]», «Припев:» -- в метки, которые понимают нейросети; строки
+    текста не трогаем."""
+    app_module, client, user, submitted = studio_app
+    tags = app_module.studio.english_tags
+    assert tags("[Куплет 1]\nГород спит\nПрипев:\nИ пусть ветер\n[Бридж: тихо]\nМы просто пчёлы") == \
+        "[Verse 1]\nГород спит\n[Chorus]\nИ пусть ветер\n[Bridge: тихо]\nМы просто пчёлы"
+    app_module.storage.add_balance(user.id, 300)
+    assert _start(client, lyrics="[Припев]\nЛа-ла").status_code == 200
+    assert submitted[-1][1]["lyrics"] == "[Chorus]\nЛа-ла"

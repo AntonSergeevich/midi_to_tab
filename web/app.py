@@ -1744,7 +1744,7 @@ async def api_studio_start(
             out.write(chunk)
 
     _studio_charge_and_submit(request, user, job.id, service, folder, {
-        "mode": mode, "prompt": style, "lyrics": lyrics.strip()[:5000], **knobs,
+        "mode": mode, "prompt": style, "lyrics": studio.english_tags(lyrics.strip())[:5000], **knobs,
         # Две версии за раз: авторы ACE-Step советуют выбирать из
         # нескольких, а GPU на вторую тратит секунды.
         "variants": 2,

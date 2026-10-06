@@ -719,6 +719,23 @@ $('instrumental').addEventListener('change', () => {
   $('lyrics').disabled = $('instrumental').checked;
   updateStart();
 });
+// Метки частей песни: кнопка -- в место курсора, «Разметить» -- всё сразу
+$('lyricsTags').addEventListener('click', (e) => {
+  const tag = e.target.closest('[data-tag]');
+  if (tag) window.insertLyricsTag($('lyrics'), tag.dataset.tag);
+  const who = e.target.closest('[data-singer]');
+  if (who && !window.setSinger($('lyrics'), who.dataset.singer)) {
+    toast('Поставьте курсор в нужную часть песни — пометим, кто её поёт');
+  }
+});
+$('lyricsAuto').addEventListener('click', () => {
+  const area = $('lyrics');
+  if (!area.value.trim()) { toast('Сначала вставьте текст песни — разметим его сами ✨'); return; }
+  const before = area.value;
+  area.value = window.structureLyrics(before, $('prompt').value, voice).slice(0, 5000);
+  area.dispatchEvent(new Event('input', { bubbles: true }));
+  toast('Разметили: припевы — по повторам, вставки — под ваш стиль. Поправьте, если нужно ✍️');
+});
 $('lyricsExpand').addEventListener('click', () => lyricsFull(true));
 $('lyricsDone').addEventListener('click', () => lyricsFull(false));
 document.addEventListener('keydown', (e) => {

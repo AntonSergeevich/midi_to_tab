@@ -1186,3 +1186,12 @@ header.top > nav.topnav {
   border-radius: 10px; color: var(--text); text-decoration: none; font-size: 14px; }
 .st-modal-link:hover { background: var(--panel-hi); }
 .st-yue2 input[type="range"] { accent-color: var(--accent); width: 100%; }
+
+/* Метки частей песни над текстом */
+.st-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.st-tag { padding: 5px 10px; font-size: 12.5px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--panel); color: var(--muted); cursor: pointer; }
+.st-tag:hover { color: var(--text); border-color: var(--accent); }
+.st-tag-auto { color: var(--accent); border-color: rgba(217,154,78,.45); font-weight: 600; }
+.lyrics-wrap.full .st-tags { padding: 8px 16px 0; margin: 0; }
+.st-tags-sep { flex-basis: 100%; height: 0; }

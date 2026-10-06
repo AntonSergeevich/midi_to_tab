@@ -89,6 +89,31 @@ CREDIT_COST = {"create": 10, "restyle": 40, "keep": 20, "enrich": 5, "stems": 3,
                "voice": 10, "stems_pro": 60}  # глубокое разделение Mureka -- $0.70
 
 
+# Части песни по-русски -> метки, которые понимают нейросети. Люди пишут
+# «[Куплет 1]», «Припев:» -- нейросети учились на [Verse], [Chorus]
+RU_TAGS = [(r"пред[- ]?припев", "Pre-Chorus"), (r"куплет", "Verse"), (r"припев", "Chorus"),
+           (r"бридж|переход", "Bridge"), (r"вступлени|интро", "Intro"), (r"проигрыш", "Interlude"),
+           (r"соло", "Solo"), (r"концовк|кода|аутро|финал", "Outro")]
+
+
+def english_tags(lyrics: str) -> str:
+    out = []
+    for line in (lyrics or "").splitlines():
+        found = re.fullmatch(r"\s*\[?\s*([А-Яа-яЁё][А-Яа-яЁё -]*?)\s*(\d*)\s*(?::\s*([^\]]*))?\]?\s*:?\s*", line)
+        bracketed = line.strip().startswith("[") and line.strip().endswith("]")
+        tag = None
+        if found and (bracketed or line.strip().endswith(":") or len(line.strip()) < 16):
+            word = found.group(1).lower()
+            tag = next((name for pattern, name in RU_TAGS if re.match(pattern, word)), None)
+        if tag:
+            number = f" {found.group(2)}" if found.group(2) else ""
+            detail = f": {found.group(3).strip()}" if found.group(3) and found.group(3).strip() else ""
+            out.append(f"[{tag}{number}{detail}]")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def voice_clone_open() -> bool:
     """Клон голоса Mureka на нашем тарифе API не включён (ответ 429 «exceeded
     your current quota» при деньгах на счёте) -- включается переменной, когда
