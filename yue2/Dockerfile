@@ -53,6 +53,10 @@ ENV HF_HOME=/models/hf HF_HUB_OFFLINE=1
 # abc2midi: ноты плана песни (ABC) -> MIDI. Отдельным слоем в конце, чтобы
 # не пересобирать слои с весами
 RUN apt-get update && apt-get install -y --no-install-recommends abcmidi && rm -rf /var/lib/apt/lists/*
+# Доли и сильные доли -- Beat This (MIT), той же моделью, что на сайте:
+# у SheetSage2 доли бывают «в половинном размере» (66.7 при 130 BPM, 06.10)
+RUN /venv/bin/pip install --no-cache-dir onnxruntime
+COPY beat/ /app/beat/
 COPY handler.py ss_run.py /app/
 RUN /venv/bin/python -m py_compile /app/handler.py && /venv-ss/bin/python -m py_compile /app/ss_run.py \
     && /venv/bin/python -c "import yue2, qwen_asr, runpod, torch; print(torch.__version__)"

@@ -99,11 +99,38 @@ def fetch(url, workdir):
     return wav
 
 
+def beats_of(wav):
+    """Доли и сильные доли записи -- Beat This, как на сайте (беглый темп
+    карточки, метроном и MIDI -- по одним долям). None -- не вышло."""
+    try:
+        sys.path.insert(0, "/app/beat")
+        import beatnet
+        import librosa
+
+        y, sr = librosa.load(wav, sr=beatnet.SR, mono=True)
+        found = beatnet.track(y, sr)
+        if not found:
+            return None
+        bpm, beats, downbeats = found
+        return {"bpm": round(float(bpm), 1), "beats": beats, "downbeats": downbeats}
+    except Exception as error:  # noqa: BLE001
+        print(f"[yue2] доли не найдены: {error!r}", file=sys.stderr, flush=True)
+        return None
+
+
 def sheetsage(wav, melody_only, out=None):
     """SheetSage2 в своём окружении; процесс выходит -- видеопамять свободна.
-    out -- папка для MIDI частей (мелодия вокала, инструментов, аккорды)."""
+    out -- папка для MIDI частей (мелодия вокала, инструментов, аккорды);
+    их карта темпа строится по долям Beat This."""
     args = ["/venv-ss/bin/python", "/app/ss_run.py", wav] + (["--melody-only"] if melody_only else []) \
         + (["--out", out] if out else [])
+    if out:
+        grid = beats_of(wav)
+        if grid:
+            path = f"{wav}.beats.json"
+            with open(path, "w") as f:
+                json.dump(grid, f)
+            args += ["--beats", path]
     done = subprocess.run(args, capture_output=True, text=True, timeout=1200)
     sys.stderr.write(done.stderr[-4000:])
     if done.returncode != 0:

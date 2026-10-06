@@ -145,7 +145,7 @@ def retime(data, beats, meter=4, downbeat=None):
     return buffer.getvalue()
 
 
-def save_midis(result, out):
+def save_midis(result, out, given=None):
     """MIDI частей -- файлами в папку out: мелодия вокала, мелодия
     инструментов, аккорды и всё вместе -- с долями и тактами записи."""
     import os
@@ -154,6 +154,8 @@ def save_midis(result, out):
     labs = result.get("labs") or {}
     beats = beat_times(labs.get("beat"))
     downbeats = beat_times(labs.get("downbeat"))
+    if given:          # доли Beat This -- точнее и совпадают с сайтом
+        beats, downbeats = given.get("beats") or beats, given.get("downbeats") or downbeats
     saved = []
     parts = dict(result.get("midis") or {})
     if result.get("midi"):
@@ -174,6 +176,10 @@ def save_midis(result, out):
 def main():
     path, melody_only = sys.argv[1], "--melody-only" in sys.argv
     out = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else None
+    given = None
+    if "--beats" in sys.argv:
+        with open(sys.argv[sys.argv.index("--beats") + 1]) as f:
+            given = json.load(f)
     model = load_model()
     waveform, rate = read_wav(path)
     result = model.transcribe(waveform, sampling_rate=rate, melody_only=melody_only)
@@ -181,7 +187,7 @@ def main():
     print(json.dumps({"abc": result.get("abc") or "", "abc_error": result.get("abc_error"),
                       "chords": rows(labs.get("chord")), "structure": rows(labs.get("structure")),
                       "key": rows(labs.get("key")), "labs": sorted(labs),
-                      "midis": save_midis(result, out) if out else [],
+                      "midis": save_midis(result, out, given) if out else [],
                       "duration": result.get("duration_seconds")}, ensure_ascii=False))
 
 

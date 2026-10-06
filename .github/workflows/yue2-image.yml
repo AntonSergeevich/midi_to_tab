@@ -6,7 +6,7 @@ name: Собрать образ пробы YuE2 (только оценка, CC B
 on:
   workflow_dispatch:
   push:
-    paths: ["yue2/**"]
+    paths: ["yue2/**", "midi2tab/beatnet.py"]
 
 permissions:
   contents: read
@@ -32,6 +32,11 @@ jobs:
           password: ${{ github.token }}
       - name: Имя образа
         run: echo "IMAGE=ghcr.io/$(echo '${{ github.repository_owner }}' | tr A-Z a-z)/naslux-yue2" >> "$GITHUB_ENV"
+      - name: Доли -- нашей моделью Beat This (как на сайте)
+        run: |
+          mkdir -p yue2/beat/models
+          cp midi2tab/beatnet.py yue2/beat/
+          cp midi2tab/models/beatthis.onnx midi2tab/models/beatthis.LICENSE yue2/beat/models/
       - uses: docker/build-push-action@v6
         with:
           context: yue2
