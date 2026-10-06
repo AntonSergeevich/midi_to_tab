@@ -1520,7 +1520,30 @@ def api_file(job_id: str, kind: str, request: Request):
     parent = storage.job((job.settings or {}).get("parent", "")) if job.settings else None
     title = (parent or job).filename
     stem = (job.settings or {}).get("stem", "")
+    if kind == "source" and path.lower().endswith((".mid", ".midi")):
+        # Звук плеера: браузер MIDI не играет (на iPhone -- NotSupportedError,
+        # 06.10). Озвучиваем один раз и отдаём mp3; скачать MIDI -- в «Партиях»
+        return FileResponse(_midi_preview(path), media_type="audio/mpeg",
+                            filename=download_name(title, stem, ".mp3"))
     return FileResponse(path, filename=download_name(title, stem, Path(path).suffix))
+
+
+_preview_lock = threading.Lock()
+
+
+def _midi_preview(path: str) -> str:
+    """mp3-озвучка MIDI рядом с ним (считается один раз)."""
+    from midi2tab import render
+
+    preview = path + ".preview.mp3"
+    with _preview_lock:
+        if not os.path.isfile(preview) or os.path.getmtime(preview) < os.path.getmtime(path):
+            try:
+                render.midi_to_mp3(path, preview + ".tmp.mp3")
+                os.replace(preview + ".tmp.mp3", preview)
+            except Exception as error:  # noqa: BLE001
+                raise HTTPException(500, f"Не получилось озвучить MIDI: {error}") from error
+    return preview
 
 
 # ------------------------------------------------------------------ студия

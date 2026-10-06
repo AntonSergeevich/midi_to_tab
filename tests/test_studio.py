@@ -1554,3 +1554,25 @@ def test_tabs_job_falls_back_to_studio_audio(studio_app):
         app_module.storage.update_job(job.id, status="done", result={"audio": f"/api/file/{job.id}/source"})
         got = client.get(f"/api/job/{job.id}").json()["result"]
         assert got["studioAudio"] == f"/api/studio/file/{parent.id}/yue2_2.mp3"
+
+
+def test_midi_analysis_audio_is_rendered_to_mp3(studio_app, tmp_path):
+    """Звук разбора из MIDI: браузер MIDI не играет -- сервер отдаёт озвучку mp3."""
+    pretty_midi = pytest.importorskip("pretty_midi")
+    app_module, client, user, submitted = studio_app
+    pm = pretty_midi.PrettyMIDI()
+    guitar = pretty_midi.Instrument(program=25)
+    for i, pitch in enumerate((52, 55, 59, 64)):
+        guitar.notes.append(pretty_midi.Note(velocity=90, pitch=pitch, start=i * 0.5, end=i * 0.5 + 0.4))
+    drums = pretty_midi.Instrument(program=0, is_drum=True)
+    drums.notes.append(pretty_midi.Note(velocity=100, pitch=36, start=0, end=0.1))
+    pm.instruments += [guitar, drums]
+    midi = str(tmp_path / "song.mid")
+    pm.write(midi)
+    job = app_module.storage.create_job(user.id, "Песня — Ноты", {})
+    app_module.storage.update_job(job.id, status="done", result={
+        "isMidi": True, "audio": f"/api/file/{job.id}/source", "paths": {"source": midi}})
+    response = client.get(f"/api/file/{job.id}/source")
+    assert response.status_code == 200 and response.headers["content-type"] == "audio/mpeg"
+    assert response.content[:3] == b"ID3" or response.content[:2] == b"\xff\xfb"
+    assert os.path.isfile(midi + ".preview.mp3")

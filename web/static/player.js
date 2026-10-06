@@ -129,7 +129,8 @@ function buildParts() {
       row.classList.add('active');
       const wasPlaying = !clock.paused;
       clock.pause();
-      $('audio').src = part.audio;
+      // MIDI браузер не играет -- слушаем озвучку (её отдаёт адрес звука разбора)
+      $('audio').src = data.isMidi ? data.audio : part.audio;
       if (wasPlaying) clock.play();
     };
 
