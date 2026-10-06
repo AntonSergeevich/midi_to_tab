@@ -4,7 +4,7 @@
 // строк (даже если он разбит на строки по-разному или с опечатками),
 // а по стилю добавляет уместные вставки -- соло, брейкдаун, дроп.
 (() => {
-  const norm = (line) => line.toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9\s]/g, ' ')
+  const norm = (line) => line.replace(/^\s*\((?:male|female|together|both|duet)\)\s*/i, '').toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9\s]/g, ' ')
     .replace(/\s+/g, ' ').trim();
   const isTag = (line) => /^\s*\[[^\]]*\]\s*$/.test(line);
 
@@ -114,7 +114,11 @@
     };
   }
 
-  const SINGERS = { male: 'male vocals', female: 'female vocals', duet: 'duet' };
+  // Партии дуэта -- пометкой в начале строки: (Male) / (Female) / (Together).
+  // Этот формат Mureka проверенно поёт дуэтом (пробы владельца 27.09); при
+  // голосе «Дуэт» без пометок сервер расставит их сам (studio.mark_duet).
+  const SINGERS = { male: '(Male)', female: '(Female)', duet: '(Together)' };
+  const MARK = /^\s*\((?:male|female|together|both|duet)\)\s*/i;
 
   window.structureLyrics = (text, style, voice) => {
     const lines = (text || '').split('\n').map((l) => l.replace(/\s+$/, '')).filter((l) => !isTag(l));
@@ -138,34 +142,35 @@
     // В короткой песне (один куплет) соло и брейкдаун только мешают
     if (kinds.filter((k) => k === 'verse').length < 2) finale = -1;
     const out = [extra.soft ? '[Intro: soft]' : '[Intro]'];
-    // Дуэт: куплеты по очереди -- он, она; припевы и бридж -- вместе
-    let turn = 0;
-    const singer = (kind) => {
-      if (voice !== 'duet') return '';
-      if (kind === 'verse' || kind === 'pre') return `: ${kind === 'verse' && turn++ % 2 ? SINGERS.female : SINGERS.male}`;
-      return `: ${SINGERS.duet}`;
-    };
     blocks.forEach((block, i) => {
       if (i === finale && i > 0) {
         if (extra.solo) out.push('', extra.solo);
         if (extra.breakdown) out.push('', extra.breakdown);
         if (extra.drop) out.push('', '[Build-Up]');
       }
-      out.push('', TAG[kinds[i]].replace(']', `${singer(kinds[i])}]`), ...block);
+      out.push('', TAG[kinds[i]], ...block);
       if (extra.drop && kinds[i] === 'chorus' && kinds[i + 1] !== 'chorus') out.push('', '[Drop]');
     });
     out.push('', '[Outro]');
     return out.join('\n');
   };
 
-  // Кто поёт эту часть: дописать к ближайшей метке выше курсора
+  // Кто поёт эту часть: пометить строки части под курсором -- от метки
+  // выше курсора до следующей метки. false -- курсор не в части песни.
   window.setSinger = (area, who) => {
     const lines = area.value.split('\n');
-    let row = area.value.slice(0, area.selectionStart).split('\n').length - 1;
-    while (row >= 0 && !isTag(lines[row])) row--;
-    if (row < 0) { window.insertLyricsTag(area, `[Verse: ${SINGERS[who]}]`); return false; }
-    const name = lines[row].trim().slice(1, -1).split(':')[0].trim();
-    lines[row] = `[${name}: ${SINGERS[who]}]`;
+    const row = area.value.slice(0, area.selectionStart).split('\n').length - 1;
+    let start = row;
+    while (start >= 0 && !isTag(lines[start])) start--;
+    let end = row + 1;
+    while (end < lines.length && !isTag(lines[end])) end++;
+    let marked = 0;
+    for (let i = start + 1; i < end; i++) {
+      if (!lines[i].trim() || isTag(lines[i])) continue;
+      lines[i] = `${SINGERS[who]} ${lines[i].replace(MARK, '')}`;
+      marked++;
+    }
+    if (!marked) return false;
     const caret = area.selectionStart;
     area.value = lines.join('\n');
     area.setSelectionRange(caret, caret);

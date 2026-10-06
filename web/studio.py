@@ -119,6 +119,16 @@ def english_tags(lyrics: str) -> str:
 # поёт что-то усреднённое (кавер владельца 06.10 вышел «как оригинал»).
 # Сначала длинные фразы, потом слова; латиница остаётся как есть.
 STYLE_RU = [
+    # сленг музыкантов и звукорежиссёров -- раньше общих слов
+    ("рэп кор", "rapcore"), ("рэп-кор", "rapcore"), ("рэпкор", "rapcore"), ("хардкор", "hardcore"),
+    ("дроп гитар", "drop-tuned guitars"), ("дроп-гитар", "drop-tuned guitars"), ("дроп строй", "drop tuning"),
+    ("дроп", "drop"), ("пониженн строй", "downtuned"), ("низк строй", "downtuned"),
+    ("расщеплен", "vocal fry screams"), ("фрай", "vocal fry"), ("экстрим вокал", "extreme vocals"),
+    ("чист вокал", "clean vocals"), ("речитатив", "rap verses"), ("бэк-вокал", "backing vocals"), ("бэк вокал", "backing vocals"),
+    ("бочк", "kick"), ("малый барабан", "snare"), ("тарелк", "cymbals"), ("хай-хэт", "hi-hats"),
+    ("хэт", "hi-hats"), ("бласт", "blast beats"), ("двойн бочк", "double kick"), ("кардан", "double kick"),
+    ("сэмпл", "samples"), ("семпл", "samples"), ("лупы", "loops"), ("саб-бас", "sub bass"), ("саббас", "sub bass"),
+    ("вертушк", "turntable scratches"), ("диджей", "dj scratches"), ("скримо", "screamo"), ("эмо", "emo"),
     ("ню-метал", "nu metal"), ("ню метал", "nu metal"), ("хэви-метал", "heavy metal"), ("хеви-метал", "heavy metal"),
     ("хэви метал", "heavy metal"), ("дэт-метал", "death metal"), ("блэк-метал", "black metal"),
     ("металкор", "metalcore"), ("дэткор", "deathcore"), ("пост-рок", "post-rock"), ("поп-рок", "pop rock"),
