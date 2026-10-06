@@ -665,6 +665,9 @@ def endpoint_id(name: str = WORKER_NAME) -> str:
 # (yue2/). Веса под CC BY-NC 4.0 -- движок виден только владельцу
 # (безлимит) для некоммерческой пробы; покупателям -- после лицензии M-A-P.
 YUE2_NAME = "naslux-yue2"
+# MIDI частей от SheetSage2 («Ноты, аккорды и MIDI»)
+MIDI_LABELS = {"melody_vocal": "Мелодия вокала", "melody_instrumental": "Мелодия инструментов",
+               "chords": "Аккорды", "transcription": "Мелодия и аккорды вместе"}
 
 
 def yue2_open(user) -> bool:
@@ -1449,12 +1452,18 @@ class StudioRunner:
         job = self.storage.job(job_id)
         mode = (job.settings or {}).get("mode", "")
         folder = self.folder(job_id)
-        files = []
+        files, midi = [], []
         for item in output.get("files") or []:
             name = safe_file_name(item.get("name", ""))
-            if name and os.path.isfile(os.path.join(folder, name)):
+            if not name or not os.path.isfile(os.path.join(folder, name)):
+                continue
+            # MIDI от YuE2/SheetSage2 -- не версии трека, а «MIDI партий» (с табами)
+            if name.endswith(".mid") and (job.settings or {}).get("engine") == "yue2":
+                midi.append({"name": name, "label": MIDI_LABELS.get(name[:-4], label_of(mode, name).replace(
+                    "Вариант", "Ноты варианта"))})
+            else:
                 files.append({"name": name, "label": label_of(mode, name)})
-        if not files:
+        if not files and not midi:
             raise RuntimeError("Воркер закончил, но файлы до сайта не дошли")
         order = list(STEM_LABELS)
         files.sort(key=lambda f: order.index(f["name"][:-4]) if f["name"][:-4] in order else 99)
@@ -1464,7 +1473,8 @@ class StudioRunner:
             # YuE2: слова (присланные или распознанные) и то, что SheetSage2
             # услышал в исходнике, -- аккорды, тональность, части песни
             **({"lyrics": info["lyrics"]} if info.get("lyrics") else {}),
-            **({"engine": "yue2", "sheet": {k: info.get(k) for k in ("chords", "key", "structure")}}
+            **({"engine": "yue2", "sheet": {k: info.get(k) for k in ("chords", "key", "structure")},
+                "midi": midi, "abc": info.get("abc") or "", "yue2": info.get("settings") or {}}
                if info.get("engine") == "yue2" else {}),
             "gpuSeconds": round((status.get("executionTime") or 0) / 1000, 1),
             # С чем работала нейросеть: темп, тональность, модель, крутилки.

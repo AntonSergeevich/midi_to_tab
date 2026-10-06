@@ -1521,6 +1521,23 @@ def _first_analysis(result: dict, field: str):
     return None
 
 
+def _chord_line(result: dict) -> str:
+    """Аккорды песни по SheetSage2 одной строкой без повторов: «Em D C D»."""
+    quality = {"maj": "", "min": "m", "7": "7", "maj7": "maj7", "min7": "m7", "sus2": "sus2",
+               "sus4": "sus4", "dim": "dim", "aug": "aug", "maj6": "6", "min6": "m6", "dim7": "dim7",
+               "hdim7": "m7b5", "9": "9", "maj9": "maj9", "min9": "m9"}
+    out = []
+    for _s, _e, label in ((result.get("sheet") or {}).get("chords") or [])[:400]:
+        root, _, rest = str(label).partition(":")
+        if not root or root == "N":
+            continue
+        kind, _, bass = rest.partition("/")
+        name = root + quality.get(kind or "maj", kind)
+        if not out or out[-1] != name:
+            out.append(name)
+    return " ".join(out[:64])
+
+
 def _studio_job_payload(job) -> dict:
     settings = job.settings or {}
     result = job.result or {}
@@ -1560,8 +1577,10 @@ def _studio_job_payload(job) -> dict:
         "cover": f"/api/studio/file/{job.id}/cover.jpg"
                  if os.path.isfile(os.path.join(folder, "cover.jpg")) else None,
         "lyrics": result.get("lyrics") or (settings.get("input") or {}).get("lyrics") or "",
+        "hasAbc": bool(result.get("abc")),
+        "chords": _chord_line(result),
         # Файлы Студии уборка удаляет через 14 дней (deploy/cleanup.py)
-        "expired": job.status == "done" and not files,
+        "expired": job.status == "done" and not files and not result.get("midi"),
     }
 
 
@@ -1615,6 +1634,9 @@ async def api_studio_start(
     reference: bool = Form(False),
     pro: bool = Form(False),
     engine: str = Form(""),
+    closeness: str = Form("melody"),
+    cfg_scale: float = Form(1.0),
+    creativity: float = Form(0.5),
 ):
     user = current_user(request)
     ready, why = studio.available()
@@ -1731,6 +1753,10 @@ async def api_studio_start(
         "track": track, "language": language if language in ("ru", "en") else "ru",
         "voice": "" if vocal_id else voice, "keep_vocals": keep_vocals, "cost_key": cost_key,
         **({"vocal_id": vocal_id} if vocal_id else {}), **({"reference": True} if reference else {}),
+        # Настройки YuE2: близость к оригиналу, сила стиля, смелость
+        **({"closeness": closeness if closeness in ("full", "melody", "free") else "melody",
+            "cfg_scale": max(0.8, min(1.8, float(cfg_scale))), "creativity": clamp(creativity)}
+           if engine == "yue2" else {}),
     })
     response = JSONResponse({"jobId": job.id})
     attach_cookie(response, user.id)
@@ -1807,6 +1833,47 @@ def api_studio_split_result(job_id: str, request: Request, file: str = Form(""),
     _studio_charge_and_submit(request, user, job.id, service, folder,
                               {"mode": "stems", "cost_key": cost_key})
     return {"jobId": job.id, "from": title}
+
+
+@app.post("/api/studio/{job_id}/notes")
+def api_studio_notes(job_id: str, request: Request, file: str = Form("")):
+    """«Ноты, аккорды и MIDI» версии трека: SheetSage2 снимает мелодию
+    вокала и инструментов, аккорды, тональность и части песни. Проба
+    владельца (веса CC BY-NC 4.0, см. studio.YUE2_NAME), бесплатно."""
+    user = current_user(request)
+    if not studio.yue2_open(user):
+        raise HTTPException(403, "Ноты пока в пробе — доступны только владельцу сайта")
+    parent = storage.job(job_id)
+    if (not parent or parent.user_id != user.id
+            or (parent.settings or {}).get("kind") != "studio" or parent.status != "done"):
+        raise HTTPException(404, "Готовая работа не найдена")
+    files = [f for f in (parent.result or {}).get("files") or []
+             if os.path.isfile(os.path.join(studio_runner.folder(job_id), f["name"]))
+             and (not file or f["name"] == file)]
+    if not files:
+        raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
+    variant = studio.label_of((parent.settings or {}).get("mode", ""), files[0]["name"])
+    job = storage.create_job(user.id, parent.filename, {
+        "kind": "studio", "mode": "notes", "title": "Ноты, аккорды и MIDI", "from": job_id,
+        "variant": variant, "sourceFile": files[0]["name"], "charged": 0, "engine": "yue2"})
+    folder = studio_runner.folder(job.id)
+    os.makedirs(folder, exist_ok=True)
+    shutil.copyfile(os.path.join(studio_runner.folder(job_id), files[0]["name"]),
+                    os.path.join(folder, "source" + (Path(files[0]["name"]).suffix or ".mp3")))
+    _studio_charge_and_submit(request, user, job.id, studio.SERVICES["stems"], folder,
+                              {"mode": "notes", "cost_key": "notes"})
+    return {"jobId": job.id}
+
+
+@app.get("/api/studio/{job_id}/abc")
+def api_studio_abc(job_id: str, request: Request):
+    """Ноты работы в ABC -- для нотного стана в браузере (abcjs)."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id or not (job.result or {}).get("abc"):
+        raise HTTPException(404, "Нот у этой работы нет")
+    return {"abc": job.result["abc"], "name": job.filename,
+            "key": ((job.result.get("sheet") or {}).get("key") or [[0, 0, ""]])[0][2]}
 
 
 UPLOADS_PER_DAY = 40

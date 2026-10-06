@@ -9,7 +9,8 @@
                 слова -- присланные (lyrics) или распознанные Qwen3-ASR по
                 частям песни, YuE2 поёт их в новом стиле (cot=melody);
   restyle    -- то же, что cover (так режим называется на сайте);
-  transcribe -- только SheetSage2: аккорды, тональность, структура, ноты;
+  transcribe -- только SheetSage2: аккорды, тональность, структура, ноты
+                и MIDI частей (notes -- так режим называется на сайте);
   lyrics     -- только слова записи (Qwen3-ASR), размеченные по частям;
   ping       -- видна ли видеокарта.
 
@@ -98,9 +99,11 @@ def fetch(url, workdir):
     return wav
 
 
-def sheetsage(wav, melody_only):
-    """SheetSage2 в своём окружении; процесс выходит -- видеопамять свободна."""
-    args = ["/venv-ss/bin/python", "/app/ss_run.py", wav] + (["--melody-only"] if melody_only else [])
+def sheetsage(wav, melody_only, out=None):
+    """SheetSage2 в своём окружении; процесс выходит -- видеопамять свободна.
+    out -- папка для MIDI частей (мелодия вокала, инструментов, аккорды)."""
+    args = ["/venv-ss/bin/python", "/app/ss_run.py", wav] + (["--melody-only"] if melody_only else []) \
+        + (["--out", out] if out else [])
     done = subprocess.run(args, capture_output=True, text=True, timeout=1200)
     sys.stderr.write(done.stderr[-4000:])
     if done.returncode != 0:
@@ -139,6 +142,30 @@ def recognize(wav, structure, language):
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lyrics)).strip()
 
 
+def abc_to_midi(abc, name):
+    """Ноты плана (ABC) -> MIDI через abc2midi: мелодия и аккорды песни для
+    DAW и для наших табов. Не вышло -- просто без MIDI."""
+    if not abc:
+        return None
+    with tempfile.TemporaryDirectory() as work:
+        src, out = f"{work}/song.abc", f"{work}/song.mid"
+        with open(src, "w", encoding="utf-8") as f:
+            f.write(abc)
+        done = subprocess.run(["abc2midi", src, "-o", out], capture_output=True, text=True, timeout=60)
+        if done.returncode != 0 or not os.path.isfile(out):
+            print(f"[yue2] abc2midi: {(done.stderr or done.stdout)[-300:]}", file=sys.stderr, flush=True)
+            return None
+        with open(out, "rb") as f:
+            return (name, f.read())
+
+
+def sampling(creativity):
+    """Смелость 0..1 -> температуры плана нот и исполнения (0.5 -- как у авторов)."""
+    c = min(max(float(creativity), 0.0), 1.0)
+    return {"abc_sampling": {"temperature": round(0.5 + 0.4 * c, 3)},
+            "semantic_sampling": {"temperature": round(0.8 + 0.4 * c, 3)}}
+
+
 def render(style, lyrics, variants, seed, **kwargs):
     import soundfile as sf
 
@@ -151,7 +178,11 @@ def render(style, lyrics, variants, seed, **kwargs):
             mp3 = subprocess.run(["ffmpeg", "-v", "error", "-i", wav, "-b:a", "256k", "-f", "mp3", "pipe:1"],
                                  capture_output=True, check=True).stdout
         files.append((f"yue2_{n + 1}.mp3", mp3))
-        plans.append(getattr(song, "abc", "") or "")
+        plan = getattr(song, "abc", "") or ""
+        plans.append(plan)
+        midi = abc_to_midi(plan, f"yue2_{n + 1}.mid")
+        if midi:
+            files.append(midi)
     return files, plans
 
 
@@ -161,8 +192,9 @@ def deliver(data, files):
         return [{"name": name, "bytes": len(raw), "audio_b64": base64.b64encode(raw).decode()}
                 for name, raw in files]
     for name, raw in files:
+        kind = "audio/midi" if name.endswith(".mid") else "audio/mpeg"
         req = urllib.request.Request(upload, data=raw, method="POST", headers={
-            "Content-Type": "audio/mpeg", "X-File-Name": urllib.parse.quote(name)})
+            "Content-Type": kind, "X-File-Name": urllib.parse.quote(name)})
         with urllib.request.urlopen(req, timeout=300) as resp:
             resp.read()
     return [{"name": name, "bytes": len(raw)} for name, raw in files]
@@ -171,7 +203,7 @@ def deliver(data, files):
 def handler(job):
     started = time.time()
     data = job.get("input") or {}
-    mode = {"restyle": "cover"}.get(data.get("mode"), data.get("mode") or "create")
+    mode = {"restyle": "cover", "notes": "transcribe"}.get(data.get("mode"), data.get("mode") or "create")
     info = {"engine": "yue2", "mode": mode}
     try:
         if mode == "ping":
@@ -183,15 +215,24 @@ def handler(job):
         language = {"ru": "Russian", "en": "English"}.get(data.get("language") or "ru")
         style = (data.get("prompt") or data.get("style") or "").strip()
         lyrics = clean_lyrics(data.get("lyrics") or "")
-        cfg = {"cfg_scale": float(data["cfg_scale"])} if data.get("cfg_scale") not in (None, "") else {}
+        # Настройки: сила стиля (cfg 1.0..1.6), смелость (температуры), близость
+        # к оригиналу у кавера: full -- мелодия и аккорды оригинала, melody --
+        # только мелодия (гармонию YuE2 строит сама), free -- без нот, свои
+        # мелодия и гармония на те же слова
+        knobs = sampling(data.get("creativity", 0.5))
+        if data.get("cfg_scale") not in (None, ""):
+            knobs["cfg_scale"] = min(max(float(data["cfg_scale"]), 0.0), 3.0)
+        closeness = data.get("closeness") if data.get("closeness") in ("full", "melody", "free") else "melody"
+        info["settings"] = {"closeness": closeness, **{k: v for k, v in knobs.items()}}
         files = []
         if mode == "create":
-            files, plans = render(style, lyrics or "[Verse]\n", variants, seed, cot="full", **cfg)
-            info["plan"] = plans[0][:6000]
+            files, plans = render(style, lyrics or "[Verse]\n", variants, seed, cot="full", **knobs)
+            info["abc"] = plans[0][:20000]
         else:
             with tempfile.TemporaryDirectory() as work:
                 wav = fetch(data["audio_url"], work)
-                sheet = sheetsage(wav, melody_only=mode == "cover")
+                sheet = sheetsage(wav, melody_only=mode == "cover" and closeness != "full",
+                                  out=f"{work}/midi" if mode == "transcribe" else None)
                 info.update(chords=sheet["chords"], key=sheet["key"], structure=sheet["structure"],
                             duration=sheet.get("duration"))
                 if mode in ("cover", "lyrics") and not lyrics:
@@ -199,13 +240,17 @@ def handler(job):
                     info["lyricsRecognized"] = True
                 info["lyrics"] = lyrics
                 if mode == "cover":
-                    if not sheet.get("abc"):
+                    if closeness != "free" and not sheet.get("abc"):
                         raise RuntimeError(f"не получилось снять ноты мелодии: {sheet.get('abc_error')}")
-                    info["abc"] = sheet["abc"][:6000]
-                    files, _ = render(style, lyrics or "[Verse]\n", variants, seed, abc=sheet["abc"],
-                                      cot="melody", **cfg)
+                    score = {} if closeness == "free" else {"abc": sheet["abc"]}
+                    files, plans = render(style, lyrics or "[Verse]\n", variants, seed,
+                                          cot="melody" if closeness == "melody" else "full", **score, **knobs)
+                    info["abc"] = (plans[0] or sheet.get("abc") or "")[:20000]
                 elif mode == "transcribe":
                     info["abc"] = (sheet.get("abc") or "")[:20000]
+                    for name in sheet.get("midis") or []:
+                        with open(f"{work}/midi/{name}", "rb") as f:
+                            files.append((name, f.read()))
         return {"ok": True, "mode": mode, "files": deliver(data, files), "info": info,
                 "seconds": round(time.time() - started, 1)}
     except Exception as error:  # noqa: BLE001

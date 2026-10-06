@@ -65,8 +65,28 @@ def read_wav(path):
     return (data.T if data.ndim == 2 else data), rate
 
 
+def save_midis(result, out):
+    """MIDI частей -- файлами в папку out: мелодия вокала, мелодия
+    инструментов, аккорды и всё вместе."""
+    import os
+
+    os.makedirs(out, exist_ok=True)
+    saved = []
+    parts = dict(result.get("midis") or {})
+    if result.get("midi"):
+        parts["transcription"] = result["midi"]
+    for name, data in parts.items():
+        if isinstance(data, (bytes, bytearray)) and data:
+            safe = "".join(c if c.isalnum() or c in "_-" else "_" for c in str(name).rsplit(".", 1)[0])
+            with open(os.path.join(out, f"{safe}.mid"), "wb") as f:
+                f.write(data)
+            saved.append(f"{safe}.mid")
+    return saved
+
+
 def main():
     path, melody_only = sys.argv[1], "--melody-only" in sys.argv
+    out = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else None
     model = load_model()
     waveform, rate = read_wav(path)
     result = model.transcribe(waveform, sampling_rate=rate, melody_only=melody_only)
@@ -74,6 +94,7 @@ def main():
     print(json.dumps({"abc": result.get("abc") or "", "abc_error": result.get("abc_error"),
                       "chords": rows(labs.get("chord")), "structure": rows(labs.get("structure")),
                       "key": rows(labs.get("key")), "labs": sorted(labs),
+                      "midis": save_midis(result, out) if out else [],
                       "duration": result.get("duration_seconds")}, ensure_ascii=False))
 
 

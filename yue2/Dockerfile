@@ -50,6 +50,9 @@ s('m-a-p/MERT-v2-FullSong', revision='d8ba1c745e733b3908ce6ad16ebeb17ac7600a42')
     && du -sh /models/* && rm -rf /root/.cache
 
 ENV HF_HOME=/models/hf HF_HUB_OFFLINE=1
+# abc2midi: ноты плана песни (ABC) -> MIDI. Отдельным слоем в конце, чтобы
+# не пересобирать слои с весами
+RUN apt-get update && apt-get install -y --no-install-recommends abcmidi && rm -rf /var/lib/apt/lists/*
 COPY handler.py ss_run.py /app/
 RUN /venv/bin/python -m py_compile /app/handler.py && /venv-ss/bin/python -m py_compile /app/ss_run.py \
     && /venv/bin/python -c "import yue2, qwen_asr, runpod, torch; print(torch.__version__)"

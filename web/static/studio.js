@@ -105,6 +105,8 @@ function showMode() {
   const yue2Here = Boolean(info && info.yue2Open) && ['create', 'restyle'].includes(mode);
   $('yue2Box').hidden = !yue2Here;
   const yue2 = yue2Here && $('useYue2').checked;
+  $('yue2Knobs').hidden = !yue2;
+  $('yCloseBox').hidden = mode !== 'restyle';
   const mureka = info && info.restyleEngine === 'mureka' && !yue2;
   if (yue2) useReference = false;
   const reference = mode === 'create' && useReference;
@@ -434,15 +436,10 @@ function renderDetail(jobs) {
   const parts = children.map((c) => `
     <div class="st-sub"><div class="st-label">${esc(c.title)}</div>
       ${c.status === 'done' ? c.files.map((f) => stemRow(c, f, `${j.name}: ${f.label}`)).join('')
-        + midiList(c) : `<div class="st-version"><div class="st-row-main">${statusLine(c)}</div></div>`}
+        + midiList(c) + (c.mode === 'notes' ? sheetBlock(c) + midiRows(c) : '') : `<div class="st-version"><div class="st-row-main">${statusLine(c)}</div></div>`}
     </div>`).join('');
   const midi = (j.midi || []).length ? `<div class="st-sub"><div class="st-label">MIDI партий</div>
-    ${j.midi.map((m) => `<div class="st-version small">
-      <div class="st-row-main"><b>${esc(m.label)}</b></div>
-      <button type="button" class="icon-btn" data-act="tabs" data-job="${j.id}" data-file="${esc(m.name)}"
-        title="Табы и аккорды из этого MIDI">${ICON.tabs}</button>
-      <a class="icon-btn" href="${m.url}" download title="Скачать MIDI">${ICON.download}</a>
-    </div>`).join('')}
+    ${midiRows(j)}
     <div class="st-archives">${(j.archives || []).map((a) => `<a href="${a.url}" download>${ICON.download}
       ${a.name === 'midi.zip' ? 'Все MIDI одним архивом' : 'Все партии в WAV одним архивом'}</a>`).join('')}</div>
   </div>` : '';
@@ -457,7 +454,24 @@ function renderDetail(jobs) {
     ? `<button type="button" class="icon-btn" data-menu="${j.id}" data-track="1" data-upload="${j.mode === 'upload' ? 1 : ''}" data-done="${j.status === 'done' && j.files.length && j.mode !== 'stems' ? 1 : ''}" title="Что сделать">${ICON.more}</button>` : ''}
     </div>
     <div class="st-label">${j.mode === 'stems' ? 'Партии' : 'Версии'}</div>
-    ${versions}${j.mode === 'stems' ? midiList(j) : ''}${midi}${parts}${lyrics}`;
+    ${versions}${sheetBlock(j)}${j.mode === 'stems' ? midiList(j) : ''}${midi}${parts}${lyrics}`;
+}
+
+// MIDI партий работы: табы нашим плеером и скачивание
+function midiRows(j) {
+  return (j.midi || []).map((m) => `<div class="st-version small">
+      <div class="st-row-main"><b>${esc(m.label)}</b></div>
+      <button type="button" class="icon-btn" data-act="tabs" data-job="${j.id}" data-file="${esc(m.name)}"
+        title="Табы и аккорды из этого MIDI">${ICON.tabs}</button>
+      <a class="icon-btn" href="${m.url}" download title="Скачать MIDI">${ICON.download}</a>
+    </div>`).join('');
+}
+
+// Ноты и аккорды от YuE2/SheetSage2: нотный стан по кнопке, аккорды строкой
+function sheetBlock(j) {
+  const chords = j.chords ? `<p class="st-chords"><span class="muted">Аккорды:</span> ${esc(j.chords)}</p>` : '';
+  const notes = j.hasAbc ? `<button type="button" class="st-linkbtn" data-notes="${j.id}">🎼 Ноты на нотном стане</button>` : '';
+  return chords || notes ? `<div class="st-sheet">${notes}${chords}</div>` : '';
 }
 
 // Партия: MIDI -- по кнопке в ⋯ (наша расшифровка нот), статус -- прямо в строке
@@ -697,6 +711,8 @@ $('drop').addEventListener('drop', (e) => {
 $('lyrics').addEventListener('input', () => { lyricsCount(); saveDraft(); updateStart(); });
 $('keepVocals').addEventListener('change', showMode);
 $('useYue2').addEventListener('change', showMode);
+$('yCfg').addEventListener('input', () => { $('yCfgVal').textContent = Number($('yCfg').value).toFixed(1); });
+$('yCreative').addEventListener('input', () => { $('yCreativeVal').textContent = `${$('yCreative').value}%`; });
 $('track').addEventListener('change', () => { updateStart(); saveDraft(); });
 $('stemsPro').addEventListener('change', showMode);
 $('instrumental').addEventListener('change', () => {
@@ -772,6 +788,9 @@ $('start').addEventListener('click', async () => {
   form.append('keep_vocals', send.keep);
   form.append('pro', mode === 'stems' && $('stemsPro').checked);
   form.append('engine', yue2On() ? 'yue2' : '');
+  form.append('closeness', $('yClose').value);
+  form.append('cfg_scale', $('yCfg').value);
+  form.append('creativity', $('yCreative').value / 100);
   $('start').disabled = true;
   $('msg').textContent = mode === 'create' ? 'Отправляем…' : 'Загружаем трек…';
   const response = await fetch('/api/studio', { method: 'POST', body: form });
@@ -837,6 +856,8 @@ document.addEventListener('click', async (e) => {
   if (menuBtn) { openMenu(menuBtn); return; }
   const action = e.target.closest('[data-act]');
   if (action) { await act(action.dataset.act, action.dataset.job, action.dataset.file); return; }
+  const notes = e.target.closest('[data-notes]');
+  if (notes) { openNotes(notes.dataset.notes); return; }
   if (!e.target.closest('#menu')) $('menu').hidden = true;
 });
 
@@ -862,6 +883,7 @@ function openMenu(button) {
         ? `<a href="${button.dataset.midi}" download>${ICON.download}<span>Скачать MIDI партии</span></a>`
         : item('midi', ICON.tabs, button.dataset.busy ? 'MIDI уже считается…' : 'MIDI этой дорожки',
           button.dataset.busy ? 'disabled' : '')) : '')
+      + (info.yue2Open && !button.dataset.stem ? item('notes', ICON.tabs, '🧪 Ноты, аккорды и MIDI (проба)') : '')
       + item('shift', ICON.tempo, 'Темп и тональность')
       + (button.dataset.extend ? item('extend', ICON.again, 'Продлить песню') : '')
       + (button.dataset.stem ? '' : item('reference', ICON.tabs, 'Сверить аккорды с эталоном'))
@@ -1116,6 +1138,14 @@ async function act(what, jobId, fileName) {
     load();
     return;
   }
+  if (what === 'notes') {
+    const response = await fetch(`/api/studio/${jobId}/notes`, { method: 'POST', body: form });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok) toast('Снимаем ноты, аккорды и MIDI — несколько минут 🎼');
+    else toast(`${pick(OOPS, Date.now())} ${data.detail || ''}`);
+    load();
+    return;
+  }
   if (what === 'split' || what === 'splitpro') {
     const pro = what === 'splitpro';
     const service = pro ? info.services.stems_pro : info.services.stems;
@@ -1358,3 +1388,50 @@ $('fDownload').innerHTML = ICON.download;
 knobText();
 lyricsCount();
 load();
+
+// ---------------------------------------------------------- ноты (abcjs)
+// Нотный стан из ABC, который пишет YuE2 или снимает SheetSage2. Библиотека
+// abcjs (MIT) лежит у нас (/static/vendor) и грузится только по кнопке.
+let abcjsLoading = null;
+function loadAbcjs() {
+  if (!abcjsLoading) {
+    abcjsLoading = new Promise((ok, fail) => {
+      const script = document.createElement('script');
+      script.src = '/static/vendor/abcjs-basic-min.js';
+      script.onload = ok;
+      script.onerror = () => { abcjsLoading = null; fail(new Error('abcjs')); };
+      document.head.append(script);
+    });
+  }
+  return abcjsLoading;
+}
+
+const KEY_NAMES = { major: 'мажор', minor: 'минор' };
+async function openNotes(jobId) {
+  const data = await fetch(`/api/studio/${jobId}/abc`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  if (!data) { toast('Нот у этой работы нет'); return; }
+  $('notesTitle').textContent = `Ноты: ${data.name}`;
+  const [tonic, scale] = (data.key || '').split(':');
+  $('notesInfo').textContent = tonic ? `Тональность: ${tonic} ${KEY_NAMES[scale] || scale || ''}`.trim() : '';
+  $('notesAbc').href = URL.createObjectURL(new Blob([data.abc], { type: 'text/plain' }));
+  $('notesAbc').download = `${data.name.replace(/\.[a-z0-9]{2,4}$/i, '')}.abc`;
+  $('notesPaper').innerHTML = '<p class="muted">Рисуем ноты…</p>';
+  $('notesModal').hidden = false;
+  try {
+    await loadAbcjs();
+    $('notesPaper').innerHTML = '';
+    window.ABCJS.renderAbc('notesPaper', data.abc, {
+      responsive: 'resize', add_classes: true,
+      wrap: { minSpacing: 1.8, maxSpacing: 2.7, preferredMeasuresPerLine: 4 }, staffwidth: 860,
+    });
+  } catch (error) {
+    $('notesPaper').innerHTML = '<p class="bad">Не получилось нарисовать ноты — скачайте ABC или MIDI.</p>';
+  }
+}
+$('notesClose').addEventListener('click', () => { $('notesModal').hidden = true; });
+$('notesModal').addEventListener('click', (e) => { if (e.target === $('notesModal')) $('notesModal').hidden = true; });
+$('notesPrint').addEventListener('click', () => {
+  document.body.classList.add('print-notes');
+  window.print();
+  setTimeout(() => document.body.classList.remove('print-notes'), 500);
+});

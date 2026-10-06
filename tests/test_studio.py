@@ -1480,3 +1480,46 @@ def test_yue2_is_owner_only_and_goes_to_its_endpoint(studio_app, monkeypatch):
     assert "/yue2ep/run" in calls[0][1]
     assert job.result["lyrics"].startswith("[Verse]") and job.result["sheet"]["chords"] == [[0, 4, "Cm"]]
     assert [f["label"] for f in job.result["files"]] == ["Вариант 1"]
+
+
+def test_yue2_knobs_and_notes(studio_app, monkeypatch):
+    """Настройки YuE2 доходят до воркера; «Ноты, аккорды и MIDI» -- только у
+    владельца; MIDI частей -- в «MIDI партий», ноты -- по /abc."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("NASLUX_YUE2_ENDPOINT", "yue2ep")
+    app_module.storage.set_flags(user.id, unlimited=True)
+    assert _start(client, engine="yue2", prompt="nu metal", closeness="full", cfg_scale="1.4",
+                  creativity="0.8").status_code == 200
+    data = submitted[-1][1]
+    assert (data["closeness"], data["cfg_scale"], data["creativity"]) == ("full", 1.4, 0.8)
+    parent_id = submitted[-1][0]
+    runner = studio.StudioRunner(app_module.storage, app_module.DATA_DIR)
+    open(f"{runner.folder(parent_id)}/yue2_1.mp3", "wb").write(b"mp3")
+    app_module.storage.update_job(parent_id, status="done", result={"files": [{"name": "yue2_1.mp3"}]})
+
+    app_module.storage.set_flags(user.id, unlimited=False)
+    assert client.post(f"/api/studio/{parent_id}/notes", data={"file": "yue2_1.mp3"}).status_code == 403
+    app_module.storage.set_flags(user.id, unlimited=True)
+    response = client.post(f"/api/studio/{parent_id}/notes", data={"file": "yue2_1.mp3"})
+    assert response.status_code == 200, response.text
+    notes_id = response.json()["jobId"]
+    assert submitted[-1][1]["mode"] == "notes"
+    job = app_module.storage.job(notes_id)
+    assert job.settings["engine"] == "yue2" and job.settings["from"] == parent_id
+    app_module.storage.update_job(notes_id, settings={**job.settings, "input": submitted[-1][1]})
+    for name in ("melody_vocal.mid", "chords.mid"):
+        open(f"{runner.folder(notes_id)}/{name}", "wb").write(b"MThd")
+    _fake_runpod(monkeypatch, studio, {"status": "COMPLETED", "output": {
+        "ok": True, "files": [{"name": "melody_vocal.mid"}, {"name": "chords.mid"}],
+        "info": {"engine": "yue2", "abc": "X:1\nK:Em\nE2B2|", "key": [[0, 9, "E:minor"]],
+                 "chords": [[0, 2, "E:min"], [2, 4, "D:sus2"], [4, 6, "D:sus2"], [6, 8, "C:maj"]]}}})
+    runner._run(notes_id)
+    job = app_module.storage.job(notes_id)
+    assert job.status == "done", job.error
+    assert [m["label"] for m in job.result["midi"]] == ["Мелодия вокала", "Аккорды"]
+    payload = next(j for j in client.get("/api/studio").json()["jobs"] if j["id"] == notes_id)
+    assert payload["hasAbc"] and payload["chords"] == "Em Dsus2 C" and not payload["expired"]
+    assert len(payload["midi"]) == 2
+    abc = client.get(f"/api/studio/{notes_id}/abc").json()
+    assert abc["abc"].startswith("X:1") and abc["key"] == "E:minor"

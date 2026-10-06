@@ -70,6 +70,18 @@
             мелодии и распознаем слова сами, если вы их не вставили. Лицензия некоммерческая —
             покупателям не показываем.</small></span>
       </label>
+      <div class="st-yue2" id="yue2Knobs" hidden>
+        <label id="yCloseBox">Близость к оригиналу
+          <select id="yClose">
+            <option value="melody">Мелодия оригинала, гармония новая — советуем</option>
+            <option value="full">Мелодия и аккорды оригинала — ближе всего</option>
+            <option value="free">Свободно — только слова и стиль</option>
+          </select></label>
+        <label>Сила стиля <output id="yCfgVal">1.0</output>
+          <input type="range" id="yCfg" min="0.8" max="1.8" step="0.1" value="1.0"></label>
+        <label>Смелость <output id="yCreativeVal">50%</output>
+          <input type="range" id="yCreative" min="0" max="100" step="5" value="50"></label>
+      </div>
       <label class="check st-keep" id="proBox" hidden>
         <input type="checkbox" id="stemsPro">
         <span><b>Глубокое разделение + MIDI</b> <em class="st-rec">PRO</em>
@@ -233,6 +245,18 @@
 
 <!-- Оферта, п. 6.3: чья это музыка -- до отправки записи -->
 <!-- Сверка с эталоном: лист аккордов с сайта аккордов -> точность моделей -->
+<div class="st-modal" id="notesModal" hidden>
+  <div class="st-modal-box st-notes-box" role="dialog" aria-modal="true" aria-labelledby="notesTitle">
+    <h3 id="notesTitle">Ноты</h3>
+    <p class="muted" id="notesInfo"></p>
+    <div id="notesPaper" class="st-notes-paper"></div>
+    <div class="st-modal-actions">
+      <a class="st-modal-link" id="notesAbc" download="notes.abc">Скачать ABC</a>
+      <button type="button" id="notesPrint">Печать / PDF</button>
+      <button type="button" class="primary" id="notesClose">Закрыть</button>
+    </div>
+  </div>
+</div>
 <div class="st-modal" id="refModal" hidden>
   <div class="st-modal-box st-ref-box" role="dialog" aria-modal="true" aria-labelledby="refTitle">
     <h3 id="refTitle">Сверить аккорды с эталоном</h3>

@@ -51,6 +51,7 @@ def main() -> None:
         if not output.get("ok"):
             failed += 1
             continue
+        print(f"seed {seed}: файлы {[item['name'] for item in output['files']]}")
         for item in output["files"]:
             with open(os.path.join(args.out, f"{seed}_{item['name']}"), "wb") as f:
                 f.write(base64.b64decode(item["audio_b64"]))
