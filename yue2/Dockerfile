@@ -36,14 +36,17 @@ RUN python3.11 -m venv /venv-ss \
     && /venv-ss/bin/pip install --no-cache-dir transformers==4.45.2 huggingface-hub==0.36.0 safetensors==0.5.3 \
          numpy==1.24.3 scipy==1.13.1 mir_eval==0.8.2 pretty_midi==0.2.10 mido==1.3.3 setuptools==78.1.1 hf_transfer
 
-# Веса -- в образ: холодный старт без скачивания ~15 ГБ
+# Веса -- в образ: холодный старт без скачивания ~15 ГБ. MERT-v2 -- той
+# ревизии, к которой привязана SheetSage2 (base_model_revision в её
+# config.json): офлайн она ищет именно её, а не текущую main.
 ENV HF_HUB_ENABLE_HF_TRANSFER=1
 RUN /venv/bin/python -c "from huggingface_hub import snapshot_download as s; \
 s('m-a-p/YuE2-3B', local_dir='/models/YuE2-3B', allow_patterns=['*.json','*.py','*.safetensors','*.tiktoken','LICENSE','licenses/*']); \
 s('m-a-p/YuE2-Vae', local_dir='/models/YuE2-Vae', allow_patterns=['*.json','*.py','*.safetensors','LICENSE','licenses/*']); \
 s('Qwen/Qwen3-ASR-1.7B', local_dir='/models/Qwen3-ASR-1.7B')" \
     && HF_HOME=/models/hf /venv-ss/bin/python -c "from huggingface_hub import snapshot_download as s; \
-s('m-a-p/SheetSage2', local_dir='/models/SheetSage2'); s('m-a-p/MERT-v2-FullSong')" \
+s('m-a-p/SheetSage2', local_dir='/models/SheetSage2'); \
+s('m-a-p/MERT-v2-FullSong', revision='d8ba1c745e733b3908ce6ad16ebeb17ac7600a42')" \
     && du -sh /models/* && rm -rf /root/.cache
 
 ENV HF_HOME=/models/hf HF_HUB_OFFLINE=1
