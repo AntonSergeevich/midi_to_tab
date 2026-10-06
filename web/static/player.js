@@ -47,6 +47,7 @@ async function load() {
     (circle.length ? ` · круг: ${circle.join(' ')}${source}` : '');
 
   $('audio').src = data.audio;
+  watchAudioErrors(data);
   clock = audioClock($('audio'));
   metro = metronome(data.beats || [], data.downbeats || []);
 
@@ -440,6 +441,29 @@ function volumeGain() {
     gainNode = null;
   }
   return gainNode;
+}
+
+// Звук не загрузился (на iPhone «Играть» -> NotSupportedError, 06.10):
+// пробуем запасной файл (партию целиком), а причину показываем словами --
+// что ответил сервер по адресу звука.
+function watchAudioErrors(result) {
+  const audio = $('audio');
+  const spare = [result.studioAudio, ...(result.parts || []).map((p) => p.audio)]
+    .filter((url, i, all) => url && url !== result.audio && all.indexOf(url) === i);
+  audio.addEventListener('error', async () => {
+    const failed = audio.currentSrc || audio.src;
+    if (spare.length) { audio.src = spare.shift(); audio.load(); return; }
+    let answer = '';
+    try {
+      const probe = await fetch(failed, { headers: { Range: 'bytes=0-1' } });
+      answer = `сервер: ${probe.status}, ${probe.headers.get('content-type') || 'без типа'}`;
+    } catch (error) { answer = `сервер не ответил: ${error.name}`; }
+    const code = audio.error ? audio.error.code : '?';
+    if (!$('audioError')) {
+      $('meta').insertAdjacentHTML('beforeend', '<p class="bad" id="audioError" style="margin:8px 0 0"></p>');
+    }
+    $('audioError').textContent = `Звук не загрузился (код ${code}; ${answer}). Пришлите этот текст — разберёмся.`;
+  });
 }
 
 // Запуск -- всегда из нажатия: там же будится Web Audio (на iPhone)

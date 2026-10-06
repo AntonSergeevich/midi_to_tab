@@ -1538,3 +1538,19 @@ def test_russian_section_tags_become_english(studio_app):
     app_module.storage.add_balance(user.id, 300)
     assert _start(client, lyrics="[Припев]\nЛа-ла").status_code == 200
     assert submitted[-1][1]["lyrics"] == "[Chorus]\nЛа-ла"
+
+
+def test_tabs_job_falls_back_to_studio_audio(studio_app):
+    """Разбор из Студии отдаёт запасной звук -- тот же трек в Студии; у старых
+    разборов (без studioFile) он находится по подписи версии в названии."""
+    app_module, client, user, submitted = studio_app
+    parent = app_module.storage.create_job(user.id, "Песня.mp3", {"kind": "studio", "mode": "restyle"})
+    folder = app_module.studio_runner.folder(parent.id)
+    os.makedirs(folder, exist_ok=True)
+    open(f"{folder}/yue2_2.mp3", "wb").write(b"mp3")
+    app_module.storage.update_job(parent.id, status="done", result={"files": [{"name": "yue2_2.mp3"}]})
+    for settings in ({"studio": parent.id, "studioFile": "yue2_2.mp3"}, {"studio": parent.id}):
+        job = app_module.storage.create_job(user.id, "Песня.mp3 — Вариант 2", settings)
+        app_module.storage.update_job(job.id, status="done", result={"audio": f"/api/file/{job.id}/source"})
+        got = client.get(f"/api/job/{job.id}").json()["result"]
+        assert got["studioAudio"] == f"/api/studio/file/{parent.id}/yue2_2.mp3"

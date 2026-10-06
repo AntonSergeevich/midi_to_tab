@@ -1140,6 +1140,23 @@ async def api_upload(
     return response
 
 
+def _studio_audio_of(job) -> str:
+    """Адрес трека Студии, из которого сделан разбор, -- если он ещё на диске."""
+    parent_id = (job.settings or {}).get("studio")
+    parent = storage.job(parent_id) if parent_id else None
+    if not parent:
+        return ""
+    files = (parent.result or {}).get("files") or []
+    wanted = (job.settings or {}).get("studioFile") or ""
+    if not wanted:   # разборы до 06.10 -- по подписи версии в названии
+        label = job.filename.rsplit(" — ", 1)[-1]
+        wanted = next((f["name"] for f in files
+                       if studio.label_of((parent.settings or {}).get("mode", ""), f["name"]) == label), "")
+    if wanted and wanted.endswith(".mp3") and os.path.isfile(os.path.join(studio_runner.folder(parent.id), wanted)):
+        return f"/api/studio/file/{parent.id}/{wanted}"
+    return ""
+
+
 @app.get("/api/job/{job_id}")
 def api_job(job_id: str, request: Request):
     user = current_user(request)
@@ -1161,6 +1178,11 @@ def api_job(job_id: str, request: Request):
         # Аппликатуры появились позже, чем часть разборов. Считать их
         # заново -- доли секунды, а без этого человек, открывший старый
         # трек, картинок просто не увидит и решит, что их нет вовсе.
+        # Разбор из Студии: запасной звук -- тот же трек в Студии (на iPhone
+        # свой файл разбора не загрузился, NotSupportedError, 06.10)
+        spare = _studio_audio_of(job)
+        if spare:
+            payload["result"]["studioAudio"] = spare
         if not payload["result"].get("shapes") and payload["result"].get("chords"):
             payload["result"]["shapes"] = jobs_module._shapes_for(
                 payload["result"]["chords"], job.settings or {}
@@ -2208,7 +2230,7 @@ def api_studio_to_tabs(job_id: str, request: Request, file: str = Form("")):
         "capo": 0, "tempo": 0, "minChord": 0.9,
         "vocabulary": audiochords.DEFAULT_VOCABULARY, "separate": whole,
         "model": separate.DEFAULT_MODEL, "quality": separate.DEFAULT_QUALITY,
-        "removeGhosts": True, "maxPolyphony": 0, "studio": job_id})
+        "removeGhosts": True, "maxPolyphony": 0, "studio": job_id, "studioFile": file})
     upload_dir = os.path.join(DATA_DIR, "uploads", job.id)
     os.makedirs(upload_dir, exist_ok=True)
     target = os.path.join(upload_dir, f"{safe_stem(file)}{Path(file).suffix.lower()}")
