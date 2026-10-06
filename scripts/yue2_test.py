@@ -39,8 +39,10 @@ def main() -> None:
         print(f"seed {seed}:", json.dumps({k: v for k, v in output.items() if k != "files"},
                                          ensure_ascii=False)[:1500])
         with open(os.path.join(args.out, f"{seed}_info.json"), "w", encoding="utf-8") as f:
-            json.dump({k: v for k, v in output.items() if k != "files"} or status, f,
-                      ensure_ascii=False, indent=1)
+            # Без слов и нот: репозиторий публичный, а в кавере это текст чужой песни
+            info = {k: v for k, v in (output.get("info") or {}).items() if k not in ("lyrics", "abc", "plan")}
+            json.dump({**{k: v for k, v in output.items() if k not in ("files", "info")}, "info": info}
+                      if output else status, f, ensure_ascii=False, indent=1)
         if not output.get("ok"):
             # Итог -- в аннотацию: лог прогона из облачной сессии не скачать
             error = str(output.get("error") or status.get("error") or "")
