@@ -76,7 +76,7 @@ def beat_times(text):
     return sorted(set(round(t, 4) for t in out))
 
 
-def retime(data, beats, meter=4, downbeat=None):
+def retime(data, beats, meter=4, downbeat=None):  # копия midi2tab/beatgrid.retime
     """MIDI SheetSage2 -> MIDI с картой темпа по найденным долям записи.
 
     SheetSage2 пишет ноты в реальном времени, но с условным темпом 120:

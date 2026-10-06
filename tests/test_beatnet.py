@@ -81,3 +81,28 @@ def test_intro_in_eighths_joins_the_song_grid():
     assert np.allclose(np.diff(grid), step)
     assert np.isclose(grid[0], 0.0) and np.isclose(grid[-1], song[-1])
     assert np.allclose(beatnet.steady(song), song)             # ровная песня не меняется
+
+
+def test_retime_puts_midi_beats_and_bars_on_the_song_grid():
+    """MIDI нот YuE2 -- на доли записи: метроном (доли MIDI) = доли песни."""
+    import io
+
+    import numpy as np
+    import pretty_midi
+
+    from midi2tab import beatgrid
+
+    song = pretty_midi.PrettyMIDI(initial_tempo=120)
+    piano = pretty_midi.Instrument(0)
+    starts = [0.05, 0.7, 1.33, 2.9, 4.41, 6.02]
+    piano.notes = [pretty_midi.Note(100, 60 + i, t, t + 0.3) for i, t in enumerate(starts)]
+    song.instruments.append(piano)
+    raw = io.BytesIO()
+    song.write(raw)
+    # неровные доли, первая -- 0.18 с (раньше обрезалась и двигала все ноты)
+    beats = [0.18, 0.62, 1.08, 1.5, 1.98, 2.42, 2.86, 3.3, 3.76, 4.2, 4.64, 5.1, 5.56, 6.0]
+    out = pretty_midi.PrettyMIDI(io.BytesIO(beatgrid.retime(raw.getvalue(), beats, downbeat=1.08)))
+    got = out.get_beats()
+    assert np.allclose([min(abs(got - b)) for b in beats], 0, atol=0.002)
+    assert np.allclose(out.get_downbeats()[1:3], [1.08, 2.86], atol=0.002)
+    assert np.allclose(sorted(n.start for n in out.instruments[0].notes), starts, atol=0.002)

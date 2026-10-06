@@ -1575,8 +1575,10 @@ class StudioRunner:
         order = list(STEM_LABELS)
         files.sort(key=lambda f: order.index(f["name"][:-4]) if f["name"][:-4] in order else 99)
         info = output.get("info") or {}
+        analysis = self._align_midi(job_id, folder, midi) if midi else {}
         self.storage.update_job(job_id, status="done", stage="Готово", progress=100, result={
             "files": files,
+            **({"analysis": analysis} if analysis else {}),
             # YuE2: слова (присланные или распознанные) и то, что SheetSage2
             # услышал в исходнике, -- аккорды, тональность, части песни
             **({"lyrics": info["lyrics"]} if info.get("lyrics") else {}),
@@ -1588,6 +1590,44 @@ class StudioRunner:
             "settings": (output.get("info") or {}).get("settings") or {},
             "waitSeconds": round((status.get("delayTime") or 0) / 1000, 1),
         })
+
+    def _align_midi(self, job_id: str, folder: str, midi: list) -> dict:
+        """MIDI нот YuE2 -- на доли записи, посчитанные здесь, тем же разбором,
+        что у карточки трека и метронома (кэш analysis). Воркер считает доли
+        сам, но Beat This на другом декодере mp3 даёт другую сетку (258 долей
+        против 254, 06.10) -- и метроном опять расходился с MIDI. Ноты при
+        этом не двигаются, меняется только карта темпа и такты."""
+        from midi2tab import beatgrid
+
+        names = os.listdir(folder)
+        source = next((f for f in sorted(names) if f.startswith("source.")), "")
+        analysis = {}
+        for item in midi:
+            audio = item["name"][:-4] + ".mp3"
+            if audio not in names:
+                audio = source               # ноты исходника («Ноты, аккорды и MIDI»)
+            if not audio:
+                continue
+            if audio not in analysis:
+                self.storage.update_job(job_id, stage="Свожу ноты с долями песни...")
+                try:
+                    with HEAVY:
+                        analysis[audio] = analyze_audio(os.path.join(folder, audio))
+                except Exception as error:  # noqa: BLE001 -- без сетки, но с нотами
+                    analysis[audio] = {"error": str(error)[:200]}
+            found = analysis[audio]
+            if len(found.get("beats") or []) < 4:
+                continue
+            path = os.path.join(folder, item["name"])
+            try:
+                with open(path, "rb") as f:
+                    data = beatgrid.retime(f.read(), found["beats"],
+                                           downbeat=(found.get("downbeats") or [None])[0])
+                with open(path, "wb") as f:
+                    f.write(data)
+            except Exception as error:  # noqa: BLE001
+                print(f"[studio] {item['name']}: доли не сведены ({error!r})", file=sys.stderr, flush=True)
+        return {name: found for name, found in analysis.items() if "error" not in found}
 
     def _fail(self, job_id: str, reason: str) -> None:
         job = self.storage.job(job_id)
