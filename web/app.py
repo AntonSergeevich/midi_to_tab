@@ -1700,6 +1700,8 @@ async def api_studio_start(
     style = prompt.strip()[:500] or (studio.PRESETS[preset][1] if preset in studio.PRESETS else "")
     if mode in ("restyle", "enrich") and not style:
         raise HTTPException(400, "Опишите стиль: жанр, настроение, инструменты")
+    if engine == "yue2":
+        style = studio.english_style(style)      # YuE2 понимает стиль по-английски
     if engine in ("runpod", "yue2") and mode in ("create", "restyle") and voice in studio.VOICES:
         # У ACE-Step нет переключателя голоса -- просим словами в стиле
         style = ", ".join(p for p in (style, studio.VOICES[voice][1]) if p)[:1024]

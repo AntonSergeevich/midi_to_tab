@@ -114,6 +114,77 @@ def english_tags(lyrics: str) -> str:
     return "\n".join(out)
 
 
+# Стиль по-русски -> английские музыкальные теги. YuE2 учили на английских
+# и китайских описаниях: «ню-метал, тяжёлые гитары» она почти не понимает и
+# поёт что-то усреднённое (кавер владельца 06.10 вышел «как оригинал»).
+# Сначала длинные фразы, потом слова; латиница остаётся как есть.
+STYLE_RU = [
+    ("ню-метал", "nu metal"), ("ню метал", "nu metal"), ("хэви-метал", "heavy metal"), ("хеви-метал", "heavy metal"),
+    ("хэви метал", "heavy metal"), ("дэт-метал", "death metal"), ("блэк-метал", "black metal"),
+    ("металкор", "metalcore"), ("дэткор", "deathcore"), ("пост-рок", "post-rock"), ("поп-рок", "pop rock"),
+    ("панк-рок", "punk rock"), ("поп-панк", "pop punk"), ("инди-рок", "indie rock"), ("инди", "indie"),
+    ("альтернатив", "alternative"), ("хард-рок", "hard rock"), ("хард рок", "hard rock"), ("рок-н-ролл", "rock and roll"),
+    ("хип-хоп", "hip hop"), ("хип хоп", "hip hop"), ("рэп", "rap"), ("трэп", "trap"), ("дрилл", "drill"),
+    ("драм-н-бейс", "drum and bass"), ("драм н бейс", "drum and bass"), ("дабстеп", "dubstep"),
+    ("хаус", "house"), ("техно", "techno"), ("транс", "trance"), ("синтвейв", "synthwave"), ("синти-поп", "synth pop"),
+    ("электрогитар", "electric guitars"), ("электроник", "electronic"), ("электро", "electro"), ("эмбиент", "ambient"), ("лоу-фай", "lo-fi"), ("лофай", "lo-fi"),
+    ("фанк", "funk"), ("соул", "soul"), ("ритм-н-блюз", "r&b"), ("эрнби", "r&b"), ("диско", "disco"),
+    ("джаз", "jazz"), ("блюз", "blues"), ("кантри", "country"), ("фолк", "folk"), ("регги", "reggae"),
+    ("шансон", "russian chanson"), ("романс", "romance ballad"), ("бардовск", "acoustic singer-songwriter"),
+    ("классическ", "classical"), ("оркестр", "orchestral"), ("киномузык", "cinematic"), ("эпичн", "epic"),
+    ("баллад", "ballad"), ("поп", "pop"), ("рок", "rock"), ("метал", "metal"), ("панк", "punk"), ("гранж", "grunge"),
+    ("семиструн", "7-string"), ("акустическ гитар", "acoustic guitar"),
+    ("акустик", "acoustic"), ("тяжёл гитар", "heavy guitars"), ("тяжел гитар", "heavy guitars"),
+    ("перегруж", "overdriven"), ("дисторш", "distorted"), ("искаж", "distorted"), ("гитар", "guitars"),
+    ("бас-гитар", "bass guitar"), ("бас", "bass"), ("барабан", "drums"), ("ударн", "drums"),
+    ("фортепиан", "piano"), ("пианино", "piano"), ("рояль", "grand piano"), ("клавиш", "keys"),
+    ("синтезатор", "synthesizer"), ("синт", "synth"), ("скрипк", "violin"), ("струнн", "strings"),
+    ("виолончел", "cello"), ("саксофон", "saxophone"), ("труб", "trumpet"), ("духов", "brass"),
+    ("аккордеон", "accordion"), ("баян", "accordion"), ("флейт", "flute"), ("скретч", "scratches"),
+    ("мужск вокал", "male vocals"), ("мужской голос", "male vocals"), ("женск вокал", "female vocals"),
+    ("женский голос", "female vocals"), ("дуэт", "duet"), ("хор", "choir"), ("скрим", "screams"),
+    ("гроул", "growls"), ("шёпот", "whisper"), ("шепот", "whisper"), ("мощн вокал", "powerful vocals"),
+    ("вокал", "vocals"), ("голос", "vocals"),
+    ("агрессивн", "aggressive"), ("мрачн", "dark"), ("тёмн", "dark"), ("темн", "dark"), ("грустн", "sad"),
+    ("печальн", "melancholic"), ("меланхол", "melancholic"), ("весёл", "happy"), ("весел", "happy"),
+    ("радостн", "joyful"), ("романтичн", "romantic"), ("лиричн", "lyrical"), ("нежн", "gentle"),
+    ("мягк", "soft"), ("спокойн", "calm"), ("энергичн", "energetic"), ("драйв", "driving"), ("мощн", "powerful"),
+    ("тяжёл", "heavy"), ("тяжел", "heavy"), ("жёстк", "hard"), ("жестк", "hard"), ("лёгк", "light"), ("легк", "light"),
+    ("танцевальн", "danceable"), ("ностальг", "nostalgic"), ("атмосферн", "atmospheric"), ("гимн", "anthemic"),
+    ("быстр", "fast tempo"), ("медленн", "slow tempo"), ("средн темп", "mid tempo"),
+    ("мелодичн", "melodic"), ("рифф", "riffs"), ("соло", "solo"), ("брейкдаун", "breakdown"),
+    ("куплет", "verses"), ("припев", "chorus"),
+    ("80-х", "80s"), ("90-х", "90s"), ("2000-х", "2000s"), ("ретро", "retro"), ("русск", "russian"),
+]
+
+
+def english_style(style: str) -> str:
+    """Описание стиля -> английские теги для YuE2: известные русские
+    музыкальные слова переводятся, латиница остаётся, прочая кириллица
+    отбрасывается (её модель всё равно не поймёт)."""
+    text = (style or "").strip()
+    if not re.search(r"[А-Яа-яЁё]", text):
+        return text
+    tags = []
+    for chunk in re.split(r"[,;.\n]+", text.lower()):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        found = []
+        for ru, en in STYLE_RU:
+            # фраза из нескольких основ: все основы должны встретиться по порядку
+            pattern = r"\b" + r"[а-яё-]*\s+".join(map(re.escape, ru.split())) + r"[а-яё-]*"
+            if re.search(pattern, chunk):
+                found.append((re.search(pattern, chunk).start(), en))
+                chunk = re.sub(pattern, " ", chunk)
+        found.sort()
+        latin = re.findall(r"[a-z0-9][a-z0-9&'+\- ]*[a-z0-9]|[a-z0-9]", chunk)
+        words = [en for _, en in found] + [w.strip() for w in latin if w.strip()]
+        if words:
+            tags.append(" ".join(dict.fromkeys(words)))
+    return ", ".join(dict.fromkeys(tags))[:500] or text
+
+
 def voice_clone_open() -> bool:
     """Клон голоса Mureka на нашем тарифе API не включён (ответ 429 «exceeded
     your current quota» при деньгах на счёте) -- включается переменной, когда

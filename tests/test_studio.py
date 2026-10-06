@@ -1464,6 +1464,9 @@ def test_yue2_is_owner_only_and_goes_to_its_endpoint(studio_app, monkeypatch):
     job_id, data = submitted[-1]
     assert app_module.storage.job(job_id).settings["engine"] == "yue2"
     assert data["mode"] == "restyle" and data["prompt"] == "nu metal, male vocals" and "raw" not in data
+    assert _start(client, engine="yue2", prompt="ню-метал, тяжёлые гитары").status_code == 200
+    assert submitted[-1][1]["prompt"] == "nu metal, heavy guitars"      # YuE2 -- стиль по-английски
+    job_id, data = submitted[-2]
     assert _create(client, engine="yue2", prompt="rock", lyrics="[verse]\nСтрока").status_code == 200
 
     app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings, "input": data})
