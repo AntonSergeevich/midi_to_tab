@@ -667,6 +667,7 @@ def endpoint_id(name: str = WORKER_NAME) -> str:
 YUE2_NAME = "naslux-yue2"
 # MIDI частей от SheetSage2 («Ноты, аккорды и MIDI»)
 MIDI_LABELS = {"melody_vocal": "Мелодия вокала", "melody_instrumental": "Мелодия инструментов",
+               "melody": "Мелодия: вокал и инструменты",
                "chords": "Аккорды", "transcription": "Мелодия и аккорды вместе"}
 
 
