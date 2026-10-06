@@ -49,7 +49,7 @@ async function load() {
   $('audio').src = data.audio;
   watchAudioErrors(data);
   clock = audioClock($('audio'));
-  metro = metronome(data.beats || [], data.downbeats || []);
+  metro = metronome(...beatGrid(data));
 
   buildRibbon();
   buildParts();
@@ -367,6 +367,17 @@ function audioClock(audio) {
     setRate: (r) => { audio.playbackRate = r; },
     onState: (fn) => { audio.onplay = fn; audio.onpause = fn; },
   };
+}
+
+// Доли для метронома: найденные в записи, а если их нет (разборы из MIDI
+// до 06.10) -- ровная сетка по темпу, такт на 4
+function beatGrid(result) {
+  if ((result.beats || []).length) return [result.beats, result.downbeats || []];
+  const step = 60 / (result.tempo || 120);
+  const end = Math.max(...(result.chords || []).map((c) => c.end), 0) + 4;
+  const beats = [];
+  for (let t = 0; t < end; t += step) beats.push(Math.round(t * 1000) / 1000);
+  return [beats, beats.filter((_, i) => i % 4 === 0)];
 }
 
 // Метроном щёлкает по НАЙДЕННЫМ долям, а не по среднему темпу:

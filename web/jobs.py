@@ -386,6 +386,15 @@ class JobRunner:
                 doc = midiin.load(source_path)
                 if not tempo:
                     tempo = int(round(doc.tempo_bpm))
+                # Доли для метронома -- из самого MIDI: там они записаны точно
+                try:
+                    import pretty_midi
+
+                    pm = pretty_midi.PrettyMIDI(source_path)
+                    beats = [round(float(b), 3) for b in pm.get_beats()]
+                    downbeats = [round(float(b), 3) for b in pm.get_downbeats()]
+                except Exception:  # noqa: BLE001 -- метроном не повод ронять разбор
+                    beats, downbeats = [], []
                 notes = doc.merged_notes([t.index for t in doc.tracks if not t.is_drum])
                 spans = detect_midi_chords(notes, total_ticks=doc.total_ticks)
                 chords = []
