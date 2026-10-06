@@ -104,7 +104,9 @@ def sheetsage(wav, melody_only):
     done = subprocess.run(args, capture_output=True, text=True, timeout=1200)
     sys.stderr.write(done.stderr[-4000:])
     if done.returncode != 0:
-        raise RuntimeError(f"SheetSage2 не справился: {done.stderr.strip()[-600:]}")
+        # Главное -- последняя строка (RuntimeError из ss_run со всеми попытками)
+        last = [line for line in done.stderr.strip().splitlines() if line.strip()][-1:] or [""]
+        raise RuntimeError(f"SheetSage2 не справился: {last[0][-1200:]}")
     return json.loads(done.stdout.strip().splitlines()[-1])
 
 

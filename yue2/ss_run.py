@@ -25,17 +25,32 @@ def rows(text):
 
 
 def load_model():
-    """SheetSage2 -- как обычный пакет (/models/SheetSage2 с __init__.py).
-    Через trust_remote_code transformers 4.45 копирует в кэш не все её
-    модули и падает на chord_spelling_sheetsage2.py (проба 06.10)."""
+    """SheetSage2 -- сначала как обычный пакет (/models/SheetSage2 с
+    __init__.py), иначе через AutoModel. transformers 4.45 при
+    trust_remote_code копирует в свой кэш модулей не все файлы SheetSage2 и
+    падает на chord_spelling_sheetsage2.py (пробы 06.10) -- поэтому кэш
+    модулей заполняем сами: все .py модели лежат там заранее."""
+    import os
+    import shutil
+
+    source = "/models/SheetSage2"
+    cache = os.path.join(os.environ.get("HF_HOME", "/models/hf"), "modules", "transformers_modules", "SheetSage2")
+    os.makedirs(cache, exist_ok=True)
+    for name in os.listdir(source):
+        if name.endswith(".py"):
+            shutil.copy2(os.path.join(source, name), os.path.join(cache, name))
+    errors = []
     sys.path.insert(0, "/models")
     try:
         from SheetSage2.modeling_sheetsage2 import SheetSage2Model
-        model = SheetSage2Model.from_pretrained("/models/SheetSage2", local_files_only=True)
+        model = SheetSage2Model.from_pretrained(source, local_files_only=True)
     except Exception as error:  # noqa: BLE001 -- запасной путь, как в README
-        print(f"[ss] пакетом не вышло ({error!r}), пробуем AutoModel", file=sys.stderr, flush=True)
-        model = AutoModel.from_pretrained("/models/SheetSage2", trust_remote_code=True,
-                                          local_files_only=True)
+        errors.append(f"пакетом: {error!r}"[:400])
+        print(f"[ss] {errors[-1]}", file=sys.stderr, flush=True)
+        try:
+            model = AutoModel.from_pretrained(source, trust_remote_code=True, local_files_only=True)
+        except Exception as second:  # noqa: BLE001
+            raise RuntimeError(" || ".join(errors + [f"AutoModel: {second!r}"[:600]])) from second
     return model.eval().to("cuda")
 
 
