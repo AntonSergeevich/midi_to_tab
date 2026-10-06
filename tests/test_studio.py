@@ -1445,3 +1445,38 @@ def test_describe_track_gives_style_and_lyrics_once(studio_app, monkeypatch):
     assert client.get(f"/api/studio/{created.id}/describe").json()["lyrics"] == "Свой текст"
     assert calls.count("recognize") == 1                                  # сохранённые слова не распознаём
     assert client.get(f"/api/studio/{created.id}/describe?file=../x").status_code == 409
+
+
+def test_yue2_is_owner_only_and_goes_to_its_endpoint(studio_app, monkeypatch):
+    """Проба YuE2 (некоммерческая лицензия): только безлимит владельца, свой
+    эндпоинт, слова и услышанные аккорды -- в результат."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("NASLUX_YUE2_ENDPOINT", "yue2ep")
+    app_module.storage.add_balance(user.id, 300)
+    assert client.get("/api/studio").json()["yue2Open"] is False
+    assert _start(client, engine="yue2", prompt="nu metal").status_code == 200
+    assert app_module.storage.job(submitted[-1][0]).settings["engine"] != "yue2"   # не владелец
+
+    app_module.storage.set_flags(user.id, unlimited=True)
+    assert client.get("/api/studio").json()["yue2Open"] is True
+    assert _start(client, engine="yue2", prompt="nu metal", voice="male").status_code == 200
+    job_id, data = submitted[-1]
+    assert app_module.storage.job(job_id).settings["engine"] == "yue2"
+    assert data["mode"] == "restyle" and data["prompt"] == "nu metal, male vocals" and "raw" not in data
+    assert _create(client, engine="yue2", prompt="rock", lyrics="[verse]\nСтрока").status_code == 200
+
+    app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings, "input": data})
+    runner = studio.StudioRunner(app_module.storage, app_module.DATA_DIR)
+    with open(f"{runner.folder(job_id)}/yue2_1.mp3", "wb") as f:
+        f.write(b"mp3")
+    calls = _fake_runpod(monkeypatch, studio, {"status": "COMPLETED", "output": {
+        "ok": True, "files": [{"name": "yue2_1.mp3"}],
+        "info": {"engine": "yue2", "lyrics": "[Verse]\nПоезда", "chords": [[0, 4, "Cm"]],
+                 "key": [[0, 200, "C:minor"]], "structure": [[0, 20, "verse"]]}}})
+    runner._run(job_id)
+    job = app_module.storage.job(job_id)
+    assert job.status == "done", job.error
+    assert "/yue2ep/run" in calls[0][1]
+    assert job.result["lyrics"].startswith("[Verse]") and job.result["sheet"]["chords"] == [[0, 4, "Cm"]]
+    assert [f["label"] for f in job.result["files"]] == ["Вариант 1"]

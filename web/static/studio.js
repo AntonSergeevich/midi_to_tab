@@ -101,7 +101,12 @@ function showMode() {
   document.querySelectorAll('#modes button').forEach((b) =>
     b.classList.toggle('on', b.dataset.mode === mode));
   $('modeHint').textContent = MODE[mode].hint;
-  const mureka = info && info.restyleEngine === 'mureka';
+  // Проба YuE2 -- только у владельца (безлимит), в «С нуля» и «Переделать»
+  const yue2Here = Boolean(info && info.yue2Open) && ['create', 'restyle'].includes(mode);
+  $('yue2Box').hidden = !yue2Here;
+  const yue2 = yue2Here && $('useYue2').checked;
+  const mureka = info && info.restyleEngine === 'mureka' && !yue2;
+  if (yue2) useReference = false;
   const reference = mode === 'create' && useReference;
   $('drop').hidden = mode === 'create' && !reference;
   $('refToggle').hidden = !(mode === 'create' && mureka);
@@ -120,19 +125,24 @@ function showMode() {
   $('voiceBox').hidden = !['create', 'restyle'].includes(mode) || keep;
   $('lyricsBox').hidden = !['create', 'restyle'].includes(mode) || keep;
   $('instrumentalBox').hidden = mode !== 'create';
-  $('strengthBox').hidden = !(mode === 'restyle' && !mureka);
+  $('strengthBox').hidden = !(mode === 'restyle' && !mureka && !yue2);
   saveDraft();
   // «Инструментал» есть только у песни с нуля: в «Переделать» поле слов не гасим
   $('lyrics').disabled = mode === 'create' && $('instrumental').checked;
-  $('lyricsNote').textContent = mode === 'restyle' && mureka ? '— необязательно' : '';
+  $('lyricsNote').textContent = mode === 'restyle' && yue2 ? '— необязательно: распознаем сами'
+    : mode === 'restyle' && mureka ? '— необязательно' : '';
   updateStart();
 }
 
 // «Дописать → Все партии»: на деле это переделка с вашим голосом (Mureka
 // пишет новую аранжировку под записанный вокал) -- так и отправляем, и цена её
+function yue2On() {
+  return Boolean(info && info.yue2Open) && ['create', 'restyle'].includes(mode) && $('useYue2').checked;
+}
+
 function sendMode() {
   if (mode === 'enrich' && $('track').value === 'all') return { mode: 'restyle', keep: true, all: true };
-  return { mode, keep: mode === 'restyle' && $('keepVocals').checked, all: false };
+  return { mode, keep: mode === 'restyle' && $('keepVocals').checked && !yue2On(), all: false };
 }
 
 function updateStart() {
@@ -146,7 +156,7 @@ function updateStart() {
   const mureka = info.restyleEngine === 'mureka';
   let problem = '';
   if (!info.ready) problem = info.why;
-  else if (mode === 'create' && !info.createOpen) problem = 'Песни с нуля скоро появятся.';
+  else if (mode === 'create' && !info.createOpen && !yue2On()) problem = 'Песни с нуля скоро появятся.';
   else if (send.mode === 'restyle' && !info.restyleOpen) problem = 'Переделка скоро вернётся.';
   else if (mode !== 'create' && !file && !again) problem = 'Загрузите трек.';
   else if (mode === 'create' && useReference && !file) problem = 'Загрузите песню-образец (возьмём ~30 секунд).';
@@ -686,6 +696,7 @@ $('drop').addEventListener('drop', (e) => {
 });
 $('lyrics').addEventListener('input', () => { lyricsCount(); saveDraft(); updateStart(); });
 $('keepVocals').addEventListener('change', showMode);
+$('useYue2').addEventListener('change', showMode);
 $('track').addEventListener('change', () => { updateStart(); saveDraft(); });
 $('stemsPro').addEventListener('change', showMode);
 $('instrumental').addEventListener('change', () => {
@@ -760,6 +771,7 @@ $('start').addEventListener('click', async () => {
   form.append('voice', voice);
   form.append('keep_vocals', send.keep);
   form.append('pro', mode === 'stems' && $('stemsPro').checked);
+  form.append('engine', yue2On() ? 'yue2' : '');
   $('start').disabled = true;
   $('msg').textContent = mode === 'create' ? 'Отправляем…' : 'Загружаем трек…';
   const response = await fetch('/api/studio', { method: 'POST', body: form });

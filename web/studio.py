@@ -647,18 +647,29 @@ def download(url: str, target: str) -> None:
 _endpoint_cache: dict[str, str] = {}
 
 
-def endpoint_id() -> str:
+def endpoint_id(name: str = WORKER_NAME) -> str:
     """ID эндпоинта: из окружения или по имени через API RunPod (один раз)."""
-    configured = os.environ.get("NASLUX_WORKER_ENDPOINT", "")
+    configured = os.environ.get("NASLUX_WORKER_ENDPOINT" if name == WORKER_NAME else "NASLUX_YUE2_ENDPOINT", "")
     if configured:
         return configured
-    if "id" not in _endpoint_cache:
+    if name not in _endpoint_cache:
         found = [e for e in call("GET", f"{RUNPOD_REST}/endpoints")
-                 if e.get("name", "").startswith(WORKER_NAME)]
+                 if e.get("name", "").startswith(name)]
         if not found:
-            raise RuntimeError(f"На RunPod нет эндпоинта {WORKER_NAME}")
-        _endpoint_cache["id"] = found[0]["id"]
-    return _endpoint_cache["id"]
+            raise RuntimeError(f"На RunPod нет эндпоинта {name}")
+        _endpoint_cache[name] = found[0]["id"]
+    return _endpoint_cache[name]
+
+
+# YuE2 (M-A-P): песни с нуля и каверы уровня Suno, свой эндпоинт на RunPod
+# (yue2/). Веса под CC BY-NC 4.0 -- движок виден только владельцу
+# (безлимит) для некоммерческой пробы; покупателям -- после лицензии M-A-P.
+YUE2_NAME = "naslux-yue2"
+
+
+def yue2_open(user) -> bool:
+    return bool(api_key()) and bool(getattr(user, "unlimited", False)) \
+        and os.environ.get("NASLUX_YUE2", "1") == "1"
 
 
 # ----------------------------------------------------------- подписи ссылок
@@ -811,7 +822,7 @@ class StudioRunner:
             settings = dict(job.settings or {})
             remote = settings.get("remote")
             if not remote:
-                endpoint = endpoint_id()
+                endpoint = endpoint_id(YUE2_NAME if settings.get("engine") == "yue2" else WORKER_NAME)
                 self.storage.update_job(job_id, status="running",
                                         stage="Отправляем на видеокарту", progress=3)
                 started = call("POST", f"{RUNPOD_API}/{endpoint}/run", {"input": settings["input"]})
@@ -1447,8 +1458,14 @@ class StudioRunner:
             raise RuntimeError("Воркер закончил, но файлы до сайта не дошли")
         order = list(STEM_LABELS)
         files.sort(key=lambda f: order.index(f["name"][:-4]) if f["name"][:-4] in order else 99)
+        info = output.get("info") or {}
         self.storage.update_job(job_id, status="done", stage="Готово", progress=100, result={
             "files": files,
+            # YuE2: слова (присланные или распознанные) и то, что SheetSage2
+            # услышал в исходнике, -- аккорды, тональность, части песни
+            **({"lyrics": info["lyrics"]} if info.get("lyrics") else {}),
+            **({"engine": "yue2", "sheet": {k: info.get(k) for k in ("chords", "key", "structure")}}
+               if info.get("engine") == "yue2" else {}),
             "gpuSeconds": round((status.get("executionTime") or 0) / 1000, 1),
             # С чем работала нейросеть: темп, тональность, модель, крутилки.
             "settings": (output.get("info") or {}).get("settings") or {},

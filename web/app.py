@@ -1584,6 +1584,7 @@ def api_studio(request: Request):
         "studioCredits": user.studio_credits,
         "restyleOpen": studio.restyle_open() or user.unlimited,
         "restyleEngine": studio.restyle_engine(),
+        "yue2Open": studio.yue2_open(user),
         "email": user.email, "maxMb": MAX_UPLOAD_MB, "maxSeconds": studio.MAX_SECONDS,
         "jobs": [_studio_job_payload(j) for j in storage.studio_jobs(user.id)],
     })
@@ -1613,6 +1614,7 @@ async def api_studio_start(
     rights: str = Form(""),
     reference: bool = Form(False),
     pro: bool = Form(False),
+    engine: str = Form(""),
 ):
     user = current_user(request)
     ready, why = studio.available()
@@ -1622,12 +1624,15 @@ async def api_studio_start(
     if service is None:
         raise HTTPException(400, "Неизвестная услуга")
     pro = pro and mode == "stems"
+    asked = engine
     engine = studio.restyle_engine() if mode in ("restyle", "create") or pro else "runpod"
+    if asked == "yue2" and mode in ("restyle", "create") and studio.yue2_open(user):
+        engine = "yue2"            # проба владельца, см. studio.YUE2_NAME
     if pro and engine != "mureka":
         raise HTTPException(503, "Глубокое разделение пока не подключено")
     if pro:
         service = studio.SERVICES["stems_pro"]
-    if mode == "create" and engine != "mureka" and not studio.ace_create_open():
+    if mode == "create" and engine not in ("mureka", "yue2") and not studio.ace_create_open():
         raise HTTPException(503, "Песни с нуля пишет Mureka, а она на сервере не подключена")
     if reference and mode == "create" and engine != "mureka":
         raise HTTPException(503, "Песня «как в образце» временно недоступна — опишите стиль словами")
@@ -1673,7 +1678,7 @@ async def api_studio_start(
     style = prompt.strip()[:500] or (studio.PRESETS[preset][1] if preset in studio.PRESETS else "")
     if mode in ("restyle", "enrich") and not style:
         raise HTTPException(400, "Опишите стиль: жанр, настроение, инструменты")
-    if engine == "runpod" and mode in ("create", "restyle") and voice in studio.VOICES:
+    if engine in ("runpod", "yue2") and mode in ("create", "restyle") and voice in studio.VOICES:
         # У ACE-Step нет переключателя голоса -- просим словами в стиле
         style = ", ".join(p for p in (style, studio.VOICES[voice][1]) if p)[:1024]
     cost_key = "stems_pro" if pro else mode

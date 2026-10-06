@@ -31,8 +31,9 @@ def main() -> None:
         sys.exit("Воркер не видит видеокарту -- проба остановлена")
     failed = 0
     for seed in job.get("seeds") or [831001]:
-        status = run(endpoint, headers, {"style": job["style"], "lyrics": job["lyrics"], "seed": seed,
-                                         "cot": job.get("cot", "full"), "cfg_scale": job.get("cfg_scale")})
+        status = run(endpoint, headers, {"mode": job.get("mode", "create"), "style": job["style"],
+                                         "lyrics": job["lyrics"], "seed": seed, "variants": 1,
+                                         "cfg_scale": job.get("cfg_scale")})
         output = status.get("output") or {}
         print(f"seed {seed}:", json.dumps({k: v for k, v in output.items() if k != "files"},
                                          ensure_ascii=False)[:1500])
@@ -41,7 +42,7 @@ def main() -> None:
             failed += 1
             continue
         for item in output["files"]:
-            with open(os.path.join(args.out, item["name"]), "wb") as f:
+            with open(os.path.join(args.out, f"{seed}_{item['name']}"), "wb") as f:
                 f.write(base64.b64decode(item["audio_b64"]))
     sys.exit(1 if failed else 0)
 
