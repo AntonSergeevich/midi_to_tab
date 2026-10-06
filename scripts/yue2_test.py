@@ -32,11 +32,14 @@ def main() -> None:
     failed = 0
     for seed in job.get("seeds") or [831001]:
         status = run(endpoint, headers, {"mode": job.get("mode", "create"), "style": job["style"],
-                                         "lyrics": job["lyrics"], "seed": seed, "variants": 1,
-                                         "cfg_scale": job.get("cfg_scale")})
+                                         "lyrics": job.get("lyrics", ""), "seed": seed, "variants": 1,
+                                         "cfg_scale": job.get("cfg_scale"),
+                                         **({"audio_url": job["audio_url"]} if job.get("audio_url") else {})})
         output = status.get("output") or {}
         print(f"seed {seed}:", json.dumps({k: v for k, v in output.items() if k != "files"},
                                          ensure_ascii=False)[:1500])
+        with open(os.path.join(args.out, f"{seed}_info.json"), "w", encoding="utf-8") as f:
+            json.dump(output.get("info") or {}, f, ensure_ascii=False, indent=1)
         report(status)
         if not output.get("ok"):
             failed += 1
