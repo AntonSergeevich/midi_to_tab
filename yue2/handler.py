@@ -167,23 +167,39 @@ def sampling(creativity):
 
 
 def render(style, lyrics, variants, seed, **kwargs):
+    """Версии песни + ноты КАЖДОЙ версии, снятые SheetSage2 с готового звука.
+    План нот, который YuE2 пишет до пения, по темпу и ритму расходится с
+    тем, что она спела (кавер «Пчеловода»: план 128 BPM, спето 125 -- MIDI и
+    метроном не совпадали с песней, 06.10). Снятые с записи ноты идут по её
+    времени. Не вышло снять -- MIDI из плана (abc2midi), как запасной."""
     import soundfile as sf
 
-    files, plans = [], []
+    files, sheets = [], []
     for n in range(variants):
         song = pipe()(style=style, lyrics=lyrics, seed=seed + n, **kwargs)
+        plan = getattr(song, "abc", "") or ""
         with tempfile.TemporaryDirectory() as work:
             wav = f"{work}/song.wav"
-            sf.write(wav, song.audio, song.sample_rate)
+            sf.write(wav, song.audio, song.sample_rate, subtype="PCM_16")
             mp3 = subprocess.run(["ffmpeg", "-v", "error", "-i", wav, "-b:a", "256k", "-f", "mp3", "pipe:1"],
                                  capture_output=True, check=True).stdout
-        files.append((f"yue2_{n + 1}.mp3", mp3))
-        plan = getattr(song, "abc", "") or ""
-        plans.append(plan)
-        midi = abc_to_midi(plan, f"yue2_{n + 1}.mid")
-        if midi:
-            files.append(midi)
-    return files, plans
+            files.append((f"yue2_{n + 1}.mp3", mp3))
+            sheet = {}
+            try:
+                sheet = sheetsage(wav, melody_only=False, out=f"{work}/midi")
+                ready = next((m for m in ("transcription.mid", "melody.mid") if m in (sheet.get("midis") or [])), None)
+                if ready:
+                    with open(f"{work}/midi/{ready}", "rb") as f:
+                        files.append((f"yue2_{n + 1}.mid", f.read()))
+            except Exception as error:  # noqa: BLE001 -- ноты не повод терять песню
+                print(f"[yue2] ноты версии {n + 1} не сняты: {error!r}", file=sys.stderr, flush=True)
+            if not any(name == f"yue2_{n + 1}.mid" for name, _ in files):
+                midi = abc_to_midi(plan, f"yue2_{n + 1}.mid")
+                if midi:
+                    files.append(midi)
+            sheets.append({"abc": sheet.get("abc") or plan, "chords": sheet.get("chords") or [],
+                           "key": sheet.get("key") or [], "structure": sheet.get("structure") or []})
+    return files, sheets
 
 
 def deliver(data, files):
@@ -226,8 +242,9 @@ def handler(job):
         info["settings"] = {"closeness": closeness, **{k: v for k, v in knobs.items()}}
         files = []
         if mode == "create":
-            files, plans = render(style, lyrics or "[Verse]\n", variants, seed, cot="full", **knobs)
-            info["abc"] = plans[0][:20000]
+            files, sheets = render(style, lyrics or "[Verse]\n", variants, seed, cot="full", **knobs)
+            info.update(abc=sheets[0]["abc"][:20000], chords=sheets[0]["chords"], key=sheets[0]["key"],
+                        structure=sheets[0]["structure"])
         else:
             with tempfile.TemporaryDirectory() as work:
                 wav = fetch(data["audio_url"], work)
@@ -243,9 +260,11 @@ def handler(job):
                     if closeness != "free" and not sheet.get("abc"):
                         raise RuntimeError(f"не получилось снять ноты мелодии: {sheet.get('abc_error')}")
                     score = {} if closeness == "free" else {"abc": sheet["abc"]}
-                    files, plans = render(style, lyrics or "[Verse]\n", variants, seed,
-                                          cot="melody" if closeness == "melody" else "full", **score, **knobs)
-                    info["abc"] = (plans[0] or sheet.get("abc") or "")[:20000]
+                    files, sheets = render(style, lyrics or "[Verse]\n", variants, seed,
+                                           cot="melody" if closeness == "melody" else "full", **score, **knobs)
+                    # Ноты и аккорды карточки -- кавера (первой версии), а не оригинала
+                    info.update(abc=(sheets[0]["abc"] or sheet.get("abc") or "")[:20000],
+                                chords=sheets[0]["chords"] or sheet["chords"], key=sheets[0]["key"] or sheet["key"])
                 elif mode == "transcribe":
                     info["abc"] = (sheet.get("abc") or "")[:20000]
                     for name in sheet.get("midis") or []:
