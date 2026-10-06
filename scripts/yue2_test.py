@@ -43,7 +43,8 @@ def main() -> None:
                       ensure_ascii=False, indent=1)
         if not output.get("ok"):
             # Итог -- в аннотацию: лог прогона из облачной сессии не скачать
-            print(f"::error::seed {seed}: {(output.get('error') or status.get('error') or '')[:900]}")
+            error = str(output.get("error") or status.get("error") or "")
+            print(f"::error::seed {seed}: " + error[-1500:].replace("\n", " | "))
         report(status)
         if not output.get("ok"):
             failed += 1
