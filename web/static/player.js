@@ -392,7 +392,10 @@ function metronome(beats, downbeats) {
     get enabled() { return on; },
     toggle() {
       on = !on;
-      if (on && !ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (on && !ctx) {
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (error) { /* */ }
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+      }
       if (ctx) ctx.resume();
       return on;
     },
@@ -416,6 +419,8 @@ function volumeGain() {
   const Context = window.AudioContext || window.webkitAudioContext;
   if (!Context) return null;
   try {
+    // iPhone: Web Audio молчит в беззвучном режиме -- режим «воспроизведение»
+    if (navigator.audioSession) navigator.audioSession.type = 'playback';
     const context = new Context();
     const source = context.createMediaElementSource($('audio'));
     gainNode = context.createGain();

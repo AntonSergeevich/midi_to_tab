@@ -81,6 +81,8 @@ function note(text) {
 
 function audio() {
   if (ctx) return ctx;
+  // iPhone: Web Audio молчит в беззвучном режиме -- просим режим «воспроизведение»
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (error) { /* старый Safari */ }
   const Ctx = window.AudioContext || window.webkitAudioContext;
   // 32 кГц: на репетиции разницы не слышно, а памяти на 12 дорожек нужно
   // вдвое меньше, чем на 44.1 кГц.

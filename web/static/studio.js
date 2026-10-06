@@ -1376,22 +1376,38 @@ $('fNext').addEventListener('click', () => step(1));
 $('fClose').addEventListener('click', () => fullPlayer(false));
 $('fLyricsBtn').addEventListener('click', () => { $('fLyrics').hidden = !$('fLyrics').hidden; });
 
-// Громкость через Web Audio: на iPhone громкость <audio> из скрипта не меняется.
+// Громкость. На iPhone громкость <audio> из скрипта не меняется, поэтому
+// там звук идёт через Web Audio. Но Web Audio на iPhone молчит при
+// включённом беззвучном режиме (а <audio> -- играет): у владельца звук
+// пропал насовсем после первого касания ползунка (06.10). Поэтому:
+//  - Web Audio -- только на iPhone/iPad, и в режиме «воспроизведение»
+//    (navigator.audioSession, Safari 16.4+), как у музыкальных приложений;
+//  - нет такого режима -- ползунок прячем, громкость -- кнопками телефона;
+//  - на остальных устройствах -- обычная громкость <audio>.
+const IOS = /iP(hone|ad|od)/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IOS_VOLUME = IOS && 'audioSession' in navigator;
+if (IOS && !IOS_VOLUME) $('fVolume').closest('.st-full-volume').style.display = 'none';
 let gainNode = null;
+let audioContext = null;
 function setVolume(percent) {
   const level = Math.max(0, Math.min(1, percent / 100));
-  const Context = window.AudioContext || window.webkitAudioContext;
-  if (!gainNode && Context) {
-    try {
-      const context = new Context();
-      const source = context.createMediaElementSource($('audio'));
-      gainNode = context.createGain();
-      source.connect(gainNode).connect(context.destination);
-      $('audio').addEventListener('play', () => { if (context.state === 'suspended') context.resume(); });
-      if (context.state === 'suspended') context.resume();
-    } catch (error) { gainNode = null; }
+  if (!IOS) { $('audio').volume = level; }
+  else if (IOS_VOLUME) {
+    const Context = window.AudioContext || window.webkitAudioContext;
+    if (!gainNode && Context) {
+      try {
+        navigator.audioSession.type = 'playback';   // играть и в беззвучном режиме
+        audioContext = new Context();
+        const source = audioContext.createMediaElementSource($('audio'));
+        gainNode = audioContext.createGain();
+        source.connect(gainNode).connect(audioContext.destination);
+        $('audio').addEventListener('play', () => { if (audioContext.state !== 'running') audioContext.resume(); });
+      } catch (error) { gainNode = null; }
+    }
+    if (audioContext && audioContext.state !== 'running') audioContext.resume().catch(() => {});
+    if (gainNode) gainNode.gain.value = level;
   }
-  if (gainNode) gainNode.gain.value = level; else $('audio').volume = level;
   try { localStorage.setItem('naslux.volume', percent); } catch (error) { /* инкогнито */ }
 }
 $('fVolume').addEventListener('input', () => setVolume(Number($('fVolume').value)));
