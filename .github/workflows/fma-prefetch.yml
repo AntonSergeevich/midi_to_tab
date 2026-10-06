@@ -7,6 +7,8 @@ name: FMA — живые песни для обучения аккордов (п
 # признаков удаляется, наружу не уходит; авторы и лицензии -- attribution_*.csv.
 on:
   workflow_dispatch:
+  push:     # ручной запуск -- только из основной ветки, поэтому и по правке
+    paths: [".github/workflows/fma-prefetch.yml", "scripts/chordnet/fma.py", "scripts/chordnet/pseudo.py"]
 
 env:
   CHORDNET_VOCAB: ext
