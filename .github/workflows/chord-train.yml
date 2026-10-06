@@ -37,6 +37,12 @@ on:
       vocab:
         description: "Словарь: sevenths (61 класс) или ext (121: ещё sus4, sus2, dim, aug, 6)"
         default: sevenths
+      fma:
+        description: "1 -- живые песни FMA с разметкой модели сайта (сначала fma-prefetch.yml, только ext)"
+        default: "0"
+      fma_share:
+        description: Доля шагов на FMA
+        default: "0.3"
 
 permissions:
   contents: write
@@ -56,6 +62,7 @@ jobs:
       SYNTH_SHARE: ${{ inputs.synth_share }}
       TRICKS: ${{ inputs.tricks }}
       CHORDNET_VOCAB: ${{ inputs.vocab }}
+      FMA_SHARE: ${{ inputs.fma == '1' && inputs.fma_share || '0' }}
     steps:
       - name: Освободить место
         run: |
@@ -186,18 +193,62 @@ jobs:
         run: |
           mkdir -p data && [ -d aam_part ] && mv aam_part/*.npz data/ 2>/dev/null; rm -rf aam_part
           echo "признаков AAM в data: $(ls data/aam_*.npz 2>/dev/null | wc -l)"
+      - name: FMA (кусок 0)
+        if: inputs.fma == '1'
+        uses: actions/cache/restore@v4
+        with:
+          path: fma_part
+          key: fma-skip0-750-ext-${{ hashFiles('midi2tab/models/chordnet.onnx') }}-v1
+      - name: Перенести FMA 0
+        if: inputs.fma == '1'
+        run: |
+          mkdir -p data && [ -d fma_part ] && mv fma_part/*.npz data/ 2>/dev/null; rm -rf fma_part
+          echo "живых песен FMA в data: $(ls data/fma_*.npz 2>/dev/null | wc -l)"
+      - name: FMA (кусок 750)
+        if: inputs.fma == '1'
+        uses: actions/cache/restore@v4
+        with:
+          path: fma_part
+          key: fma-skip750-750-ext-${{ hashFiles('midi2tab/models/chordnet.onnx') }}-v1
+      - name: Перенести FMA 750
+        if: inputs.fma == '1'
+        run: |
+          mkdir -p data && [ -d fma_part ] && mv fma_part/*.npz data/ 2>/dev/null; rm -rf fma_part
+          echo "живых песен FMA в data: $(ls data/fma_*.npz 2>/dev/null | wc -l)"
+      - name: FMA (кусок 1500)
+        if: inputs.fma == '1'
+        uses: actions/cache/restore@v4
+        with:
+          path: fma_part
+          key: fma-skip1500-750-ext-${{ hashFiles('midi2tab/models/chordnet.onnx') }}-v1
+      - name: Перенести FMA 1500
+        if: inputs.fma == '1'
+        run: |
+          mkdir -p data && [ -d fma_part ] && mv fma_part/*.npz data/ 2>/dev/null; rm -rf fma_part
+          echo "живых песен FMA в data: $(ls data/fma_*.npz 2>/dev/null | wc -l)"
+      - name: FMA (кусок 2250)
+        if: inputs.fma == '1'
+        uses: actions/cache/restore@v4
+        with:
+          path: fma_part
+          key: fma-skip2250-750-ext-${{ hashFiles('midi2tab/models/chordnet.onnx') }}-v1
+      - name: Перенести FMA 2250
+        if: inputs.fma == '1'
+        run: |
+          mkdir -p data && [ -d fma_part ] && mv fma_part/*.npz data/ 2>/dev/null; rm -rf fma_part
+          echo "живых песен FMA в data: $(ls data/fma_*.npz 2>/dev/null | wc -l)"
       - name: Обучение и замер
         run: |
           mkdir -p results
           python -u scripts/chordnet/train.py --data data --annotations gs/annotation \
             --test-audio gs/audio_mono-mic --test-player "$PLAYER" --split "$SPLIT" --fold "$FOLD" --steps "$STEPS" \
-            --aam-share "$AAM_SHARE" --synth-share "$SYNTH_SHARE" $TRICKS \
+            --aam-share "$AAM_SHARE" --synth-share "$SYNTH_SHARE" --fma-share "$FMA_SHARE" $TRICKS \
             --export results/chordnet.onnx --report results/report.json 2>&1 | tee results/train.log
       - name: В ветку test-results
         if: always()
         run: |
           [ -n "$(ls -A results 2>/dev/null)" ] || exit 0
-          dir="chordnet-${{ github.run_id }}-$SPLIT$FOLD-aam$AAM$( [ "${{ inputs.aam_extra }}" = 1 ] && echo plus1500 )-$CHORDNET_VOCAB"
+          dir="chordnet-${{ github.run_id }}-$SPLIT$FOLD-aam$AAM$( [ "${{ inputs.aam_extra }}" = 1 ] && echo plus1500 )$( [ "${{ inputs.fma }}" = 1 ] && echo "-fma$FMA_SHARE" )-$CHORDNET_VOCAB"
           git clone -q --depth 1 --branch test-results \
             "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
           mkdir -p "out/$dir" && cp results/* "out/$dir/"

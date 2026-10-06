@@ -179,6 +179,8 @@ def main() -> None:
     parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--synth-share", type=float, default=0.5)
     parser.add_argument("--aam-share", type=float, default=0.0, help="доля шагов на AAM")
+    parser.add_argument("--fma-share", type=float, default=0.0,
+                        help="доля шагов на живые песни FMA с разметкой учителя (pseudo.py)")
     parser.add_argument("--weights", action="store_true", help="веса классов по качеству аккорда")
     parser.add_argument("--augment", action="store_true", help="аугментации спектра")
     parser.add_argument("--smoothing", type=float, default=0.0, help="сглаживание меток")
@@ -209,11 +211,12 @@ def main() -> None:
     aam_test = aam_all[::10][:60]
     held_aam = {i[0] for i in aam_test}
     aam = [i for i in aam_all if i[0] not in held_aam]
-    print(f"обучение: GuitarSet {len(guitar)}, синтетика {len(synth)}, AAM {len(aam)}; "
+    fma = [i for i in items if i[0].startswith("fma_")]
+    print(f"обучение: GuitarSet {len(guitar)}, синтетика {len(synth)}, AAM {len(aam)}, FMA {len(fma)}; "
           f"проверка: GuitarSet {len(test)}, AAM {len(aam_test)}", flush=True)
-    guitar_share = max(0.0, 1.0 - args.synth_share - args.aam_share)
+    guitar_share = max(0.0, 1.0 - args.synth_share - args.aam_share - args.fma_share)
     pools = [(aam, args.aam_share if aam else 0.0), (synth, args.synth_share if synth else 0.0),
-             (guitar, guitar_share if guitar else 0.0)]
+             (fma, args.fma_share if fma else 0.0), (guitar, guitar_share if guitar else 0.0)]
     total_share = sum(share for _, share in pools) or 1.0
 
     model = ChordNet(hidden=args.hidden)
@@ -244,7 +247,7 @@ def main() -> None:
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     report = {"steps": args.steps, "train_guitarset": len(guitar), "train_synth": len(synth),
-              "train_aam": len(aam), "weights": args.weights, "augment": args.augment,
+              "train_aam": len(aam), "train_fma": len(fma), "fma_share": args.fma_share, "weights": args.weights, "augment": args.augment,
               "smoothing": args.smoothing, "files": []}
     penalties = (0.0, 1.0, 2.0, 3.0, 5.0, 8.0)
     totals = {p: {"root": 0.0, "majmin": 0.0, "sevenths": 0.0, "mirex": 0.0} for p in penalties}

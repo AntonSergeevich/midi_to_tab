@@ -1,0 +1,51 @@
+name: FMA — живые песни для обучения аккордов (признаки в кэш)
+
+# Отрывки Free Music Archive (только CC BY / CC BY-SA / CC0 -- можно и в
+# коммерческой работе), разметка -- моделью сайта (scripts/chordnet/pseudo.py,
+# noisy student). Четыре куска по 750 параллельно; готовые признаки -- в кэш
+# Actions, chord-train.yml с fma=1 подтягивает все куски. Звук после
+# признаков удаляется, наружу не уходит; авторы и лицензии -- attribution_*.csv.
+on:
+  workflow_dispatch:
+
+env:
+  CHORDNET_VOCAB: ext
+
+jobs:
+  chunk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        skip: [0, 750, 1500, 2250]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Кэш куска
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: fma_part
+          key: fma-skip${{ matrix.skip }}-750-ext-${{ hashFiles('midi2tab/models/chordnet.onnx') }}-v1
+      - name: Зависимости
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q -r requirements.txt -r requirements-audio.txt remotezip pandas onnxruntime
+      - name: Скачать, разметить учителем
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          python -u scripts/chordnet/fma.py --count 750 --skip "${{ matrix.skip }}" --out fma
+          python -u scripts/chordnet/pseudo.py --audio fma --model midi2tab/models/chordnet.onnx --out fma_part
+          cp fma/attribution.csv "fma_part/attribution_${{ matrix.skip }}.csv"
+          ls fma_part/*.npz | wc -l; du -sh fma_part
+          echo "::notice title=FMA ${{ matrix.skip }}::$(ls fma_part/*.npz | wc -l) отрывков размечено"
+      - name: В кэш
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: fma_part
+          key: fma-skip${{ matrix.skip }}-750-ext-${{ hashFiles('midi2tab/models/chordnet.onnx') }}-v1
