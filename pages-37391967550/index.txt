@@ -1,0 +1,7 @@
+200 https://huggingface.co/m-a-p/SheetSage2/raw/main/requirements.txt
+200 https://pypi.org/pypi/qwen-asr/json
+200 https://huggingface.co/api/models/m-a-p/SheetSage2
+200 https://huggingface.co/api/models/m-a-p/MERT-v2-FullSong
+200 https://huggingface.co/api/models/m-a-p/MERT-v2-FullSong/tree/main
+200 https://huggingface.co/api/models/Qwen/Qwen3-ASR-1.7B/tree/main
+200 https://huggingface.co/m-a-p/SheetSage2/raw/main/infer.py
