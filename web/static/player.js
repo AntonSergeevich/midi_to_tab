@@ -413,30 +413,50 @@ function metronome(beats, downbeats) {
   };
 }
 
+// Громкость. На iPhone громкость <audio> из скрипта не меняется, поэтому
+// там звук идёт через Web Audio. Но созданный ДО нажатия Web Audio Safari
+// держит на паузе -- «Играть» не играла (06.10); и в беззвучном режиме он
+// молчит. Поэтому Web Audio -- только на iPhone/iPad, только по нажатию и в
+// режиме «воспроизведение» (Safari 16.4+); без этого режима ползунок
+// прячется. Остальные устройства -- обычная громкость <audio>.
+const IOS = /iP(hone|ad|od)/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IOS_VOLUME = IOS && 'audioSession' in navigator;
 let gainNode = null;
+let audioContext = null;
+let wantedLevel = 1;
 function volumeGain() {
-  if (gainNode) return gainNode;
+  if (gainNode || !IOS_VOLUME) return gainNode;
   const Context = window.AudioContext || window.webkitAudioContext;
   if (!Context) return null;
   try {
-    // iPhone: Web Audio молчит в беззвучном режиме -- режим «воспроизведение»
-    if (navigator.audioSession) navigator.audioSession.type = 'playback';
-    const context = new Context();
-    const source = context.createMediaElementSource($('audio'));
-    gainNode = context.createGain();
-    source.connect(gainNode).connect(context.destination);
-    // Контекст можно запустить только по нажатию -- ловим первое
-    const resume = () => { if (context.state === 'suspended') context.resume(); };
-    document.addEventListener('pointerdown', resume, { once: false, passive: true });
-    $('audio').addEventListener('play', resume);
+    navigator.audioSession.type = 'playback';   // играть и в беззвучном режиме
+    audioContext = new Context();
+    const source = audioContext.createMediaElementSource($('audio'));
+    gainNode = audioContext.createGain();
+    gainNode.gain.value = wantedLevel;
+    source.connect(gainNode).connect(audioContext.destination);
   } catch (e) {
     gainNode = null;
   }
   return gainNode;
 }
 
+// Запуск -- всегда из нажатия: там же будится Web Audio (на iPhone)
+function startPlayback() {
+  if (IOS_VOLUME && wantedLevel < 1) volumeGain();
+  if (audioContext && audioContext.state !== 'running') audioContext.resume().catch(() => {});
+  const started = clock.play();
+  if (started && started.catch) {
+    started.catch((error) => {
+      $('meta').insertAdjacentHTML('beforeend',
+        `<p class="bad" style="margin:8px 0 0">Не получилось включить звук (${error.name}). Обновите страницу и нажмите «Играть» ещё раз.</p>`);
+    });
+  }
+}
+
 function bindControls() {
-  $('play').onclick = () => (clock.paused ? clock.play() : clock.pause());
+  $('play').onclick = () => (clock.paused ? startPlayback() : clock.pause());
   clock.onState(() => {
     $('play').textContent = clock.paused ? '▶ Играть' : '❚❚ Пауза';
   });
@@ -447,14 +467,16 @@ function bindControls() {
   // На iPhone и iPad громкость <audio> из скрипта не меняется вовсе (Safari
   // держит volume = 1) -- ползунок «не работал». Поэтому звук идёт через
   // Web Audio: элемент -> усилитель -> выход; усилитель слушается везде.
-  const volume = (percent) => {
+  if (IOS && !IOS_VOLUME) $('vol').closest('label, div').style.display = 'none';
+  const volume = (percent, touched) => {
     const level = Math.max(0, Math.min(1, percent / 100));
-    const gain = volumeGain();
-    if (gain) {
-      gain.gain.value = level;
-      $('audio').volume = 1;
-    } else {
+    wantedLevel = level;
+    if (!IOS) {
       $('audio').volume = level;
+    } else if (touched || gainNode) {
+      const gain = volumeGain();               // из движения ползунка -- это нажатие
+      if (gain) gain.gain.value = level;
+      if (audioContext && audioContext.state !== 'running') audioContext.resume().catch(() => {});
     }
     $('volValue').textContent = `${percent}%`;
     try { localStorage.setItem('naslux.volume', percent); } catch (e) { /* режим инкогнито */ }
@@ -463,7 +485,7 @@ function bindControls() {
   try { saved = parseInt(localStorage.getItem('naslux.volume'), 10) || 100; } catch (e) { /* */ }
   $('vol').value = saved;
   volume(saved);
-  $('vol').oninput = () => volume(parseInt($('vol').value, 10));
+  $('vol').oninput = () => volume(parseInt($('vol').value, 10), true);
   $('seek').oninput = () => {
     if (clock.duration) clock.time = ($('seek').value / 1000) * clock.duration;
   };
@@ -474,7 +496,7 @@ function bindControls() {
   };
   document.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-    if (e.code === 'Space') { e.preventDefault(); clock.paused ? clock.play() : clock.pause(); }
+    if (e.code === 'Space') { e.preventDefault(); clock.paused ? startPlayback() : clock.pause(); }
     if (e.code === 'ArrowLeft') clock.time = clock.time - 5;
     if (e.code === 'ArrowRight') clock.time = clock.time + 5;
     if (e.code === 'KeyM') $('metro').click();
