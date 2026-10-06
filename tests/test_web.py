@@ -219,6 +219,35 @@ def test_user_id_is_stable(store):
     assert again.id == first.id
 
 
+def test_jobs_today_survives_deleting_the_jobs(store):
+    """
+    `jobs_today` защищает сервер от нагрузки (FREE_CHORDS_PER_DAY) --
+    считает её по отдельному журналу (job_counts), а не по живым строкам
+    `jobs`. Раньше считались живые строки: "загрузить -> получить
+    аккорды -> удалить" обнуляло счётчик и обходило дневной лимit по
+    кругу неограниченно.
+    """
+    user = store.ensure_user(None)
+    for i in range(3):
+        store.create_job(user.id, f"song{i}.mp3", {})
+    assert store.jobs_today(user.id) == 3
+
+    for job in store.user_jobs(user.id):
+        store.delete_job(job.id)
+    assert store.user_jobs(user.id) == []
+    assert store.jobs_today(user.id) == 3   # не обнулился удалением
+
+
+def test_jobs_today_ignores_studio_and_tabs_children(store):
+    """Студия и дочерние задания табов не в счёт дневного лимита разборов --
+    тот же критерий, что раньше был в SQL-запросе jobs_today."""
+    user = store.ensure_user(None)
+    parent = store.create_job(user.id, "song.mp3", {})
+    store.create_job(user.id, "studio", {"kind": "studio"})
+    store.create_job(user.id, "tabs", {"parent": parent.id})
+    assert store.jobs_today(user.id) == 1
+
+
 # ---------------------------------------------------------- имена файлов
 
 
@@ -943,6 +972,51 @@ def test_job_status_and_downloads_refuse_someone_else_s_job_id(tmp_path, monkeyp
         assert client.get(f"/api/job/{job.id}").status_code == 200
         assert client.get(f"/api/file/{job.id}/gp5").status_code == 200
         assert client.get(f"/api/file/{job.id}/part/guitar").status_code == 200
+
+
+def test_deleting_a_job_refunds_a_charge_still_in_progress(tmp_path, monkeypatch):
+    """
+    `billing.consume` списывает ДО запуска разбора: если сам разбор потом
+    падает, деньги возвращает `billing.refund` (см. jobs.py). Но пока
+    задание висит в queued/running (или просто зависло), ничто не мешало
+    удалить его через DELETE /api/job/{id} -- строка и файлы пропадали, а
+    списанный кредит/рубль терялся навсегда: никто кроме самого воркера
+    (который уже не выполнится -- строки нет) не возвращает charged_kind.
+    Проверяем и родителя, и дочернее задание табов (деньги которого числятся
+    за ребёнком, а не за родителем) -- оба случая должны получить возврат.
+    """
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        owner = app_module.storage.ensure_user(None)
+        app_module.storage.add_credits(owner.id, 1)
+        app_module.storage.spend_credit(owner.id)
+        assert app_module.storage.user(owner.id).credits == 0
+
+        job = app_module.storage.create_job(owner.id, "песня.mp3", {})
+        app_module.storage.update_job(job.id, status="running", counted=True, charged_kind="credit")
+
+        child = app_module.storage.create_job(owner.id, "песня.mp3 — guitar", {"parent": job.id})
+        app_module.storage.add_balance(owner.id, 19.0)
+        app_module.storage.spend_balance(owner.id, 19.0)
+        app_module.storage.update_job(child.id, status="running", counted=True, charged_kind="balance")
+
+        client.cookies.set("uid", app_module.signer.dumps(owner.id))
+        deleted = client.delete(f"/api/job/{job.id}")
+        assert deleted.status_code == 200
+
+        refreshed = app_module.storage.user(owner.id)
+        assert refreshed.credits == 1          # возврат родителя
+        assert refreshed.balance == pytest.approx(19.0)  # возврат ребёнка
+        assert app_module.storage.job(job.id) is None
+        assert app_module.storage.job(child.id) is None
 
 
 def test_pages_carry_a_build_stamp(tmp_path, monkeypatch):

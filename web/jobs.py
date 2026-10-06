@@ -819,9 +819,14 @@ class JobRunner:
                 },
             }
             bar.stop()
+            # charged_kind сбрасываем: табы доставлены, и это списание больше
+            # не "в процессе" -- как в _analyze/_separate_later/_lyrics. Без
+            # этого единственная из четырёх функций, где _refund_tabs_charge
+            # (случись ему выполниться на уже успешном задании) нашёл бы
+            # charged_kind непустым и вернул деньги за уже выданный результат.
             self.storage.update_job(
                 job_id, status="done", stage="Готово", progress=100.0,
-                result=result_data, error=None,
+                result=result_data, error=None, charged_kind=None,
             )
         except Exception as exc:
             bar.stop()

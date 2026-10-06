@@ -1477,6 +1477,14 @@ def api_delete_job(job_id: str, request: Request):
     if job.user_id != user.id and not user.is_admin:
         raise HTTPException(403, "Это не ваш трек")
 
+    # Если списание ещё "в процессе" (charged_kind непуст -- разбор завис
+    # в queued/running или упал, не успев сам вернуть деньги), удаление
+    # строки не должно съедать списанное без результата: тот же самый
+    # возврат, что и при обычной неудаче (billing.refund).
+    for target in (job, *storage.child_jobs(job_id)):
+        if target.charged_kind:
+            billing.refund(storage, target.user_id, target.charged_kind)
+
     removed = storage.delete_job(job_id)
     freed = 0
     for identifier in removed:

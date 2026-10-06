@@ -107,6 +107,17 @@ CREATE TABLE IF NOT EXISTS voices (
     consent      TEXT NOT NULL
 );
 
+-- Счётчик дневного бесплатного лимита разборов (FREE_CHORDS_PER_DAY).
+-- Отдельно от jobs: удаление трека (DELETE /api/job) чистит строку jobs,
+-- а эта запись остаётся -- иначе "загрузить -> получить аккорды ->
+-- удалить" обходило бы лимит по кругу неограниченно.
+CREATE TABLE IF NOT EXISTS job_counts (
+    user_id      TEXT NOT NULL,
+    created_at   REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS job_counts_user ON job_counts(user_id, created_at);
+
 CREATE INDEX IF NOT EXISTS voices_user ON voices(user_id, created_at);
 CREATE INDEX IF NOT EXISTS tickets_status ON tickets(status, created_at);
 CREATE INDEX IF NOT EXISTS jobs_user ON jobs(user_id, created_at);
@@ -817,6 +828,13 @@ class Storage:
                 " VALUES (?, ?, ?, ?, ?, ?)",
                 (job.id, user_id, job.created_at, filename, "queued", json.dumps(settings)),
             )
+            # Тот же критерий, что у jobs_today (не Студия, не дочернее
+            # задание табов) -- считается здесь и не стирается удалением.
+            if "kind" not in settings and "parent" not in settings:
+                conn.execute(
+                    "INSERT INTO job_counts (user_id, created_at) VALUES (?, ?)",
+                    (user_id, job.created_at),
+                )
         return job
 
     def job(self, job_id: str) -> Job | None:
@@ -871,12 +889,16 @@ class Storage:
         return [j for j in (self.job(r["id"]) for r in rows) if j]
 
     def jobs_today(self, user_id: str) -> int:
-        """Сколько разборов (не Студии) человек запустил за последние сутки."""
+        """Сколько разборов (не Студии) человек запустил за последние сутки.
+
+        Считается по отдельному журналу (job_counts), а не по живым строкам
+        jobs: удаление трека не должно снимать с лимита то, что уже было
+        запущено -- иначе "загрузить -> получить аккорды -> удалить" обходит
+        дневной лимит бесплатных разборов по кругу.
+        """
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) AS n FROM jobs WHERE user_id = ? AND created_at > ?"
-                " AND json_extract(settings, '$.kind') IS NULL"
-                " AND json_extract(settings, '$.parent') IS NULL",
+                "SELECT COUNT(*) AS n FROM job_counts WHERE user_id = ? AND created_at > ?",
                 (user_id, time.time() - 86400)).fetchone()
         return int(row["n"])
 
