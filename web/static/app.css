@@ -1154,7 +1154,18 @@ header.top > nav.topnav {
 }
 
 /* Сверка с эталоном */
-.st-ref-box { max-width: 640px; }
+.st-ref-box { max-width: 640px; max-height: calc(100dvh - 32px); overflow-y: auto; }
+.st-ref-box > * { flex-shrink: 0; }      /* окно листается, а не сжимает поле аккордов */
+.st-ref-result { min-width: 0; }
+/* Сверка всех эталонов: моделей много -- окно шире, таблица листается
+   вбок внутри окна, а колонка с песней стоит на месте (07.10: таблица
+   вылезала за окно) */
+.st-ref-box:has(.st-ref-all) { max-width: min(1040px, 100%); }
+.st-ref-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.st-ref-all th, .st-ref-all td { white-space: nowrap; }
+.st-ref-all th { white-space: normal; min-width: 64px; vertical-align: bottom; }
+.st-ref-all th:first-child, .st-ref-all td:first-child { position: sticky; left: 0; background: var(--panel);
+  white-space: normal; min-width: 130px; max-width: 170px; }
 .st-ref-box textarea { width: 100%; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; }
 .st-ref-result { margin-top: 12px; font-size: 14px; }
 .st-ref-result p { margin: 0 0 8px; }

@@ -28,10 +28,7 @@ from pathlib import Path
 # Откат без выкладки кода: NASLUX_CHORD_MODEL=ext15 (прошлая), r2 (61 класс)
 # или v2 (самая первая).
 _MODELS = Path(__file__).resolve().parent / "models"
-# fma35/fma25 -- кандидаты 07.10: ещё 1292 живые песни FMA с разметкой модели
-# сайта (noisy student), доля шагов 35% и 25%; решает сверка по эталонам
-_VARIANTS = {"ext15": "chordnet_ext15.onnx", "r2": "chordnet_r2.onnx", "v2": "chordnet_v2.onnx",
-             "fma35": "chordnet_fma35.onnx", "fma25": "chordnet_fma25.onnx"}
+_VARIANTS = {"ext15": "chordnet_ext15.onnx", "r2": "chordnet_r2.onnx", "v2": "chordnet_v2.onnx"}
 MODEL = _MODELS / _VARIANTS.get(os.environ.get("NASLUX_CHORD_MODEL", ""), "chordnet.onnx")
 
 # Должно совпадать с scripts/chordnet/common.py

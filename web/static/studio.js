@@ -1041,8 +1041,7 @@ async function fillFromTrack(jobId, fileName, { style = true, lyrics = true } = 
 }
 
 // ---------------------------------------------------------- сверка с эталоном
-const MODEL_NAME = { main: 'На сайте', ext15: 'Прошлая (500 песен)', r2: 'Без sus/dim (61 класс)', v2: 'Самая первая', ens: 'Ансамбль (сайт + 500)', nokey: 'На сайте без подсказки тональности', tuned: 'На сайте с подстройкой строя',
-  fma35: 'Новая: + живые песни (35%)', fma25: 'Новая: + живые песни (25%)' };
+const MODEL_NAME = { main: 'На сайте', ext15: 'Прошлая (500 песен)', r2: 'Без sus/dim (61 класс)', v2: 'Самая первая', ens: 'Ансамбль (сайт + 500)', nokey: 'На сайте без подсказки тональности', tuned: 'На сайте с подстройкой строя' };
 const pct = (x) => `${Math.round((x || 0) * 100)}%`;
 const reference = { job: '', file: '' };
 
@@ -1117,9 +1116,9 @@ async function showAll() {
   $('refResult').innerHTML = `<p><button type="button" id="refRerun">Пересверить все</button>
     ${waiting ? ` Пересверяем по очереди: осталось ${waiting} ⏳` : ''}<br>Все эталоны: ${data.rows.length}. В среднем — ${models.map((m) =>
     `${esc(MODEL_NAME[m] || m)}: <b>${pct(data.average[m])}</b>`).join(' · ')}</p>
-    <table class="st-ref-table"><thead><tr><th>Песня</th>${models.map((m) => `<th>${esc(MODEL_NAME[m] || m)}</th>`).join('')}</tr></thead>
+    <div class="st-ref-scroll"><table class="st-ref-table st-ref-all"><thead><tr><th>Песня</th>${models.map((m) => `<th>${esc(MODEL_NAME[m] || m)}</th>`).join('')}</tr></thead>
     <tbody>${data.rows.map((r) => `<tr><td>${esc(r.name)}</td>${models.map((m) =>
-      `<td>${r.pending ? '…' : r.scores[m] ? pct(r.scores[m].score) : '—'}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+      `<td>${r.pending ? '…' : r.scores[m] ? pct(r.scores[m].score) : '—'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   const rerun = $('refRerun');
   if (rerun) {
     rerun.addEventListener('click', async () => {
