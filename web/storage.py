@@ -377,6 +377,31 @@ class Storage:
             ).rowcount
         return bool(changed)
 
+    def claim_job_refund(self, job_id: str, charged_kind: str) -> bool:
+        """
+        Атомарно снять отметку списания перед возвратом денег -- и сказать,
+        снял ли именно этот вызов.
+
+        За одно и то же списание отвечать может не один путь: удаление
+        трека (api_delete_job) и собственный путь JobRunner (неудача
+        разбора, разделения, табов или текста, либо recover_interrupted
+        после перезапуска) читают charged_kind независимо и бегут
+        конкурентно -- `JobRunner` крутит свой пул потоков в одном
+        процессе с пулом синхронных обработчиков Starlette. Без атомарной
+        проверки оба увидели бы charged_kind непустым и оба вызвали бы
+        billing.refund -- деньги вернулись бы дважды за одно списание.
+        Условие на текущее значение в том же запросе, что и запись, -- как
+        в claim_job_charge -- гарантирует, что снять отметку и тем самым
+        получить право вернуть деньги получится только у одного из
+        одновременных вызовов.
+        """
+        with self._connect() as conn:
+            changed = conn.execute(
+                "UPDATE jobs SET charged_kind = NULL WHERE id = ? AND charged_kind = ?",
+                (job_id, charged_kind),
+            ).rowcount
+        return bool(changed)
+
     def claim_job_run(self, job_id: str, allowed_from: tuple[str, ...]) -> bool:
         """
         Атомарно перевести трек в "running" -- и сказать, получилось ли.

@@ -149,7 +149,13 @@ def _best_in_position(board: Fretboard, root: int, wanted: set[int], position: i
             barre = lowest
     base = min(pressed) if pressed and min(pressed) > 1 else 1
     shape = Shape(tuple(frets), base, barre)
-    return shape if shape.fingers <= MAX_FINGERS or barre else None
+    # MAX_FINGERS уже считает баррэ одним пальцем (Shape.fingers), так что
+    # сверх него рука ставит не больше трёх -- никакого отдельного
+    # исключения для баррэ быть не должно. Было `or barre`: это пропускало
+    # ЛЮБОЕ число пальцев, стоило лишь обнаружиться баррэ -- для A6 и B9 в
+    # стандартном строе лучшей (и единственной) аппликатурой оказывалась
+    # растяжка на пять пальцев, которую рукой не взять.
+    return shape if shape.fingers <= MAX_FINGERS else None
 
 
 def _cost(shape: Shape, board: Fretboard, root: int, position: int) -> float:

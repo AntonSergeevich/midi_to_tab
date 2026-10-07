@@ -663,15 +663,18 @@ def test_chord_shapes_match_the_ones_guitarists_play():
     assert best("A") == "x02220"
 
 
-def test_shapes_never_need_more_than_four_fingers_without_a_barre():
+def test_shapes_never_need_more_than_four_fingers():
     """
-    Без баррэ рука ставит не больше четырёх пальцев.
+    Рука ставит не больше четырёх пальцев -- с баррэ или без.
 
     `shape.fingers <= MAX_FINGERS or barre else shape` раньше возвращал
     `shape` в обеих ветках условия -- проверка ничего не отсеивала.
     Например, для C в стандартном строе в тройку лучших попадала
     растяжка (None, 3, 2, 5, 5, 3): пять пальцев и без баррэ, что рукой
-    не взять.
+    не взять. `Shape.fingers` уже считает баррэ одним пальцем, так что
+    условие должно быть одно и то же в обоих случаях -- отдельного
+    исключения "или баррэ" быть не должно (см. test_barre_shapes_never_
+    need_more_than_four_fingers_either для случая, который это упускало).
     """
     from midi2tab.chords import PITCH_CLASSES, TEMPLATES
     from midi2tab.shapes import MAX_FINGERS, shapes_for
@@ -682,9 +685,34 @@ def test_shapes_never_need_more_than_four_fingers_without_a_barre():
         for root in PITCH_CLASSES:
             for label, _ in TEMPLATES:
                 for shape in shapes_for(root + label, board, 20):
-                    assert shape.barre or shape.fingers <= MAX_FINGERS, (
+                    assert shape.fingers <= MAX_FINGERS, (
                         root + label, tuning, shape
                     )
+
+
+def test_barre_shapes_never_need_more_than_four_fingers_either():
+    """
+    Регрессия: `or barre` в `_best_in_position` пропускал ЛЮБОЕ число
+    пальцев, стоило лишь обнаружиться баррэ -- проверка на MAX_FINGERS для
+    баррэ-аппликатур не работала вовсе (`shape.fingers <= MAX_FINGERS or
+    barre` истинно всегда, когда есть баррэ, независимо от первого
+    условия). В стандартном строе (EADGBE) это приводило A6 к единственной
+    найденной аппликатуре (5, 4, 4, 6, 5, 5) -- баррэ на пятом ладу плюс
+    три прижатых сверху пальца плюс открытый палец баррэ считаются как
+    5 пальцев, -- а B9 к (7, 6, 7, 6, 7, 7), тоже 5 пальцев. Обе руке не
+    взять -- лучше не показать аппликатуру вовсе (как для B9 после фикса,
+    перебор не находит для него ничего в пределах MAX_FRET), чем
+    неиграбельную картинку.
+    """
+    from midi2tab.shapes import MAX_FINGERS, shapes_for
+    from midi2tab.tuning import DEFAULT_TUNING, TUNINGS, Fretboard
+
+    board = Fretboard(TUNINGS[DEFAULT_TUNING])
+    for name in ("A6", "B9"):
+        for shape in shapes_for(name, board, 3):
+            assert shape.fingers <= MAX_FINGERS, (name, shape)
+    # A6 отсеял только пятипальцевую аппликатуру, не остался совсем без них.
+    assert shapes_for("A6", board, 3)
 
 
 def test_barre_is_not_drawn_over_an_open_string():

@@ -1482,7 +1482,7 @@ def api_delete_job(job_id: str, request: Request):
     # строки не должно съедать списанное без результата: тот же самый
     # возврат, что и при обычной неудаче (billing.refund).
     for target in (job, *storage.child_jobs(job_id)):
-        if target.charged_kind:
+        if target.charged_kind and storage.claim_job_refund(target.id, target.charged_kind):
             billing.refund(storage, target.user_id, target.charged_kind)
 
     removed = storage.delete_job(job_id)
