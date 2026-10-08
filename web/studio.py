@@ -289,8 +289,15 @@ class MurekaNoMoney(RuntimeError):
     """Mureka отказала из-за денег на счёте, а не из-за очереди."""
 
 
+# 08.10: у Mureka кончились деньги, ждём ответа по пополнению. Пока Mureka
+# выключена явно (а не до первого отказа): сразу YuE2 для всех, функции
+# только Mureka скрыты. Вернуть Mureka: MUREKA_OFF_DEFAULT = "0" (или
+# NASLUX_MUREKA_OFF=0 в окружении сервера).
+MUREKA_OFF_DEFAULT = "1"
+
+
 def mureka_broke() -> bool:
-    if os.environ.get("NASLUX_MUREKA_OFF", "") == "1":
+    if os.environ.get("NASLUX_MUREKA_OFF", MUREKA_OFF_DEFAULT) == "1":
         return True
     if not _mureka_broke["at"] and _mureka_broke["file"]:
         try:

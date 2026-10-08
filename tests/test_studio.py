@@ -17,6 +17,7 @@ def studio_app(tmp_path, monkeypatch):
     monkeypatch.setenv("RUNPOD_API_KEY", "rp-test")
     monkeypatch.setenv("NASLUX_WORKER_ENDPOINT", "ep1")
     monkeypatch.setenv("NASLUX_COVERS", "0")
+    monkeypatch.setenv("NASLUX_MUREKA_OFF", "0")    # Mureka выключена на сервере явно -- в тестах включена
     for name in [m for m in sys.modules if m.startswith("web.")]:
         del sys.modules[name]
     from fastapi.testclient import TestClient
@@ -1689,3 +1690,12 @@ def test_mureka_no_money_mid_task_goes_to_yue2(studio_app, monkeypatch):
     assert "/yue2ep/run" in calls[0][1]
     sent = calls[0][2]["input"]
     assert "nu metal" in sent["prompt"] and "male" in sent["prompt"] and sent["closeness"] == "melody"
+
+
+def test_mureka_off_by_default_until_topped_up(studio_app, monkeypatch):
+    """08.10: Mureka выключена явно -- YuE2 у всех сразу, без первого отказа."""
+    app_module, client, user, submitted = studio_app
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.delenv("NASLUX_MUREKA_OFF")
+    info = client.get("/api/studio").json()
+    assert info["restyleEngine"] == "runpod" and info["yue2Public"] and info["createOpen"]
