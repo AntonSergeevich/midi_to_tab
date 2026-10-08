@@ -1681,6 +1681,7 @@ def api_studio(request: Request):
         "restyleOpen": studio.restyle_open() or user.unlimited,
         "restyleEngine": studio.restyle_engine(),
         "yue2Open": studio.yue2_open(user),
+        "yue2Public": studio.yue2_public(),
         "email": user.email, "maxMb": MAX_UPLOAD_MB, "maxSeconds": studio.MAX_SECONDS,
         "jobs": [_studio_job_payload(j) for j in storage.studio_jobs(user.id)],
     })
@@ -1727,6 +1728,8 @@ async def api_studio_start(
     engine = studio.restyle_engine() if mode in ("restyle", "create") or pro else "runpod"
     if asked == "yue2" and mode in ("restyle", "create") and studio.yue2_open(user):
         engine = "yue2"            # проба владельца, см. studio.YUE2_NAME
+    if mode in ("restyle", "create") and engine != "mureka" and studio.yue2_public():
+        engine = "yue2"            # Mureka без денег -- YuE2 для всех (studio.yue2_public)
     if pro and engine != "mureka":
         raise HTTPException(503, "Глубокое разделение пока не подключено")
     if pro:
@@ -1735,6 +1738,11 @@ async def api_studio_start(
         raise HTTPException(503, "Песни с нуля пишет Mureka, а она на сервере не подключена")
     if reference and mode == "create" and engine != "mureka":
         raise HTTPException(503, "Песня «как в образце» временно недоступна — опишите стиль словами")
+    if engine == "yue2" and voice.startswith("my:"):
+        raise HTTPException(503, "Свой голос сейчас недоступен — выберите мужской, женский или дуэт")
+    if engine == "yue2" and mode == "create" and not lyrics.strip():
+        raise HTTPException(400, "Сейчас песни с нуля пишутся только со словами — добавьте текст "
+                                 "(инструментал временно недоступен)")
     if mode == "restyle" and not (studio.restyle_open() or user.unlimited):
         raise HTTPException(409, "Переделка в другой стиль переезжает на новый движок и скоро "
                                  "вернётся. Разделение на партии и дописывание партии работают.")

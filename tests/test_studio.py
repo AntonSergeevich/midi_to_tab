@@ -658,6 +658,7 @@ def test_mureka_without_money_falls_back_to_ace(studio_app, monkeypatch):
     человека не возвращаются (работа сделана), сайт переключается целиком."""
     app_module, client, user, submitted = studio_app
     studio = app_module.studio
+    monkeypatch.setenv("NASLUX_YUE2_PUBLIC", "0")      # YuE2 для всех выключен -- старые пути
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
     monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
     monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
@@ -698,6 +699,7 @@ def test_out_of_money_refunds_without_fallback(studio_app, monkeypatch):
     временно недоступна, а не делается хуже за ту же цену."""
     app_module, client, user, submitted = studio_app
     studio = app_module.studio
+    monkeypatch.setenv("NASLUX_YUE2_PUBLIC", "0")      # YuE2 для всех выключен -- старые пути
     monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
     monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
     monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
@@ -1622,3 +1624,68 @@ def test_cover_lyrics_without_voice_marks(tmp_path, monkeypatch):
     # Песня с нуля -- пометки остаются: там они и правда поются дуэтом
     runner._mureka_start("create", {"voice": "duet", "lyrics": text, "prompt": "rock"}, str(tmp_path))
     assert "(Together) Три четыре" in calls[-1][1]["lyrics"]
+
+
+def test_yue2_for_everyone_while_mureka_is_broke(studio_app, monkeypatch):
+    """08.10: у Mureka кончились деньги -- песни с нуля и кавер идут на YuE2 для
+    всех, за обычную цену; Mureka снова отвечает -- всё возвращается на неё."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_YUE2_ENDPOINT", "yue2ep")
+    app_module.storage.add_balance(user.id, 300)
+    assert client.get("/api/studio").json()["yue2Public"] is False
+    studio.mark_mureka_broke("no money")
+    info = client.get("/api/studio").json()
+    assert info["yue2Public"] and info["createOpen"] and info["restyleOpen"]
+    assert info["yue2Open"] is False                      # крутилки пробы -- только владельцу
+    assert _start(client, prompt="ню-метал").status_code == 200
+    job = app_module.storage.job(submitted[-1][0])
+    assert job.settings["engine"] == "yue2" and "nu metal" in submitted[-1][1]["prompt"]
+    assert app_module.storage.user(user.id).balance < 300   # за деньги, как обычно
+    assert _create(client, prompt="rock", lyrics="[Verse]\nСтрока").status_code == 200
+    assert app_module.storage.job(submitted[-1][0]).settings["engine"] == "yue2"
+    assert _create(client, prompt="rock").status_code == 400          # инструментал YuE2 не поёт
+    monkeypatch.setenv("NASLUX_YUE2_PUBLIC", "0")
+    assert client.get("/api/studio").json()["yue2Public"] is False
+    monkeypatch.delenv("NASLUX_YUE2_PUBLIC")
+    studio.mark_mureka_ok()
+    assert client.get("/api/studio").json()["yue2Public"] is False
+    assert _start(client, prompt="rock").status_code == 200
+    assert app_module.storage.job(submitted[-1][0]).settings["engine"] == "mureka"
+
+
+def test_mureka_no_money_mid_task_goes_to_yue2(studio_app, monkeypatch):
+    """Сайт снова пробует Mureka (раз в полчаса) -- денег нет: задачу не роняем,
+    она сразу уходит на YuE2."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
+    monkeypatch.setenv("NASLUX_YUE2_ENDPOINT", "yue2ep")
+    app_module.storage.add_balance(user.id, 300)
+    job_id = _start(client, prompt="ню-метал", voice="male").json()["jobId"]
+    app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings,
+                                                    "input": submitted[-1][1]})
+
+    def mureka_call(method, path, body=None, timeout=60):
+        raise studio.MurekaNoMoney("Mureka ответила 402: insufficient balance")
+
+    monkeypatch.setattr(studio, "mureka_call", mureka_call)
+    monkeypatch.setattr(studio, "mureka_source", lambda source, folder: source)
+    monkeypatch.setattr(studio, "mureka_upload_for", lambda *a: (_ for _ in ()).throw(
+        studio.MurekaNoMoney("no money")))
+    runner = studio.StudioRunner(app_module.storage, app_module.DATA_DIR)
+    studio.mark_mureka_broke("no money")
+    with open(f"{runner.folder(job_id)}/yue2_1.mp3", "wb") as f:
+        f.write(b"mp3")
+    calls = _fake_runpod(monkeypatch, studio, {
+        "status": "COMPLETED", "output": {"ok": True, "files": [{"name": "yue2_1.mp3"}],
+                                          "info": {"engine": "yue2"}}})
+    runner._run(job_id)
+    job = app_module.storage.job(job_id)
+    assert job.status == "done", job.error
+    assert job.settings["engine"] == "yue2" and job.settings["fellBack"] == "mureka"
+    assert "/yue2ep/run" in calls[0][1]
+    sent = calls[0][2]["input"]
+    assert "nu metal" in sent["prompt"] and "male" in sent["prompt"] and sent["closeness"] == "melody"

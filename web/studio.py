@@ -337,7 +337,7 @@ def ace_create_open() -> bool:
 
 
 def create_open() -> bool:
-    return restyle_engine() == "mureka" or ace_create_open()
+    return restyle_engine() == "mureka" or ace_create_open() or yue2_public()
 
 
 def restyle_engine() -> str:
@@ -452,8 +452,8 @@ def runpod_restyle_recipe(audio_influence: float, melody: float) -> dict:
 def restyle_open() -> bool:
     # Пока Mureka без денег -- переделка на ACE-Step открыта всем: лучше
     # чуть проще звук, чем закрытая услуга
-    return restyle_engine() == "mureka" or RESTYLE_OPEN or (bool(mureka_key()) and mureka_broke()
-                                                            and ace_fallback())
+    return restyle_engine() == "mureka" or RESTYLE_OPEN or yue2_public() or (
+        bool(mureka_key()) and mureka_broke() and ace_fallback())
 
 
 def short_error(detail: str) -> str:
@@ -773,7 +773,7 @@ def endpoint_id(name: str = WORKER_NAME) -> str:
 
 
 # YuE2 (M-A-P): песни с нуля и каверы уровня Suno, свой эндпоинт на RunPod
-# (yue2/). Веса под CC BY-NC 4.0 -- движок виден только владельцу
+# (yue2/). Веса под CC BY-NC 4.0 -- движок для владельца; пока у Mureka нет денег -- для всех (yue2_public)
 # (безлимит) для некоммерческой пробы; покупателям -- после лицензии M-A-P.
 YUE2_NAME = "naslux-yue2"
 # MIDI частей от SheetSage2 («Ноты, аккорды и MIDI»)
@@ -783,8 +783,20 @@ MIDI_LABELS = {"melody_vocal": "Мелодия вокала", "melody_instrument
 
 
 def yue2_open(user) -> bool:
+    """Проба YuE2 владельца: галочка, крутилки, «Ноты, аккорды и MIDI»."""
     return bool(api_key()) and bool(getattr(user, "unlimited", False)) \
         and os.environ.get("NASLUX_YUE2", "1") == "1"
+
+
+def yue2_public() -> bool:
+    """YuE2 вместо Mureka для всех, пока у Mureka нет денег (решение
+    владельца 08.10: «сервис недоступен» хуже). Веса YuE2 -- CC BY-NC,
+    письмо о коммерческой лицензии M-A-P отправлено, ответа нет -- владелец
+    знает и принял этот риск. Только на время: как только Mureka снова
+    отвечает (mureka_broke() сбрасывается удачным запросом), песни с нуля и
+    кавер сами возвращаются на неё. NASLUX_YUE2_PUBLIC=0 -- выключить."""
+    return bool(api_key()) and os.environ.get("NASLUX_YUE2", "1") == "1" \
+        and os.environ.get("NASLUX_YUE2_PUBLIC", "1") == "1" and bool(mureka_key()) and mureka_broke()
 
 
 # ----------------------------------------------------------- подписи ссылок
@@ -1493,7 +1505,23 @@ class StudioRunner:
         job = self.storage.job(job_id)
         settings = dict(job.settings or {})
         task_input = dict(settings.get("input") or {})
-        if not ace_fallback() or task_input.get("keep_vocals") or task_input.get("reference"):
+        if task_input.get("keep_vocals") or task_input.get("reference") or task_input.get("vocal_id"):
+            return False
+        # Раз в полчаса сайт снова пробует Mureka; денег всё ещё нет -- эта
+        # задача сразу уходит на YuE2 (yue2_public), а не падает
+        if (yue2_public() and mode in ("create", "restyle")
+                and (mode == "restyle" or task_input.get("lyrics", "").strip())):
+            voice = VOICES.get(task_input.get("voice", ""), ("", ""))[1]
+            task_input["prompt"] = ", ".join(p for p in (english_style(task_input.get("prompt", "")), voice)
+                                             if p)[:1024]
+            task_input.update(closeness="melody", cfg_scale=1.0, creativity=0.5)
+            settings.update(engine="yue2", input=task_input, fellBack="mureka")
+            settings.pop("remote", None)
+            self.storage.update_job(job_id, settings=settings, status="running", progress=3,
+                                    stage="Делаем на своём движке")
+            self._run(job_id)
+            return True
+        if not ace_fallback():
             return False
         if mode == "restyle":
             task_input.update(runpod_restyle_recipe(float(task_input.get("audio_influence", 0.5)), 0.0))
