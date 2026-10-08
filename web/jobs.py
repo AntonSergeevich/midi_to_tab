@@ -301,9 +301,9 @@ class JobRunner:
                 # распознавание текста -- откатываем к прежнему "done" тем
                 # же способом, что и обычная неудача этих операций.
                 note = ""
-                if job.charged_kind:
+                if job.charged_kind and self.storage.claim_job_refund(job.id, job.charged_kind):
                     billing.refund(self.storage, job.user_id, job.charged_kind)
-                    self.storage.update_job(job.id, counted=False, charged_kind=None)
+                    self.storage.update_job(job.id, counted=False)
                     note = " Списанное вернули."
                 self.storage.update_job(
                     job.id, status="done",
@@ -313,9 +313,9 @@ class JobRunner:
             else:
                 # Свежий разбор, так и не успевший завершиться.
                 note = ""
-                if job.charged_kind:
+                if job.charged_kind and self.storage.claim_job_refund(job.id, job.charged_kind):
                     billing.refund(self.storage, job.user_id, job.charged_kind)
-                    self.storage.update_job(job.id, counted=False, charged_kind=None)
+                    self.storage.update_job(job.id, counted=False)
                     note = " Списанное за разбор вернули."
                 self.storage.update_job(
                     job.id, status="error",
@@ -490,9 +490,9 @@ class JobRunner:
             # нет, человек не должен терять пробную песню, кредит или
             # деньги за то, чего не получил.
             note = ""
-            if job.charged_kind:
+            if job.charged_kind and self.storage.claim_job_refund(job_id, job.charged_kind):
                 billing.refund(self.storage, job.user_id, job.charged_kind)
-                self.storage.update_job(job_id, counted=False, charged_kind=None)
+                self.storage.update_job(job_id, counted=False)
                 note = " Списанное за разбор вернули."
             self.storage.update_job(
                 job_id, status="error", stage="", progress=0.0, error=str(exc) + note
@@ -585,9 +585,9 @@ class JobRunner:
         обрабатывается") вместо того, чтобы дать попробовать ещё раз.
         """
         note = ""
-        if job.charged_kind:
+        if job.charged_kind and self.storage.claim_job_refund(job_id, job.charged_kind):
             billing.refund(self.storage, job.user_id, job.charged_kind)
-            self.storage.update_job(job_id, counted=False, charged_kind=None)
+            self.storage.update_job(job_id, counted=False)
             note = " Списанное вернули."
         self.storage.update_job(
             job_id, status="done", stage=stage, progress=100.0, error=message + note,
@@ -722,9 +722,9 @@ class JobRunner:
         if not charged_kind:
             return
         job = self.storage.job(job_id)
-        if job and job.charged_kind == charged_kind:
+        if job and self.storage.claim_job_refund(job_id, charged_kind):
             billing.refund(self.storage, job.user_id, charged_kind)
-            self.storage.update_job(job_id, counted=False, charged_kind=None)
+            self.storage.update_job(job_id, counted=False)
 
     # ----------------------------------------------------------------- табы
 
@@ -740,9 +740,10 @@ class JobRunner:
         child = self.storage.job(job_id)
         if not child or not child.charged_kind:
             return ""
+        if not self.storage.claim_job_refund(job_id, child.charged_kind):
+            return ""
         billing.refund(self.storage, child.user_id, child.charged_kind)
         self.storage.update_job(parent_id, counted=False)
-        self.storage.update_job(job_id, charged_kind=None)
         return " Списанное вернули."
 
     def _tabs(self, job_id: str, parent_id: str, stem_key: str) -> None:

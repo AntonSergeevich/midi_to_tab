@@ -1019,6 +1019,80 @@ def test_deleting_a_job_refunds_a_charge_still_in_progress(tmp_path, monkeypatch
         assert app_module.storage.job(child.id) is None
 
 
+def test_deleting_a_job_twice_at_once_refunds_only_once(tmp_path, monkeypatch):
+    """
+    Регрессия под настоящую гонку потоков: два почти одновременных DELETE
+    на один и тот же ещё не отработавший платёж (два клика подряд, или
+    второй клик от второй открытой вкладки) читали `job.charged_kind`
+    независимо, снятым каждый своим собственным запросом ДО того, как
+    другой успел его обнулить, -- и оба вызывали `billing.refund`, возвращая
+    один и тот же кредит дважды. `claim_job_refund` (web/storage.py) закрывает
+    это атомарным условием на текущее значение, как `claim_job_charge` --
+    только одному из двух запросов удаётся снять отметку, и только он
+    вправе вернуть деньги.
+    """
+    import sys
+    import threading
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        owner = app_module.storage.ensure_user(None)
+        app_module.storage.add_credits(owner.id, 1)
+        app_module.storage.spend_credit(owner.id)
+        assert app_module.storage.user(owner.id).credits == 0
+
+        job = app_module.storage.create_job(owner.id, "песня.mp3", {})
+        app_module.storage.update_job(job.id, status="running", counted=True, charged_kind="credit")
+
+        client.cookies.set("uid", app_module.signer.dumps(owner.id))
+
+        # Пауза прямо после того, как первый запрос прочитал `job` (ещё с
+        # charged_kind="credit"), но до того, как дошёл до возврата денег --
+        # ровно то окно, в которое второй запрос мог проехать со своим
+        # собственным, тоже непустым снимком charged_kind.
+        real_child_jobs = app_module.storage.child_jobs
+        entered_first = threading.Event()
+        release_first = threading.Event()
+        calls: list[None] = []
+
+        def paced_child_jobs(parent_id):
+            calls.append(None)
+            if len(calls) == 1:
+                entered_first.set()
+                release_first.wait(timeout=5)
+            return real_child_jobs(parent_id)
+
+        monkeypatch.setattr(app_module.storage, "child_jobs", paced_child_jobs)
+
+        results: dict[str, object] = {}
+
+        def attempt(name: str) -> None:
+            results[name] = client.delete(f"/api/job/{job.id}")
+
+        first = threading.Thread(target=attempt, args=("first",))
+        first.start()
+        assert entered_first.wait(timeout=5), "первый запрос не дошёл до списка дочерних заданий"
+
+        second = threading.Thread(target=attempt, args=("second",))
+        second.start()
+        second.join(timeout=5)
+        assert not second.is_alive(), "второй запрос должен успеть отработать, пока первый ждёт"
+
+        release_first.set()
+        first.join(timeout=5)
+
+        assert results["first"].status_code == 200
+        assert results["second"].status_code == 200
+        # Кредит вернулся РОВНО один раз, а не по разу на каждый запрос.
+        assert app_module.storage.user(owner.id).credits == 1
+
+
 def test_pages_carry_a_build_stamp(tmp_path, monkeypatch):
     """
     Самая коварная поломка при обновлении -- смешанный кеш.
