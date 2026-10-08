@@ -23,12 +23,20 @@ jobs:
             echo "::notice title=TCP $port::$r"
           done
           probe() {
-            out=$(curl -sS -o /dev/null --max-time 25 -w '%{http_code} за %{time_total}с (tls %{time_appconnect}с, первый байт %{time_starttransfer}с)' "$@" 2>&1)
+            out=$(curl -sS -o /dev/null --max-time 25 -w '%{http_code} за %{time_total}с (tls %{time_appconnect}с, первый байт %{time_starttransfer}с)' "$@" 2>&1 || true)
             echo "::notice title=$1::$out"
           }
           probe https://$host/static/nav.js
           probe https://$host/robots.txt
           probe https://$host/
           probe https://$host/api/studio
-          code=$(curl -sS -o /dev/null --max-time 25 -w '%{http_code}' -X POST -H 'X-GitHub-Event: ping' -d '{}' https://$host/internal/deploy-webhook 2>&1)
+          code=$(curl -sS -o /dev/null --max-time 25 -w '%{http_code}' -X POST -H 'X-GitHub-Event: ping' -d '{}' https://$host/internal/deploy-webhook 2>&1 || true)
           echo "::notice title=вебхук деплоя (отдельный процесс)::$code"
+          # Push этого файла сам перезапускает сайт (автодеплой): ждём, когда поднимется
+          for i in $(seq 1 30); do
+            c=$(curl -sS -o /dev/null --max-time 15 -w '%{http_code}' https://$host/api/studio || true)
+            [ "$c" = 200 ] && { echo "::notice title=сайт поднялся::через $((i * 10)) с, /api/studio -> 200"; exit 0; }
+            sleep 10
+          done
+          echo "::error title=сайт не поднялся::5 минут: /api/studio -> $c"
+          exit 1
