@@ -154,6 +154,15 @@ async def lifespan(_app: FastAPI):
     # Прогреваем numba внутри librosa заранее: иначе первый пользователь
     # ждёт в разы дольше остальных, пока компилируются функции.
     audiochords.prewarm()
+    # Стеки всех потоков по сигналу -- для сторожа (deploy/nasluh-watchdog.sh),
+    # когда сайт завис: видно, кто и на чём стоит
+    try:
+        import faulthandler
+        import signal
+
+        faulthandler.register(signal.SIGUSR1, all_threads=True)
+    except (AttributeError, ValueError):   # нет SIGUSR1 (Windows) -- без снимков
+        pass
     resumed = studio_runner.resume()
     if resumed:
         print(f"  Студия: продолжаем следить за задачами — {resumed}")
@@ -380,7 +389,20 @@ def api_health(request: Request):
         "платежи_за_неделю": storage.payment_counts(time.time() - 7 * 86400),
         "время": time.time(),
         "версия": deployed_commit(),
+        "зависания": _hangs(),
     }
+
+
+def _hangs() -> dict:
+    """Снимки сторожа (deploy/nasluh-watchdog.sh): сколько раз сайт завис и
+    перезапускался, и последний снимок -- память и стеки потоков (без данных
+    пользователей: только строки кода)."""
+    folder = os.path.join(DATA_DIR, "hangs")
+    files = sorted(f for f in os.listdir(folder) if f.endswith(".log")) if os.path.isdir(folder) else []
+    if not files:
+        return {"всего": 0}
+    with open(os.path.join(folder, files[-1]), encoding="utf-8", errors="replace") as f:
+        return {"всего": len(files), "последний": files[-1][:-4], "снимок": f.read()[-6000:]}
 
 
 @app.get("/api/admin/payment")

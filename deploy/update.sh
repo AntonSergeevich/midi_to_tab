@@ -21,12 +21,16 @@ echo "=== Настройки службы ==="
 cp "$APP_DIR/deploy/nasluh.service" /etc/systemd/system/
 cp "$APP_DIR/deploy/nasluh-cleanup.service" /etc/systemd/system/
 cp "$APP_DIR/deploy/nasluh-cleanup.timer" /etc/systemd/system/
+cp "$APP_DIR/deploy/nasluh-watchdog.service" /etc/systemd/system/
+cp "$APP_DIR/deploy/nasluh-watchdog.timer" /etc/systemd/system/
 # Юнит вебхука не перезапускаем: этот скрипт сам запущен им же, и
 # systemctl restart убьёт всю его cgroup -- включая нас самих на полпути.
 cp "$APP_DIR/deploy/nasluh-deploy-webhook.service" /etc/systemd/system/
 mkdir -p /opt/nasluh/data/cache
 chown -R nasluh:nasluh /opt/nasluh/data
 systemctl daemon-reload
+# Сторож: зависший (не упавший) сайт перезапускается сам, со снимком потоков
+systemctl enable --now nasluh-watchdog.timer
 
 echo
 echo "=== Nginx ==="

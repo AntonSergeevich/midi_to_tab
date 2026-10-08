@@ -1,0 +1,6 @@
+[Unit]
+Description=Сторож НАСЛУХ: перезапуск зависшего сайта со снимком потоков
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/nasluh/app/deploy/nasluh-watchdog.sh

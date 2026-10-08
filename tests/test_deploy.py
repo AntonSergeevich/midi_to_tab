@@ -530,3 +530,26 @@ def test_install_deploy_webhook_generates_a_secret():
     assert "nasluh-deploy-webhook.service" in text
     # Не должен перезаписывать уже существующий секрет при повторном запуске.
     assert "if [ ! -f \"$ENV_FILE\" ]" in text
+
+
+def test_watchdog_installed_and_enabled(updater):
+    """08.10 сайт часами висел, не падая: сторож должен ставиться выкладкой."""
+    for unit in ("nasluh-watchdog.service", "nasluh-watchdog.timer"):
+        assert unit in updater and (DEPLOY / unit).is_file()
+    assert "enable --now nasluh-watchdog.timer" in updater
+
+
+def test_watchdog_snapshot_then_restart():
+    """Сторож: снимок потоков (SIGUSR1 -> faulthandler) до перезапуска, а не после;
+    свежезапущенную службу (грузит модели) не трогает."""
+    text = (DEPLOY / "nasluh-watchdog.sh").read_text(encoding="utf-8")
+    assert "127.0.0.1:8000" in text and "--max-time" in text
+    assert text.index("SIGUSR1") < text.index("systemctl restart nasluh")
+    assert "ActiveEnterTimestamp" in text
+
+
+def test_no_memory_high_throttling(unit):
+    """MemoryHigh душит процесс вместо перезапуска -- сайт висит. Только MemoryMax."""
+    lines = [line for line in unit.splitlines() if not line.lstrip().startswith("#")]
+    assert any(line.startswith("MemoryMax=") for line in lines)
+    assert not any(line.startswith("MemoryHigh=") for line in lines)

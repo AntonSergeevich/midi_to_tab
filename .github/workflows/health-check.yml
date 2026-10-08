@@ -71,6 +71,12 @@ jobs:
             exit 1
           fi
 
+          # Сторож перезапускал зависший сайт? Снимок памяти и потоков -- в аннотацию
+          hangs="$(echo "$body" | jq -r '.["зависания"]["всего"] // 0')"
+          if [ "$hangs" != "0" ]; then
+            echo "::warning title=Сайт зависал ($hangs)::последний $(echo "$body" | jq -r '.["зависания"]["последний"]') | $(echo "$body" | jq -r '.["зависания"]["снимок"]' | grep -v '^  File \"/opt/nasluh/venv' | head -40 | tr '\n' '|')"
+          fi
+
           total="$(echo "$body" | jq -r '.["уведомлений_за_последние"]')"
           rejected="$(echo "$body" | jq -r '.["из_них_отклонено"]')"
           echo "Отклонённых уведомлений: $rejected из $total (последние 20)"
