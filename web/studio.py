@@ -955,9 +955,18 @@ class StudioRunner:
             job = self.storage.job(job_id)
             settings = dict(job.settings or {})
             remote = settings.get("remote")
+            if remote and "id" not in remote:
+                # Рестарт (автодеплой перезапускает службу) застал задачу
+                # ровно между запросом к видеокарте и записью её ответа --
+                # неизвестно, ушёл ли запрос. Продолжать значило бы рискнуть
+                # заказать и оплатить работу видеокарты ещё раз за то же
+                # списание с пользователя; вместо этого -- как любая другая
+                # ошибка, с возвратом денег, и попробовать заново по клику.
+                raise RuntimeError("прервано перед самой отправкой на видеокарту — попробуйте ещё раз")
             if not remote:
                 endpoint = endpoint_id(YUE2_NAME if settings.get("engine") == "yue2" else WORKER_NAME)
-                self.storage.update_job(job_id, status="running",
+                settings["remote"] = {"endpoint": endpoint}
+                self.storage.update_job(job_id, status="running", settings=settings,
                                         stage="Отправляем на видеокарту", progress=3)
                 started = call("POST", f"{RUNPOD_API}/{endpoint}/run", {"input": settings["input"]})
                 remote = {"endpoint": endpoint, "id": started["id"]}
@@ -1469,9 +1478,16 @@ class StudioRunner:
                 self._start_cover(job_id)
             settings = dict(self.storage.job(job_id).settings or {})
             remote = settings.get("remote")
+            if remote and "id" not in remote:
+                # Та же защита, что в _run: рестарт застал задачу между
+                # запросом к Mureka и записью её ответа -- неизвестно, ушёл
+                # ли запрос. Не повторяем его вслепую, падаем с возвратом
+                # денег, как при любой другой ошибке.
+                raise RuntimeError("прервано перед самой отправкой в Mureka — попробуйте ещё раз")
             if not remote:
-                self.storage.update_job(job_id, status="running", stage="Отправляем в Mureka",
-                                        progress=3)
+                settings["remote"] = {"pending": True}
+                self.storage.update_job(job_id, status="running", settings=settings,
+                                        stage="Отправляем в Mureka", progress=3)
                 try:
                     remote = self._mureka_start(mode, task_input, folder)
                 except MurekaNoMoney:
