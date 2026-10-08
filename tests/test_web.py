@@ -284,6 +284,33 @@ def test_jobs_today_ignores_studio_and_tabs_children(store):
     assert store.jobs_today(user.id) == 1
 
 
+def test_studio_uploads_today_survives_deleting_the_jobs(store):
+    """
+    `studio_uploads_today` защищает UPLOADS_PER_DAY -- тот же приём, что у
+    `jobs_today` (журнал studio_upload_counts, не живые строки `jobs`).
+    Раньше считались живые строки: загруженный трек обрабатывается
+    (перекодирование ffmpeg) за секунды и становится "done", после чего
+    его можно удалить -- "загрузить -> подождать -> удалить" обходило
+    дневной лимит загрузок по кругу неограниченно.
+    """
+    user = store.ensure_user(None)
+    jobs = [store.create_job(user.id, f"song{i}.mp3", {"kind": "studio", "mode": "upload"})
+            for i in range(3)]
+    assert store.studio_uploads_today(user.id) == 3
+
+    for job in jobs:
+        store.delete_job(job.id)
+    assert store.studio_uploads_today(user.id) == 3   # не обнулился удалением
+
+
+def test_studio_uploads_today_ignores_other_studio_jobs(store):
+    """Считаются именно загрузки своих треков (mode=upload), а не вся Студия."""
+    user = store.ensure_user(None)
+    store.create_job(user.id, "song.mp3", {"kind": "studio", "mode": "upload"})
+    store.create_job(user.id, "remix", {"kind": "studio", "mode": "restyle"})
+    assert store.studio_uploads_today(user.id) == 1
+
+
 # ---------------------------------------------------------- имена файлов
 
 
