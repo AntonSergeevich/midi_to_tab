@@ -71,6 +71,23 @@ def test_progression_keeps_order_and_timing():
         assert end > start
 
 
+def test_a_confident_short_ending_chord_is_not_erased_by_the_previous_one():
+    """
+    Песня почти никогда не делится без остатка на окно анализа (половина
+    такта), и завершающий аккорд -- обычно самый важный, тоника -- часто
+    оказывается короче min_length. Раньше такой "обрывок" безусловно
+    поглощался предыдущим окном: песня в C с чистым завершающим G теряла
+    этот G и дослушивалась до конца как C.
+    """
+    notes = (
+        chord_notes([48, 52, 55], 0, length=96)          # C, но с помехой ниже
+        + chord_notes([50], 40, length=8)                 # мимолётное ре -- сбивает уверенность в C
+        + chord_notes([43, 47, 50], 96, length=20)         # короткий, но чистый финальный G
+    )
+    spans = detect(notes, total_ticks=116)
+    assert [s.name for s in spans] == ["G"]
+
+
 def test_silence_produces_no_chord():
     assert detect([]) == []
     quality, root, confidence = match([0.0] * 12)
