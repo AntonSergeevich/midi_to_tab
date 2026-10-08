@@ -1599,3 +1599,26 @@ def test_old_midi_analysis_timing_follows_the_file(tmp_path):
     assert abs(result["chords"][0]["start"] - 100 * beat) < 0.01      # было на 0.15 с раньше
     assert abs(result["beats"][100] - 100 * beat) < 0.01
     assert not jobs_module.upgrade_midi_timing(result)                # второй раз -- без изменений
+
+
+def test_cover_lyrics_without_voice_marks(tmp_path, monkeypatch):
+    """Кавер Mureka (remix) пел «together» -- пометки партий уходили в текст как слова.
+    Дуэт в кавере -- описанием в prompt, текст -- без пометок."""
+    from web import studio
+
+    (tmp_path / "source.mp3").write_bytes(b"x")
+    calls = []
+    monkeypatch.setattr(studio, "mureka_call", lambda method, path, body=None, timeout=60:
+                        calls.append((path, body)) or {"id": "t1"})
+    monkeypatch.setattr(studio, "mureka_source", lambda source, folder: source)
+    monkeypatch.setattr(studio, "mureka_upload_for", lambda task_input, path, purpose: "up1")
+    runner = studio.StudioRunner.__new__(studio.StudioRunner)
+    text = "[Verse]\nРаз два\n[Chorus]\n(Together) Три четыре\n(Male) Пять"
+    runner._mureka_start("restyle", {"voice": "duet", "lyrics": text, "prompt": "rock"}, str(tmp_path))
+    path, body = calls[-1]
+    assert path == "/v1/song/remix"
+    assert "(" not in body["lyrics"] and "Три четыре" in body["lyrics"]
+    assert "duet" in body["prompt"]
+    # Песня с нуля -- пометки остаются: там они и правда поются дуэтом
+    runner._mureka_start("create", {"voice": "duet", "lyrics": text, "prompt": "rock"}, str(tmp_path))
+    assert "(Together) Три четыре" in calls[-1][1]["lyrics"]

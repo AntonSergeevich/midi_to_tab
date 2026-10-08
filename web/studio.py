@@ -671,6 +671,11 @@ def voice_plan(voice: str, lyrics: str) -> tuple[str, str, str | None]:
     return voice, lyrics, None
 
 
+def without_voice_marks(lyrics: str) -> str:
+    """Текст без пометок партий (Male)/(Female)/(Together)."""
+    return "\n".join(VOICE_MARK.sub("", line) for line in lyrics.splitlines())
+
+
 def mark_duet(lyrics: str) -> str:
     """Расставить партии: куплеты -- по очереди мужской/женский, припев и
     финал -- вместе, прочее -- как предыдущий куплет."""
@@ -1509,6 +1514,12 @@ class StudioRunner:
                                            task_input.get("lyrics", "")[:5000])
         prompt = ", ".join(p for p in (task_input.get("prompt", ""),
                                        VOICES.get(voice, ("", ""))[1]) if p)[:1024]
+        if mode != "create":
+            # Пометки партий Mureka понимает только в song/generate (вместе с
+            # gender). Кавер (remix) и продление их поют как слова: «together»
+            # в каждой строке припева (владелец, 08.10). Дуэт там -- описанием
+            # в prompt («duet, male and female vocals»), текст -- чистый.
+            lyrics = without_voice_marks(lyrics)
         if mode == "extend":
             started = mureka_call("POST", "/v1/song/extend", {
                 "song_id": task_input["song_id"], "lyrics": lyrics[:3000],
