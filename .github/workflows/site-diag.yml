@@ -1,0 +1,34 @@
+name: Диагностика naslux.ru (что именно не отвечает)
+
+# Сайт завис (08.10): сервер не ответил за 10 минут. Отсюда видно звено:
+# DNS -> TCP 443 -> TLS -> nginx (статика, вебхук) -> приложение (/, /api).
+# Итог -- в аннотациях: логи задач из облачной сессии не читаются.
+on:
+  workflow_dispatch:
+  push:
+    paths: [".github/workflows/site-diag.yml"]
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Звенья
+        run: |
+          host=naslux.ru
+          ip=$(getent ahostsv4 $host | awk 'NR==1{print $1}')
+          echo "::notice title=DNS::$host -> ${ip:-не разрешился}"
+          for port in 22 80 443; do
+            if timeout 8 bash -c "</dev/tcp/$ip/$port" 2>/dev/null; then r=открыт; else r="нет ответа"; fi
+            echo "::notice title=TCP $port::$r"
+          done
+          probe() {
+            out=$(curl -sS -o /dev/null --max-time 25 -w '%{http_code} за %{time_total}с (tls %{time_appconnect}с, первый байт %{time_starttransfer}с)' "$@" 2>&1)
+            echo "::notice title=$1::$out"
+          }
+          probe https://$host/static/nav.js
+          probe https://$host/robots.txt
+          probe https://$host/
+          probe https://$host/api/studio
+          code=$(curl -sS -o /dev/null --max-time 25 -w '%{http_code}' -X POST -H 'X-GitHub-Event: ping' -d '{}' https://$host/internal/deploy-webhook 2>&1)
+          echo "::notice title=вебхук деплоя (отдельный процесс)::$code"
