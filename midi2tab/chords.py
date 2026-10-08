@@ -96,6 +96,15 @@ def _profile(notes: list[NoteEvent], start: int, end: int) -> tuple[list[float],
         weights[note.pitch % 12] += weight
         if lowest_pitch is None or note.pitch < lowest_pitch:
             lowest_pitch, lowest_weight = note.pitch, weight
+        elif note.pitch == lowest_pitch:
+            # Бас повторён (восьмые на одной ноте, альтерирующий бас) --
+            # его вес должен копиться, как и у любого другого класса
+            # высоты в weights[] выше, а не браться только с первого
+            # удара. Раньше вторая и следующие ноты той же высоты в
+            # lowest_weight не попадали: доля баса считалась заниженной,
+            # порог 0.12 не проходился, и подпись вроде "C/A" при
+            # повторяющемся басовом ля тихо превращалась в "C6".
+            lowest_weight += weight
     if lowest_pitch is None:
         return weights, None
     # бас учитываем, только если он звучал заметно, а не мелькнул

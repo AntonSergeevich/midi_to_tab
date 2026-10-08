@@ -47,6 +47,25 @@ def test_slash_chord_uses_bass_note():
     assert spans[0].name == "C/G"
 
 
+def test_bass_weight_is_not_lost_when_the_bass_note_repeats():
+    """
+    Бас-гитара редко держит один долгий тон -- чаще это ровные восьмые на
+    одной ноте. `_profile` раньше запоминал вес только первого удара такой
+    повторной ноты (не копил его, как для остальных классов высоты), из-за
+    чего доля баса в общем звучании оказывалась заниженной и бас мимо
+    порога 0.12 не проходил вовсе -- хотя по сумме длительности он звучал
+    громче любой другой ноты в окне.
+    """
+    from midi2tab.chords import _profile
+
+    quarter = TPQ * 4 // 4
+    notes = chord_notes([48, 52, 55], 0) + [  # C E G, держится весь такт
+        NoteEvent(i * quarter, quarter, 45, 90) for i in range(4)  # бас ля, 4 восьмые
+    ]
+    _, bass = _profile(notes, 0, TPQ * 4)
+    assert bass == 9  # ля -- класс высоты 9, и он здесь громче всех
+
+
 def test_same_notes_named_by_bass():
     """
     Ля-ре-ми это одновременно Asus4 и Dsus2.
