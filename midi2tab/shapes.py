@@ -145,7 +145,14 @@ def _best_in_position(board: Fretboard, root: int, wanted: set[int], position: i
     # рисовала баррэ там, где его физически не поставить.
     if played and 0 not in played and pressed:
         lowest = min(pressed)
-        if sum(1 for f in pressed if f == lowest) >= 2:
+        barred = [i for i, f in enumerate(frets) if f == lowest]
+        # Баррэ -- один палец поперёк грифа: между двумя струнами,
+        # которые он прижимает, не может быть заглушённой струны, палец
+        # ляжет и на неё. Прежняя проверка смотрела только на то, что
+        # хотя бы две струны делят нижний лад, и не замечала такую
+        # струну в середине.
+        span = range(barred[0], barred[-1] + 1) if len(barred) >= 2 else ()
+        if span and all(frets[i] is not None for i in span):
             barre = lowest
     base = min(pressed) if pressed and min(pressed) > 1 else 1
     shape = Shape(tuple(frets), base, barre)

@@ -733,6 +733,35 @@ def test_barre_is_not_drawn_over_an_open_string():
                 assert 0 not in [f for f in shape.frets if f is not None], name
 
 
+def test_barre_does_not_skip_a_muted_string_in_the_middle():
+    """
+    Баррэ прижимает ВСЕ струны на своём ладу подряд, без исключений.
+
+    Прежняя проверка смотрела только на то, что хотя бы две струны
+    делят самый нижний прижатый лад -- и ставила баррэ, даже если между
+    ними затесалась заглушённая струна. Баррэ -- это один палец,
+    лежащий поперёк грифа: струну между двумя прижатыми им струнами
+    заглушить нельзя, палец её тоже прижмёт.
+
+    Для C5 в стандартном строе (EADGBE) перебор находит
+    (None, 3, 5, 5, None, 3) с заявленным баррэ на 3-м ладу: струны 2 и
+    6 (считая с 1) делят лад 3, но между ними струна 5 заглушена -- баррэ
+    на 3-м ладу её тоже прижмёт, звучать будет не то, что показано.
+    """
+    from midi2tab.shapes import shapes_for
+    from midi2tab.tuning import DEFAULT_TUNING, TUNINGS, Fretboard
+
+    board = Fretboard(TUNINGS[DEFAULT_TUNING])
+    for shape in shapes_for("C5", board, 10):
+        if not shape.barre:
+            continue
+        fretted_at_barre = [
+            i for i, f in enumerate(shape.frets) if f == shape.barre
+        ]
+        span = range(fretted_at_barre[0], fretted_at_barre[-1] + 1)
+        assert all(shape.frets[i] is not None for i in span), shape
+
+
 def test_shapes_follow_the_tuning():
     """
     Таблицу аккордов пришлось бы заводить на каждый строй, а их дюжина.
