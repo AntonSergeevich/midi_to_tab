@@ -47,6 +47,25 @@ def test_slash_chord_uses_bass_note():
     assert spans[0].name == "C/G"
 
 
+def test_bass_weight_is_not_lost_when_the_bass_note_repeats():
+    """
+    Бас-гитара редко держит один долгий тон -- чаще это ровные восьмые на
+    одной ноте. `_profile` раньше запоминал вес только первого удара такой
+    повторной ноты (не копил его, как для остальных классов высоты), из-за
+    чего доля баса в общем звучании оказывалась заниженной и бас мимо
+    порога 0.12 не проходил вовсе -- хотя по сумме длительности он звучал
+    громче любой другой ноты в окне.
+    """
+    from midi2tab.chords import _profile
+
+    quarter = TPQ * 4 // 4
+    notes = chord_notes([48, 52, 55], 0) + [  # C E G, держится весь такт
+        NoteEvent(i * quarter, quarter, 45, 90) for i in range(4)  # бас ля, 4 восьмые
+    ]
+    _, bass = _profile(notes, 0, TPQ * 4)
+    assert bass == 9  # ля -- класс высоты 9, и он здесь громче всех
+
+
 def test_same_notes_named_by_bass():
     """
     Ля-ре-ми это одновременно Asus4 и Dsus2.
@@ -69,6 +88,23 @@ def test_progression_keeps_order_and_timing():
     for span in spans:
         start, end = span.seconds(120)
         assert end > start
+
+
+def test_a_confident_short_ending_chord_is_not_erased_by_the_previous_one():
+    """
+    Песня почти никогда не делится без остатка на окно анализа (половина
+    такта), и завершающий аккорд -- обычно самый важный, тоника -- часто
+    оказывается короче min_length. Раньше такой "обрывок" безусловно
+    поглощался предыдущим окном: песня в C с чистым завершающим G теряла
+    этот G и дослушивалась до конца как C.
+    """
+    notes = (
+        chord_notes([48, 52, 55], 0, length=96)          # C, но с помехой ниже
+        + chord_notes([50], 40, length=8)                 # мимолётное ре -- сбивает уверенность в C
+        + chord_notes([43, 47, 50], 96, length=20)         # короткий, но чистый финальный G
+    )
+    spans = detect(notes, total_ticks=116)
+    assert [s.name for s in spans] == ["G"]
 
 
 def test_silence_produces_no_chord():
@@ -246,6 +282,33 @@ def test_jobs_today_ignores_studio_and_tabs_children(store):
     store.create_job(user.id, "studio", {"kind": "studio"})
     store.create_job(user.id, "tabs", {"parent": parent.id})
     assert store.jobs_today(user.id) == 1
+
+
+def test_studio_uploads_today_survives_deleting_the_jobs(store):
+    """
+    `studio_uploads_today` защищает UPLOADS_PER_DAY -- тот же приём, что у
+    `jobs_today` (журнал studio_upload_counts, не живые строки `jobs`).
+    Раньше считались живые строки: загруженный трек обрабатывается
+    (перекодирование ffmpeg) за секунды и становится "done", после чего
+    его можно удалить -- "загрузить -> подождать -> удалить" обходило
+    дневной лимит загрузок по кругу неограниченно.
+    """
+    user = store.ensure_user(None)
+    jobs = [store.create_job(user.id, f"song{i}.mp3", {"kind": "studio", "mode": "upload"})
+            for i in range(3)]
+    assert store.studio_uploads_today(user.id) == 3
+
+    for job in jobs:
+        store.delete_job(job.id)
+    assert store.studio_uploads_today(user.id) == 3   # не обнулился удалением
+
+
+def test_studio_uploads_today_ignores_other_studio_jobs(store):
+    """Считаются именно загрузки своих треков (mode=upload), а не вся Студия."""
+    user = store.ensure_user(None)
+    store.create_job(user.id, "song.mp3", {"kind": "studio", "mode": "upload"})
+    store.create_job(user.id, "remix", {"kind": "studio", "mode": "restyle"})
+    assert store.studio_uploads_today(user.id) == 1
 
 
 # ---------------------------------------------------------- имена файлов

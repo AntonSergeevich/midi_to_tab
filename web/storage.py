@@ -118,6 +118,18 @@ CREATE TABLE IF NOT EXISTS job_counts (
 
 CREATE INDEX IF NOT EXISTS job_counts_user ON job_counts(user_id, created_at);
 
+-- Тот же приём для дневного лимита загрузок в Студию (UPLOADS_PER_DAY):
+-- DELETE /api/studio/{job_id} стирает строку jobs, как только разбор
+-- загруженного трека готов (секунды -- это просто перекодирование
+-- ffmpeg), а эта запись остаётся -- иначе "загрузить -> подождать ->
+-- удалить" обходило бы лимит по кругу неограниченно.
+CREATE TABLE IF NOT EXISTS studio_upload_counts (
+    user_id      TEXT NOT NULL,
+    created_at   REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS studio_upload_counts_user ON studio_upload_counts(user_id, created_at);
+
 CREATE INDEX IF NOT EXISTS voices_user ON voices(user_id, created_at);
 CREATE INDEX IF NOT EXISTS tickets_status ON tickets(status, created_at);
 CREATE INDEX IF NOT EXISTS jobs_user ON jobs(user_id, created_at);
@@ -860,6 +872,11 @@ class Storage:
                     "INSERT INTO job_counts (user_id, created_at) VALUES (?, ?)",
                     (user_id, job.created_at),
                 )
+            if settings.get("kind") == "studio" and settings.get("mode") == "upload":
+                conn.execute(
+                    "INSERT INTO studio_upload_counts (user_id, created_at) VALUES (?, ?)",
+                    (user_id, job.created_at),
+                )
         return job
 
     def job(self, job_id: str) -> Job | None:
@@ -928,11 +945,17 @@ class Storage:
         return int(row["n"])
 
     def studio_uploads_today(self, user_id: str) -> int:
-        """Сколько своих треков человек загрузил в Студию за сутки."""
+        """Сколько своих треков человек загрузил в Студию за сутки.
+
+        Считается по journal (studio_upload_counts), а не по живым строкам
+        jobs: загруженный трек обрабатывается (перекодируется ffmpeg) за
+        секунды и становится "done", после чего его можно удалить -- без
+        отдельного журнала "загрузить -> удалить" обходило бы
+        UPLOADS_PER_DAY по кругу неограниченно.
+        """
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) AS n FROM jobs WHERE user_id = ? AND created_at > ?"
-                " AND json_extract(settings, '$.mode') = 'upload'",
+                "SELECT COUNT(*) AS n FROM studio_upload_counts WHERE user_id = ? AND created_at > ?",
                 (user_id, time.time() - 86400)).fetchone()
         return int(row["n"])
 

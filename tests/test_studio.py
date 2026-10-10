@@ -176,6 +176,55 @@ def test_runner_refunds_failed_job(studio_app, monkeypatch):
     assert app_module.storage.user(user.id).balance == pytest.approx(100)
 
 
+def test_a_crash_right_after_the_gpu_answer_does_not_resubmit_the_job(studio_app, monkeypatch):
+    """
+    Между тем, как видеокарта приняла задачу (call POST .../run вернул id --
+    и дальше видеокарта работает и стоит денег, что бы ни случилось с
+    сайтом), и записью её ответа в settings["remote"] -- рестарт
+    (автодеплой перезапускает службу при каждом пуше) может застать
+    процесс ровно в этом окне. Раньше никакого следа об этой отправке не
+    было в базе ДО самого конца: после такого рестарта resume() видел job
+    без settings["remote"] и слал РОВНО ТОТ ЖЕ запрос второй раз -- то
+    есть реальные деньги на видеокарте платились дважды за одно списание
+    с пользователя.
+
+    Тест воссоздаёт именно этот рестарт: запись финального settings["remote"]
+    (с "id") искусственно обрывается исключением -- ровно та точка, где
+    раньше терялась единственная запись об уже принятой задаче. После
+    этого -- новый прогон (как после перезапуска службы).
+    """
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    app_module.storage.add_balance(user.id, 100)
+    job_id = _start(client).json()["jobId"]
+    calls = _fake_runpod(monkeypatch, studio, {"status": "COMPLETED", "output": {"ok": True, "files": []}})
+    app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings,
+                                                    "input": submitted[0][1]})
+
+    real_update_job = app_module.storage.update_job
+
+    def crash_on_final_write(jid, **fields):
+        if "remote" in (fields.get("settings") or {}) and "id" in fields["settings"]["remote"]:
+            raise SystemExit("служба перезапущена ровно здесь")
+        real_update_job(jid, **fields)
+
+    monkeypatch.setattr(app_module.storage, "update_job", crash_on_final_write)
+    runner = studio.StudioRunner(app_module.storage, app_module.DATA_DIR)
+    with pytest.raises(SystemExit):
+        runner._run(job_id)
+    assert len(calls) == 1   # видеокарта приняла задачу один раз -- и уже стоит денег
+
+    # "После рестарта" -- запись снова доходит до конца, второй прогон как resume()
+    monkeypatch.setattr(app_module.storage, "update_job", real_update_job)
+    runner._run(job_id)
+
+    posts = [c for c in calls if c[0] == "POST" and c[1].endswith("/run")]
+    assert len(posts) == 1   # запрос к видеокарте НЕ повторён
+    job = app_module.storage.job(job_id)
+    assert job.status == "error" and "вернули" in job.error
+    assert app_module.storage.user(user.id).balance == pytest.approx(100)
+
+
 def test_studio_jobs_stay_out_of_track_library_and_resume(studio_app, monkeypatch):
     app_module, client, user, submitted = studio_app
     app_module.storage.add_balance(user.id, 100)
@@ -434,6 +483,53 @@ def test_mureka_runner_uploads_remixes_and_downloads(studio_app, monkeypatch):
     assert [f["label"] for f in job.result["files"]] == ["Вариант 1", "Вариант 2"]
     assert job.settings["remote"] == {"engine": "mureka", "id": "task7", "kind": "song"}
     assert client.get(f"/api/studio/file/{job_id}/restyle_2.mp3").content == b"https://cdn.mureka.ai/b.mp3"
+
+
+def test_a_crash_right_after_mureka_accepts_the_job_does_not_resubmit_it(studio_app, monkeypatch):
+    """Та же защита, что и для RunPod/YuE2 (см. test_a_crash_right_after_the_gpu_answer_
+    does_not_resubmit_the_job), но для пути Mureka в _run_mureka."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_RESTYLE_ENGINE", "mureka")
+    monkeypatch.setenv("NASLUX_MUREKA_DIRECT", "1")
+    app_module.storage.add_balance(user.id, 100)
+    job_id = _start(client, lyrics="Строка").json()["jobId"]
+    app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings,
+                                                    "input": submitted[0][1]})
+    calls = []
+
+    def mureka_call(method, path, body=None, timeout=60):
+        calls.append((method, path, body))
+        return {"id": "task7"} if method == "POST" else {"status": "succeeded", "choices": []}
+
+    monkeypatch.setattr(studio, "mureka_call", mureka_call)
+    monkeypatch.setattr(studio, "mureka_source", lambda source, folder: source)
+    monkeypatch.setattr(studio, "mureka_upload", lambda path, purpose: "up1")
+    monkeypatch.setattr(studio, "POLL_SECONDS", 0)
+
+    real_update_job = app_module.storage.update_job
+
+    def crash_on_final_write(jid, **fields):
+        if "remote" in (fields.get("settings") or {}) and "id" in fields["settings"]["remote"]:
+            raise SystemExit("служба перезапущена ровно здесь")
+        real_update_job(jid, **fields)
+
+    monkeypatch.setattr(app_module.storage, "update_job", crash_on_final_write)
+    runner = studio.StudioRunner(app_module.storage, app_module.DATA_DIR)
+    with pytest.raises(SystemExit):
+        runner._run(job_id)
+    posts = [c for c in calls if c[0] == "POST" and c[1] == "/v1/song/remix"]
+    assert len(posts) == 1   # Mureka приняла задачу один раз -- и уже стоит денег
+
+    monkeypatch.setattr(app_module.storage, "update_job", real_update_job)
+    runner._run(job_id)
+
+    posts = [c for c in calls if c[0] == "POST" and c[1] == "/v1/song/remix"]
+    assert len(posts) == 1   # запрос к Mureka НЕ повторён
+    job = app_module.storage.job(job_id)
+    assert job.status == "error" and "вернули" in job.error
+    assert app_module.storage.user(user.id).balance == pytest.approx(100)
 
 
 def test_mureka_failure_refunds(studio_app, monkeypatch):

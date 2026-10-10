@@ -96,6 +96,15 @@ def _profile(notes: list[NoteEvent], start: int, end: int) -> tuple[list[float],
         weights[note.pitch % 12] += weight
         if lowest_pitch is None or note.pitch < lowest_pitch:
             lowest_pitch, lowest_weight = note.pitch, weight
+        elif note.pitch == lowest_pitch:
+            # Бас повторён (восьмые на одной ноте, альтерирующий бас) --
+            # его вес должен копиться, как и у любого другого класса
+            # высоты в weights[] выше, а не браться только с первого
+            # удара. Раньше вторая и следующие ноты той же высоты в
+            # lowest_weight не попадали: доля баса считалась заниженной,
+            # порог 0.12 не проходился, и подпись вроде "C/A" при
+            # повторяющемся басовом ля тихо превращалась в "C6".
+            lowest_weight += weight
     if lowest_pitch is None:
         return weights, None
     # бас учитываем, только если он звучал заметно, а не мелькнул
@@ -195,11 +204,26 @@ def detect(
         else:
             merged.append(span)
 
-    # Слишком короткие обрывки присоединяем к более уверенному соседу
+    # Слишком короткие обрывки присоединяем к более уверенному соседу.
+    #
+    # "Более уверенному" -- в самом деле, не просто к предыдущему: раньше
+    # код безусловно растягивал ПРЕДЫДУЩИЙ аккорд поверх короткого, даже
+    # если короткий был увереннее. Хуже всего это било по хвосту песни --
+    # последний такт почти никогда не делится без остатка на window, и
+    # завершающий аккорд (обычно тоника, самое важное место в прогрессии)
+    # оказывался отрезком короче min_length. Он просто пропадал, заменяясь
+    # на предпоследний аккорд, хотя по звуку был не менее ясен.
     cleaned: list[ChordSpan] = []
     for span in merged:
-        if span.duration < min_length and cleaned:
-            cleaned[-1].end = span.end
+        if cleaned and (span.duration < min_length or cleaned[-1].duration < min_length):
+            previous = cleaned[-1]
+            if span.confidence > previous.confidence:
+                previous.name = span.name
+                previous.root = span.root
+                previous.quality = span.quality
+                previous.bass = span.bass
+                previous.confidence = span.confidence
+            previous.end = span.end
         else:
             cleaned.append(span)
     return cleaned
