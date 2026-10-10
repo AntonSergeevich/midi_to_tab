@@ -385,7 +385,13 @@ function matches(j, words) {
 
 function renderList(jobs) {
   list.jobs = jobs;
-  const all = jobs.filter((j) => !j.from && j.mode !== 'voice');
+  // Разборы (аккорды, табы, MIDI) -- тем же списком «Мои треки»: раньше они
+  // жили на отдельной странице, и два раздела с треками путали (10.10).
+  // Разбор из работы Студии -- внутри неё, а не отдельной строкой.
+  const own = new Set(jobs.map((j) => j.id));
+  const tabs = ((info && info.analyses) || []).filter((a) => !own.has(a.studio))
+    .map((a) => ({ ...a, mode: 'tabs', files: [] }));
+  const all = jobs.filter((j) => !j.from && j.mode !== 'voice').concat(tabs).sort((x, y) => y.at - x.at);
   const words = fold(list.query).split(/\s+/).filter(Boolean);
   const top = words.length ? all.filter((j) => matches(j, words)) : all;
   $('count').textContent = all.length ? (words.length ? `${top.length} из ${all.length}` : `${all.length}`) : '';
@@ -401,6 +407,7 @@ function renderList(jobs) {
   }
   const shown = top.slice(list.page * PER_PAGE, (list.page + 1) * PER_PAGE);
   $('jobs').innerHTML = shown.map((j) => {
+    if (j.mode === 'tabs') return tabsRow(j);
     const first = j.status === 'done' && j.files[0];
     return `<div class="st-row${j.id === fresh ? ' st-new' : ''}" data-open="${j.id}">
       ${cover(j)}<span class="st-mode">${MODE_ICON[j.mode] || ''}</span>
@@ -408,6 +415,39 @@ function renderList(jobs) {
       ${first ? playButton(first, j.name) : ''}
     </div>`;
   }).join('');
+}
+
+// ---------------------------------------------------- разборы в «Моих треках»
+
+const TAB_FILES = { gp5: 'Guitar Pro', txt: 'Табы .txt', mid: 'MIDI' };
+
+function tabsLine(a) {
+  if (a.status === 'error') return `<span class="bad">${esc(a.stage || 'Не получилось')}</span>`;
+  const busy = a.made.filter((m) => ['running', 'queued'].includes(m.status));
+  if (a.status !== 'done') {
+    return `<span class="muted">${esc(a.stage || 'В очереди')}</span>
+      <div class="bar done"><i style="width:${Math.max(4, Math.round(a.progress || 0))}%"></i></div>`;
+  }
+  const when = new Date(a.at * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
+  const facts = ['Аккорды и табы', a.tempo ? `${Math.round(a.tempo)} BPM` : '', a.chords ? `аккордов ${a.chords}` : '',
+    a.parts.length ? `партий ${a.parts.length}` : '', a.hasLyrics ? 'текст' : '',
+    busy.length ? `в работе: ${busy.length}` : ''].filter(Boolean).join(' · ');
+  return `<span class="muted">${esc(facts)} · ${when}</span>`;
+}
+
+function tabsRow(a, label) {
+  return `<div class="st-row${label ? ' st-tabsub' : ''}" data-tabs="${a.id}" title="Открыть аккорды и табы">
+    ${label ? '' : cover(a)}<span class="st-mode">♫</span>
+    <div class="st-row-main"><b>${esc(label || a.name)}</b>${tabsLine(a)}</div>
+    <button type="button" class="icon-btn" data-menu="${a.id}" data-analysis="1" title="Что сделать">${ICON.more}</button>
+  </div>`;
+}
+
+function tabsMenu(a) {
+  const files = a.made.filter((m) => m.status === 'done').flatMap((m) => m.files.map((f) =>
+    `<a href="/api/file/${m.id}/${f}" download>${ICON.download}<span>${esc(m.stem ? `${m.stem}: ` : '')}${TAB_FILES[f] || f}</span></a>`));
+  return `<a href="/player/${a.id}">${ICON.tabs}<span>Открыть: аккорды, табы, плеер</span></a>${files.join('')}<hr>`
+    + `<button type="button" data-act="deltabs" data-job="${a.id}" class="danger">${ICON.trash}<span>Удалить разбор</span></button>`;
 }
 
 function renderPages(pages) {
@@ -469,6 +509,10 @@ function renderDetail(jobs) {
     <div class="st-archives">${(j.archives || []).map((a) => `<a href="${a.url}" download>${ICON.download}
       ${a.name === 'midi.zip' ? 'Все MIDI одним архивом' : 'Все партии в WAV одним архивом'}</a>`).join('')}</div>
   </div>` : '';
+  const label = (name) => ((j.files || []).concat(j.midi || []).find((f) => f.name === name) || {}).label || name;
+  const made = ((info && info.analyses) || []).filter((a) => a.studio === j.id);
+  const analyses = made.length ? `<div class="st-sub"><div class="st-label">Аккорды и табы</div>
+    ${made.map((a) => tabsRow(a, label(a.studioFile))).join('')}</div>` : '';
   const lyrics = j.lyrics ? `<details class="st-lyrics"><summary>Текст песни</summary>
     <pre>${esc(j.lyrics)}</pre></details>` : '';
   $('detailView').innerHTML = `
@@ -480,7 +524,7 @@ function renderDetail(jobs) {
     ? `<button type="button" class="icon-btn" data-menu="${j.id}" data-track="1" data-upload="${j.mode === 'upload' ? 1 : ''}" data-done="${j.status === 'done' && j.files.length && j.mode !== 'stems' ? 1 : ''}" title="Что сделать">${ICON.more}</button>` : ''}
     </div>
     <div class="st-label">${j.mode === 'stems' ? 'Партии' : 'Версии'}</div>
-    ${versions}${sheetBlock(j)}${j.mode === 'stems' ? midiList(j) : ''}${midi}${parts}${lyrics}`;
+    ${versions}${sheetBlock(j)}${j.mode === 'stems' ? midiList(j) : ''}${midi}${parts}${analyses}${lyrics}`;
 }
 
 // MIDI партий работы: табы нашим плеером и скачивание
@@ -599,7 +643,9 @@ async function loadOnce() {
   }
   updateStart();
   const analyzing = await ensureKeys().catch(() => false);
-  if (info.jobs.some((j) => j.status === 'queued' || j.status === 'running' || (j.midiBusy || []).length)) {
+  const working = (s) => s === 'queued' || s === 'running';
+  if (info.jobs.some((j) => working(j.status) || (j.midiBusy || []).length)
+      || (info.analyses || []).some((a) => working(a.status) || a.made.some((m) => working(m.status)))) {
     return 5000;
   }
   if (analyzing) return 6000;            // тональность и темп вот-вот будут
@@ -928,6 +974,11 @@ document.addEventListener('click', async (e) => {
     play(playBtn.dataset.play, playBtn.dataset.title, playBtn.dataset.sub);
     return;
   }
+  // ⋯ у строки разбора -- внутри самой строки: меню раньше, чем переход по строке
+  const rowMenu = e.target.closest('[data-tabs] [data-menu]');
+  if (rowMenu) { openMenu(rowMenu); return; }
+  const tabs = e.target.closest('[data-tabs]');
+  if (tabs) { location.href = `/player/${tabs.dataset.tabs}`; return; }
   const row = e.target.closest('[data-open]');
   if (row) { openDetail(row.dataset.open, true); return; }
   if (e.target.closest('#back')) {
@@ -950,7 +1001,8 @@ function openMenu(button) {
   const f = button.dataset.file || '';
   const item = (what, icon, text, extra = '') =>
     `<button type="button" data-act="${what}" data-job="${job}" data-file="${esc(f)}" ${extra}>${icon}<span>${text}</span></button>`;
-  menu.innerHTML = button.dataset.track
+  const analysis = button.dataset.analysis && ((info && info.analyses) || []).find((a) => a.id === job);
+  menu.innerHTML = analysis ? tabsMenu(analysis) : button.dataset.track
     ? (button.dataset.done ? item('cover', ICON.again, 'Кавер на этот трек')
         + item('reference', ICON.tabs, 'Сверить аккорды с эталоном') : '')
       + (button.dataset.upload ? item('like', ICON.again, 'Похожая песня: стиль и слова из трека')
@@ -1176,6 +1228,17 @@ async function act(what, jobId, fileName) {
   if (what === 'cover') { coverOf(jobId, fileName); return; }
   if (what === 'like') { likeOf(jobId, fileName); return; }
   if (what === 'reference') { openReference(jobId, fileName); return; }
+  if (what === 'deltabs') {
+    const a = ((info && info.analyses) || []).find((x) => x.id === jobId);
+    if (!confirm(`Удалить разбор «${a ? a.name : ''}» вместе с табами и MIDI?\n\nОтменить это нельзя.`)) return;
+    const response = await fetch(`/api/job/${jobId}`, { method: 'DELETE' });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      toast(data.detail || 'Не удалось удалить');
+    }
+    load();
+    return;
+  }
   if (what === 'delete') {
     if (!confirm('Удалить трек вместе с файлами?')) return;
     await fetch(`/api/studio/${jobId}`, { method: 'DELETE' });
@@ -1244,6 +1307,10 @@ async function act(what, jobId, fileName) {
     return;
   }
   if (what === 'tabs') {
+    // Уже разбирали эту версию -- открываем готовое, а не платим ещё раз
+    const done = ((info && info.analyses) || []).find((a) => a.studio === jobId && a.studioFile === fileName
+      && a.status !== 'error');
+    if (done) { location.href = `/player/${done.id}`; return; }
     if (!confirm('Разобрать в табы, аккорды и MIDI? Это обычный разбор NASLUX — по вашему тарифу.')) return;
     const response = await fetch(`/api/studio/${jobId}/tabs`, { method: 'POST', body: form });
     const data = await response.json().catch(() => ({}));
@@ -1557,4 +1624,11 @@ $('notesPrint').addEventListener('click', () => {
   document.body.classList.add('print-notes');
   window.print();
   setTimeout(() => document.body.classList.remove('print-notes'), 500);
+});
+
+// «Мои треки» в меню ведёт сюда же (/studio#tracks): из карточки трека -- к списку
+window.addEventListener('hashchange', () => {
+  if (location.hash !== '#tracks') return;
+  if (openJob) closeDetail(true);
+  $('listView').scrollIntoView({ block: 'start' });
 });

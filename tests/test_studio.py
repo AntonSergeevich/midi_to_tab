@@ -1699,3 +1699,21 @@ def test_mureka_off_by_default_until_topped_up(studio_app, monkeypatch):
     monkeypatch.delenv("NASLUX_MUREKA_OFF")
     info = client.get("/api/studio").json()
     assert info["restyleEngine"] == "runpod" and info["yue2Public"] and info["createOpen"]
+
+
+def test_analyses_live_in_studio_list(studio_app):
+    """10.10: «Мои треки» -- одним списком в Студии: разборы приходят вместе с
+    работами Студии, /library ведёт туда же."""
+    app_module, client, user, submitted = studio_app
+    st = app_module.storage
+    plain = st.create_job(user.id, "Песня.mp3", {"capo": 0})
+    st.update_job(plain.id, status="done", result={"tempo": 120, "chords": [{"name": "Am"}]})
+    st.create_job(user.id, "Песня.mp3 — табы баса", {"parent": plain.id, "stem": "bass"})
+    from_studio = st.create_job(user.id, "Кавер — Вариант 1", {"studio": "sj1", "studioFile": "restyle_1.mp3"})
+    info = client.get("/api/studio").json()
+    got = {a["id"]: a for a in info["analyses"]}
+    assert set(got) == {plain.id, from_studio.id}                 # табы партий -- внутри разбора
+    assert got[plain.id]["chords"] == 1 and got[plain.id]["made"][0]["stem"] == "bass"
+    assert got[from_studio.id]["studio"] == "sj1" and got[from_studio.id]["studioFile"] == "restyle_1.mp3"
+    response = client.get("/library", follow_redirects=False)
+    assert response.status_code == 302 and response.headers["location"] == "/studio#tracks"

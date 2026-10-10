@@ -304,7 +304,7 @@ def render_landing(landing: dict) -> str:
     <nav class="topnav" aria-label="Разделы">
       <a href="/">Разобрать трек</a>
       <a href="/studio">Студия</a>
-      <a href="/library">Мои треки</a>
+      <a href="/studio#tracks">Мои треки</a>
       <a href="/pricing">Тарифы</a>
       <a href="/account" id="account" class="who">Вход</a>
       <a href="/pricing" id="navBalance" class="badge" hidden></a>

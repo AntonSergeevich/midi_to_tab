@@ -691,7 +691,7 @@ def oauth_redirect_uri(request: Request, provider: str) -> str:
 
 
 @app.get("/api/auth/{provider}/start")
-def api_oauth_start(provider: str, request: Request, next: str = "/library"):  # noqa: A002
+def api_oauth_start(provider: str, request: Request, next: str = "/studio"):  # noqa: A002
     if not oauth.configured().get(provider):
         raise HTTPException(404, "Такой вход не подключён")
     redirect_uri = oauth_redirect_uri(request, provider)
@@ -736,7 +736,7 @@ def api_oauth_callback(provider: str, request: Request):
     if visitor.id != account.id and not visitor.registered:
         storage.move_jobs(visitor.id, account.id)
         storage.delete_user_if_empty(visitor.id)
-    response = RedirectResponse(remembered.get("next") or "/library", 302)
+    response = RedirectResponse(remembered.get("next") or "/studio", 302)
     response.delete_cookie("oauth")
     attach_cookie(response, account.id)
     return response
@@ -1005,9 +1005,11 @@ def offer_page() -> HTMLResponse:
     return page("offer.html")
 
 
-@app.get("/library", response_class=HTMLResponse)
-def library_page() -> HTMLResponse:
-    return page("library.html")
+@app.get("/library")
+def library_page() -> RedirectResponse:
+    """«Мои треки» -- одним списком в Студии (10.10): два раздела с треками
+    путали. Старые ссылки и закладки ведут туда же."""
+    return RedirectResponse("/studio#tracks", 302)
 
 
 @app.get("/player/{job_id}", response_class=HTMLResponse)
@@ -1242,6 +1244,14 @@ def api_library(request: Request):
     а не разбирать его заново.
     """
     user = current_user(request)
+    response = JSONResponse({"tracks": _library_items(user)})
+    attach_cookie(response, user.id)
+    return response
+
+
+def _library_items(user) -> list[dict]:
+    """Разборы (аккорды, табы, MIDI) с тем, что для них сделано; studio --
+    из какой работы Студии разбор сделан, если из неё."""
     items = []
     for job in storage.root_jobs(user.id):
         children = storage.child_jobs(job.id)
@@ -1258,6 +1268,8 @@ def api_library(request: Request):
                 "chords": len(result.get("chords") or []),
                 "parts": [p["label"] for p in (result.get("parts") or [])],
                 "hasLyrics": bool(result.get("lyrics")),
+                "studio": (job.settings or {}).get("studio") or "",
+                "studioFile": (job.settings or {}).get("studioFile") or "",
                 "made": [
                     {
                         "id": child.id,
@@ -1271,9 +1283,7 @@ def api_library(request: Request):
                 ],
             }
         )
-    response = JSONResponse({"tracks": items})
-    attach_cookie(response, user.id)
-    return response
+    return items
 
 
 @app.post("/api/job/{job_id}/lyrics")
@@ -1684,6 +1694,8 @@ def api_studio(request: Request):
         "yue2Public": studio.yue2_public(),
         "email": user.email, "maxMb": MAX_UPLOAD_MB, "maxSeconds": studio.MAX_SECONDS,
         "jobs": [_studio_job_payload(j) for j in storage.studio_jobs(user.id)],
+        # Разборы -- в том же списке «Мои треки» (раньше отдельная страница /library)
+        "analyses": _library_items(user),
     })
     attach_cookie(response, user.id)
     return response

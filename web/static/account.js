@@ -6,7 +6,7 @@ const $ = (id) => document.getElementById(id);
 // Студию с недописанной песней или к оплате). Только свои пути сайта.
 function nextPage() {
   const next = new URLSearchParams(location.search).get('next') || '';
-  return /^\/[A-Za-z0-9/_?=&%.-]*$/.test(next) && !next.startsWith('//') ? next : '/library';
+  return /^\/[A-Za-z0-9/_?=&%.-]*$/.test(next) && !next.startsWith('//') ? next : '/studio';
 }
 
 const show = (name) => {
