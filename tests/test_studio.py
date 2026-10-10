@@ -906,6 +906,32 @@ def test_studio_version_goes_to_tabs_and_midi(studio_app, monkeypatch):
     assert "Вариант 1" in tab_job.filename
 
 
+def test_tabs_from_the_same_studio_file_twice_charges_only_once(studio_app, monkeypatch):
+    """Второй клик «Табы» по уже разбираемому/разобранному файлу (два окна,
+    устаревший снимок до опроса -- интерфейс сверяет это только по локальному
+    списку) не должен запускать и оплачивать ещё один разбор: обе отправки
+    возвращают один и тот же job, а баланс списывается ровно один раз."""
+    app_module, client, user, submitted = studio_app
+    for _ in range(app_module.billing.FREE_SONGS):
+        app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+    app_module.storage.add_balance(user.id, 300)
+    job_id = _start(client).json()["jobId"]
+    folder = app_module.studio_runner.folder(job_id)
+    with open(f"{folder}/restyle_1.mp3", "wb") as f:
+        f.write(b"song")
+    app_module.storage.update_job(job_id, status="done", result={
+        "files": [{"name": "restyle_1.mp3", "label": "Вариант 1"}]})
+    monkeypatch.setattr(app_module.runner, "submit_analysis", lambda jid, path: None)
+    after_restyle = app_module.storage.user(user.id).balance
+
+    first = client.post(f"/api/studio/{job_id}/tabs", data={"file": "restyle_1.mp3"})
+    second = client.post(f"/api/studio/{job_id}/tabs", data={"file": "restyle_1.mp3"})
+
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.json()["jobId"] == second.json()["jobId"]
+    assert app_module.storage.user(user.id).balance == after_restyle - app_module.billing.PRICE_SINGLE_RUB
+
+
 def test_relay_forgets_deleted_endpoint(monkeypatch):
     """Ретранслятор пересоздали на RunPod -- старый id отвечает 404, берём новый."""
     from web import studio

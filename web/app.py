@@ -2296,6 +2296,13 @@ def api_studio_to_tabs(job_id: str, request: Request, file: str = Form("")):
     source = os.path.join(studio_runner.folder(job_id), file)
     if file not in names or not os.path.isfile(source):
         raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
+    # Повторный клик по «Табы» (два окна, устаревший снимок до опроса) не должен
+    # оплачивать разбор второй раз -- интерфейс и так открывает уже готовый
+    # (web/static/studio.js), но там это только клиентская проверка по локальному
+    # снимку: без неё здесь billing.consume ниже спишет деньги заново.
+    existing = storage.studio_file_analysis(user.id, job_id, file)
+    if existing:
+        return {"jobId": existing.id}
     access = billing.check_access(user)
     if not access.allowed:
         raise HTTPException(402, access.reason)

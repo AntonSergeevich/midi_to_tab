@@ -1,10 +1,14 @@
 """Доли нейросетью Beat This: без модели -- молчим, с моделью -- куски
 по 30 секунд склеиваются без швов, темп -- по медиане промежутков."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from midi2tab import beatnet
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 class FrameSession:
@@ -106,3 +110,28 @@ def test_retime_puts_midi_beats_and_bars_on_the_song_grid():
     assert np.allclose([min(abs(got - b)) for b in beats], 0, atol=0.002)
     assert np.allclose(out.get_downbeats()[1:3], [1.08, 2.86], atol=0.002)
     assert np.allclose(sorted(n.start for n in out.instruments[0].notes), starts, atol=0.002)
+
+
+def test_beatgrid_retime_matches_the_yue2_copy():
+    """midi2tab/beatgrid.retime существует в двух местах: сам beatgrid.py
+    (использует сайт, см. web/studio.py:_align_midi) и его буквальная копия в
+    yue2/ss_run.py -- там свой venv и образ без пакета midi2tab (см. docstring
+    retime в обоих файлах), импортировать общий код оттуда не вышло бы. Если
+    поправить логику темпа/сетки в одном файле и забыть про другой, сайт и
+    YuE2-воркер начнут тихо по-разному сводить ноты с долями записи. Сверяем
+    тела функций (без докстрок и комментария на сигнатуре -- они специально
+    разные, у каждого файла свой "скопировано из..."), а не целый файл."""
+    import ast
+
+    def body(path):
+        tree = ast.parse(Path(path).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "retime":
+                stmts = node.body
+                if stmts and isinstance(stmts[0], ast.Expr) and isinstance(stmts[0].value, ast.Constant) \
+                        and isinstance(stmts[0].value.value, str):
+                    stmts = stmts[1:]                       # докстрока -- не код
+                return ast.dump(node.args), [ast.dump(n) for n in stmts]
+        raise AssertionError(f"retime не найдена в {path}")
+
+    assert body(ROOT / "midi2tab" / "beatgrid.py") == body(ROOT / "yue2" / "ss_run.py")
