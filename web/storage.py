@@ -930,6 +930,21 @@ class Storage:
             ).fetchall()
         return [j for j in (self.job(r["id"]) for r in rows) if j]
 
+    def studio_file_analysis(self, user_id: str, studio_job_id: str, file: str) -> Job | None:
+        """Уже запущенный (или готовый) разбор именно этого файла Студии --
+        чтобы повторное «Табы» по тому же файлу не запускало и не оплачивало
+        анализ ещё раз, а вернуло то, что уже есть (как и обещано в интерфейсе)."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM jobs WHERE user_id = ?"
+                " AND json_extract(settings, '$.studio') = ?"
+                " AND json_extract(settings, '$.studioFile') = ?"
+                " AND status != 'error'"
+                " ORDER BY created_at DESC LIMIT 1",
+                (user_id, studio_job_id, file),
+            ).fetchone()
+        return self.job(row["id"]) if row else None
+
     def jobs_today(self, user_id: str) -> int:
         """Сколько разборов (не Студии) человек запустил за последние сутки.
 
