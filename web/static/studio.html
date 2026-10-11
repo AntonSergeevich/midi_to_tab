@@ -41,7 +41,8 @@
 
       <div class="st-drop" id="drop" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
-        <div><b id="dropTitle">Загрузите трек</b><small id="dropHint">mp3, wav, flac, ogg, m4a · до 6 минут</small></div>
+        <div><b id="dropTitle">Загрузите трек</b><small id="dropHint">mp3, wav, flac, ogg, m4a · до 6 минут · сразу появится в «Моих треках»</small></div>
+        <button type="button" class="st-dropclear" id="dropClear" hidden title="Убрать трек" aria-label="Убрать трек">✕</button>
         <input type="file" id="file" hidden accept=".mp3,.wav,.flac,.ogg,.m4a,.aiff,.aif">
       </div>
 
@@ -184,11 +185,7 @@
     <!-- ПРАВО: треки и страница трека -->
     <section class="st-library" id="tracks">
       <div id="listView">
-        <div class="st-libhead"><h2>Мои треки</h2><span class="muted" id="count"></span>
-          <button type="button" class="icon-btn st-upload" id="uploadTrack"
-                  title="Добавить свой трек: узнать тональность и темп, открыть в мультитреке, разделить">
-            <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4 4m4-4 4 4M5 20h14"/></svg><span>Загрузить трек</span></button>
-          <input type="file" id="uploadFile" hidden accept=".mp3,.wav,.flac,.ogg,.m4a,.aiff,.aif"></div>
+        <div class="st-libhead"><h2>Мои треки</h2><span class="muted" id="count"></span></div>
         <label class="st-search" id="searchBox" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
           <input type="search" id="search" placeholder="Найти: название, стиль, тональность…" aria-label="Поиск по трекам"

@@ -210,11 +210,11 @@ async function guessArtist(f) {
   return m ? m[1].trim() : '';
 }
 
-function askRights() {
+function askRights(chosen = file) {
   return new Promise(async (resolve) => {
-    const artist = await guessArtist(file);
+    const artist = await guessArtist(chosen);
     const modal = $('rightsModal');
-    const name = file ? file.name : $('dropTitle').textContent;
+    const name = chosen ? chosen.name : $('dropTitle').textContent;
     $('rightsGuess').textContent = artist
       ? `Похоже, это песня исполнителя «${artist}» — ${name}.`
       : `Файл: ${name}.`;
@@ -266,13 +266,28 @@ function restoreDraft() {
   if (d.again) useSource(d.again, d.againName, d.againFile);
   return Boolean(d.prompt || d.lyrics || d.title);
 }
-function useSource(jobId, name, version = '') {
+function useSource(jobId, name, version = '', hint = '') {
   again = jobId;
   againFile = version || '';
   file = null;
   $('dropTitle').textContent = name || 'Исходник из прошлой работы';
-  $('dropHint').textContent = 'берём из прошлой работы · нажмите, чтобы выбрать другой файл';
+  $('dropHint').textContent = hint || 'берём из прошлой работы · нажмите, чтобы выбрать другой файл';
   $('drop').classList.add('has');
+  $('dropClear').hidden = false;
+}
+
+// ✕ на выбранном треке: убрать его из формы (в «Моих треках» он остаётся)
+function clearSource() {
+  file = null;
+  again = null;
+  againFile = '';
+  $('file').value = '';
+  $('dropTitle').textContent = 'Загрузите трек';
+  $('dropHint').textContent = 'mp3, wav, flac, ogg, m4a · до 6 минут · сразу появится в «Моих треках»';
+  $('drop').classList.remove('has');
+  $('dropClear').hidden = true;
+  saveDraft();
+  updateStart();
 }
 
 function toast(html, ms = 6000) {
@@ -282,14 +297,40 @@ function toast(html, ms = 6000) {
   toast.timer = setTimeout(() => { $('toast').hidden = true; }, ms);
 }
 
-function pickFile(chosen) {
+// Загрузка трека -- одна, здесь (10.10: была ещё кнопка у списка, путались).
+// Выбранный файл сразу ложится в «Мои треки» (бесплатно: тональность, темп,
+// мультитрек), а запуск берёт его оттуда -- второй раз файл не грузим.
+async function pickFile(chosen) {
   if (!chosen) return;
-  file = chosen;
-  again = null;
-  againFile = '';
+  const kind = await askRights(chosen);
+  if (!kind) return;
   $('dropTitle').textContent = chosen.name;
-  $('dropHint').textContent = `${(chosen.size / 1048576).toFixed(1)} МБ · нажмите, чтобы заменить`;
+  $('dropHint').textContent = 'Загружаем в «Мои треки»…';
   $('drop').classList.add('has');
+  const form = new FormData();
+  form.append('file', chosen);
+  form.append('rights', kind);
+  const response = await fetch('/api/studio/upload', { method: 'POST', body: form }).catch(() => null);
+  const data = response ? await response.json().catch(() => ({})) : {};
+  rights = kind;
+  if (response && response.ok) {
+    useSource(data.jobId, chosen.name, '',
+      `${(chosen.size / 1048576).toFixed(1)} МБ · уже в «Моих треках» · нажмите, чтобы заменить`);
+    rightsFor = data.jobId;
+    fresh = data.jobId;
+    list.page = 0; list.query = ''; $('search').value = '';
+    saveDraft();
+    load();
+  } else {
+    // Не легло в «Мои треки» (лимит, связь) -- работаем с файлом как раньше
+    file = chosen;
+    again = null;
+    againFile = '';
+    rightsFor = `${chosen.name}:${chosen.size}`;
+    $('dropHint').textContent = `${(chosen.size / 1048576).toFixed(1)} МБ · нажмите, чтобы заменить`;
+    $('dropClear').hidden = false;
+    if (response) toast(`${data.detail || 'В «Мои треки» не добавили'} — трек загрузится при запуске`);
+  }
   updateStart();
 }
 
@@ -793,7 +834,7 @@ $('modes').addEventListener('click', (e) => {
 });
 $('refToggle').addEventListener('click', () => {
   useReference = !useReference;
-  if (!useReference && mode === 'create') { file = null; $('drop').classList.remove('has'); }
+  if (!useReference && mode === 'create') clearSource();
   showMode();
 });
 $('styleIdea').addEventListener('click', () => {
@@ -814,8 +855,15 @@ $('voices').addEventListener('click', (e) => {
   document.querySelectorAll('#voices .preset').forEach((x) => x.classList.toggle('selected', x === b));
 });
 ['audioKnob', 'styleKnob', 'weirdKnob', 'melodyKnob'].forEach((id) => $(id).addEventListener('input', knobText));
-$('drop').addEventListener('click', () => $('file').click());
-$('file').addEventListener('change', () => pickFile($('file').files[0]));
+$('drop').addEventListener('click', (e) => {
+  if (e.target.closest('#dropClear')) { e.stopPropagation(); clearSource(); return; }
+  $('file').click();
+});
+$('file').addEventListener('change', () => {
+  const chosen = $('file').files[0];
+  $('file').value = '';            // тот же файл ещё раз -- тоже событие
+  pickFile(chosen);
+});
 $('drop').addEventListener('dragover', (e) => { e.preventDefault(); $('drop').classList.add('over'); });
 $('drop').addEventListener('dragleave', () => $('drop').classList.remove('over'));
 $('drop').addEventListener('drop', (e) => {
@@ -904,7 +952,7 @@ $('start').addEventListener('click', async () => {
   form.append('rights', withFile ? rights : '');
   if (file && withFile) form.append('file', file);
   form.append('reference', mode === 'create' && useReference);
-  if (!file && again && mode !== 'create') { form.append('again', again); form.append('againFile', againFile); }
+  if (!file && again && (mode !== 'create' || useReference)) { form.append('again', again); form.append('againFile', againFile); }
   const send = sendMode();
   form.append('mode', send.mode);
   form.append('preset', '');
@@ -940,31 +988,6 @@ $('start').addEventListener('click', async () => {
   $('msg').textContent = '';
   await load();
   window.scrollTo({ top: $('listView').offsetTop - 80, behavior: 'smooth' });
-});
-
-// Свой трек -- в «Мои треки» сразу и бесплатно: слушать, узнать тональность,
-// открыть в мультитреке, разделить, сдвинуть темп и тон.
-$('uploadTrack').addEventListener('click', () => $('uploadFile').click());
-$('uploadFile').addEventListener('change', async (e) => {
-  const chosen = e.target.files[0];
-  e.target.value = '';
-  if (!chosen) return;
-  const kind = await askRights();
-  if (!kind) return;
-  const form = new FormData();
-  form.append('file', chosen);
-  form.append('rights', kind);
-  $('uploadTrack').disabled = true;
-  toast('Загружаем трек… 🎧');
-  const response = await fetch('/api/studio/upload', { method: 'POST', body: form });
-  const data = await response.json().catch(() => ({}));
-  $('uploadTrack').disabled = false;
-  if (!response.ok) { toast(`${pick(OOPS, Date.now())} ${data.detail || ''}`); return; }
-  fresh = data.jobId;
-  list.page = 0; list.query = ""; $("search").value = "";
-  closeDetail();
-  await load();
-  toast('Трек в «Моих треках» — сейчас узнаем тональность и темп 🎼');
 });
 
 document.addEventListener('click', async (e) => {

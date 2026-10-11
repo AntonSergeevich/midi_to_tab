@@ -1765,7 +1765,7 @@ async def api_studio_start(
         raise HTTPException(400, "Опишите стиль или добавьте текст песни")
     # «Повторить»: исходник берётся из прошлой работы, загружать заново не нужно.
     again_source = None
-    if file is None and again and mode != "create":
+    if file is None and again and (mode != "create" or reference):
         previous = storage.job(again)
         if previous and previous.user_id == user.id and (previous.settings or {}).get("kind") == "studio":
             folder_before = studio_runner.folder(again)
@@ -1782,7 +1782,7 @@ async def api_studio_start(
     if (mode != "create" or reference) and ((file is None and not again_source) or suffix not in ALLOWED
                                             or suffix in (".mid", ".midi")):
         raise HTTPException(400, "Нужен аудиофайл: mp3, wav, flac, ogg, m4a")
-    reference = reference and mode == "create" and file is not None
+    reference = reference and mode == "create" and (file is not None or again_source is not None)
     vocal_id = ""
     if voice.startswith("my:"):
         vocal_id = next((v["vocal_id"] for v in storage.voices(user.id) if v["id"] == voice[3:]), "")

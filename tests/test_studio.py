@@ -1813,3 +1813,18 @@ def test_analyses_live_in_studio_list(studio_app):
     assert got[from_studio.id]["studio"] == "sj1" and got[from_studio.id]["studioFile"] == "restyle_1.mp3"
     response = client.get("/library", follow_redirects=False)
     assert response.status_code == 302 and response.headers["location"] == "/studio#tracks"
+
+
+def test_restyle_from_just_uploaded_track_without_second_upload(studio_app):
+    """11.10: трек грузится один раз (сразу в «Мои треки»), переделка берёт его оттуда."""
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_balance(user.id, 300)
+    up = client.post("/api/studio/upload", data={"rights": "own"},
+                     files={"file": ("Моя песня.mp3", b"ID3fake-audio", "audio/mpeg")}).json()["jobId"]
+    response = client.post("/api/studio", data={"mode": "restyle", "prompt": "rock", "rights": "own",
+                                                "again": up})
+    assert response.status_code == 200, response.text
+    job = app_module.storage.job(response.json()["jobId"])
+    assert job.filename == "Моя песня.mp3"
+    folder = app_module.studio_runner.folder(job.id)
+    assert open(f"{folder}/source.mp3", "rb").read() == b"ID3fake-audio"
