@@ -168,6 +168,76 @@ def test_login_moves_anonymous_tracks(store):
     assert store.user(visitor.id) is None    # пустая анонимная запись убрана
 
 
+def test_merge_wallet_moves_balance_credits_and_subscription(store):
+    """Регрессия: анонимный баланс/кредиты/подписка пропадали бесследно --
+    move_jobs переносит только треки, а delete_user_if_empty следом стирал
+    анонимную запись (деньги на ней никто не трогал), либо, если у неё
+    остались треки, деньги просто оставались висеть на записи, в которую
+    больше нельзя войти. В обоих случаях реально оплаченное терялось."""
+    account = store.ensure_user(None)
+    store.register(account.id, "ivan@mail.ru", auth.hash_password("пароль-12345"))
+    store.add_balance(account.id, 50.0)
+
+    visitor = store.ensure_user(None)
+    store.add_balance(visitor.id, 100.0)
+    store.add_credits(visitor.id, 2)
+    store.add_studio_credits(visitor.id, 30)
+    until = time.time() + 86400
+    store.extend_subscription(visitor.id, until)
+
+    store.merge_wallet(visitor.id, account.id)
+    store.delete_user_if_empty(visitor.id)
+
+    merged = store.user(account.id)
+    assert merged.balance == 150.0
+    assert merged.credits == 2
+    assert merged.studio_credits == 30
+    assert merged.paid_until == until
+    assert store.user(visitor.id) is None     # пустая анонимная запись убрана
+
+
+def test_merge_wallet_keeps_the_later_subscription(store):
+    """Если на аккаунте, в который входят, подписка и так длиннее
+    анонимной -- переносить назад, в более раннюю дату, не нужно."""
+    account = store.ensure_user(None)
+    account_until = time.time() + 30 * 86400
+    store.extend_subscription(account.id, account_until)
+
+    visitor = store.ensure_user(None)
+    store.extend_subscription(visitor.id, time.time() + 86400)
+
+    store.merge_wallet(visitor.id, account.id)
+
+    assert store.user(account.id).paid_until == account_until
+
+
+def test_login_merges_the_anonymous_balance_into_the_existing_account(client):
+    """Сквозной сценарий бага: анонимно пополнил баланс настоящей оплатой,
+    потом вошёл в уже существующий аккаунт -- баланс должен доехать, а не
+    пропасть вместе с анонимной записью."""
+    import web.app as app_module
+
+    signup = client.post("/api/auth/register", data={
+        "email": "anna@mail.ru", "password": "пароль-12345",
+    })
+    assert signup.status_code == 200
+    account_id = app_module.storage.user_by_email("anna@mail.ru").id
+
+    client.cookies.clear()
+    me = client.get("/api/me")                   # заводит анонимную куку
+    assert me.status_code == 200
+    visitor_id = app_module.signer.loads(client.cookies.get("uid"))
+    app_module.storage.add_balance(visitor_id, 199.0)
+
+    login = client.post("/api/auth/login", data={
+        "email": "anna@mail.ru", "password": "пароль-12345",
+    })
+    assert login.status_code == 200
+
+    assert app_module.storage.user(account_id).balance == 199.0
+    assert app_module.storage.user(visitor_id) is None
+
+
 # ------------------------------------------------------- восстановление
 
 
@@ -372,6 +442,47 @@ def test_oauth_yandex_creates_account_and_keeps_tracks(tmp_path, monkeypatch):
         # подделанный state -- отказ
         bad = client.get("/api/auth/yandex/callback?code=c&state=zzz", follow_redirects=False)
         assert "oauth_error" in bad.headers["location"]
+
+
+def test_oauth_login_to_an_existing_account_merges_the_anonymous_balance(tmp_path, monkeypatch):
+    """Тот же баг, что и у обычного входа по паролю (см.
+    test_login_merges_the_anonymous_balance_into_the_existing_account), но
+    на пути входа через Яндекс ID: анонимная почта Яндекса совпадает с уже
+    существующим (зарегистрированным по паролю) аккаунтом -- оплаченный
+    анонимный баланс должен доехать туда, а не пропасть."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    monkeypatch.setenv("YANDEX_CLIENT_ID", "cid")
+    monkeypatch.setenv("YANDEX_CLIENT_SECRET", "sec")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    with TestClient(app_module.app) as client:
+        signup = client.post("/api/auth/register",
+                             data={"email": "anton@yandex.ru", "password": "пароль-12345"})
+        assert signup.status_code == 200
+        account_id = app_module.storage.user_by_email("anton@yandex.ru").id
+
+        client.cookies.clear()
+        me = client.get("/api/me")
+        visitor_id = app_module.signer.loads(client.cookies.get("uid"))
+        app_module.storage.add_balance(visitor_id, 199.0)
+
+        start = client.get("/api/auth/yandex/start", follow_redirects=False)
+        state = dict(__import__("urllib.parse").parse.parse_qsl(start.headers["location"].split("?", 1)[1]))["state"]
+        monkeypatch.setattr(app_module.oauth, "_post", lambda url, fields: {"access_token": "t"})
+        monkeypatch.setattr(app_module.oauth, "_get",
+                            lambda url, headers: {"id": 42, "default_email": "Anton@Yandex.ru"})
+        back = client.get(f"/api/auth/yandex/callback?code=c&state={state}", follow_redirects=False)
+        assert back.status_code == 302
+
+        assert app_module.storage.user(account_id).balance == 199.0
+        assert app_module.storage.user(visitor_id) is None
 
 
 def test_oauth_vk_uses_pkce_new_host_and_shows_vk_error(tmp_path, monkeypatch):

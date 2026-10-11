@@ -495,6 +495,45 @@ class Storage:
             )
             return cursor.rowcount
 
+    def merge_wallet(self, from_user: str, to_user: str) -> None:
+        """
+        Перенести баланс, кредиты (обычные и Студии) и подписку с
+        анонимной записи на учётную -- рядом с move_jobs, тем же вызовом
+        при входе в уже существующий аккаунт.
+
+        Без этого реальные оплаченные деньги анонимной записи либо
+        пропадали бы вместе с ней (delete_user_if_empty удаляет её следом,
+        раз все треки уже перенесены и счёт по ним пуст), либо остались
+        бы висеть на записи, в которую больше нельзя войти -- тот же
+        результат: человек платил, а кредиты/баланс/подписку не получил.
+        """
+        if from_user == to_user:
+            return
+        donor = self.user(from_user)
+        if donor is None:
+            return
+        if not (donor.balance or donor.credits or donor.studio_credits or donor.paid_until):
+            return
+        paid_until = donor.paid_until
+        with self._connect() as conn:
+            if paid_until:
+                row = conn.execute(
+                    "SELECT paid_until FROM users WHERE id = ?", (to_user,)
+                ).fetchone()
+                current = row["paid_until"] if row else None
+                paid_until = max(paid_until, current) if current else paid_until
+            conn.execute(
+                "UPDATE users SET balance = balance + ?, credits = credits + ?,"
+                " studio_credits = studio_credits + ?, paid_until = COALESCE(?, paid_until)"
+                " WHERE id = ?",
+                (donor.balance, donor.credits, donor.studio_credits, paid_until, to_user),
+            )
+            conn.execute(
+                "UPDATE users SET balance = 0, credits = 0, studio_credits = 0,"
+                " paid_until = NULL WHERE id = ?",
+                (from_user,),
+            )
+
     def delete_user_if_empty(self, user_id: str) -> None:
         """Убрать анонимную запись, с которой всё перенесли."""
         with self._connect() as conn:

@@ -663,10 +663,11 @@ def api_login(request: Request, email: str = Form(...), password: str = Form(...
 
     login_limiter.reset(address)
 
-    # Треки, разобранные до входа, переносим в аккаунт
+    # Треки и оплаченное (баланс/кредиты/подписка) до входа переносим в аккаунт
     visitor = current_user(request)
     moved = 0
     if visitor.id != account.id and not visitor.registered:
+        storage.merge_wallet(visitor.id, account.id)
         moved = storage.move_jobs(visitor.id, account.id)
         storage.delete_user_if_empty(visitor.id)
 
@@ -734,6 +735,7 @@ def api_oauth_callback(provider: str, request: Request):
             account = storage.user(visitor.id)
     storage.link_provider(account.id, provider, person["id"])
     if visitor.id != account.id and not visitor.registered:
+        storage.merge_wallet(visitor.id, account.id)
         storage.move_jobs(visitor.id, account.id)
         storage.delete_user_if_empty(visitor.id)
     response = RedirectResponse(remembered.get("next") or "/studio", 302)
