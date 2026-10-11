@@ -2769,6 +2769,88 @@ def test_recover_interrupted_jobs_refunds_and_unsticks_them(tmp_path, monkeypatc
     assert app_module.storage.user(user.id).balance == 100 - app_module.billing.PRICE_SINGLE_RUB
 
 
+def test_recover_interrupted_resumes_a_fresh_analysis_if_the_upload_survived(tmp_path, monkeypatch):
+    """Регрессия/улучшение: раньше ЛЮБОЙ прерванный перезапуском свежий
+    разбор (ещё не было result) просто возвращал деньги и требовал от
+    человека загрузить файл заново -- даже когда сама загрузка цела на
+    диске (её чистит только суточная уборка, см. deploy/README.md).
+    Теперь recover_interrupted должен находить файл в uploads/<job_id>/
+    и доигрывать разбор, а не отказывать в уже оплаченном треке."""
+    import sys
+
+    import pretty_midi
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    import web.app as app_module
+
+    user = app_module.storage.ensure_user(None)
+    app_module.storage.add_balance(user.id, 100)
+    user = app_module.storage.user(user.id)
+
+    spent = app_module.billing.consume(app_module.storage, user)
+    job = app_module.storage.create_job(user.id, "song.mid", {})
+    app_module.storage.update_job(job.id, status="running", counted=True, charged_kind=spent)
+
+    upload_dir = app_module.Path(app_module.DATA_DIR) / "uploads" / job.id
+    upload_dir.mkdir(parents=True)
+    midi_path = upload_dir / "song.mid"
+    pm = pretty_midi.PrettyMIDI(initial_tempo=120.0)
+    inst = pretty_midi.Instrument(program=25)
+    for pitch in (48, 52, 55, 60):        # C
+        inst.notes.append(pretty_midi.Note(velocity=90, pitch=pitch, start=0.0, end=2.0))
+    pm.instruments.append(inst)
+    pm.write(str(midi_path))
+
+    # Поток в пуле недетерминирован -- доигрываем синхронно, как и
+    # остальные тесты _analyze, но через настоящий submit_analysis, чтобы
+    # проверить именно путь, который выбрала recover_interrupted.
+    monkeypatch.setattr(
+        app_module.runner, "submit_analysis",
+        lambda jid, path: app_module.runner._analyze(jid, path),
+    )
+
+    recovered = app_module.runner.recover_interrupted()
+
+    assert recovered == 1
+    result = app_module.storage.job(job.id)
+    assert result.status == "done"
+    assert result.result["chords"]
+    assert result.counted                     # не вернули -- трек доигран, а не отказан
+    assert app_module.storage.user(user.id).balance == 100   # баланс не трогали вовсе
+
+
+def test_recover_interrupted_still_refunds_when_the_upload_is_gone(tmp_path, monkeypatch):
+    """Без файла на диске (например, уже стёрт суточной уборкой) резонно
+    вернуться к прежнему поведению -- вернуть деньги, а не доигрывать
+    разбор несуществующего файла."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    import web.app as app_module
+
+    user = app_module.storage.ensure_user(None)
+    app_module.storage.add_balance(user.id, 100)
+    user = app_module.storage.user(user.id)
+
+    spent = app_module.billing.consume(app_module.storage, user)
+    job = app_module.storage.create_job(user.id, "song.mid", {})
+    app_module.storage.update_job(job.id, status="running", charged_kind=spent)
+    # Никакой uploads/<job.id>/ папки на диске не создаём.
+
+    recovered = app_module.runner.recover_interrupted()
+
+    assert recovered == 1
+    assert app_module.storage.job(job.id).status == "error"
+    assert not app_module.storage.job(job.id).charged_kind
+    assert app_module.storage.user(user.id).balance == 100
+
+
 def test_yookassa_create_payment_accepts_the_same_arguments_as_getplatinum(monkeypatch):
     """Регрессия: `api_subscribe` (web/app.py) вызывает
     `gateway.create_payment(..., title=, notify_url=, email=, fail_url=)`

@@ -311,17 +311,34 @@ class JobRunner:
                     + note,
                 )
             else:
-                # Свежий разбор, так и не успевший завершиться.
-                note = ""
-                if job.charged_kind and self.storage.claim_job_refund(job.id, job.charged_kind):
-                    billing.refund(self.storage, job.user_id, job.charged_kind)
-                    self.storage.update_job(job.id, counted=False)
-                    note = " Списанное за разбор вернули."
-                self.storage.update_job(
-                    job.id, status="error",
-                    error="Сервис перезапускался во время разбора — попробуйте ещё раз." + note,
-                )
+                # Свежий разбор, так и не успевший завершиться. Файл
+                # загрузки переживает перезапуск (его чистит только
+                # суточная уборка старых загрузок, см. deploy/README.md),
+                # так что при наличии файла на месте доигрываем задание
+                # заново вместо возврата денег -- человеку не придётся
+                # перезапускать разбор руками.
+                upload = self._find_upload(job.id)
+                if upload:
+                    self.submit_analysis(job.id, upload)
+                else:
+                    note = ""
+                    if job.charged_kind and self.storage.claim_job_refund(job.id, job.charged_kind):
+                        billing.refund(self.storage, job.user_id, job.charged_kind)
+                        self.storage.update_job(job.id, counted=False)
+                        note = " Списанное за разбор вернули."
+                    self.storage.update_job(
+                        job.id, status="error",
+                        error="Сервис перезапускался во время разбора — попробуйте ещё раз." + note,
+                    )
         return len(pending)
+
+    def _find_upload(self, job_id: str) -> str | None:
+        """Путь к загруженному файлу задания, если он ещё лежит на диске."""
+        upload_dir = Path(self.data_dir) / "uploads" / job_id
+        if not upload_dir.is_dir():
+            return None
+        files = [p for p in upload_dir.iterdir() if p.is_file() and p.stat().st_size > 0]
+        return str(files[0]) if len(files) == 1 else None
 
     # --------------------------------------------------------------- разбор
 
