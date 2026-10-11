@@ -1649,7 +1649,7 @@ $('notesPrint').addEventListener('click', () => {
   setTimeout(() => document.body.classList.remove('print-notes'), 500);
 });
 
-// «Мои треки» в меню ведёт сюда же (/studio#tracks): из карточки трека -- к списку
+// /studio#tracks (старые ссылки на «Мои треки», кнопка в кабинете): из карточки трека -- к списку
 window.addEventListener('hashchange', () => {
   if (location.hash !== '#tracks') return;
   if (openJob) closeDetail(true);
