@@ -570,6 +570,8 @@ def api_admin_users(request: Request, q: str = "", offset: int = 0, limit: int =
                 "tracks": tracks,
                 "credits": u.credits,
                 "balance": u.balance,
+                "studioCredits": u.studio_credits,
+                "tier": u.tier if u.subscribed else "",
             }
             for u, tracks in found["users"]
         ],
@@ -584,8 +586,11 @@ def api_admin_set(
     is_admin: bool | None = Form(None),
     note: str | None = Form(None),
     grant_days: int = Form(0),
+    grant_tier: str = Form("month"),
+    studio_credits: int | None = Form(None),
 ):
-    """Пометки и ручное продление подписки."""
+    """Пометки, ручное продление подписки и кредиты Студии -- например,
+    музыкантам, которым владелец даёт сервис в пользование на месяц."""
     me = require_admin(request)
     target = storage.user(user_id)
     if not target:
@@ -598,9 +603,17 @@ def api_admin_set(
             raise HTTPException(400, "Нельзя снять права с последнего администратора")
 
     storage.set_flags(user_id, unlimited=unlimited, is_admin=is_admin, note=note)
+    if studio_credits is not None:
+        if not 0 <= studio_credits <= 100000:
+            raise HTTPException(400, "Кредитов -- от 0 до 100000")
+        storage.set_studio_credits(user_id, studio_credits)
     if grant_days:
-        billing.grant_subscription(storage, user_id, days=grant_days)
-    return {"ok": True, "user": user_id}
+        if grant_tier not in ("month", "studio_month"):
+            raise HTTPException(400, "Неизвестный тариф")
+        billing.grant_subscription(storage, user_id, days=grant_days, tier=grant_tier)
+    fresh = storage.user(user_id)
+    return {"ok": True, "user": user_id, "studioCredits": fresh.studio_credits,
+            "paidUntil": fresh.paid_until, "tier": fresh.tier if fresh.subscribed else ""}
 
 
 @app.get("/account", response_class=HTMLResponse)
@@ -979,6 +992,13 @@ def api_drop_invite(code: str, request: Request):
     return {"ok": True}
 
 
+def _plural(n: int, one: str, few: str, many: str) -> str:
+    """1 кавер, 2 кавера, 5 каверов."""
+    tail = n % 100
+    word = many if 11 <= tail <= 14 else one if n % 10 == 1 else few if 2 <= n % 10 <= 4 else many
+    return f"{n} {word}"
+
+
 @app.get("/pricing", response_class=HTMLResponse)
 def pricing_page() -> HTMLResponse:
     """
@@ -986,17 +1006,33 @@ def pricing_page() -> HTMLResponse:
     страницы: иначе человек секунду видит пустоту на месте главного,
     за чем он сюда и пришёл.
     """
+    cover, song = studio.credit_cost("restyle"), studio.credit_cost("create")
+
+    def what(credits: int) -> str:
+        """«4 кавера или 6 песен» -- сколько этого хватает на кредиты."""
+        parts = [_plural(credits // cover, "кавер", "кавера", "каверов"),
+                 _plural(credits // song, "песня", "песни", "песен")]
+        return " или ".join(p for p in parts if not p.startswith("0 "))
+
+    plans = billing.PLANS
     return page("pricing.html", {
+        "welcomeWhat": what(billing.WELCOME_CREDITS),
+        "monthWhat": what(plans["month"]["studio_credits"]),
+        "studioWhat": what(plans["studio_month"]["studio_credits"]),
+        "packWhat": what(plans["studio10"]["studio_credits"]),
+        "monthCredits": str(plans["month"]["studio_credits"]),
+        "studioCredits": str(plans["studio_month"]["studio_credits"]),
+        "freeSongs": str(billing.FREE_SONGS),
+        "chordsPerDay": str(FREE_CHORDS_PER_DAY),
         "price": f"{billing.PRICE_RUB:.0f}",
         "priceSingle": f"{billing.PRICE_SINGLE_RUB:.0f}",
         "topupMin": f"{billing.TOPUP_MIN_RUB:.0f}",
         "topupMax": f"{billing.TOPUP_MAX_RUB:.0f}",
         "studio10": f"{billing.PLANS['studio10']['price']:.0f}",
-        "studio30": f"{billing.PLANS['studio30']['price']:.0f}",
-        "studioSingle": f"{studio.SERVICES['restyle'].price:.0f}",
+        "studioSingle": f"{studio.service('restyle').price:.0f}",
+        "coverCredits": str(studio.credit_cost("restyle")),
         "studioCreate": f"{studio.SERVICES['create'].price:.0f}",
         "studioMonth": f"{billing.PLANS['studio_month']['price']:.0f}",
-        "proMonth": f"{billing.PLANS['pro_month']['price']:.0f}",
         "welcome": str(billing.WELCOME_CREDITS),
     })
 
@@ -1046,11 +1082,15 @@ def api_me(request: Request):
     payload["isAdmin"] = user.is_admin
     payload["unlimited"] = user.unlimited
     payload["studioCredits"] = user.studio_credits
+    payload["tier"] = user.tier if user.subscribed else ""
+    payload["studioPlan"] = user.studio_plan
     # Каталог тарифов -- для профиля: подписки на кредиты и пакеты без подписки
     payload["plans"] = [{"id": key, "title": spec["title"], "price": spec["price"],
                          "studioCredits": spec.get("studio_credits", 0),
-                         "subscription": bool(spec.get("subscription"))}
-                        for key, spec in billing.PLANS.items() if spec.get("studio_credits")]
+                         "subscription": bool(spec.get("subscription")),
+                         "multitrack": key == "studio_month"}
+                        for key, spec in billing.PLANS.items()
+                        if spec.get("studio_credits") and not spec.get("hidden")]
     payload["freeChordsPerDay"] = FREE_CHORDS_PER_DAY
     payload["lyricsReady"] = lyrics_mod.available()[0]
     payload["lyricsModels"] = list(lyrics_mod.MODELS)
@@ -1685,7 +1725,9 @@ def api_studio(request: Request):
         "ready": ready, "why": why,
         "services": {k: {"title": v.title, "price": v.price, "pack": studio.credit_cost(k),
                          "packKeep": studio.credit_cost(k, True)}
-                     for k, v in studio.SERVICES.items()},
+                     for k, v in ((k, studio.service(k)) for k in studio.SERVICES)},
+        # Мультитрек -- в «Студии» (и у безлимита)
+        "mixOpen": user.studio_plan,
         "createOpen": studio.create_open(),
         "presets": {k: v[0] for k, v in studio.PRESETS.items()},
         "tracks": studio.TRACKS,
@@ -1738,9 +1780,9 @@ async def api_studio_start(
     ready, why = studio.available()
     if not ready:
         raise HTTPException(503, why)
-    service = studio.SERVICES.get(mode)
-    if service is None:
+    if mode not in studio.SERVICES:
         raise HTTPException(400, "Неизвестная услуга")
+    service = studio.service(mode)
     pro = pro and mode == "stems"
     asked = engine
     engine = studio.restyle_engine() if mode in ("restyle", "create") or pro else "runpod"

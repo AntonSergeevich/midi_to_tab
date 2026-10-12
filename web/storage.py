@@ -152,6 +152,7 @@ class User:
     credits: int = 0             # оплаченные поштучно треки
     balance: float = 0.0         # пополненный баланс, рублей -- списывается за разбор
     studio_credits: int = 0      # генерации Студии из купленного пакета
+    tier: str = ""               # чья подписка: month («Музыкант») или studio_month («Студия»)
     password_hash: str | None = None
     registered_at: float | None = None
 
@@ -163,6 +164,11 @@ class User:
     @property
     def subscribed(self) -> bool:
         return bool(self.paid_until and self.paid_until > time.time())
+
+    @property
+    def studio_plan(self) -> bool:
+        """Мультитрек и всё остальное: «Студия» действует, или безлимит."""
+        return self.unlimited or (self.subscribed and self.tier == "studio_month")
 
     def free_left(self, limit: int) -> int:
         return max(0, limit - self.free_used)
@@ -236,6 +242,12 @@ class Storage:
         ):
             if column not in existing:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
+        # Тариф подписки (мультитрек -- только в «Студии»). Тем, у кого
+        # подписка уже идёт, до конца срока -- «Студия»: никто не теряет
+        # мультитрек, за который пользовался раньше.
+        if "tier" not in existing:
+            conn.execute("ALTER TABLE users ADD COLUMN tier TEXT NOT NULL DEFAULT ''")
+            conn.execute("UPDATE users SET tier = 'studio_month' WHERE paid_until > ?", (time.time(),))
         # Кредиты Студии стали мельче в 10 раз (песня -- 10 кредитов, а не 1):
         # уже купленные генерации пересчитываем один раз, никто не теряет.
         if "credit_scale" not in existing:
@@ -301,6 +313,7 @@ class Storage:
             credits=row["credits"] or 0,
             balance=row["balance"] or 0.0,
             studio_credits=row["studio_credits"] or 0,
+            tier=row["tier"] if "tier" in row.keys() else "",
             password_hash=row["password_hash"],
             registered_at=row["registered_at"],
         )
@@ -322,6 +335,11 @@ class Storage:
         with self._connect() as conn:
             conn.execute("UPDATE users SET studio_credits = studio_credits + ? WHERE id = ?",
                          (count, user_id))
+
+    def set_studio_credits(self, user_id: str, count: int) -> None:
+        """Ровно столько кредитов -- выдаёт владелец в админке."""
+        with self._connect() as conn:
+            conn.execute("UPDATE users SET studio_credits = ? WHERE id = ?", (max(0, count), user_id))
 
     def spend_studio_credit(self, user_id: str, count: int = 1) -> bool:
         """Списать генерации из пакета Студии -- атомарно, как spend_credit:
@@ -528,6 +546,10 @@ class Storage:
                 " WHERE id = ?",
                 (donor.balance, donor.credits, donor.studio_credits, paid_until, to_user),
             )
+            if donor.subscribed and donor.tier == "studio_month":
+                conn.execute("UPDATE users SET tier = 'studio_month' WHERE id = ?", (to_user,))
+            elif donor.subscribed:
+                conn.execute("UPDATE users SET tier = 'month' WHERE id = ? AND tier = ''", (to_user,))
             conn.execute(
                 "UPDATE users SET balance = 0, credits = 0, studio_credits = 0,"
                 " paid_until = NULL WHERE id = ?",
@@ -862,6 +884,7 @@ class Storage:
             credits=row["credits"],
             balance=row["balance"] if "balance" in row.keys() else 0.0,
             studio_credits=(row["studio_credits"] or 0) if "studio_credits" in row.keys() else 0,
+            tier=(row["tier"] or "") if "tier" in row.keys() else "",
             password_hash=row["password_hash"] if "password_hash" in row.keys() else None,
             registered_at=row["registered_at"] if "registered_at" in row.keys() else None,
         )
@@ -883,9 +906,12 @@ class Storage:
             ).fetchone()
         return dict(row)
 
-    def extend_subscription(self, user_id: str, until: float) -> None:
+    def extend_subscription(self, user_id: str, until: float, tier: str | None = None) -> None:
         with self._connect() as conn:
-            conn.execute("UPDATE users SET paid_until = ? WHERE id = ?", (until, user_id))
+            if tier is None:
+                conn.execute("UPDATE users SET paid_until = ? WHERE id = ?", (until, user_id))
+            else:
+                conn.execute("UPDATE users SET paid_until = ?, tier = ? WHERE id = ?", (until, tier, user_id))
 
     # ----------------------------------------------------------------- задания
 

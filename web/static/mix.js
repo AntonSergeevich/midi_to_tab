@@ -116,6 +116,13 @@ function save() {
 async function init() {
   $('play').innerHTML = ICON.play;
   info = await (await fetch('/api/studio')).json();
+  if (info.mixOpen === false) {
+    $('title').textContent = 'Мультитрек';
+    note('Мультитрек — в тарифе «Студия»: все партии вместе, метроном по долям, '
+      + 'смена темпа и тональности, свои дорожки. <a href="/pricing?next=/studio">Подключить «Студию»</a> · '
+      + '<a href="/studio">Вернуться в Студию</a>');
+    return;
+  }
   job = info.jobs.find((j) => j.id === jobId);
   if (!job || job.status !== 'done') {
     $('title').textContent = 'Трек не найден';

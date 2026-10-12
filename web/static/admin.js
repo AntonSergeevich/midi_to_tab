@@ -141,6 +141,8 @@ $('search').oninput = () => {
   searchTimer = setTimeout(() => { offset = 0; loadUsers(); }, 350);
 };
 
+const TIERS = { month: '«Музыкант»', studio_month: '«Студия»' };
+
 function render() {
   const rows = all;
   const from = found ? offset + 1 : 0;
@@ -159,11 +161,15 @@ function render() {
       <span class="spacer"></span>
       <span class="muted" style="font-size:12px">
         треков ${u.tracks} · проб ${u.freeUsed} ·
-        ${u.subscribed ? 'до ' + when(u.paidUntil) : 'без подписки'}
+        ${u.subscribed ? `${TIERS[u.tier] || 'подписка'} до ${when(u.paidUntil)}` : 'без подписки'}
         ${u.credits > 0 ? ` · куплено треков ${u.credits}` : ''}
         ${u.balance > 0 ? ` · баланс ${u.balance} ₽` : ''}
       </span>
-      <button data-act="grant">+30 дней</button>
+      <label class="check" title="Кредиты Студии: песня — 10, кавер — 15. Вписать число и нажать Enter">
+        кредиты <input type="number" data-act="credits" min="0" max="100000" step="1"
+        value="${u.studioCredits || 0}" style="width:76px"></label>
+      <button data-act="grant" data-tier="month" title="Подписка «Музыкант» на 30 дней, без кредитов">+30 дн «Музыкант»</button>
+      <button data-act="grant" data-tier="studio_month" title="«Студия» на 30 дней: мультитрек и всё остальное, без кредитов">+30 дн «Студия»</button>
       <span class="muted" data-role="status"></span>
     </div>`).join('') + `
     <div class="part" style="border:none;background:none">
@@ -203,10 +209,14 @@ function render() {
       send({ is_admin: e.target.checked });
     row.querySelector('[data-act="note"]').onchange = (e) =>
       send({ note: e.target.value });
-    row.querySelector('[data-act="grant"]').onclick = async () => {
-      await send({ grant_days: 30 });
-      await loadUsers();
-    };
+    row.querySelector('[data-act="credits"]').onchange = (e) =>
+      send({ studio_credits: Math.max(0, Math.round(Number(e.target.value) || 0)) });
+    row.querySelectorAll('[data-act="grant"]').forEach((button) => {
+      button.onclick = async () => {
+        await send({ grant_days: 30, grant_tier: button.dataset.tier });
+        await loadUsers();
+      };
+    });
   });
 }
 

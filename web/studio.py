@@ -202,8 +202,27 @@ def voice_clone_open() -> bool:
     return os.environ.get("NASLUX_VOICE_CLONE", "") == "1"
 
 
+# Кавер на YuE2 стоит нам столько же, сколько песня с нуля (~6-13 ₽ за две
+# версии), а не 40 ₽, как на Mureka: пока каверы делает YuE2 -- 15 кредитов
+# и 49 ₽ с баланса. Вернётся Mureka -- вернутся и прежние цены.
+YUE2_COST = {"restyle": 15}
+YUE2_PRICE = {"restyle": 49.0}
+
+
 def credit_cost(mode: str, keep_vocals: bool = False) -> int:
-    return CREDIT_COST["keep"] if mode == "restyle" and keep_vocals else CREDIT_COST.get(mode, 0)
+    if mode == "restyle" and keep_vocals:
+        return CREDIT_COST["keep"]
+    if mode in YUE2_COST and yue2_public():
+        return YUE2_COST[mode]
+    return CREDIT_COST.get(mode, 0)
+
+
+def service(mode: str) -> Service:
+    """Услуга с ценой с баланса -- той, что действует сейчас."""
+    base = SERVICES[mode]
+    if mode in YUE2_PRICE and yue2_public():
+        return Service(base.title, YUE2_PRICE[mode])
+    return base
 MUREKA_SONG_MODEL = "mureka-9"
 KEEP_VARIANTS = 2  # аранжировок под голос оригинала за одну переделку
 # Голос: у song/generate есть параметр gender (male/female); дуэта в нём нет,

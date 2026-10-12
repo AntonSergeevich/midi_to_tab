@@ -239,7 +239,7 @@ async function loadBilling(me) {
   const card = (p) => `
     <button class="choice" type="button" data-plan="${p.id}">
       <b>${escapeHtml(p.title.replace(' на 30 дней', ''))} — ${Math.round(p.price)} ₽${p.subscription ? '/мес' : ''}</b>
-      <small>${p.studioCredits} кредитов${p.subscription ? ' на 30 дней + разборы без ограничений' : ', не сгорают'}</small>
+      <small>${p.studioCredits} кредитов${p.subscription ? ' на 30 дней + разборы без ограничений' : ', не сгорают'}${p.multitrack ? ' + мультитрек' : ''}</small>
     </button>`;
   const plans = me.plans || [];
   $('plans').innerHTML = plans.filter((p) => p.subscription).map(card).join('')

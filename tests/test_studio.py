@@ -308,12 +308,73 @@ def test_subscription_plans_grant_days_and_credits(studio_app):
 
     billing.apply_plan(app_module.storage, user.id, "studio_month")
     fresh = app_module.storage.user(user.id)
-    assert fresh.subscribed and fresh.studio_credits == 300
-    billing.apply_plan(app_module.storage, user.id, "studio30")
-    assert app_module.storage.user(user.id).studio_credits == 600
-    # «Сохранить голос» дешевле remix: 20 кредитов против 40
+    assert fresh.subscribed and fresh.studio_credits == 400 and fresh.studio_plan
+    billing.apply_plan(app_module.storage, user.id, "studio10")
+    assert app_module.storage.user(user.id).studio_credits == 500
+    # «Музыкант» поверх идущей «Студии» не отнимает мультитрек
+    billing.apply_plan(app_module.storage, user.id, "month")
+    assert app_module.storage.user(user.id).tier == "studio_month"
+    # «Сохранить голос» дешевле remix: 20 кредитов против 40 (на Mureka)
     assert app_module.studio.credit_cost("restyle", True) == 20
     assert app_module.studio.credit_cost("restyle") == 40
+
+
+def test_old_plans_still_credit_but_are_not_sold(studio_app):
+    """Оплату, начатую до смены цен, зачисляем тем, за что платили; в продаже их нет."""
+    app_module, client, user, submitted = studio_app
+    from web import billing
+
+    billing.apply_plan(app_module.storage, user.id, "pro_month")
+    fresh = app_module.storage.user(user.id)
+    assert fresh.studio_credits == 900 and fresh.studio_plan
+    plans = {p["id"] for p in client.get("/api/me").json()["plans"]}
+    assert plans == {"month", "studio_month", "studio10"}
+
+
+def test_multitrack_only_in_studio_plan(studio_app):
+    app_module, client, user, submitted = studio_app
+    from web import billing
+
+    assert client.get("/api/studio").json()["mixOpen"] is False
+    billing.apply_plan(app_module.storage, user.id, "month")
+    assert client.get("/api/studio").json()["mixOpen"] is False
+    billing.grant_subscription(app_module.storage, user.id, days=1, tier="studio_month")
+    assert client.get("/api/studio").json()["mixOpen"] is True
+
+
+def test_cover_costs_less_while_yue2_sings(studio_app, monkeypatch):
+    """Кавер на YuE2 стоит нам как песня с нуля -- 15 кредитов и 49 ₽ вместо 40 и 99."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_MUREKA_OFF", "1")
+    assert studio.yue2_public()
+    assert studio.credit_cost("restyle") == 15 and studio.service("restyle").price == 49
+    services = client.get("/api/studio").json()["services"]
+    assert services["restyle"]["pack"] == 15 and services["create"]["pack"] == 10
+    page = client.get("/pricing").text
+    assert "{{" not in page and "26 каверов или 40 песен" in page and "2 кавера или 3 песни" in page
+
+
+def test_admin_sets_credits_and_grants_studio(studio_app):
+    """Владелец даёт музыканту кредиты и «Студию» на месяц."""
+    app_module, client, user, submitted = studio_app
+    store = app_module.storage
+    store.set_flags(user.id, is_admin=True)
+    friend = store.ensure_user(None)
+    answer = client.post(f"/api/admin/user/{friend.id}",
+                         data={"studio_credits": 300, "grant_days": 30, "grant_tier": "studio_month"})
+    assert answer.status_code == 200, answer.text
+    fresh = store.user(friend.id)
+    assert fresh.studio_credits == 300 and fresh.studio_plan
+    assert answer.json()["tier"] == "studio_month"
+    client.post(f"/api/admin/user/{friend.id}", data={"studio_credits": 0})
+    assert store.user(friend.id).studio_credits == 0
+    assert client.post(f"/api/admin/user/{friend.id}", data={"studio_credits": -5}).status_code == 400
+    assert client.post(f"/api/admin/user/{friend.id}",
+                       data={"grant_days": 30, "grant_tier": "pro"}).status_code == 400
+    row = next(u for u in client.get("/api/admin/users").json()["users"] if u["id"] == friend.id)
+    assert row["studioCredits"] == 0 and row["tier"] == "studio_month"
 
 
 def test_pack_lets_start_without_balance(studio_app):

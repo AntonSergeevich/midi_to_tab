@@ -38,7 +38,7 @@ async function load() {
   ].filter(Boolean);
   $('state').textContent = have.length
     ? `У вас: ${have.join(', ')}. Аккорды — бесплатно всегда.`
-    : 'Аккорды любой песни — бесплатно. За регистрацию — 20 кредитов Студии: две песни на пробу.';
+    : $('state').textContent;            // как написал сервер: подарок за регистрацию
 
   if (!me.paymentReady) {
     $('msg').innerHTML =

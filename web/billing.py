@@ -22,7 +22,7 @@ from .storage import Storage, User
 
 FREE_SONGS = 2            # бесплатные песни для пробы
 PRICE_RUB = 199.0         # подписка, рублей в месяц
-PRICE_SINGLE_RUB = 19.0   # один трек
+PRICE_SINGLE_RUB = 9.0    # один трек: себестоимость разбора ~1 ₽
 PERIOD_DAYS = 30
 
 # Пополнение баланса произвольной суммой -- третий способ оплаты рядом с
@@ -32,30 +32,33 @@ PERIOD_DAYS = 30
 TOPUP_MIN_RUB = 50.0
 TOPUP_MAX_RUB = 10000.0
 
-# Подписка окупается примерно с одиннадцатого трека в месяц -- разница
-# достаточная, чтобы постоянным пользователям была выгодна именно она,
-# и при этом разовая покупка не выглядела наказанием.
 # Кредиты Студии -- единая «валюта» генераций. Цена действия в кредитах
-# (studio.CREDIT_COST) идёт от его себестоимости: песня (Mureka, 2 версии)
-# ~12 ₽ -> 10 кредитов, переделка remix ~42 ₽ -> 40. Подписки считались так,
-# чтобы даже при полном расходе кредитов оставаться в плюсе после налога
-# и комиссии (~9%): «Музыкант» 199 ₽ -> максимум ~120 ₽ расходов,
-# «Студия» 590 -> ~410, «Про» 1490 -> ~1210.
+# (studio.CREDIT_COST) идёт от себестоимости. Пока песни и каверы делает
+# YuE2 (RunPod), задача в две версии стоит нам ~6-9 ₽, в худшем случае
+# ~13 ₽: песня -- 10 кредитов, кавер -- 15. Подписки считались так, чтобы
+# даже при полном расходе кредитов на самой дорогой видеокарте оставаться
+# в плюсе после налога и комиссии (~7,5%): «Музыкант» 199 ₽ -> до ~80 ₽
+# расходов, «Студия» 799 ₽ -> до ~520 ₽. Запас -- в том числе на долю
+# авторам YuE2, если коммерческая лицензия будет платной.
+#
+# Тарифов на виду четыре: бесплатно, один трек, «Музыкант», «Студия».
+# hidden -- прежние тарифы: их больше не продаём, но оплату, начатую до
+# смены цен, всё равно надо зачислить тем, за что человек платил.
 PLANS = {
     "month": {"price": PRICE_RUB, "title": "«Музыкант» на 30 дней", "credits": 0,
-              "studio_credits": 50, "subscription": True},
-    "studio_month": {"price": 590.0, "title": "«Студия» на 30 дней", "credits": 0,
-                     "studio_credits": 300, "subscription": True},
-    "pro_month": {"price": 1490.0, "title": "«Про» на 30 дней", "credits": 0,
-                  "studio_credits": 900, "subscription": True},
+              "studio_credits": 60, "subscription": True},
+    "studio_month": {"price": 799.0, "title": "«Студия» на 30 дней", "credits": 0,
+                     "studio_credits": 400, "subscription": True},
     "single": {"price": PRICE_SINGLE_RUB, "title": "Один трек", "credits": 1},
-    # Допы -- кредиты без подписки, не сгорают
-    "studio10": {"price": 249.0, "title": "100 кредитов Студии", "credits": 0,
+    # Доп -- кредиты без подписки, не сгорают
+    "studio10": {"price": 199.0, "title": "100 кредитов Студии", "credits": 0,
                  "studio_credits": 100},
+    "pro_month": {"price": 1490.0, "title": "«Про» на 30 дней", "credits": 0,
+                  "studio_credits": 900, "subscription": True, "hidden": True, "tier": "studio_month"},
     "studio30": {"price": 690.0, "title": "300 кредитов Студии", "credits": 0,
-                 "studio_credits": 300},
+                 "studio_credits": 300, "hidden": True},
 }
-WELCOME_CREDITS = 20      # за регистрацию: две песни на пробу
+WELCOME_CREDITS = 30      # за регистрацию: два кавера или три песни на пробу
 
 
 @dataclass
@@ -132,7 +135,7 @@ def check_access(user: User) -> Access:
 def consume(storage: Storage, user: User) -> str | None:
     """
     Списать одну песню. Возвращает, ЧЕМ расплатились -- "unlimited",
-    "free", "credit" или "balance" -- или None, если списывать было не с
+    "free", "credit" или "balance:<сумма>" -- или None, если списывать было не с
     чего. Возвращаемое значение стоит хранить рядом с заданием (поле
     Job.charged_kind): если разбор потом упадёт с ошибкой, по нему
     `refund` вернёт ровно то, что списалось, а не гадает, откуда деньги
@@ -161,7 +164,9 @@ def consume(storage: Storage, user: User) -> str | None:
     if storage.spend_credit(user.id):
         return "credit"
     if user.balance >= PRICE_SINGLE_RUB:
-        return "balance" if storage.spend_balance(user.id, PRICE_SINGLE_RUB) else None
+        # С суммой: цена трека может смениться, пока идёт разбор, а
+        # вернуть надо ровно списанное
+        return f"balance:{PRICE_SINGLE_RUB:g}" if storage.spend_balance(user.id, PRICE_SINGLE_RUB) else None
     return None
 
 
@@ -181,8 +186,10 @@ def refund(storage: Storage, user_id: str, kind: str | None) -> None:
         storage.refund_free(user_id)
     elif kind == "credit":
         storage.add_credits(user_id, 1)
-    elif kind == "balance":
-        storage.add_balance(user_id, PRICE_SINGLE_RUB)
+    elif kind == "balance":                 # списано до 12.10.2026, по 19 ₽
+        storage.add_balance(user_id, 19.0)
+    elif kind and kind.startswith("balance:"):
+        storage.add_balance(user_id, float(kind.split(":", 1)[1]))
 
 
 def apply_plan(storage: Storage, user_id: str, plan: str, amount: float | None = None) -> None:
@@ -198,24 +205,29 @@ def apply_plan(storage: Storage, user_id: str, plan: str, amount: float | None =
         return
     spec = PLANS.get(plan, PLANS["month"])
     if spec.get("subscription"):
-        grant_subscription(storage, user_id)
+        grant_subscription(storage, user_id, tier=spec.get("tier", plan))
     if spec.get("studio_credits"):
         storage.add_studio_credits(user_id, spec["studio_credits"])
     if spec["credits"]:
         storage.add_credits(user_id, spec["credits"])
 
 
-def grant_subscription(storage: Storage, user_id: str, days: int = PERIOD_DAYS) -> float:
+def grant_subscription(storage: Storage, user_id: str, days: int = PERIOD_DAYS,
+                       tier: str = "month") -> float:
     """
     Продлить подписку. Если она ещё действует, срок прибавляется к остатку,
     а не обнуляет его -- иначе оплата раньше срока съедала бы оплаченные дни.
+    Тариф -- старший из двух: «Музыкант», купленный поверх идущей «Студии»,
+    не отнимает у неё мультитрек.
     """
     user = storage.user(user_id)
     base = time.time()
     if user and user.paid_until and user.paid_until > base:
         base = user.paid_until
+        if user.tier == "studio_month":
+            tier = "studio_month"
     until = base + days * 86400
-    storage.extend_subscription(user_id, until)
+    storage.extend_subscription(user_id, until, tier)
     return until
 
 

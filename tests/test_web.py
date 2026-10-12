@@ -730,7 +730,7 @@ def test_consume_falls_back_when_the_first_tier_loses_the_race(store):
     assert stale.credits == 1
 
     assert billing.consume(store, stale) == "credit"
-    assert billing.consume(store, stale) == "balance"
+    assert billing.consume(store, stale) == "balance:9"
 
     fresh = store.user(user.id)
     assert fresh.credits == 0
@@ -1069,7 +1069,7 @@ def test_deleting_a_job_refunds_a_charge_still_in_progress(tmp_path, monkeypatch
         child = app_module.storage.create_job(owner.id, "песня.mp3 — guitar", {"parent": job.id})
         app_module.storage.add_balance(owner.id, 19.0)
         app_module.storage.spend_balance(owner.id, 19.0)
-        app_module.storage.update_job(child.id, status="running", counted=True, charged_kind="balance")
+        app_module.storage.update_job(child.id, status="running", counted=True, charged_kind="balance:19")
 
         client.cookies.set("uid", app_module.signer.dumps(owner.id))
         deleted = client.delete(f"/api/job/{job.id}")
@@ -2455,7 +2455,7 @@ def test_recognizing_lyrics_charges_the_track_once(tmp_path, monkeypatch):
         assert response.status_code == 200
         assert started == [job.id]
         assert app_module.storage.job(job.id).counted
-        assert app_module.storage.job(job.id).charged_kind == "balance"
+        assert app_module.storage.job(job.id).charged_kind == "balance:9"
         assert app_module.storage.user(user.id).balance == 100 - app_module.billing.PRICE_SINGLE_RUB
 
 
@@ -2565,7 +2565,7 @@ def test_a_failed_lyrics_recognition_refunds_what_it_charged(tmp_path, monkeypat
 
         response = client.post(f"/api/job/{job.id}/lyrics")
         assert response.status_code == 200
-        assert app_module.storage.job(job.id).charged_kind == "balance"
+        assert app_module.storage.job(job.id).charged_kind == "balance:9"
         assert app_module.storage.user(user.id).balance == 100 - app_module.billing.PRICE_SINGLE_RUB
 
         app_module.runner._lyrics(job.id, app_module.lyrics_mod.DEFAULT_MODEL)

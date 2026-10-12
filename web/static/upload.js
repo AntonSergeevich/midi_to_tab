@@ -126,7 +126,7 @@ function blocked() {
       </button>
       <button class="choice" type="button" data-plan="month">
         <b>${me.price} ₽ — «Музыкант» на месяц</b>
-        <small>партии, табы и MIDI без лимита + 50 кредитов Студии</small>
+        <small>партии, табы и MIDI без лимита + ${((me.plans || []).find((p) => p.id === 'month') || {}).studioCredits || 60} кредитов Студии</small>
       </button>
     </div>
     <button id="blockedPay" class="choice" type="button"
