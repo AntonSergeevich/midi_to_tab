@@ -875,8 +875,12 @@ $('drop').addEventListener('drop', (e) => {
 $('lyrics').addEventListener('input', () => { lyricsCount(); saveDraft(); updateStart(); });
 $('keepVocals').addEventListener('change', showMode);
 $('useYue2').addEventListener('change', showMode);
-$('yCfg').addEventListener('input', () => { $('yCfgVal').textContent = Number($('yCfg').value).toFixed(1); });
-$('yCreative').addEventListener('input', () => { $('yCreativeVal').textContent = `${$('yCreative').value}%`; });
+// Заливка полосы до бегунка (--fill в app.css)
+const knobFill = (el) => el.style.setProperty('--fill', `${((el.value - el.min) / (el.max - el.min)) * 100}%`);
+$('yCfg').addEventListener('input', () => { $('yCfgVal').textContent = Number($('yCfg').value).toFixed(1); knobFill($('yCfg')); });
+$('yCreative').addEventListener('input', () => { $('yCreativeVal').textContent = `${$('yCreative').value}%`; knobFill($('yCreative')); });
+knobFill($('yCfg'));
+knobFill($('yCreative'));
 $('track').addEventListener('change', () => { updateStart(); saveDraft(); });
 $('stemsPro').addEventListener('change', showMode);
 $('instrumental').addEventListener('change', () => {
