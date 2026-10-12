@@ -60,7 +60,8 @@
       <option value="bar">раз в такт</option>
       <option value="bar2">раз в 2 такта</option>
     </select>
-    <label class="mx-mini" title="Громкость метронома"><input type="range" id="metroVol" min="0" max="100" value="70"
+    <select id="metroSound" class="mx-select" title="Звук метронома" aria-label="Звук метронома"></select>
+    <label class="mx-mini mx-metrovol" title="Громкость метронома"><input type="range" id="metroVol" min="0" max="200" value="120"
       aria-label="Громкость метронома"></label>
     <button type="button" class="mx-toggle" id="countIn" aria-pressed="false" title="Такт отсчёта перед стартом">
       <span class="mx-led"></span>Отсчёт</button>
@@ -146,6 +147,7 @@
   </div>
 </div>
 <div class="st-toast" id="toast" hidden></div>
+<script src="/static/metro_sounds.js"></script>
 <script src="/static/mix.js"></script>
 </body>
 </html>

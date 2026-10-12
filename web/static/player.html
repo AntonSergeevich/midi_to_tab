@@ -48,6 +48,7 @@
       <span class="time" id="time">0:00 / 0:00</span>
       <input type="range" class="seek" id="seek" value="0" min="0" max="1000">
       <button id="metro" title="Метроном по найденным долям">🥁 Метроном</button>
+      <select id="metroSound" class="metro-sound" title="Звук метронома" aria-label="Звук метронома"></select>
       <label class="field vol" style="margin:0">
         <span>Громкость <b id="volValue">100%</b></span>
         <input type="range" id="vol" min="0" max="100" value="100">
@@ -135,6 +136,7 @@
     <span>© NASLUX</span>
   </footer>
 </div>
+<script src="/static/metro_sounds.js"></script>
 <script src="/static/player.js"></script>
 <script src="/static/consent.js"></script>
 </body>

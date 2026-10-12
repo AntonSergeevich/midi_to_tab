@@ -89,9 +89,7 @@ function audio() {
   try { ctx = new Ctx({ sampleRate: 32000 }); } catch (error) { ctx = new Ctx(); }
   master = ctx.createGain();
   master.connect(ctx.destination);
-  metroGain = ctx.createGain();
-  metroGain.gain.value = Number($('metroVol').value) / 100;
-  metroGain.connect(ctx.destination);
+  metroGain = window.metroSound.output(ctx, $('metroVol').value);
   return ctx;
 }
 
@@ -196,7 +194,7 @@ async function loadTracks(list) {
   if (memory.metroVol) $('metroVol').value = memory.metroVol;
   if (memory.metroMode) $('metroMode').value = memory.metroMode;
   if (memory.trackHeight) setTrackHeight(memory.trackHeight, false);
-  metroGain.gain.value = Number($('metroVol').value) / 100;
+  metroGain.setVolume($('metroVol').value);
   pressed('metro', metroOn);
   pressed('countIn', countIn);
   // Убранные дорожки («×») не грузим вовсе -- и память, и трафик
@@ -806,17 +804,16 @@ function seek(sec) {
 }
 
 function click(when, accent) {
-  const o = ctx.createOscillator();
-  const g = ctx.createGain();
-  o.frequency.value = accent ? 1760 : 1100;
-  g.gain.setValueAtTime(0.0001, when);
-  g.gain.exponentialRampToValueAtTime(accent ? 1 : 0.6, when + 0.002);
-  g.gain.exponentialRampToValueAtTime(0.0001, when + 0.06);
-  o.connect(g);
-  g.connect(metroGain);
-  o.start(when);
-  o.stop(when + 0.07);
+  window.metroSound.play(ctx, metroGain, when, accent);
 }
+
+// Звук метронома: выбрали -- сразу слышно, как он звучит
+window.metroSound.bindSelect($('metroSound'), () => {
+  audio();
+  ctx.resume();
+  click(ctx.currentTime + 0.03, true);
+  click(ctx.currentTime + 0.33, false);
+});
 
 // Планировщик: щелчки ставятся на доли песни чуть заранее (lookahead),
 // повтор куска и конец трека -- здесь же. setInterval, а не кадры анимации:
@@ -1121,7 +1118,8 @@ $('metro').addEventListener('click', () => {
 });
 $('countIn').addEventListener('click', () => { countIn = !countIn; pressed('countIn', countIn); save(); });
 $('metroVol').addEventListener('input', () => {
-  if (metroGain) metroGain.gain.value = Number($('metroVol').value) / 100;
+  if (metroGain) metroGain.setVolume($('metroVol').value);
+  $('metroVol').title = `Громкость метронома: ${$('metroVol').value}%`;
   save();
 });
 $('loop').addEventListener('click', () => {

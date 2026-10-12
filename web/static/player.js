@@ -400,28 +400,34 @@ function metronome(beats, downbeats) {
   let lastNow = null;
   const strong = new Set(downbeats.map((b) => b.toFixed(2)));
 
+  let out = null;
+
+  function start() {
+    if (!ctx) {
+      try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (error) { /* */ }
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      out = window.metroSound.output(ctx, 150);
+    }
+    ctx.resume();
+  }
+
   function click(strongBeat, delay = 0) {
     if (!ctx) return;
-    const when = ctx.currentTime + 0.01 + delay;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.frequency.value = strongBeat ? 1600 : 1000;
-    gain.gain.setValueAtTime(strongBeat ? 0.28 : 0.15, when);
-    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.06);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start(when);
-    osc.stop(when + 0.08);
+    window.metroSound.play(ctx, out, ctx.currentTime + 0.01 + delay, strongBeat);
   }
 
   return {
     get enabled() { return on; },
+    // Послушать выбранный звук
+    preview() {
+      start();
+      click(true, 0.02);
+      click(false, 0.32);
+    },
     toggle() {
       on = !on;
-      if (on && !ctx) {
-        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (error) { /* */ }
-        ctx = new (window.AudioContext || window.webkitAudioContext)();
-      }
-      if (ctx) ctx.resume();
+      if (on) start();
+      else if (ctx) ctx.resume();
       lastNow = null;                       // включили -- найти долю заново
       return on;
     },
@@ -543,6 +549,7 @@ function bindControls() {
   $('seek').oninput = () => {
     if (clock.duration) clock.time = ($('seek').value / 1000) * clock.duration;
   };
+  window.metroSound.bindSelect($('metroSound'), () => metro && metro.preview());
   $('metro').onclick = () => {
     const on = metro.toggle();
     $('metro').classList.toggle('primary', on);
