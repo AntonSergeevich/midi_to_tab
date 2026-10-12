@@ -55,9 +55,12 @@
       <div id="styleBox">
         <div class="st-label st-labelrow">
           <span>Стиль</span>
-          <button type="button" class="icon-btn" id="styleIdea" title="Подкинуть идею">
-            <span aria-hidden="true">🎲</span><span>Идея</span>
-          </button>
+          <span class="st-tools">
+            <button type="button" class="icon-btn" data-clear="prompt" title="Очистить стиль" aria-label="Очистить стиль"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg></button>
+            <button type="button" class="icon-btn" id="styleIdea" title="Подкинуть идею">
+              <span aria-hidden="true">🎲</span><span>Идея</span>
+            </button>
+          </span>
         </div>
         <textarea id="prompt" rows="3" maxlength="500" class="st-textarea"
                   placeholder="Жанр, настроение, инструменты, темп. Например: мощный ню-метал, рваный рифф, скретчи, агрессивный рэп-куплет и мелодичный припев"></textarea>
@@ -124,6 +127,7 @@
               <svg viewBox="0 0 24 24"><path d="m12 3 1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3Zm6 11 .9 2.1 2.1.9-2.1.9L18 20l-.9-2.1L15 17l2.1-.9L18 14Z"/></svg>
               <span>Сочинить</span>
             </button>
+            <button type="button" class="icon-btn" data-clear="lyrics" title="Очистить текст" aria-label="Очистить текст"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg></button>
             <button type="button" class="icon-btn" id="lyricsExpand" title="Развернуть на весь экран">
               <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
             </button>
@@ -138,6 +142,7 @@
           <div class="lyrics-bar">
             <b>Текст песни</b>
             <span class="muted" id="lyricsCount"></span>
+            <button type="button" class="icon-btn" data-clear="lyrics" title="Очистить текст" aria-label="Очистить текст"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg></button>
             <button type="button" class="primary" id="lyricsDone">Готово</button>
           </div>
           <div class="st-tags" id="lyricsTags">

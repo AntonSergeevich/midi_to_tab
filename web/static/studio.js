@@ -900,6 +900,23 @@ $('lyricsAuto').addEventListener('click', () => {
   area.dispatchEvent(new Event('input', { bubbles: true }));
   toast('Разметили: припевы — по повторам, вставки — под ваш стиль. Поправьте, если нужно ✍️');
 });
+// 🗑 у «Стиля» и «Текста песни»: очистить одним нажатием (выделять и стирать
+// длинный текст на телефоне неудобно), с «Вернуть» на случай промаха
+document.querySelectorAll('[data-clear]').forEach((button) => button.addEventListener('click', () => {
+  const area = $(button.dataset.clear);
+  if (!area.value) { area.focus(); return; }
+  const before = area.value;
+  area.value = '';
+  area.dispatchEvent(new Event('input', { bubbles: true }));
+  area.focus();
+  toast(`${area.id === 'lyrics' ? 'Текст очищен' : 'Стиль очищен'}
+    <button type="button" class="st-linkbtn" id="undoClear">Вернуть</button>`, 8000);
+  $('undoClear').onclick = () => {
+    area.value = before;
+    area.dispatchEvent(new Event('input', { bubbles: true }));
+    $('toast').hidden = true;
+  };
+}));
 $('lyricsExpand').addEventListener('click', () => lyricsFull(true));
 $('lyricsDone').addEventListener('click', () => lyricsFull(false));
 document.addEventListener('keydown', (e) => {
