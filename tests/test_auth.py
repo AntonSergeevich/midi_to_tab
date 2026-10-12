@@ -238,6 +238,28 @@ def test_login_merges_the_anonymous_balance_into_the_existing_account(client):
     assert app_module.storage.user(visitor_id) is None
 
 
+def test_uid_cookie_is_secure_over_https_not_over_plain_http(client):
+    """Кука «uid» живёт год и опознаёт аккаунт (баланс, кредиты, подписка) --
+    как и короткая oauth-кука (app.py, редирект Яндекс/VK ID), ей нужен
+    Secure, иначе её можно подслушать при случайном заходе по http:// до
+    редиректа nginx на https. Раньше attach_cookie его не ставил вовсе."""
+    from fastapi.testclient import TestClient
+
+    https_client = TestClient(client.app, base_url="https://testserver")
+    response = https_client.post("/api/auth/register", data={
+        "email": "secure@mail.ru", "password": "пароль-12345",
+    })
+    assert response.status_code == 200
+    assert "secure" in response.headers["set-cookie"].lower()
+
+    http_client = TestClient(client.app, base_url="http://testserver")
+    response = http_client.post("/api/auth/register", data={
+        "email": "insecure@mail.ru", "password": "пароль-12345",
+    })
+    assert response.status_code == 200
+    assert "secure" not in response.headers["set-cookie"].lower()
+
+
 # ------------------------------------------------------- восстановление
 
 

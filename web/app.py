@@ -217,13 +217,18 @@ def current_user(request: Request):
     return storage.ensure_user(user_id)
 
 
-def attach_cookie(response: Response, user_id: str) -> None:
+def attach_cookie(response: Response, user_id: str, request: Request) -> None:
     response.set_cookie(
         "uid",
         signer.dumps(user_id),
         max_age=365 * 24 * 3600,
         httponly=True,
         samesite="lax",
+        # Как у oauth-куки ниже: без этого год-долгая кука, которой опознаётся
+        # аккаунт (баланс, кредиты, подписка), уходит в открытом виде при
+        # случайном заходе по http:// (старая ссылка, вручную набранный
+        # адрес) до того, как сработает редирект nginx на https.
+        secure=request.url.scheme == "https",
     )
 
 
@@ -317,7 +322,7 @@ def api_admin_login(request: Request, key: str = Form(...)):
         )
     storage.set_flags(user.id, is_admin=True, unlimited=True, note=user.note or "владелец")
     response = JSONResponse({"ok": True})
-    attach_cookie(response, user.id)
+    attach_cookie(response, user.id, request)
     return response
 
 
@@ -652,7 +657,7 @@ def api_register(request: Request, email: str = Form(...), password: str = Form(
     storage.give_welcome(user.id, billing.WELCOME_CREDITS)
 
     response = JSONResponse({"ok": True, "email": address})
-    attach_cookie(response, user.id)
+    attach_cookie(response, user.id, request)
     return response
 
 
@@ -689,7 +694,7 @@ def api_login(request: Request, email: str = Form(...), password: str = Form(...
         storage.delete_user_if_empty(visitor.id)
 
     response = JSONResponse({"ok": True, "email": address, "moved": moved})
-    attach_cookie(response, account.id)
+    attach_cookie(response, account.id, request)
     return response
 
 
@@ -757,7 +762,7 @@ def api_oauth_callback(provider: str, request: Request):
         storage.delete_user_if_empty(visitor.id)
     response = RedirectResponse(remembered.get("next") or "/studio", 302)
     response.delete_cookie("oauth")
-    attach_cookie(response, account.id)
+    attach_cookie(response, account.id, request)
     return response
 
 
@@ -806,7 +811,7 @@ def api_forgot(request: Request, email: str = Form(...)):
 
 
 @app.post("/api/auth/reset")
-def api_reset(token: str = Form(...), password: str = Form(...)):
+def api_reset(request: Request, token: str = Form(...), password: str = Form(...)):
     try:
         password_hash = auth.hash_password(password)
     except auth.AuthError as exc:
@@ -820,7 +825,7 @@ def api_reset(token: str = Form(...), password: str = Form(...)):
     storage.purge_resets(user_id)   # остальные коды больше не действуют
 
     response = JSONResponse({"ok": True})
-    attach_cookie(response, user_id)
+    attach_cookie(response, user_id, request)
     return response
 
 
@@ -857,7 +862,7 @@ def api_support(
     response = JSONResponse(
         {"ok": True, "id": ticket_id, "days": spec["days"], "note": spec["note"]}
     )
-    attach_cookie(response, user.id)
+    attach_cookie(response, user.id, request)
     return response
 
 
@@ -879,7 +884,7 @@ def api_my_tickets(request: Request):
             }
         )
     response = JSONResponse({"tickets": items, "topics": support.TOPICS})
-    attach_cookie(response, user.id)
+    attach_cookie(response, user.id, request)
     return response
 
 
@@ -962,7 +967,7 @@ def invite_page(code: str, request: Request):
         response = RedirectResponse("/?приглашение=принято", status_code=303)
     else:
         response = RedirectResponse("/?приглашение=нет", status_code=303)
-    attach_cookie(response, user.id)
+    attach_cookie(response, user.id, request)
     return response
 
 
@@ -1102,7 +1107,7 @@ def api_me(request: Request):
         for j in storage.root_jobs(user.id, 10)
     ]
     response = JSONResponse(payload)
-    attach_cookie(response, user.id)
+    attach_cookie(response, user.id, request)
     return response
 
 
@@ -1177,7 +1182,7 @@ async def api_upload(
     if free_chords:
         runner.submit_analysis(job.id, target)
         response = JSONResponse({"jobId": job.id})
-        attach_cookie(response, user.id)
+        attach_cookie(response, user.id, request)
         return response
 
     # Пробная песня списывается в момент постановки в очередь, а не по
@@ -1206,7 +1211,7 @@ async def api_upload(
     runner.submit_analysis(job.id, target)
 
     response = JSONResponse({"jobId": job.id})
-    attach_cookie(response, user.id)
+    attach_cookie(response, user.id, request)
     return response
 
 
@@ -1291,7 +1296,7 @@ def api_library(request: Request):
     """
     user = current_user(request)
     response = JSONResponse({"tracks": _library_items(user)})
-    attach_cookie(response, user.id)
+    attach_cookie(response, user.id, request)
     return response
 
 
@@ -1724,7 +1729,8 @@ def api_studio(request: Request):
     response = JSONResponse({
         "ready": ready, "why": why,
         "services": {k: {"title": v.title, "price": v.price, "pack": studio.credit_cost(k),
-                         "packKeep": studio.credit_cost(k, True)}
+                         "packKeep": studio.credit_cost(k, True),
+                         "priceKeep": studio.service(k, True).price}
                      for k, v in ((k, studio.service(k)) for k in studio.SERVICES)},
         # Мультитрек -- в «Студии» (и у безлимита)
         "mixOpen": user.studio_plan,
@@ -1745,7 +1751,7 @@ def api_studio(request: Request):
         # Разборы -- в том же списке «Мои треки» (раньше отдельная страница /library)
         "analyses": _library_items(user),
     })
-    attach_cookie(response, user.id)
+    attach_cookie(response, user.id, request)
     return response
 
 
@@ -1809,6 +1815,11 @@ async def api_studio_start(
     if engine == "runpod" and not studio.api_key():
         raise HTTPException(503, "Эта услуга ещё не подключена: нет ключа RunPod на сервере")
     keep_vocals = keep_vocals and mode == "restyle" and engine == "mureka"
+    if mode == "restyle":
+        # Цена зависит от keep_vocals, а он известен только теперь (решает
+        # и engine, выясненный чуть выше) -- до этой строки service() звал
+        # без него и всегда брал полную цену переделки.
+        service = studio.service(mode, keep_vocals)
     if mode == "create" and not (prompt.strip() or lyrics.strip() or preset in studio.PRESETS):
         raise HTTPException(400, "Опишите стиль или добавьте текст песни")
     # «Повторить»: исходник берётся из прошлой работы, загружать заново не нужно.
@@ -1906,7 +1917,7 @@ async def api_studio_start(
            if engine == "yue2" else {}),
     })
     response = JSONResponse({"jobId": job.id})
-    attach_cookie(response, user.id)
+    attach_cookie(response, user.id, request)
     return response
 
 
@@ -2055,7 +2066,7 @@ async def api_studio_upload(request: Request, file: UploadFile = File(...), righ
             out.write(chunk)
     studio_runner.submit(job.id, {"mode": "upload"})
     response = JSONResponse({"jobId": job.id})
-    attach_cookie(response, user.id)
+    attach_cookie(response, user.id, request)
     return response
 
 

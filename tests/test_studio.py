@@ -1113,6 +1113,12 @@ def test_keep_vocals_restyle_separates_arranges_and_mixes(studio_app, monkeypatc
     job_id = response.json()["jobId"]
     job = app_module.storage.job(job_id)
     assert job.settings["keepVocals"] is True and submitted[-1][1]["keep_vocals"] is True
+    # «Сохранить мой голос» стоит нам вдвое меньше обычной переделки (Instrumental
+    # вместо remix с двумя версиями) -- с баланса должно списываться вдвое меньше,
+    # а не полная цена restyle: до фикса service() не знал про keep_vocals и всегда
+    # брал studio.SERVICES["restyle"].price (99), а не studio.KEEP_PRICE (49).
+    assert job.settings["charged"] == studio.KEEP_PRICE == 49.0
+    assert app_module.storage.user(user.id).balance == 150 - studio.KEEP_PRICE
     app_module.storage.update_job(job_id, settings={**job.settings, "input": submitted[-1][1]})
     folder = app_module.studio_runner.folder(job_id)
 

@@ -156,7 +156,8 @@ function updateStart() {
   const service = mode === 'stems' && $('stemsPro').checked ? info.services.stems_pro : info.services[send.mode];
   const packCost = (send.keep ? service.packKeep : service.pack) || 0;
   const byPack = packCost && info.studioCredits >= packCost;
-  const enough = info.unlimited || byPack || info.balance >= service.price;
+  const rubCost = send.keep ? service.priceKeep : service.price;
+  const enough = info.unlimited || byPack || info.balance >= rubCost;
   const lyrics = $('lyrics').value.trim();
   const mureka = info.restyleEngine === 'mureka';
   let problem = '';
@@ -173,7 +174,7 @@ function updateStart() {
   needPay = !problem && !enough;
   $('start').disabled = Boolean(problem);
   const price = info.unlimited ? '' : byPack
-    ? ` · ${packCost} ${plural(packCost, 'кредит', 'кредита', 'кредитов')}` : ` · ${rub(service.price)}`;
+    ? ` · ${packCost} ${plural(packCost, 'кредит', 'кредита', 'кредитов')}` : ` · ${rub(rubCost)}`;
   const button = send.all ? 'Переписать все партии' : MODE[mode].button;
   $('start').textContent = needPay ? `Оплатить и ${button.toLowerCase()}${price}` : `${button}${price}`;
   $('trackHint').hidden = !send.all;

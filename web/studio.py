@@ -87,6 +87,12 @@ MUREKA_STATES = {"preparing": "Готовим трек", "queued": "В очер�
 # Живые замеры (28.09): продление -- $0.03, песня «как в образце» -- $0.09 за две.
 CREDIT_COST = {"create": 10, "restyle": 40, "keep": 20, "enrich": 5, "stems": 3, "extend": 5,
                "voice": 10, "stems_pro": 60}  # глубокое разделение Mureka -- $0.70
+# «Сохранить мой голос» (track/generate без вокала + сведение) дешевле обычной
+# переделки (remix с двумя версиями) ровно вдвое -- вдвое же дешевле и с
+# баланса: 49 ₽, а не полные 99. Раньше это отражалось только в кредитах
+# (credit_cost), баланс всегда брал полную цену restyle -- кто платил
+# balance-ом, переплачивал за ту же услугу вдвое против платящих пакетом.
+KEEP_PRICE = 49.0
 
 
 # Части песни по-русски -> метки, которые понимают нейросети. Люди пишут
@@ -217,9 +223,11 @@ def credit_cost(mode: str, keep_vocals: bool = False) -> int:
     return CREDIT_COST.get(mode, 0)
 
 
-def service(mode: str) -> Service:
+def service(mode: str, keep_vocals: bool = False) -> Service:
     """Услуга с ценой с баланса -- той, что действует сейчас."""
     base = SERVICES[mode]
+    if mode == "restyle" and keep_vocals:
+        return Service(base.title, KEEP_PRICE)
     if mode in YUE2_PRICE and yue2_public():
         return Service(base.title, YUE2_PRICE[mode])
     return base
