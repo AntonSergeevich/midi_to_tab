@@ -343,6 +343,13 @@ def ace_create_open() -> bool:
     return ace_fallback()
 
 
+def lyrics_open() -> bool:
+    """Сочинение текста (Mureka lyrics/generate, доли цента) -- отдельно от
+    выключателя песен: 12.10 песни Mureka выключены до пополнения, а тексты
+    на остатке баланса (33 цента) сочиняются -- проверено живым запросом."""
+    return bool(mureka_key()) and os.environ.get("NASLUX_LYRICS", "1") == "1"
+
+
 def create_open() -> bool:
     return restyle_engine() == "mureka" or ace_create_open() or yue2_public()
 

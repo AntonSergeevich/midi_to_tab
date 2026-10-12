@@ -1915,3 +1915,23 @@ def test_restyle_from_just_uploaded_track_without_second_upload(studio_app):
     assert job.filename == "Моя песня.mp3"
     folder = app_module.studio_runner.folder(job.id)
     assert open(f"{folder}/source.mp3", "rb").read() == b"ID3fake-audio"
+
+
+def test_lyrics_work_while_mureka_songs_are_off(studio_app, monkeypatch):
+    """12.10: песни Mureka выключены до пополнения, а тексты (доли цента) -- сочиняются."""
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_MUREKA_OFF", "1")
+    assert studio.restyle_engine() != "mureka"
+    monkeypatch.setattr(studio, "mureka_call", lambda method, path, body=None, timeout=60: (
+        {"title": "Репетиция", "lyrics": "[Verse]\nЭй"}))
+    response = client.post("/api/studio/lyrics", data={"prompt": "песня про репетицию"})
+    assert response.status_code == 200 and response.json()["title"] == "Репетиция"
+
+    def broke(*args, **kwargs):
+        raise studio.MurekaNoMoney("Mureka ответила 402: insufficient balance")
+
+    monkeypatch.setattr(studio, "mureka_call", broke)
+    response = client.post("/api/studio/lyrics", data={"prompt": "ещё"})
+    assert response.status_code == 503 and "временно недоступно" in response.json()["detail"]

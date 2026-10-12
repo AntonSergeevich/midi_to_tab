@@ -2379,7 +2379,7 @@ def api_studio_lyrics(request: Request, prompt: str = Form(...)):
     """Сочинить текст песни по описанию (Mureka lyrics/generate). Бесплатно:
     стоит нам доли цента, -- но не больше LYRICS_PER_DAY раз в сутки."""
     user = current_user(request)
-    if studio.restyle_engine() != "mureka":
+    if not studio.lyrics_open():
         raise HTTPException(503, "Сочинение текста временно недоступно")
     if not prompt.strip():
         raise HTTPException(400, "Опишите, о чём песня")
@@ -2390,6 +2390,8 @@ def api_studio_lyrics(request: Request, prompt: str = Form(...)):
     _lyrics_calls[user.id] = [*recent, now]
     try:
         answer = studio.mureka_call("POST", "/v1/lyrics/generate", {"prompt": prompt.strip()[:500]})
+    except studio.MurekaNoMoney as error:
+        raise HTTPException(503, "Сочинение текста временно недоступно") from error
     except RuntimeError as error:
         raise HTTPException(502, f"Не получилось сочинить текст: {error}") from error
     return {"title": answer.get("title", ""), "lyrics": answer.get("lyrics", "")}
@@ -2399,7 +2401,7 @@ def api_studio_lyrics(request: Request, prompt: str = Form(...)):
 def api_studio_lyrics_extend(request: Request, lyrics: str = Form(...)):
     """Дописать продолжение текста (Mureka lyrics/extend) -- для «Продлить песню»."""
     user = current_user(request)
-    if studio.restyle_engine() != "mureka":
+    if not studio.lyrics_open():
         raise HTTPException(503, "Сочинение текста временно недоступно")
     now = time.time()
     recent = [t for t in _lyrics_calls.get(user.id, []) if now - t < 86400]
@@ -2408,6 +2410,8 @@ def api_studio_lyrics_extend(request: Request, lyrics: str = Form(...)):
     _lyrics_calls[user.id] = [*recent, now]
     try:
         answer = studio.mureka_call("POST", "/v1/lyrics/extend", {"lyrics": lyrics.strip()[:3000]})
+    except studio.MurekaNoMoney as error:
+        raise HTTPException(503, "Сочинение текста временно недоступно") from error
     except RuntimeError as error:
         raise HTTPException(502, f"Не получилось дописать текст: {error}") from error
     return {"lyrics": answer.get("lyrics", "")}
