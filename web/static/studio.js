@@ -452,7 +452,7 @@ function renderList(jobs) {
     const first = j.status === 'done' && j.files[0];
     return `<div class="st-row${j.id === fresh ? ' st-new' : ''}" data-open="${j.id}">
       ${cover(j)}<span class="st-mode">${MODE_ICON[j.mode] || ''}</span>
-      <div class="st-row-main"><b>${esc(j.name)}</b>${statusLine(j)}</div>
+      <div class="st-row-main"><b data-noi18n>${esc(j.name)}</b>${statusLine(j)}</div>
       ${first ? playButton(first, j.name) : ''}
     </div>`;
   }).join('');
@@ -479,7 +479,7 @@ function tabsLine(a) {
 function tabsRow(a, label) {
   return `<div class="st-row${label ? ' st-tabsub' : ''}" data-tabs="${a.id}" title="Открыть аккорды и табы">
     ${label ? '' : cover(a)}<span class="st-mode">♫</span>
-    <div class="st-row-main"><b>${esc(label || a.name)}</b>${tabsLine(a)}</div>
+    <div class="st-row-main"><b${label ? '' : ' data-noi18n'}>${esc(label || a.name)}</b>${tabsLine(a)}</div>
     <button type="button" class="icon-btn" data-menu="${a.id}" data-analysis="1" title="Что сделать">${ICON.more}</button>
   </div>`;
 }
@@ -560,7 +560,7 @@ function renderDetail(jobs) {
     <div class="st-dhead">
       <button type="button" class="icon-btn" id="back" title="Назад">${ICON.back}</button>
       ${cover(j, true)}
-      <div class="st-row-main"><h2>${esc(j.name)}</h2><span class="muted">${esc(meta)}</span></div>
+      <div class="st-row-main"><h2 data-noi18n>${esc(j.name)}</h2><span class="muted">${esc(meta)}</span></div>
       ${['done', 'error'].includes(j.status)
     ? `<button type="button" class="icon-btn" data-menu="${j.id}" data-track="1" data-upload="${j.mode === 'upload' ? 1 : ''}" data-done="${j.status === 'done' && j.files.length && j.mode !== 'stems' ? 1 : ''}" title="Что сделать">${ICON.more}</button>` : ''}
     </div>
@@ -840,7 +840,8 @@ $('refToggle').addEventListener('click', () => {
 $('styleIdea').addEventListener('click', () => {
   const current = $('prompt').value;
   let idea = current;
-  while (idea === current) idea = STYLE_IDEAS[Math.floor(Math.random() * STYLE_IDEAS.length)];
+  // По-английски -- и идеи по-английски (нейросеть понимает оба)
+  while (idea === current) idea = window.__t(STYLE_IDEAS[Math.floor(Math.random() * STYLE_IDEAS.length)]);
   $('prompt').value = idea;
   saveDraft();
   updateStart();

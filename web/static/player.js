@@ -38,6 +38,7 @@ async function load() {
   }
   data = job.result;
   $('title').textContent = job.name;
+  $('title').dataset.noi18n = '';      // название трека -- как есть, без перевода
   const detected = data.tempoDetected ? ' (определён автоматически)' : '';
   const source = data.chordSource ? ` (${data.chordSource})` : '';
   const circle = [...new Set(data.chords.map((c) => c.name))];

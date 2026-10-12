@@ -124,11 +124,13 @@ async function init() {
   }
   if (job.expired) {
     $('title').textContent = job.name;
+  $('title').dataset.noi18n = '';      // название трека -- как есть, без перевода
     note('Файлы этого трека удалены по сроку хранения (14 дней).');
     return;
   }
   file = params.get('file') || (job.files[0] && job.files[0].name) || '';
   $('title').textContent = job.name;
+  $('title').dataset.noi18n = '';      // название трека -- как есть, без перевода
   document.title = `${job.name} — мультитрек NASLUX`;
 
   const stems = job.mode === 'stems' ? job : info.jobs

@@ -918,6 +918,13 @@ header.top > nav.topnav {
 }
 .topnav > a.who::before { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); }
 .topnav > .badge { margin-left: 8px; text-decoration: none; flex: none; }
+/* Переключатель языка RU / EN (nav.js) */
+.topnav > .langsw {
+  flex: none; padding: 6px 10px; border-radius: 999px; font: 600 12px/1 inherit; letter-spacing: .04em;
+  color: var(--muted); background: none; border: 1px solid var(--border); cursor: pointer;
+}
+.topnav > .langsw:hover { color: var(--text); border-color: var(--accent); }
+.i18n-note { margin: 0 0 12px; font-size: 13px; }
 .topnav > .badge[hidden] { display: none; }
 @media (max-width: 900px) {
   .topnav > a:not(.badge) { padding: 6px 10px; font-size: 13px; gap: 5px; }

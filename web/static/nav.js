@@ -39,6 +39,21 @@
     });
   }
 
+  // Язык сайта: RU / EN (i18n.js)
+  const nav = document.querySelector('header.top .topnav');
+  if (nav && window.setLang && !nav.querySelector('.langsw')) {
+    const en = window.NASLUX_LANG === 'en';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'langsw';
+    button.dataset.noi18n = '';
+    button.textContent = en ? 'RU' : 'EN';
+    button.title = en ? 'Русский язык' : 'English';
+    button.setAttribute('aria-label', button.title);
+    button.addEventListener('click', () => window.setLang(en ? 'ru' : 'en'));
+    nav.insertBefore(button, nav.querySelector('#account'));
+  }
+
   try {
     const cached = JSON.parse(localStorage.getItem(CACHE) || 'null');
     if (cached) paint(cached);

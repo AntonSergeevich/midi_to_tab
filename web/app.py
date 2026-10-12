@@ -111,7 +111,11 @@ def page(name: str, values: dict | None = None) -> HTMLResponse:
 
 
 def page_stamp(html: str) -> str:
-    """Отпечаток версии в ссылках на статику -- чтобы браузер брал свежую."""
+    """Отпечаток версии в ссылках на статику -- чтобы браузер брал свежую.
+    И язык страницы: i18n.js первым делом в <head> (русский / английский)."""
+    if "/static/i18n.js" not in html:
+        anchor = r"(<meta charset=[^>]*>)" if re.search(r"<meta charset=", html) else r"(<head[^>]*>)"
+        html = re.sub(anchor, r'\1\n<script src="/static/i18n.js"></script>', html, count=1)
     return re.sub(r'(/static/[\w./-]+\.(?:js|css|svg))"', rf'\1?v={STAMP}"', html)
 
 
