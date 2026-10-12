@@ -9,7 +9,7 @@ on:
         description: Сколько секунд исходника отправить
         default: "60"
       what:
-        description: "all / remix / stems / everything (ещё текст и песня с нуля) / track (аранжировка под вокал)"
+        description: "all / remix / stems / everything (ещё текст и песня с нуля) / track (аранжировка под вокал) / lyrics (баланс и сочинение текста)"
         default: all
       audio_url:
         default: https://raw.githubusercontent.com/AntonSergeevich/vibe_track/claude/nu-metal-track-transformer-kf2j2n/we_angel.mp3
@@ -44,6 +44,7 @@ jobs:
           [ "$WHAT" = remix ] && flags="--skip-stems"
           [ "$WHAT" = stems ] && flags="--skip-remix"
           [ "$WHAT" = everything ] && flags="--create"
+          [ "$WHAT" = lyrics ] && flags="--lyrics-only"
           if [ "$WHAT" = track ]; then
             pip install -q demucs torchaudio soundfile
             python -m demucs --two-stems=vocals -n htdemucs -o sep source.mp3

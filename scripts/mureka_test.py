@@ -30,6 +30,8 @@ def main() -> None:
     parser.add_argument("--track", action="store_true",
                         help="track/generate: новая аранжировка под вокал (целиком и по --vocals)")
     parser.add_argument("--vocals", default="", help="вокал, выделенный Demucs, mp3")
+    parser.add_argument("--lyrics-only", action="store_true",
+                        help="только баланс и сочинение текста (lyrics/generate) -- работает ли без денег")
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
@@ -37,6 +39,15 @@ def main() -> None:
     print("Баланс Mureka:", {k: billing.get(k) for k in ("balance", "total_spending",
                                                         "concurrent_request_limit")},
           "(в центах)")
+    if args.lyrics_only:
+        print(f"::notice title=Mureka баланс::{billing.get('balance')} центов", flush=True)
+        try:
+            text = studio.mureka_call("POST", "/v1/lyrics/generate", {"prompt": "весёлая песня про репетицию группы"})
+            print(f"::notice title=Mureka текст::работает: {text.get('title')} | "
+                  f"{(text.get('lyrics') or '')[:120].replace(chr(10), ' / ')}", flush=True)
+        except Exception as error:  # noqa: BLE001
+            print(f"::notice title=Mureka текст::не работает: {str(error)[:200]}", flush=True)
+        return
 
     source = studio.mureka_source(args.audio, args.out)
     print(f"Исходник для Mureka: {os.path.getsize(source) / 1e6:.1f} МБ")
