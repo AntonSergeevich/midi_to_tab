@@ -667,10 +667,11 @@ def api_login(request: Request, email: str = Form(...), password: str = Form(...
 
     login_limiter.reset(address)
 
-    # Треки, разобранные до входа, переносим в аккаунт
+    # Треки и оплаченное (баланс/кредиты/подписка) до входа переносим в аккаунт
     visitor = current_user(request)
     moved = 0
     if visitor.id != account.id and not visitor.registered:
+        storage.merge_wallet(visitor.id, account.id)
         moved = storage.move_jobs(visitor.id, account.id)
         storage.delete_user_if_empty(visitor.id)
 
@@ -738,6 +739,7 @@ def api_oauth_callback(provider: str, request: Request):
             account = storage.user(visitor.id)
     storage.link_provider(account.id, provider, person["id"])
     if visitor.id != account.id and not visitor.registered:
+        storage.merge_wallet(visitor.id, account.id)
         storage.move_jobs(visitor.id, account.id)
         storage.delete_user_if_empty(visitor.id)
     response = RedirectResponse(remembered.get("next") or "/studio", 302)
@@ -2287,6 +2289,9 @@ def api_studio_shift(job_id: str, request: Request, file: str = Form(""),
     return {"jobId": job.id}
 
 
+_studio_tabs_lock = threading.Lock()
+
+
 @app.post("/api/studio/{job_id}/tabs")
 def api_studio_to_tabs(job_id: str, request: Request, file: str = Form("")):
     """Готовую песню или партию Студии -- в обычный разбор NASLUX: табы, аккорды, MIDI."""
@@ -2303,30 +2308,36 @@ def api_studio_to_tabs(job_id: str, request: Request, file: str = Form("")):
     # Повторный клик по «Табы» (два окна, устаревший снимок до опроса) не должен
     # оплачивать разбор второй раз -- интерфейс и так открывает уже готовый
     # (web/static/studio.js), но там это только клиентская проверка по локальному
-    # снимку: без неё здесь billing.consume ниже спишет деньги заново.
-    existing = storage.studio_file_analysis(user.id, job_id, file)
-    if existing:
-        return {"jobId": existing.id}
-    access = billing.check_access(user)
-    if not access.allowed:
-        raise HTTPException(402, access.reason)
-    label = studio.label_of((parent.settings or {}).get("mode", ""), file)
-    whole = (parent.settings or {}).get("mode") != "stems" and not file.endswith(".mid")
-    job = storage.create_job(user.id, f"{parent.filename} — {label}", {
-        "capo": 0, "tempo": 0, "minChord": 0.9,
-        "vocabulary": audiochords.DEFAULT_VOCABULARY, "separate": whole,
-        "model": separate.DEFAULT_MODEL, "quality": separate.DEFAULT_QUALITY,
-        "removeGhosts": True, "maxPolyphony": 0, "studio": job_id, "studioFile": file})
-    upload_dir = os.path.join(DATA_DIR, "uploads", job.id)
-    os.makedirs(upload_dir, exist_ok=True)
-    target = os.path.join(upload_dir, f"{safe_stem(file)}{Path(file).suffix.lower()}")
-    shutil.copyfile(source, target)
-    spent = billing.consume(storage, user)
-    if not spent:
-        shutil.rmtree(upload_dir, ignore_errors=True)
-        storage.update_job(job.id, status="error", error="Лимит разборов уже израсходован")
-        raise HTTPException(402, "Лимит разборов уже израсходован — пополните баланс на странице тарифов.")
-    storage.update_job(job.id, counted=True, charged_kind=spent)
+    # снимку: без неё здесь billing.consume ниже спишет деньги заново. Проверка
+    # "уже есть" и создание нового задания оборачиваются одним локом (сервис
+    # работает одним процессом, --workers 1, см. deploy/README.md) -- иначе два
+    # по-настоящему одновременных запроса (две вкладки, автоклик) оба успели бы
+    # увидеть "ещё не разобрано" до того, как первый создал задание, и оба
+    # списали бы деньги за один и тот же файл.
+    with _studio_tabs_lock:
+        existing = storage.studio_file_analysis(user.id, job_id, file)
+        if existing:
+            return {"jobId": existing.id}
+        access = billing.check_access(user)
+        if not access.allowed:
+            raise HTTPException(402, access.reason)
+        label = studio.label_of((parent.settings or {}).get("mode", ""), file)
+        whole = (parent.settings or {}).get("mode") != "stems" and not file.endswith(".mid")
+        job = storage.create_job(user.id, f"{parent.filename} — {label}", {
+            "capo": 0, "tempo": 0, "minChord": 0.9,
+            "vocabulary": audiochords.DEFAULT_VOCABULARY, "separate": whole,
+            "model": separate.DEFAULT_MODEL, "quality": separate.DEFAULT_QUALITY,
+            "removeGhosts": True, "maxPolyphony": 0, "studio": job_id, "studioFile": file})
+        upload_dir = os.path.join(DATA_DIR, "uploads", job.id)
+        os.makedirs(upload_dir, exist_ok=True)
+        target = os.path.join(upload_dir, f"{safe_stem(file)}{Path(file).suffix.lower()}")
+        shutil.copyfile(source, target)
+        spent = billing.consume(storage, user)
+        if not spent:
+            shutil.rmtree(upload_dir, ignore_errors=True)
+            storage.update_job(job.id, status="error", error="Лимит разборов уже израсходован")
+            raise HTTPException(402, "Лимит разборов уже израсходован — пополните баланс на странице тарифов.")
+        storage.update_job(job.id, counted=True, charged_kind=spent)
     runner.submit_analysis(job.id, target)
     return {"jobId": job.id}
 

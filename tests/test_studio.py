@@ -932,6 +932,67 @@ def test_tabs_from_the_same_studio_file_twice_charges_only_once(studio_app, monk
     assert app_module.storage.user(user.id).balance == after_restyle - app_module.billing.PRICE_SINGLE_RUB
 
 
+def test_tabs_from_the_same_studio_file_survives_a_true_concurrent_race(studio_app, monkeypatch):
+    """Та же защита, но под настоящую гонку потоков, а не последовательные
+    вызовы: "уже есть такой разбор" (storage.studio_file_analysis) и
+    создание нового задания -- это проверка-потом-действие, и без общего
+    лока два по-настоящему одновременных запроса (две вкладки, автоклик)
+    оба успевали бы увидеть "ещё не разобрано" до того, как первый создаст
+    задание, и оба списали бы деньги за один и тот же файл."""
+    import threading
+
+    app_module, client, user, submitted = studio_app
+    for _ in range(app_module.billing.FREE_SONGS):
+        app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+    app_module.storage.add_balance(user.id, 300)
+    job_id = _start(client).json()["jobId"]
+    folder = app_module.studio_runner.folder(job_id)
+    with open(f"{folder}/restyle_1.mp3", "wb") as f:
+        f.write(b"song")
+    app_module.storage.update_job(job_id, status="done", result={
+        "files": [{"name": "restyle_1.mp3", "label": "Вариант 1"}]})
+    monkeypatch.setattr(app_module.runner, "submit_analysis", lambda jid, path: None)
+    after_restyle = app_module.storage.user(user.id).balance
+
+    real_lookup = app_module.storage.studio_file_analysis
+    entered_first = threading.Event()
+    release_first = threading.Event()
+    calls: list[None] = []
+
+    def paced_lookup(user_id, studio_job_id, file):
+        calls.append(None)
+        if len(calls) == 1:
+            entered_first.set()
+            release_first.wait(timeout=5)
+        return real_lookup(user_id, studio_job_id, file)
+
+    monkeypatch.setattr(app_module.storage, "studio_file_analysis", paced_lookup)
+
+    results: dict[str, object] = {}
+
+    def attempt(name: str) -> None:
+        results[name] = client.post(f"/api/studio/{job_id}/tabs", data={"file": "restyle_1.mp3"})
+
+    first = threading.Thread(target=attempt, args=("first",))
+    first.start()
+    assert entered_first.wait(timeout=5), "первый поток не дошёл до проверки \"уже есть такой разбор\""
+
+    second = threading.Thread(target=attempt, args=("second",))
+    second.start()
+    # Второй поток обязан застать лок занятым и ждать -- не проехать мимо
+    # первого, который ещё не создал задание.
+    second.join(timeout=0.3)
+    assert second.is_alive(), "второй поток не стал ждать -- лока нет или он не тот"
+
+    release_first.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert results["first"].status_code == 200 and results["second"].status_code == 200
+    assert results["first"].json()["jobId"] == results["second"].json()["jobId"]
+    assert app_module.storage.user(user.id).balance == after_restyle - app_module.billing.PRICE_SINGLE_RUB
+
+
 def test_relay_forgets_deleted_endpoint(monkeypatch):
     """Ретранслятор пересоздали на RunPod -- старый id отвечает 404, берём новый."""
     from web import studio
