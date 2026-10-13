@@ -2577,6 +2577,60 @@ def test_a_failed_lyrics_recognition_refunds_what_it_charged(tmp_path, monkeypat
         assert app_module.storage.user(user.id).balance == 100  # деньги вернулись
 
 
+def test_restart_during_the_separation_lyrics_triggers_still_refunds_the_lyrics_charge(tmp_path, monkeypatch):
+    """Регрессия: когда текст запрошен на треке без разделённых партий,
+    `_lyrics` сама запускает `_separate_later(job_id, suppress_charge=True)`
+    -- разделение нужно только чтобы отдать распознаванию чистый вокал,
+    списание принадлежит тексту. Раньше на время этого вызова `_lyrics`
+    обнуляла charged_kind прямо в БД и возвращала его после -- и если
+    перезапуск (`systemctl restart nasluh`, при каждом автодеплое)
+    приходился ровно на это окно (реальное разделение Demucs идёт минуты,
+    не миллисекунды), `recover_interrupted` заставал charged_kind уже
+    пустым и ничего не возвращал: человек платил за текст и не получал ни
+    текста, ни денег обратно. Теперь suppress_charge не трогает charged_kind
+    в БД вовсе, и он виден recover_interrupted в течение всего вызова."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    import web.app as app_module
+
+    user = app_module.storage.ensure_user(None)
+    app_module.storage.add_balance(user.id, 100)
+    user = app_module.storage.user(user.id)
+
+    source = tmp_path / "song.mp3"
+    source.write_bytes(b"ID3" + b"\x00" * 128)
+    job = app_module.storage.create_job(user.id, "song.mp3", {})
+    app_module.storage.update_job(job.id, status="done", counted=True, result={
+        "isMidi": False, "chords": [],
+        "paths": {"source": str(source), "parts": {}},   # ни одной партии ещё нет
+    })
+    spent = app_module.billing.consume(app_module.storage, user)  # как api_make_lyrics
+    app_module.storage.update_job(job.id, status="running", charged_kind=spent)
+
+    monkeypatch.setattr(app_module.jobs_module.separate, "available", lambda: (True, ""))
+    seen = {}
+
+    def killed_mid_separation(*a, **kw):
+        # Снимок состояния БД ровно в момент, когда (в проде) мог бы
+        # случиться перезапуск: charged_kind должен быть всё ещё на месте.
+        seen["charged_kind_while_running"] = app_module.storage.job(job.id).charged_kind
+        seen["recovered"] = app_module.runner.recover_interrupted()
+        raise RuntimeError("процесс перезапущен")
+
+    monkeypatch.setattr(app_module.jobs_module.separate, "separate", killed_mid_separation)
+    monkeypatch.setattr(app_module.jobs_module.audioin, "duration_seconds", lambda path: 5.0)
+
+    app_module.runner._separate_later(job.id, suppress_charge=True)
+
+    assert seen["charged_kind_while_running"] == spent   # не спрятан заранее
+    assert seen["recovered"] == 1                         # recover_interrupted нашёл задание
+    assert app_module.storage.user(user.id).balance == 100  # и вернул списанное за текст
+
+
 def test_tabs_refund_when_the_parent_result_is_gone(tmp_path, monkeypatch):
     """Регрессия: если у родительского задания пропал `result` (или сама
     партия исчезла с диска -- см. ниже) к моменту, когда до табов дошла

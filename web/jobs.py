@@ -516,7 +516,7 @@ class JobRunner:
             )
             print(f"[analyze {job_id}] {exc}\n{traceback.format_exc()}")
 
-    def _separate_later(self, job_id: str) -> None:
+    def _separate_later(self, job_id: str, *, suppress_charge: bool = False) -> None:
         """
         Разделить на партии уже разобранный трек.
 
@@ -525,6 +525,21 @@ class JobRunner:
         грузить тот же файл заново и терять сделанные табы -- нелепо:
         исходник лежит на диске, разделение просто дописывается к
         существующему разбору.
+
+        `suppress_charge` -- вызов изнутри `_lyrics`: списание на этом
+        задании принадлежит распознаванию текста, не разделению (см.
+        комментарий в `_lyrics`). Раньше `_lyrics` на время вызова сама
+        обнуляла `charged_kind` в БД и возвращала его обратно после --
+        но от обнуления до возврата DB-значение единственного места,
+        где хранится, ЧТО списано, не существовало: перезапуск сервиса
+        (`systemctl restart nasluh`, происходит при каждом автодеплое)
+        именно в этом окне навсегда терял charged_kind, и
+        `recover_interrupted` не находил, что возвращать -- человек
+        платил за текст и не получал ни текста, ни денег обратно.
+        Теперь при suppress_charge строки ниже просто не трогают
+        charged_kind в БД вовсе: он остаётся на месте (значит,
+        перезапуск в любой момент всё ещё корректно вернёт его), а
+        возвращает или списывает его сама `_lyrics` по итогу.
         """
         job = self.storage.job(job_id)
         if job is None or not job.result:
@@ -538,12 +553,12 @@ class JobRunner:
             # задание в "running" и списал деньги -- без возврата статуса в
             # "done" и денег трек замирал в работе навсегда и не поддавался
             # ни повтору, ни удалению.
-            self._abort_separation(job_id, job, "Исходный файл не найден")
+            self._abort_separation(job_id, job, "Исходный файл не найден", suppress_charge=suppress_charge)
             return
 
         ok, why = separate.available()
         if not ok:
-            self._abort_separation(job_id, job, why)
+            self._abort_separation(job_id, job, why, suppress_charge=suppress_charge)
             return
 
         out_dir = os.path.join(self.data_dir, "results", job_id)
@@ -579,16 +594,22 @@ class JobRunner:
             bar.stop()
             # charged_kind сбрасываем так же, как в _analyze: разделение
             # доставлено, списание больше не "в процессе" этого задания.
-            self.storage.update_job(
-                job_id, status="done", stage="Готово", progress=100.0,
-                result=payload, error=None, charged_kind=None,
-            )
+            # При suppress_charge список полей ровно тот же, но без
+            # charged_kind -- он принадлежит вызвавшей _lyrics и останется
+            # как есть, пока она сама не решит его судьбу.
+            fields = dict(status="done", stage="Готово", progress=100.0,
+                          result=payload, error=None)
+            if not suppress_charge:
+                fields["charged_kind"] = None
+            self.storage.update_job(job_id, **fields)
         except Exception as exc:
             bar.stop()
-            self._abort_separation(job_id, job, str(exc), stage="Разделить не удалось")
+            self._abort_separation(job_id, job, str(exc), stage="Разделить не удалось",
+                                    suppress_charge=suppress_charge)
             print(f"[separate {job_id}] {exc}\n{traceback.format_exc()}")
 
-    def _abort_separation(self, job_id: str, job, message: str, stage: str = "") -> None:
+    def _abort_separation(self, job_id: str, job, message: str, stage: str = "",
+                           *, suppress_charge: bool = False) -> None:
         """
         Вернуть деньги за несостоявшееся разделение и снять трек с "running".
 
@@ -600,9 +621,13 @@ class JobRunner:
         навсегда: страница продолжала бы показывать разбор как идущий, а
         повторный запрос на разделение отказывал бы с 409 ("уже
         обрабатывается") вместо того, чтобы дать попробовать ещё раз.
+
+        suppress_charge -- вызов изнутри `_lyrics` (см. `_separate_later`):
+        charged_kind здесь принадлежит тексту, не разделению, и его
+        возврат -- не наша забота, а `_refund_lyrics_charge`.
         """
         note = ""
-        if job.charged_kind and self.storage.claim_job_refund(job_id, job.charged_kind):
+        if not suppress_charge and job.charged_kind and self.storage.claim_job_refund(job_id, job.charged_kind):
             billing.refund(self.storage, job.user_id, job.charged_kind)
             self.storage.update_job(job_id, counted=False)
             note = " Списанное вернули."
@@ -674,19 +699,18 @@ class JobRunner:
             ok, _why = separate.available()
             if ok:
                 try:
-                    # charged_kind временно прячем: он принадлежит ЭТОМУ,
-                    # текстовому списанию, а не разделению. _separate_later
-                    # на успехе обнуляет charged_kind, а на неудаче
-                    # возвращает деньги по нему и тоже обнуляет -- не спрячь
-                    # мы его, неудачное разделение вернуло бы деньги за
-                    # текст раньше времени (хотя распознавание ещё могло бы
-                    # получиться по целому миксу) и стёрло бы маркер
-                    # возврата для настоящей неудачи ниже.
-                    if charged_kind:
-                        self.storage.update_job(job_id, charged_kind=None)
-                    self._separate_later(job_id)
-                    if charged_kind:
-                        self.storage.update_job(job_id, charged_kind=charged_kind)
+                    # suppress_charge=True: charged_kind принадлежит ЭТОМУ,
+                    # текстовому списанию, а не разделению -- _separate_later
+                    # не трогает его в БД ни на успехе, ни на неудаче, вместо
+                    # того чтобы прятать (обнулять) его на время вызова, как
+                    # было раньше. Раньше в этом окне "спрятанный" charged_kind
+                    # не существовал ни в памяти, ни в БД -- перезапуск
+                    # сервиса (`systemctl restart`, при каждом автодеплое)
+                    # ровно в этот момент навсегда терял, что списано, и
+                    # `recover_interrupted` не находил, что возвращать:
+                    # человек платил за текст и не получал ни текста, ни
+                    # денег обратно.
+                    self._separate_later(job_id, suppress_charge=True)
                     job = self.storage.job(job_id)
                     paths = ((job.result or {}).get("paths") or {}).get("parts", {})
                 except Exception as exc:
