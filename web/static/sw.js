@@ -110,6 +110,10 @@ self.addEventListener('fetch', (event) => {
     if (/^\/api\/auth\/(login|logout|register)/.test(url.pathname)) event.waitUntil(forgetUser());
     return;
   }
+  // Вход через Яндекс/VK возвращается сюда по GET, не по POST -- тот же
+  // сброс, что у входа по паролю, иначе чужие треки в памяти переживают смену
+  // человека на общем устройстве
+  if (/^\/api\/auth\/[^/]+\/callback/.test(url.pathname)) event.waitUntil(forgetUser());
   if (NEVER.test(url.pathname)) return;
 
   if (request.mode === 'navigate') {

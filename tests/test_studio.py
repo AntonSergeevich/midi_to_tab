@@ -2029,3 +2029,16 @@ def test_app_install_and_offline_files(studio_app):
     manifest = client.get("/manifest.webmanifest")
     assert manifest.status_code == 200 and manifest.json()["start_url"] == "/studio"
     assert 'rel="manifest"' in client.get("/studio").text
+
+
+def test_service_worker_forgets_previous_user_after_oauth_callback(studio_app):
+    """sw.js: вход по паролю/выход/регистрация (POST) чистят память устройства
+    (forgetUser) -- но вход через Яндекс/VK возвращается на тот же адрес
+    GET-ом (`/api/auth/{provider}/callback`, см. web/app.py:api_oauth_callback),
+    и под этот сброс раньше не попадал: чужие треки (DATA/AUDIO/PAGES в Cache
+    API) могли пережить смену человека на общем устройстве и утечь следующему,
+    кто вошёл через OAuth."""
+    app_module, client, user, submitted = studio_app
+    sw = client.get("/sw.js").text
+    assert "/^\\/api\\/auth\\/[^/]+\\/callback/" in sw, (
+        "GET .../callback (OAuth) должен звать forgetUser(), как login/logout/register")
