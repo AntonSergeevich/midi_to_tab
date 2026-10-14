@@ -523,6 +523,17 @@ $('search').addEventListener('input', () => {
   saveList();
 });
 
+// Раскрытый текст песни остаётся раскрытым: экран трека перерисовывается
+// при каждом обновлении списка (статусы, разборы), и без памяти текст
+// сворачивался сам посреди прослушивания
+const lyricsOpen = new Set();
+document.addEventListener('toggle', (e) => {
+  const box = e.target;
+  if (!box.dataset || !box.dataset.lyrics) return;
+  if (box.open) lyricsOpen.add(box.dataset.lyrics);
+  else lyricsOpen.delete(box.dataset.lyrics);
+}, true);
+
 function renderDetail(jobs) {
   const j = jobs.find((x) => x.id === openJob);
   if (!j) { closeDetail(); return; }
@@ -555,7 +566,7 @@ function renderDetail(jobs) {
   const made = ((info && info.analyses) || []).filter((a) => a.studio === j.id);
   const analyses = made.length ? `<div class="st-sub"><div class="st-label">Аккорды и табы</div>
     ${made.map((a) => tabsRow(a, label(a.studioFile))).join('')}</div>` : '';
-  const lyrics = j.lyrics ? `<details class="st-lyrics"><summary>Текст песни</summary>
+  const lyrics = j.lyrics ? `<details class="st-lyrics" data-lyrics="${j.id}" ${lyricsOpen.has(j.id) ? 'open' : ''}><summary>Текст песни</summary>
     <pre>${esc(j.lyrics)}</pre></details>` : '';
   $('detailView').innerHTML = `
     <div class="st-dhead">
@@ -894,7 +905,7 @@ $('lyricsTags').addEventListener('click', (e) => {
   if (tag) window.insertLyricsTag($('lyrics'), tag.dataset.tag);
   const who = e.target.closest('[data-singer]');
   if (who && !window.setSinger($('lyrics'), who.dataset.singer)) {
-    toast('Поставьте курсор в нужную часть песни — пометим, кто её поёт');
+    toast('Поставьте курсор на строку (или выделите несколько) — пометим, кто её поёт');
   }
 });
 $('lyricsAuto').addEventListener('click', () => {

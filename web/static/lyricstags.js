@@ -155,25 +155,30 @@
     return out.join('\n');
   };
 
-  // Кто поёт эту часть: пометить строки части под курсором -- от метки
-  // выше курсора до следующей метки. false -- курсор не в части песни.
+  // Кто поёт: пометить строку под курсором, а если выделено несколько
+  // строк -- каждую из них. Повторное нажатие той же кнопки снимает
+  // пометку. false -- курсор на пустой строке или на метке части.
   window.setSinger = (area, who) => {
     const lines = area.value.split('\n');
-    const row = area.value.slice(0, area.selectionStart).split('\n').length - 1;
-    let start = row;
-    while (start >= 0 && !isTag(lines[start])) start--;
-    let end = row + 1;
-    while (end < lines.length && !isTag(lines[end])) end++;
-    let marked = 0;
-    for (let i = start + 1; i < end; i++) {
-      if (!lines[i].trim() || isTag(lines[i])) continue;
-      lines[i] = `${SINGERS[who]} ${lines[i].replace(MARK, '')}`;
-      marked++;
-    }
-    if (!marked) return false;
-    const caret = area.selectionStart;
+    const rowOf = (at) => area.value.slice(0, at).split('\n').length - 1;
+    const first = rowOf(area.selectionStart);
+    const last = Math.max(first, rowOf(area.selectionEnd));
+    const rows = [];
+    for (let i = first; i <= last; i++) if (lines[i].trim() && !isTag(lines[i])) rows.push(i);
+    if (!rows.length) return false;
+    const mark = SINGERS[who];
+    const already = rows.every((i) => lines[i].trimStart().toLowerCase().startsWith(mark.toLowerCase()));
+    rows.forEach((i) => {
+      const bare = lines[i].replace(MARK, '');
+      lines[i] = already ? bare : `${mark} ${bare}`;
+    });
     area.value = lines.join('\n');
-    area.setSelectionRange(caret, caret);
+    // Выделено несколько строк -- они и остаются выделенными (повторное
+    // нажатие снимет пометку со всех); одна строка -- курсор в её конец,
+    // чтобы следующую удобно было пометить, спустившись на строку вниз
+    const end = lines.slice(0, last + 1).join('\n').length;
+    const begin = last > first ? lines.slice(0, first).join('\n').length + (first ? 1 : 0) : end;
+    area.setSelectionRange(begin, end);
     area.focus();
     area.dispatchEvent(new Event('input', { bubbles: true }));
     return true;
