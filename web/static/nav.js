@@ -71,4 +71,61 @@
     }
   };
   window.refreshNav();
+
+  // ------------------------------------------- приложение и без интернета
+  // Сайт ставится как приложение (Android, Windows, Mac -- кнопка «Установить»;
+  // iPhone -- «Поделиться → На экран „Домой“») и работает без интернета: то,
+  // что открывали при интернете, хранится на устройстве (sw.js)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', async () => {
+      const reg = await navigator.serviceWorker.register('/sw.js').catch(() => null);
+      // Студию сохраняем сразу, с первого же захода: без интернета в ней
+      // откроется список треков, а из него -- сохранённые треки
+      if (!reg || !/^\/studio\/?$/.test(location.pathname) || !navigator.onLine) return;
+      const ready = await navigator.serviceWorker.ready.catch(() => null);
+      const worker = ready && ready.active;
+      if (!worker) return;
+      setTimeout(() => worker.postMessage({ type: 'keep', urls: [location.pathname, '/api/studio', '/api/me',
+        ...performance.getEntriesByType('resource').map((r) => r.name)
+          .filter((u) => u.startsWith(`${location.origin}/static/`))] }), 1500);
+    });
+  }
+  let installEvent = null;
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    installEvent = event;
+    if (!nav || nav.querySelector('.appinstall')) return;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'langsw appinstall';
+    button.textContent = 'Установить';
+    button.title = 'Установить NASLUX как приложение: значок на экране, работа без интернета';
+    button.addEventListener('click', async () => {
+      if (!installEvent) return;
+      installEvent.prompt();
+      await installEvent.userChoice.catch(() => null);
+      installEvent = null;
+      button.remove();
+    });
+    nav.insertBefore(button, nav.querySelector('.langsw') || nav.querySelector('#account'));
+  });
+  window.addEventListener('appinstalled', () => {
+    const button = nav && nav.querySelector('.appinstall');
+    if (button) button.remove();
+  });
+
+  // Пропал интернет -- сказать, что работает дальше
+  function offlineNote() {
+    let note = document.getElementById('offlineNote');
+    if (navigator.onLine) { if (note) note.remove(); return; }
+    if (note) return;
+    note = document.createElement('div');
+    note.id = 'offlineNote';
+    note.className = 'offline-note';
+    note.textContent = 'Нет интернета — сохранённые треки и мультитрек работают';
+    document.body.appendChild(note);
+  }
+  window.addEventListener('online', offlineNote);
+  window.addEventListener('offline', offlineNote);
+  if (document.body) offlineNote(); else document.addEventListener('DOMContentLoaded', offlineNote);
 })();

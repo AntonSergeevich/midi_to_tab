@@ -1266,3 +1266,24 @@ header.top > nav.topnav {
 
 /* Плеер: звук метронома рядом с кнопкой */
 .controls .metro-sound { width: auto; flex: none; margin: 0; }
+
+/* Избранное: переключатель над списком и звёздочка у трека */
+.st-favtabs { margin-left: auto; display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px;
+  background: var(--panel); border: 1px solid var(--border); }
+.st-favtabs button { border: 0; background: transparent; padding: 6px 12px; border-radius: 999px; font-size: 13px;
+  color: var(--muted); cursor: pointer; min-height: 0; }
+.st-favtabs button[aria-selected="true"] { background: var(--panel-hi); color: var(--text); font-weight: 600; }
+.st-favtabs button[data-favtab="fav"][aria-selected="true"] { color: var(--accent); }
+.icon-btn.st-fav { border-color: transparent; background: transparent; color: var(--muted); }
+.icon-btn.st-fav:hover { color: var(--accent); }
+.icon-btn.st-fav.on { color: var(--accent); }
+.icon-btn.st-fav.on svg { fill: currentColor; }
+
+/* Нет интернета: плашка внизу экрана */
+.offline-note { position: fixed; left: 50%; top: calc(10px + env(safe-area-inset-top)); transform: translateX(-50%);
+  z-index: 60; max-width: calc(100vw - 32px); padding: 9px 16px; border-radius: 999px; font-size: 13px;
+  background: #3a2c17; color: #f3d9b1; border: 1px solid rgba(217,154,78,.55); box-shadow: 0 6px 24px rgba(0,0,0,.35);
+  text-align: center; pointer-events: none; }
+.langsw.appinstall { color: var(--accent); border-color: rgba(217,154,78,.55); }
+.mx-offline { display: inline-block; margin-top: 4px; font-size: 12px; color: #7fd18b; }
+.mx-offline[hidden] { display: none; }

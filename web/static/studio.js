@@ -40,6 +40,7 @@ const ICON = {
   expand: '<svg viewBox="0 0 24 24"><path d="M15 4h5v5M9 20H4v-5M20 4l-6 6M4 20l6-6"/></svg>',
   down: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
   tempo: '<svg viewBox="0 0 24 24"><path d="M9 3h6l3 18H6L9 3zM12 14l5-6M8 17h8"/></svg>',
+  star: '<svg viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>',
   more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
   again: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15m0 5v-5h5"/></svg>',
 };
@@ -396,7 +397,7 @@ function renderVoices() {
 // Поиск и страницы: список перерисовывается при каждом опросе сервера,
 // поэтому запрос и номер страницы живут отдельно и не сбрасываются
 const PER_PAGE = 10;
-const list = { query: '', page: 0, jobs: [] };
+const list = { query: '', page: 0, jobs: [], fav: false };
 // Страница списка, поиск и прокрутка -- в памяти вкладки: зашёл в трек,
 // ушёл в плеер или табы, вернулся «назад» -- список там же, где был
 // (раньше всегда сбрасывался на первую страницу, 06.10)
@@ -407,13 +408,14 @@ try {
   const saved = JSON.parse(sessionStorage.getItem(LIST_KEY) || '{}');
   list.page = Number(saved.page) || 0;
   list.query = String(saved.query || '');
+  list.fav = Boolean(saved.fav);
   listScroll = Number(saved.scroll) || 0;
   if (list.query) $('search').value = list.query;
 } catch (error) { /* нет хранилища -- с первой страницы */ }
 function saveList() {
   try {
     sessionStorage.setItem(LIST_KEY, JSON.stringify({
-      page: list.page, query: list.query, scroll: openJob ? listScroll : window.scrollY }));
+      page: list.page, query: list.query, fav: list.fav, scroll: openJob ? listScroll : window.scrollY }));
   } catch (error) { /* не страшно */ }
 }
 window.addEventListener('pagehide', saveList);
@@ -435,14 +437,22 @@ function renderList(jobs) {
     .map((a) => ({ ...a, mode: 'tabs', files: [] }));
   const all = jobs.filter((j) => !j.from && j.mode !== 'voice').concat(tabs).sort((x, y) => y.at - x.at);
   const words = fold(list.query).split(/\s+/).filter(Boolean);
-  const top = words.length ? all.filter((j) => matches(j, words)) : all;
-  $('count').textContent = all.length ? (words.length ? `${top.length} из ${all.length}` : `${all.length}`) : '';
-  $('searchBox').hidden = all.length <= PER_PAGE && !list.query;
+  const favs = all.filter((j) => j.fav);
+  document.querySelectorAll('[data-favtab]').forEach((b) => b.setAttribute('aria-selected',
+    String((b.dataset.favtab === 'fav') === list.fav)));
+  const pool = list.fav ? favs : all;
+  const top = words.length ? pool.filter((j) => matches(j, words)) : pool;
+  $('count').textContent = pool.length ? (words.length ? `${top.length} из ${pool.length}` : `${pool.length}`) : '';
+  $('searchBox').hidden = pool.length <= PER_PAGE && !list.query;
   const pages = Math.max(1, Math.ceil(top.length / PER_PAGE));
   list.page = Math.min(list.page, pages - 1);
   renderPages(pages);
+  if (!top.length && list.fav && !words.length) {
+    $('jobs').innerHTML = '<p class="muted">В избранном пока пусто. Нажмите ☆ у трека — он появится здесь.</p>';
+    return;
+  }
   if (!top.length) {
-    $('jobs').innerHTML = all.length
+    $('jobs').innerHTML = pool.length
       ? `<p class="muted">Ничего не нашлось по «${esc(list.query)}».</p>`
       : '<p class="muted">Здесь появятся ваши песни.</p>';
     return;
@@ -454,7 +464,7 @@ function renderList(jobs) {
     return `<div class="st-row${j.id === fresh ? ' st-new' : ''}" data-open="${j.id}">
       ${cover(j)}<span class="st-mode">${MODE_ICON[j.mode] || ''}</span>
       <div class="st-row-main"><b data-noi18n>${esc(j.name)}</b>${statusLine(j)}</div>
-      ${first ? playButton(first, j.name) : ''}
+      ${favButton(j)}${first ? playButton(first, j.name) : ''}
     </div>`;
   }).join('');
 }
@@ -477,11 +487,41 @@ function tabsLine(a) {
   return `<span class="muted">${esc(facts)} · ${when}</span>`;
 }
 
+function rerender() {
+  renderList(info.jobs);
+  if (openJob) renderDetail(info.jobs);
+}
+
+// Звёздочка: в избранное и обратно
+function favButton(j) {
+  return `<button type="button" class="icon-btn st-fav${j.fav ? ' on' : ''}" data-fav="${j.id}"
+    aria-pressed="${j.fav ? 'true' : 'false'}" title="${j.fav ? 'Убрать из избранного' : 'В избранное'}"
+    aria-label="${j.fav ? 'Убрать из избранного' : 'В избранное'}">${ICON.star}</button>`;
+}
+
+async function toggleFav(id) {
+  const items = [...((info && info.jobs) || []), ...((info && info.analyses) || [])].filter((x) => x.id === id);
+  if (!items.length) return;
+  const on = !items[0].fav;
+  items.forEach((x) => { x.fav = on; });           // сразу на экране, не дожидаясь сервера
+  rerender();
+  const form = new FormData();
+  form.append('on', on);
+  const answer = await fetch(`/api/job/${id}/favorite`, { method: 'POST', body: form }).catch(() => null);
+  if (!answer || !answer.ok) {
+    items.forEach((x) => { x.fav = !on; });
+    rerender();
+    toast('Не получилось — проверьте интернет');
+    return;
+  }
+  toast(on ? 'Добавлено в избранное ★' : 'Убрано из избранного');
+}
+
 function tabsRow(a, label) {
   return `<div class="st-row${label ? ' st-tabsub' : ''}" data-tabs="${a.id}" title="Открыть аккорды и табы">
     ${label ? '' : cover(a)}<span class="st-mode">♫</span>
     <div class="st-row-main"><b${label ? '' : ' data-noi18n'}>${esc(label || a.name)}</b>${tabsLine(a)}</div>
-    <button type="button" class="icon-btn" data-menu="${a.id}" data-analysis="1" title="Что сделать">${ICON.more}</button>
+    ${label ? '' : favButton(a)}<button type="button" class="icon-btn" data-menu="${a.id}" data-analysis="1" title="Что сделать">${ICON.more}</button>
   </div>`;
 }
 
@@ -573,7 +613,7 @@ function renderDetail(jobs) {
       <button type="button" class="icon-btn" id="back" title="Назад">${ICON.back}</button>
       ${cover(j, true)}
       <div class="st-row-main"><h2 data-noi18n>${esc(j.name)}</h2><span class="muted">${esc(meta)}</span></div>
-      ${['done', 'error'].includes(j.status)
+      ${favButton(j)}${['done', 'error'].includes(j.status)
     ? `<button type="button" class="icon-btn" data-menu="${j.id}" data-track="1" data-upload="${j.mode === 'upload' ? 1 : ''}" data-done="${j.status === 'done' && j.files.length && j.mode !== 'stems' ? 1 : ''}" title="Что сделать">${ICON.more}</button>` : ''}
     </div>
     <div class="st-label">${j.mode === 'stems' ? 'Партии' : 'Версии'}</div>
@@ -1025,6 +1065,16 @@ $('start').addEventListener('click', async () => {
 });
 
 document.addEventListener('click', async (e) => {
+  const fav = e.target.closest('[data-fav]');
+  if (fav) { e.stopPropagation(); toggleFav(fav.dataset.fav); return; }
+  const favTab = e.target.closest('[data-favtab]');
+  if (favTab) {
+    list.fav = favTab.dataset.favtab === 'fav';
+    list.page = 0;
+    saveList();
+    renderList(list.jobs);
+    return;
+  }
   const playBtn = e.target.closest('[data-play]');
   if (playBtn) {
     e.stopPropagation();

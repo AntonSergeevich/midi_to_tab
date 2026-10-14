@@ -116,6 +116,9 @@ def page_stamp(html: str) -> str:
     if "/static/i18n.js" not in html:
         anchor = r"(<meta charset=[^>]*>)" if re.search(r"<meta charset=", html) else r"(<head[^>]*>)"
         html = re.sub(anchor, r'\1\n<script src="/static/i18n.js"></script>', html, count=1)
+    # Приложение: значок на экран и работа без интернета (sw.js, nav.js)
+    if 'rel="manifest"' not in html and "</head>" in html:
+        html = html.replace("</head>", '<link rel="manifest" href="/manifest.webmanifest">\n</head>', 1)
     return re.sub(r'(/static/[\w./-]+\.(?:js|css|svg))"', rf'\1?v={STAMP}"', html)
 
 
@@ -1321,6 +1324,7 @@ def _library_items(user) -> list[dict]:
                 "hasLyrics": bool(result.get("lyrics")),
                 "studio": (job.settings or {}).get("studio") or "",
                 "studioFile": (job.settings or {}).get("studioFile") or "",
+                "fav": job.favorite,
                 "made": [
                     {
                         "id": child.id,
@@ -1335,6 +1339,17 @@ def _library_items(user) -> list[dict]:
             }
         )
     return items
+
+
+@app.post("/api/job/{job_id}/favorite")
+def api_job_favorite(job_id: str, request: Request, on: bool = Form(True)):
+    """Звёздочка: трек (песня Студии или разбор) в избранное и обратно."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(404, "Трек не найден")
+    storage.update_job(job_id, favorite=int(on))
+    return {"ok": True, "fav": on}
 
 
 @app.post("/api/job/{job_id}/lyrics")
@@ -1685,7 +1700,7 @@ def _studio_job_payload(job) -> dict:
              if os.path.isfile(os.path.join(folder, f["name"]))]
     return {
         "id": job.id, "name": job.filename, "at": job.created_at, "status": job.status,
-        "stage": job.stage, "progress": job.progress, "error": job.error,
+        "stage": job.stage, "progress": job.progress, "error": job.error, "fav": job.favorite,
         "mode": settings.get("mode"),
         "title": settings.get("title", "") + (
             f" · {settings.get('variant', 'новой версии').lower()}" if settings.get("from") else ""),
@@ -2924,6 +2939,21 @@ async def api_webhook(gateway_name: str, request: Request):
         "succeeded" if first_time else "succeeded (повтор, начислять нечего)",
     )
     return {"ok": True}
+
+
+@app.get("/sw.js", include_in_schema=False)
+def service_worker():
+    """Работа без интернета (static/sw.js). С корня сайта, а не из /static:
+    иначе он управлял бы только адресами /static/..."""
+    return FileResponse(STATIC_DIR / "sw.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
+
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+def web_manifest():
+    """Приложение на телефон и компьютер: «Установить» в браузере."""
+    return FileResponse(STATIC_DIR / "manifest.webmanifest", media_type="application/manifest+json",
+                        headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/favicon.ico", include_in_schema=False)

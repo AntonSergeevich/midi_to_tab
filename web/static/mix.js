@@ -208,19 +208,63 @@ async function loadTracks(list) {
   showHidden();
   let done = 0;
   note(`Загружаем дорожки: 0 из ${list.length}…`);
+  let missing = 0;
   await Promise.all(list.map(async (item, index) => {
-    const data = await (await fetch(item.url)).arrayBuffer();
+    const data = await audioBytes(item.url).catch(() => null);
+    if (!data) { missing++; return; }
     const buffer = await ctx.decodeAudioData(data);
     const remembered = (memory.tracks || {})[item.name] || {};
     tracks[index] = makeTrack(item.name, item.url, buffer, remembered);
     tracks[index].extra = item.extra || '';
     note(`Загружаем дорожки: ${++done} из ${list.length}…`);
   }));
-  note('');
+  for (let i = tracks.length - 1; i >= 0; i--) if (!tracks[i]) tracks.splice(i, 1);
+  if (!tracks.length) {
+    note('Нет интернета, а этот трек ещё не сохранён на устройстве. Откройте его один раз при интернете — '
+      + 'дальше он будет работать и без сети.');
+    return;
+  }
+  note(missing ? `Без интернета загрузились не все дорожки: нет ${missing}. Откройте трек при интернете, чтобы сохранить все.` : '');
+  keepOffline();
   duration = Math.max(...tracks.map((t) => t.buffer.duration));
   $('total').textContent = clock(duration);
   zoom = duration > 45 ? duration / 30 : 1;
   render();
+}
+
+// Звук дорожек -- через память устройства: открыли трек при интернете --
+// на репетиции без сети он загрузится оттуда (sw.js, тот же кэш)
+const AUDIO_CACHE = 'naslux-audio-v1';
+
+async function audioBytes(url) {
+  let cache = null;
+  try { cache = window.caches ? await caches.open(AUDIO_CACHE) : null; } catch (error) { cache = null; }
+  const saved = cache && await cache.match(url).catch(() => null);
+  if (saved) return saved.arrayBuffer();
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (cache) {
+    try { await cache.put(url, response.clone()); } catch (error) { /* память устройства кончилась */ }
+  }
+  return response.arrayBuffer();
+}
+
+// Сохранить для работы без интернета саму страницу, её скрипты и данные
+// трека; звук уже в памяти. Отметка «✓ без интернета» -- когда всё на месте.
+async function keepOffline() {
+  const mark = $('offlineState');
+  if (!('serviceWorker' in navigator) || !window.caches || !mark) return;
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (error) { /* */ }
+  const reg = await navigator.serviceWorker.ready.catch(() => null);
+  const worker = reg && (reg.active || navigator.serviceWorker.controller);
+  if (!worker) return;
+  const here = location.origin;
+  const urls = [location.href, '/studio', '/api/studio', '/api/me',
+    ...performance.getEntriesByType('resource').map((r) => r.name)
+      .filter((u) => u.startsWith(`${here}/static/`) || (u.startsWith(`${here}/api/studio/`) && u.includes('/analysis')))];
+  if (navigator.onLine) worker.postMessage({ type: 'keep', urls: [...new Set(urls)] });
+  mark.hidden = false;
+  mark.title = 'Трек сохранён на этом устройстве: откроется и сыграет без интернета';
 }
 
 function showHidden() {

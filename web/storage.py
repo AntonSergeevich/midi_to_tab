@@ -188,6 +188,7 @@ class Job:
     result: dict | None = None
     counted: bool = False
     charged_kind: str | None = None  # чем расплатились: free|credit|balance|unlimited
+    favorite: bool = False           # в избранном у владельца
 
 
 class Storage:
@@ -223,6 +224,9 @@ class Storage:
         # не молча оставить деньги списанными за ничего (см. billing.refund).
         if "charged_kind" not in job_columns:
             conn.execute("ALTER TABLE jobs ADD COLUMN charged_kind TEXT")
+        # Избранное: звёздочка у трека в Студии
+        if "favorite" not in job_columns:
+            conn.execute("ALTER TABLE jobs ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0")
 
         existing = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
         for column, definition in (
@@ -962,6 +966,7 @@ class Storage:
             result=json.loads(row["result"]) if row["result"] else None,
             counted=bool(row["counted"]),
             charged_kind=row["charged_kind"],
+            favorite=bool(row["favorite"]) if "favorite" in row.keys() else False,
         )
 
     def update_job(self, job_id: str, **fields) -> None:

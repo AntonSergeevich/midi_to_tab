@@ -2002,3 +2002,30 @@ def test_lyrics_work_while_mureka_songs_are_off(studio_app, monkeypatch):
     monkeypatch.setattr(studio, "mureka_call", broke)
     response = client.post("/api/studio/lyrics", data={"prompt": "ещё"})
     assert response.status_code == 503 and "временно недоступно" in response.json()["detail"]
+
+
+def test_favorite_star_is_saved_and_only_for_the_owner(studio_app):
+    """★ у трека: в избранное и обратно; чужой трек пометить нельзя."""
+    app_module, client, user, submitted = studio_app
+    store = app_module.storage
+    job = store.create_job(user.id, "песня.mp3", {"kind": "studio", "mode": "create"})
+    assert client.post(f"/api/job/{job.id}/favorite", data={"on": "true"}).json()["fav"] is True
+    assert store.job(job.id).favorite
+    row = next(j for j in client.get("/api/studio").json()["jobs"] if j["id"] == job.id)
+    assert row["fav"] is True
+    client.post(f"/api/job/{job.id}/favorite", data={"on": "false"})
+    assert not store.job(job.id).favorite
+    stranger = store.ensure_user(None)
+    other = store.create_job(stranger.id, "чужая.mp3", {"kind": "studio", "mode": "create"})
+    assert client.post(f"/api/job/{other.id}/favorite", data={"on": "true"}).status_code == 404
+
+
+def test_app_install_and_offline_files(studio_app):
+    """Приложение: манифест и sw.js с корня сайта, ссылка на манифест в страницах."""
+    app_module, client, user, submitted = studio_app
+    sw = client.get("/sw.js")
+    assert sw.status_code == 200 and "javascript" in sw.headers["content-type"]
+    assert sw.headers["service-worker-allowed"] == "/"
+    manifest = client.get("/manifest.webmanifest")
+    assert manifest.status_code == 200 and manifest.json()["start_url"] == "/studio"
+    assert 'rel="manifest"' in client.get("/studio").text
