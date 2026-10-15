@@ -73,7 +73,11 @@
     <button type="button" class="mx-toggle" id="montage" aria-pressed="false"
             title="Монтаж: двигать дорожки по времени и склеивать встык"><span class="mx-led"></span>Монтаж</button>
     <button type="button" class="icon-btn" id="cutBtn" disabled title="Разрезать выбранную дорожку по курсору"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="7" r="2.6"/><circle cx="6" cy="17" r="2.6"/><path d="M8.2 8.4 20 17M8.2 15.6 20 7"/></svg> <span>Разрезать</span></button>
-    <button type="button" class="icon-btn" id="addTrack" title="Добавить свою дорожку: запись с репетиции, подложку. Сохраняется при треке"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> <span>Дорожка</span></button>
+    <button type="button" class="icon-btn" id="copyBtn" disabled title="Копировать выделенное на линейке или выбранный кусок (Ctrl+C)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg> <span>Копировать</span></button>
+    <button type="button" class="icon-btn" id="pasteBtn" disabled title="Вставить по курсору на выбранную дорожку (Ctrl+V)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6v3H9zM9 5H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-3"/><path d="M12 11v6m-3-3 3 3 3-3"/></svg> <span>Вставить</span></button>
+    <button type="button" class="icon-btn" id="delClipBtn" disabled title="Удалить выбранный кусок (Delete)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg> <span>Удалить кусок</span></button>
+    <button type="button" class="icon-btn" id="undoBtn" disabled title="Отменить последнее действие (Ctrl+Z)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg> <span>Отменить</span></button>
+    <button type="button" class="icon-btn" id="addTrack" title="Добавить пустую дорожку: загрузить в неё файл или перетащить кусок с другой дорожки"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> <span>Дорожка</span></button>
     <button type="button" class="icon-btn" id="exportMix" title="Скачать то, что сейчас звучит, одним файлом"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg> <span>Скачать микс</span></button>
     <button type="button" class="icon-btn" id="restoreTracks" hidden title="Вернуть убранные дорожки"></button>
     <input type="file" id="addFile" hidden accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a,.aac,.opus,.webm,.amr,.3gp">
@@ -139,7 +143,7 @@
 
   <p class="muted mx-help">
     Пробел — играть/пауза · клик по волне — перемотка · тяните края волны — обрезать дорожку · тяните дорожку за название или ⠿ — поменять порядок ·
-    выделите кусок на линейке — повтор · Ctrl + колесо — масштаб, Shift + колесо — прокрутка, Alt + колесо — высота дорожек · белую полосу можно тянуть мышью · на телефоне: проведите по дорожкам — листать, два пальца — масштаб, долгое нажатие на линейке — повтор. нажмите на название дорожки — переименовать · «Монтаж» — тяните дорожку по времени, края прилипают к тактам и к соседним дорожкам (так склеиваются куски) · «Разрезать» — режет выбранную дорожку по курсору. Метроном идёт по долям самой песни, а не по ровной сетке.
+    выделите кусок на линейке — повтор · Ctrl + колесо — масштаб, Shift + колесо — прокрутка, Alt + колесо — высота дорожек · белую полосу можно тянуть мышью · на телефоне: проведите по дорожкам — листать, два пальца — масштаб, долгое нажатие на линейке — повтор. нажмите на название дорожки — переименовать · «Разрезать» (S) — делит кусок по курсору на месте · «Монтаж» — тяните кусок по времени или на другую дорожку, края прилипают к тактам и соседним кускам · выделите на линейке и «Копировать» (Ctrl+C), поставьте курсор и «Вставить» (Ctrl+V) · Delete — удалить кусок, Ctrl+Z — отменить · «＋ Дорожка» — пустая дорожка: загрузите файл или бросьте его мышью. Метроном идёт по долям самой песни, а не по ровной сетке.
   </p>
 </div>
 <!-- Тон и темп всех дорожек: считается на сервере, тембр сохраняется -->

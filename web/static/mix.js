@@ -32,18 +32,25 @@ const colorOf = (name) => (COLORS.find(([re]) => re.test(name)) || [null, '#a7ab
 
 const jobId = decodeURIComponent(location.pathname.split('/').pop());
 const params = new URLSearchParams(location.search);
-const STORE = `naslux.mix.${jobId}.${params.get('file') || ''}`;
+// Сдвинутая версия (тон/темп) -- свои файлы, значит, и своя раскладка кусков
+const STORE = `naslux.mix.${jobId}.${params.get('file') || ''}${params.get('v') ? `.${params.get('v')}` : ''}`;
 
 let ctx = null;
 let master = null;
 let metroGain = null;
-// Дорожка на ленте -- кусок звука: {name, key, url, buffer, gain, mute, solo, vol,
-// offset -- где на ленте время 0 файла, trimStart/trimEnd -- что звучит из файла
-// (в секундах файла), local, peaks, color}. Один файл может лежать на ленте
-// несколькими кусками (резка ✂): у них общий key.
+// Дорожка -- полоса со своей громкостью, M/S и кусками звука на ней:
+// {name, key, url, orig, extra, custom, gain, mute, solo, vol, color, clips}.
+// Кусок -- {src, offset, trimStart, trimEnd}: src -- файл (буфер и пики),
+// offset -- где на ленте секунда 0 файла, trimStart/trimEnd -- какая часть
+// файла звучит. Резка делит кусок на два на той же дорожке; куски тянут по
+// времени и на другие дорожки, копируют и вставляют.
 const tracks = [];
-let selected = -1;        // выбранная дорожка: её режет ✂ и двигает «Монтаж»
-let montage = false;      // режим монтажа: протяжка двигает дорожку по времени
+const files = new Map();  // key -> {key, url, name, buffer, peaks, extra, local}
+let selected = -1;        // выбранная дорожка
+let pick = null;          // выбранный кусок на ней
+let montage = false;      // режим монтажа: протяжка двигает кусок
+let clipboard = null;     // скопированное: {items: [{src, rel, trimStart, trimEnd}]}
+const undoStack = [];
 let duration = 0;
 let playing = false;
 let startTime = 0;        // момент часов ctx, когда позиция была startPos
@@ -104,28 +111,75 @@ function saved() {
   try { return JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (error) { return {}; }
 }
 
-// Настройки дорожек -- по ключу файла, а не по названию: название теперь
-// можно менять. Куски одного файла (резка) -- списком под тем же ключом.
+// Раскладка: дорожки с кусками, по ключам файлов (не по названиям -- их
+// можно менять). Куски из ещё не сохранённых на сервере файлов не пишем.
+function layout() {
+  return tracks.map((t) => ({
+    key: t.key, name: t.name, custom: Boolean(t.custom), mute: t.mute, solo: t.solo, vol: t.vol,
+    clips: t.clips.filter((c) => !c.src.local).map((c) => ({ src: c.src.key, offset: c.offset,
+      trimStart: c.trimStart, trimEnd: c.trimEnd })),
+  })).filter((l) => l.clips.length || l.custom || !l.key.startsWith('local:'));
+}
+
 function save() {
   try {
-    const kept = tracks.filter((t) => !t.local);
-    const clips = {};
-    kept.forEach((t) => {
-      (clips[t.key] = clips[t.key] || []).push({ mute: t.mute, solo: t.solo, vol: t.vol, offset: t.offset,
-        trimStart: t.trimStart, trimEnd: t.trimEnd });
-    });
     localStorage.setItem(STORE, JSON.stringify({
       metro: metroOn, countIn, metroVol: $('metroVol').value, hidden: [...hidden],
-      metroMode: $('metroMode').value, trackHeight, order: [...new Set(kept.map((t) => t.key))], clips,
+      metroMode: $('metroMode').value, trackHeight, lanes: layout(),
     }));
   } catch (error) { /* приватный режим -- просто без памяти */ }
 }
 
 const keyOf = (url, name) => (url ? decodeURIComponent(url.split('?')[0].split('/').pop()) : '') || name;
-const trackEnd = (t) => t.offset + t.buffer.duration;
+const clipStart = (c) => c.offset + c.trimStart;
+const clipEnd = (c) => c.offset + c.trimEnd;
 function updateDuration() {
-  duration = tracks.length ? Math.max(...tracks.map(trackEnd)) : 0;
+  const ends = tracks.flatMap((t) => t.clips.map((c) => c.offset + c.src.buffer.duration));
+  duration = ends.length ? Math.max(...ends) : Math.max(duration, 30);
   $('total').textContent = clock(duration);
+}
+
+function makeLane(name, extra = {}) {
+  const gain = ctx.createGain();
+  gain.connect(master);
+  return { name, key: extra.key || `lane:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    url: '', orig: '', extra: '', custom: false, mute: false, solo: false, vol: 100, ...extra,
+    gain, color: colorOf(name), clips: [] };
+}
+
+function makeClip(src, r = {}) {
+  const trimStart = Math.max(0, Math.min(r.trimStart ?? 0, src.buffer.duration - 0.05));
+  return { src, offset: Math.max(-trimStart, r.offset || 0), trimStart,
+    trimEnd: Math.max(trimStart + 0.05, Math.min(r.trimEnd ?? src.buffer.duration, src.buffer.duration)) };
+}
+
+function addSource(key, url, name, buffer, extra = '', local = false) {
+  const src = { key, url, name, buffer, extra, local, peaks: peaksOf(buffer, 1600) };
+  files.set(key, src);
+  return src;
+}
+
+// ---------------------------------------------- отмена (Ctrl+Z) и выбор
+function remember() {
+  undoStack.push(tracks.map((t) => ({ ...t, clips: t.clips.map((c) => ({ ...c })) })));
+  if (undoStack.length > 40) undoStack.shift();
+  $('undoBtn').disabled = false;
+}
+
+function undo() {
+  const prev = undoStack.pop();
+  $('undoBtn').disabled = !undoStack.length;
+  if (!prev) { toast('Отменять нечего'); return; }
+  tracks.forEach((t) => { if (!prev.some((p) => p.gain === t.gain)) t.gain.disconnect(); });
+  prev.forEach((p) => { if (!tracks.some((t) => t.gain === p.gain)) p.gain.connect(master); });
+  tracks.length = 0;
+  tracks.push(...prev);
+  pick = null;
+  selected = Math.min(selected, tracks.length - 1);
+  updateDuration();
+  render();
+  save();
+  if (playing) startAt(position());
 }
 
 // ---------------------------------------------------------------- загрузка
@@ -216,39 +270,57 @@ async function loadTracks(list) {
   metroGain.setVolume($('metroVol').value);
   pressed('metro', metroOn);
   pressed('countIn', countIn);
-  // Убранные дорожки («×») не грузим вовсе -- и память, и трафик
+  // Убранные дорожки («×») не грузим вовсе -- и память, и трафик (если
+  // только их кусков не скопировали на другие дорожки)
   hidden = new Set(memory.hidden || []);
   list.forEach((item) => { item.key = keyOf(item.url, item.name); });
-  const kept = list.filter((item) => !hidden.has(item.key) && !hidden.has(item.name));
+  const lanes = Array.isArray(memory.lanes) ? memory.lanes : null;
+  const needed = new Set((lanes || []).flatMap((l) => (l.clips || []).map((c) => c.src)));
+  const kept = list.filter((item) => needed.has(item.key) || (!hidden.has(item.key) && !hidden.has(item.name)));
   if (kept.length) list = kept; else hidden.clear();   // убрать все нельзя
-  // Порядок, в который дорожки расставили перетаскиванием; новые -- в конец
-  const order = memory.order || [];
-  const rank = (item) => {
-    let k = order.indexOf(item.key);
-    if (k < 0) k = order.indexOf(item.name);           // память до 15.10 -- по названиям
-    return k < 0 ? order.length : k;
-  };
-  list = list.map((item, k) => [item, k]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([item]) => item);
   showHidden();
   let done = 0;
   note(`Загружаем дорожки: 0 из ${list.length}…`);
   let missing = 0;
-  await Promise.all(list.map(async (item, index) => {
+  await Promise.all(list.map(async (item) => {
     const data = await audioBytes(item.url).catch(() => null);
     if (!data) { missing++; return; }
     const buffer = await ctx.decodeAudioData(data);
-    const clips = (memory.clips || {})[item.key] || [(memory.tracks || {})[item.name] || {}];
-    tracks[index] = clips.map((remembered, part) => {
-      const t = makeTrack(item.name, item.url, buffer, remembered);
-      Object.assign(t, { extra: item.extra || '', key: item.key, owner: item.owner || '', file: item.file || '',
-        orig: item.orig || '', part });
-      return t;
-    });
+    addSource(item.key, item.url, item.name, buffer, item.extra || '');
     note(`Загружаем дорожки: ${++done} из ${list.length}…`);
   }));
-  const loaded = tracks.filter(Boolean).flat();
-  tracks.length = 0;
-  tracks.push(...loaded);
+  const itemOf = (key) => list.find((item) => item.key === key);
+  const origin = (item) => ({ key: item.key, url: item.url, orig: item.orig || '', extra: item.extra || '' });
+  if (lanes) {
+    lanes.forEach((l) => {
+      const item = itemOf(l.key);
+      if (!item && !l.custom && !(l.clips || []).length) return;
+      const lane = makeLane(item && !l.custom ? item.name : (l.name || 'Дорожка'),
+        { ...(item ? origin(item) : { key: l.key }), custom: Boolean(l.custom) && !item,
+          mute: Boolean(l.mute), solo: Boolean(l.solo), vol: l.vol ?? 100 });
+      lane.clips = (l.clips || []).filter((c) => files.has(c.src)).map((c) => makeClip(files.get(c.src), c));
+      if (lane.clips.length || lane.custom || item) tracks.push(lane);
+    });
+  }
+  // Файлы, которых в раскладке нет (новые партии, своя дорожка с другого
+  // устройства, первый заход) -- каждой своя дорожка целиком
+  const placed = new Set(tracks.flatMap((t) => [t.key, ...t.clips.map((c) => c.src.key)]));
+  list.forEach((item) => {
+    if (placed.has(item.key) || !files.has(item.key)) return;
+    // Своя дорожка, ушедшая на сервер, пока страницу перезагружали, -- в ту же пустую дорожку
+    const waiting = item.extra && tracks.find((t) => t.custom && !t.clips.length && t.name === item.name);
+    if (waiting) {
+      Object.assign(waiting, origin(item), { custom: false });
+      waiting.clips = [makeClip(files.get(item.key))];
+      return;
+    }
+    const old = ((memory.clips || {})[item.key]) || [((memory.tracks || {})[item.name]) || {}];  // память до 16.10
+    const lane = makeLane(item.name, { ...origin(item), mute: Boolean(old[0].mute), solo: Boolean(old[0].solo),
+      vol: old[0].vol ?? 100 });
+    lane.clips = old.map((r) => makeClip(files.get(item.key), r));
+    const rank = (memory.order || []).indexOf(item.key);
+    if (rank >= 0 && rank < tracks.length) tracks.splice(rank, 0, lane); else tracks.push(lane);
+  });
   if (!tracks.length) {
     note('Нет интернета, а этот трек ещё не сохранён на устройстве. Откройте его один раз при интернете — '
       + 'дальше он будет работать и без сети.');
@@ -297,61 +369,144 @@ async function keepOffline() {
 }
 
 // ------------------------------------------------------------- монтаж
-// «Монтаж»: протяжка двигает дорожку по времени; края прилипают к тактам и
-// к краям других дорожек -- так куски склеиваются встык. ✂ режет выбранную
-// дорожку по курсору на два куска; лишний кусок -- «×».
+// Куски на дорожках: «Разрезать» делит кусок по курсору на месте; в
+// «Монтаже» кусок тянут по времени и на другую дорожку, края прилипают к
+// тактам и к краям других кусков -- так склеивают встык. «Копировать» --
+// выделенное на линейке (или выбранный кусок), «Вставить» -- по курсору на
+// выбранную дорожку. Ctrl+C / Ctrl+V / Delete / Ctrl+Z -- то же с клавиатуры.
 function markSelected() {
   document.querySelectorAll('.mx-row[data-i]').forEach((row) => {
     row.classList.toggle('picked', Number(row.dataset.i) === selected);
   });
-  $('cutBtn').disabled = selected < 0;
+  const lane = tracks[selected];
+  $('cutBtn').disabled = !lane || !lane.clips.length;
+  $('copyBtn').disabled = !lane || !lane.clips.length;
+  $('pasteBtn').disabled = !lane || !clipboard;
+  $('delClipBtn').disabled = !pick;
 }
 
-function snapOffset(t, offset, width) {
-  const start = offset + t.trimStart;
-  const end = offset + t.trimEnd;
+function choose(i, clip = null) {
+  selected = i;
+  pick = clip;
+  markSelected();
+  redraw();
+}
+
+function snapOffset(clip, offset, width) {
+  const start = offset + clip.trimStart;
+  const end = offset + clip.trimEnd;
   const limit = (12 / width) * viewLen();        // 12 пикселей
   let best = null;
   const edges = [0];
-  tracks.forEach((o) => { if (o !== t) edges.push(o.offset + o.trimStart, o.offset + o.trimEnd); });
+  tracks.forEach((t) => t.clips.forEach((o) => { if (o !== clip) edges.push(clipStart(o), clipEnd(o)); }));
   beats.forEach((b) => { if (downbeats.has(b.toFixed(2))) edges.push(b); });
   edges.forEach((edge) => {
-    [[start, edge - start], [end, edge - end]].forEach(([, d]) => {
+    [edge - start, edge - end].forEach((d) => {
       if (Math.abs(d) < limit && (best === null || Math.abs(d) < Math.abs(best))) best = d;
     });
   });
-  return Math.max(-t.trimStart, offset + (best || 0));
+  return Math.max(-clip.trimStart, offset + (best || 0));
+}
+
+function clipAt(lane, sec) {
+  return lane && lane.clips.find((c) => sec >= clipStart(c) && sec <= clipEnd(c));
+}
+
+function setMontage(on, quiet = false) {
+  if (montage === on) return;
+  montage = on;
+  pressed('montage', montage);
+  $('board').classList.toggle('montage', montage);
+  if (montage && !quiet) {
+    toast('Монтаж: тяните кусок по времени или на другую дорожку. Края прилипают к тактам и к соседним кускам — так куски склеиваются', 7000);
+  }
+  redraw();
 }
 
 function cut() {
-  const t = tracks[selected];
-  if (!t) { toast('Нажмите на дорожку, которую резать, и поставьте курсор, где резать'); return; }
-  const at = position() - t.offset;                 // секунда файла
-  if (at <= t.trimStart + 0.05 || at >= t.trimEnd - 0.05) {
-    toast('Поставьте курсор внутрь выбранной дорожки — там, где резать');
+  const lane = tracks[selected];
+  const at = position();
+  const c = (pick && tracks[selected] && tracks[selected].clips.includes(pick) && at > clipStart(pick) && at < clipEnd(pick))
+    ? pick : clipAt(lane, at);
+  if (!lane) { toast('Нажмите на дорожку, которую резать, и поставьте курсор, где резать'); return; }
+  if (!c || at <= clipStart(c) + 0.05 || at >= clipEnd(c) - 0.05) {
+    toast('Поставьте курсор на кусок выбранной дорожки — там, где резать');
     return;
   }
-  const piece = makeTrack(t.name, t.url, t.buffer, { mute: t.mute, solo: t.solo, vol: t.vol, offset: t.offset,
-    trimStart: at, trimEnd: t.trimEnd }, t.local);
-  Object.assign(piece, { key: t.key, extra: t.extra, orig: t.orig, peaks: t.peaks, part: t.part + 1 });
-  t.trimEnd = at;
-  tracks.splice(selected + 1, 0, piece);
-  selected += 1;
+  remember();
+  const right = { ...c, trimStart: at - c.offset };
+  c.trimEnd = at - c.offset;
+  lane.clips.splice(lane.clips.indexOf(c) + 1, 0, right);
+  pick = right;
+  setMontage(true, true);
   render();
   save();
   if (playing) startAt(position());
-  toast(montage ? 'Разрезано. Тяните кусок, чтобы сдвинуть; лишний — «×»'
-    : 'Разрезано. Включите «Монтаж», чтобы двигать куски; лишний — «×»');
+  toast('Разрезано. Тяните кусок мышью или пальцем — по времени или на другую дорожку');
+}
+
+// Что копировать: выделенное на линейке (на выбранной дорожке) или выбранный кусок
+function copy() {
+  const lane = tracks[selected];
+  if (!lane || !lane.clips.length) { toast('Нажмите на дорожку, с которой копировать'); return false; }
+  let a; let b;
+  if (loop.b > loop.a) { a = loop.a; b = loop.b; } else if (pick) { a = clipStart(pick); b = clipEnd(pick); } else {
+    toast('Выделите кусок на линейке над дорожками или нажмите на кусок');
+    return false;
+  }
+  const items = lane.clips.filter((c) => clipEnd(c) > a && clipStart(c) < b).map((c) => {
+    const from = Math.max(clipStart(c), a);
+    const to = Math.min(clipEnd(c), b);
+    return { src: c.src, rel: from - a, trimStart: from - c.offset, trimEnd: to - c.offset };
+  });
+  if (!items.length) { toast('В выделенном нет звука этой дорожки'); return false; }
+  clipboard = { items, len: b - a };
+  markSelected();
+  toast(`Скопировано ${clock(b - a)} — поставьте курсор и нажмите «Вставить» (Ctrl+V)`);
+  return true;
+}
+
+function paste() {
+  const lane = tracks[selected];
+  if (!clipboard) { toast('Сначала скопируйте кусок'); return; }
+  if (!lane) { toast('Нажмите на дорожку, куда вставить'); return; }
+  remember();
+  const at = position();
+  let last = null;
+  clipboard.items.forEach((item) => {
+    last = makeClip(item.src, { offset: at + item.rel - item.trimStart, trimStart: item.trimStart, trimEnd: item.trimEnd });
+    lane.clips.push(last);
+  });
+  lane.clips.sort((x, y) => clipStart(x) - clipStart(y));
+  pick = last;
+  setMontage(true, true);
+  updateDuration();
+  render();
+  save();
+  if (playing) startAt(position());
+  toast('Вставлено. Кусок можно тянуть мышью или пальцем');
+}
+
+function deleteClip() {
+  if (!pick) { toast('Нажмите на кусок, который удалить'); return; }
+  const lane = tracks.find((t) => t.clips.includes(pick));
+  if (!lane) return;
+  remember();
+  lane.clips.splice(lane.clips.indexOf(pick), 1);
+  pick = null;
+  updateDuration();
+  render();
+  save();
+  if (playing) startAt(position());
+  toast('Кусок удалён. Вернуть — «Отменить» (Ctrl+Z)');
 }
 
 $('cutBtn').addEventListener('click', cut);
-$('montage').addEventListener('click', () => {
-  montage = !montage;
-  pressed('montage', montage);
-  $('board').classList.toggle('montage', montage);
-  if (montage) toast('Монтаж: тяните дорожку, чтобы сдвинуть по времени. Края прилипают к тактам и к другим дорожкам — так дорожки склеиваются. ✂ режет выбранную по курсору', 7000);
-  redraw();
-});
+$('copyBtn').addEventListener('click', copy);
+$('pasteBtn').addEventListener('click', paste);
+$('delClipBtn').addEventListener('click', deleteClip);
+$('undoBtn').addEventListener('click', undo);
+$('montage').addEventListener('click', () => setMontage(!montage));
 
 // --------------------------------------------------- название дорожки
 // «Что это за дорожка?»: список инструментов, свои названия из профиля
@@ -397,8 +552,11 @@ async function saveLabel(text, reset = false) {
   const name = reset ? t.orig : text.trim().replace(/\s+/g, ' ').slice(0, 40);
   closeLabel();
   if (!name || name === t.name) return;
-  tracks.filter((x) => x.key === t.key).forEach((x) => { x.name = name; x.color = colorOf(name); });
+  t.name = name;
+  t.color = colorOf(name);
+  if (!t.url) t.custom = true;               // своя пустая дорожка -- название хранится в раскладке
   render();
+  save();
   const where = /\/api\/studio\/file\/([^/]+)\/([^/?]+)/.exec(t.url || '');
   if (where) {
     const form = new FormData();
@@ -452,20 +610,6 @@ $('restoreTracks').addEventListener('click', () => {
   save();
   location.reload();
 });
-
-function makeTrack(name, url, buffer, remembered = {}, local = false) {
-  const gain = ctx.createGain();
-  gain.connect(master);
-  const t = {
-    name, url, buffer, gain, local, key: keyOf(url, name), part: 0,
-    mute: Boolean(remembered.mute), solo: Boolean(remembered.solo),
-    vol: remembered.vol ?? 100, offset: Math.max(0, remembered.offset || 0),
-    trimStart: remembered.trimStart ?? 0,
-    trimEnd: Math.min(remembered.trimEnd ?? buffer.duration, buffer.duration),
-    peaks: peaksOf(buffer, 1600), color: colorOf(name),
-  };
-  return t;
-}
 
 // Пики волны: максимум по модулю в каждом из n кусков
 function peaksOf(buffer, n) {
@@ -727,20 +871,23 @@ function render() {
     <div class="mx-row${i === selected ? ' picked' : ''}" data-i="${i}">
       <div class="mx-ctrl">
         <div class="mx-name" data-grab="${i}" title="Перетащите выше или ниже, чтобы поменять порядок">
-          <span class="mx-grip" data-grip="${i}" aria-hidden="true">⠿</span><i style="background:${t.color}"></i><b data-noi18n data-label="${i}" title="${esc(t.name)} — нажмите, чтобы переименовать">${esc(t.name)}</b>${tracks.filter((x) => x.key === t.key).length > 1 ? `<small class="mx-part">${tracks.filter((x, k) => x.key === t.key && k <= i).length}</small>` : ''}
+          <span class="mx-grip" data-grip="${i}" aria-hidden="true">⠿</span><i style="background:${t.color}"></i><b data-noi18n data-label="${i}" title="${esc(t.name)} — нажмите, чтобы переименовать">${esc(t.name)}</b>${t.clips.length > 1 ? `<small class="mx-part" title="Кусков на дорожке">${t.clips.length}</small>` : ''}
           <button type="button" class="mx-rename" data-label="${i}" title="Название дорожки" aria-label="Название дорожки">${ICON.pencil}</button>
-          ${t.local ? `<em title="Загружаем на сервер…">${t.uploading ? 'загрузка…' : 'не сохранена'}</em>`
+          ${t.uploading ? '<em title="Сохраняем при треке…">загрузка…</em>'
     : t.extra ? '<em title="Ваша дорожка — хранится при этом треке">своя</em>' : ''}</div>
         <div class="mx-btns">
           <button type="button" class="mx-ms" data-mute="${i}" aria-pressed="${t.mute}" title="Заглушить">M</button>
           <button type="button" class="mx-ms solo" data-solo="${i}" aria-pressed="${t.solo}" title="Только эта (соло)">S</button>
           <input type="range" class="mx-vol" data-vol="${i}" min="0" max="150" value="${t.vol}"
             aria-label="Громкость: ${esc(t.name)}" title="Громкость">
-          ${t.local ? '' : `<a class="mx-ms" href="${t.url}" download title="Скачать дорожку">⤓</a>`}
+          ${t.url && !t.uploading ? `<a class="mx-ms" href="${t.url}" download title="Скачать исходный файл дорожки">⤓</a>` : ''}
+          <button type="button" class="mx-ms" data-loadfile="${i}" title="Загрузить файл на эту дорожку (по курсору)">⤒</button>
           <button type="button" class="mx-ms" data-remove="${i}" title="Убрать дорожку из микса">×</button>
         </div>
       </div>
-      <div class="mx-lane"><canvas class="mx-wave" data-wave="${i}" height="64"></canvas></div>
+      <div class="mx-lane" data-drop="${i}"><canvas class="mx-wave" data-wave="${i}" height="64"></canvas>
+        ${t.clips.length ? '' : `<button type="button" class="mx-empty" data-loadfile="${i}">Пустая дорожка — <b>загрузить файл</b>,
+          перетащите сюда файл с компьютера или кусок с другой дорожки</button>`}</div>
     </div>`).join('');
   applyGains();
   sizeCanvases();
@@ -842,39 +989,47 @@ function drawTrack(t, i) {
   const dpr = window.devicePixelRatio || 1;
   g.clearRect(0, 0, w, h);
   const x = (sec) => toX(sec, w);
-  // такты -- тонкие линии, чтобы обрезать ровно по сильной доле
+  // такты -- тонкие линии, чтобы резать и склеивать ровно по сильной доле
   g.fillStyle = 'rgba(255,255,255,.06)';
   beats.forEach((b) => { if (downbeats.has(b.toFixed(2))) g.fillRect(Math.round(x(b)), 0, dpr, h); });
-  const bars = t.peaks.length;
   const on = audible(t);
-  const a = t.offset + t.trimStart;          // кусок на ленте
-  const b = t.offset + t.trimEnd;
-  if (i === selected) {                       // выбранная -- подсветка куска
-    g.fillStyle = 'rgba(217,154,78,.10)';
-    g.fillRect(x(a), 0, x(b) - x(a), h);
-  }
-  for (let k = 0; k < bars; k++) {
-    const sec = (k / bars) * t.buffer.duration;
-    const at = t.offset + sec;
-    if (at < viewStart - 1 || at > viewStart + viewLen() + 1) continue;
-    const inside = sec >= t.trimStart && sec <= t.trimEnd;
-    // за краями куска -- только для монтажа (видно, что можно вернуть)
-    if (!inside && !montage && (t.part || tracks.some((o) => o !== t && o.key === t.key))) continue;
-    const amp = Math.max(1, t.peaks[k] * (h / 2 - 3 * dpr));
-    g.fillStyle = !inside ? 'rgba(255,255,255,.10)' : on ? t.color : 'rgba(167,171,184,.35)';
-    g.fillRect(x(at), h / 2 - amp, Math.max(1, w / bars * (t.buffer.duration / viewLen())), amp * 2);
-  }
-  // обрезанное -- затемнено, края -- ручки
-  g.fillStyle = 'rgba(10,11,15,.55)';
-  g.fillRect(0, 0, x(a), h);
-  g.fillRect(x(b), 0, w - x(b), h);
-  g.fillStyle = '#d99a4e';
-  [a, b].forEach((edge) => g.fillRect(Math.round(x(edge)) - 2 * dpr, 6 * dpr, 4 * dpr, h - 12 * dpr));
-  if (montage && i === selected) {            // рамка: эту дорожку можно тянуть
-    g.strokeStyle = 'rgba(217,154,78,.9)';
-    g.lineWidth = 2 * dpr;
-    g.strokeRect(x(a) + dpr, dpr, x(b) - x(a) - 2 * dpr, h - 2 * dpr);
-  }
+  const single = t.clips.length === 1;
+  t.clips.forEach((clip) => {
+    const src = clip.src;
+    const bars = src.peaks.length;
+    const a = clipStart(clip);
+    const b = clipEnd(clip);
+    const mine = clip === pick;
+    if (x(b) < 0 || x(a) > w) return;
+    // кусок -- плашкой: видно, где он начинается и кончается
+    g.fillStyle = mine ? 'rgba(217,154,78,.16)' : 'rgba(255,255,255,.035)';
+    g.fillRect(x(a), 2 * dpr, x(b) - x(a), h - 4 * dpr);
+    const step = Math.max(1, w / bars * (src.buffer.duration / viewLen()));
+    for (let k = 0; k < bars; k++) {
+      const sec = (k / bars) * src.buffer.duration;
+      const at = clip.offset + sec;
+      if (at < viewStart - 1 || at > viewStart + viewLen() + 1) continue;
+      const inside = sec >= clip.trimStart && sec <= clip.trimEnd;
+      // обрезанное -- бледно, только у единственного куска (видно, что можно вернуть)
+      if (!inside && !(single && !montage)) continue;
+      const amp = Math.max(1, src.peaks[k] * (h / 2 - 4 * dpr));
+      g.fillStyle = !inside ? 'rgba(255,255,255,.10)' : on ? t.color : 'rgba(167,171,184,.35)';
+      g.fillRect(x(at), h / 2 - amp, step, amp * 2);
+    }
+    if (single && !montage) {
+      g.fillStyle = 'rgba(10,11,15,.55)';
+      g.fillRect(0, 0, x(a), h);
+      g.fillRect(x(b), 0, w - x(b), h);
+    }
+    // края -- ручки обрезки
+    g.fillStyle = '#d99a4e';
+    [a, b].forEach((edge) => g.fillRect(Math.round(x(edge)) - 2 * dpr, 8 * dpr, 4 * dpr, h - 16 * dpr));
+    if (mine || (montage && t.clips.length > 1)) {
+      g.strokeStyle = mine ? 'rgba(246,197,132,.95)' : 'rgba(255,255,255,.18)';
+      g.lineWidth = (mine ? 2 : 1) * dpr;
+      g.strokeRect(x(a) + dpr, 2 * dpr, x(b) - x(a) - 2 * dpr, h - 4 * dpr);
+    }
+  });
 }
 
 function drawRuler() {
@@ -1013,10 +1168,10 @@ function stopSources() {
 function startAt(p, delay = 0.06) {
   stopSources();
   const t0 = ctx.currentTime + delay;
-  tracks.forEach((t) => {
-    const src = schedule(ctx, t, p, t0, t.gain);
+  tracks.forEach((t) => t.clips.forEach((clip) => {
+    const src = schedule(ctx, clip, p, t0, t.gain);
     if (src) sources.push(src);
-  });
+  }));
   startTime = t0;
   startPos = p;
   playing = true;
@@ -1028,14 +1183,15 @@ function startAt(p, delay = 0.06) {
 
 // Кусок дорожки на ленте -- с позиции p ленты, в момент t0 часов ctx
 // (и для живого звука, и для сведения в файл). end -- где лента кончается.
-function schedule(c, t, p, t0, dest, end = Infinity) {
-  const from = Math.max(p - t.offset, t.trimStart);               // секунда файла
-  const to = Math.min(t.trimEnd, t.buffer.duration, end - t.offset);
+function schedule(c, clip, p, t0, dest, end = Infinity) {
+  const buffer = clip.src.buffer;
+  const from = Math.max(p - clip.offset, clip.trimStart);               // секунда файла
+  const to = Math.min(clip.trimEnd, buffer.duration, end - clip.offset);
   if (to - from <= 0.01) return null;
   const src = c.createBufferSource();
-  src.buffer = t.buffer;
+  src.buffer = buffer;
   src.connect(dest);
-  src.start(t0 + (t.offset + from - p), from, to - from);
+  src.start(t0 + (clip.offset + from - p), from, to - from);
   return src;
 }
 
@@ -1161,37 +1317,57 @@ document.addEventListener('pointerdown', (e) => {
   }
   const wave = e.target.closest('[data-wave]');
   if (wave && duration) {
-    const index = Number(wave.dataset.wave);
-    const t = tracks[index];
+    let index = Number(wave.dataset.wave);
+    const lane = tracks[index];
     const sec = secAt(e, wave);
     const width = wave.getBoundingClientRect().width;
     const px = (x) => toX(x, width);
     const reach = e.pointerType === 'touch' ? 18 : 10;
-    const grab = Math.abs(px(sec) - px(t.offset + t.trimStart)) < reach ? 'trimStart'
-      : Math.abs(px(sec) - px(t.offset + t.trimEnd)) < reach ? 'trimEnd'
-        : montage && sec >= t.offset + t.trimStart && sec <= t.offset + t.trimEnd ? 'move' : null;
-    if (selected !== index) { selected = index; markSelected(); redraw(); }
+    // кусок под пальцем: сначала края (обрезка), потом тело (сдвиг в «Монтаже»)
+    let clip = null;
+    let grab = null;
+    for (const c of lane.clips) {
+      if (Math.abs(px(sec) - px(clipStart(c))) < reach) { clip = c; grab = 'trimStart'; break; }
+      if (Math.abs(px(sec) - px(clipEnd(c))) < reach) { clip = c; grab = 'trimEnd'; break; }
+    }
+    if (!clip) {
+      clip = clipAt(lane, sec) || null;
+      if (clip && montage) grab = 'move';
+    }
+    if (selected !== index || pick !== clip) choose(index, clip);
     wave.setPointerCapture(e.pointerId);
     const x0 = e.clientX;
     const view0 = viewStart;
-    const offset0 = t.offset;
+    const offset0 = clip ? clip.offset : 0;
+    const rows = [...document.querySelectorAll('.mx-row[data-i]')].map((r) => r.getBoundingClientRect());
     let moved = false;
     const move = (ev) => {
       if (pinch) return;
       if (grab === 'move') {
-        if (Math.abs(ev.clientX - x0) < 4 && !moved) return;
-        moved = true;
+        if (!moved && Math.abs(ev.clientX - x0) < 4 && Math.abs(ev.clientY - e.clientY) < 6) return;
+        if (!moved) { remember(); moved = true; }
         const shift = (ev.clientX - x0) / width * viewLen();
-        t.offset = snapOffset(t, Math.max(-t.trimStart, offset0 + shift), width);
+        clip.offset = snapOffset(clip, Math.max(-clip.trimStart, offset0 + shift), width);
+        // на другую дорожку -- по строке под пальцем
+        const to = rows.findIndex((r) => ev.clientY >= r.top && ev.clientY < r.bottom);
+        if (to >= 0 && to !== index) {
+          tracks[index].clips.splice(tracks[index].clips.indexOf(clip), 1);
+          tracks[to].clips.push(clip);
+          index = to;
+          selected = to;
+          markSelected();
+          document.querySelectorAll('.mx-empty').forEach((b) => { b.hidden = true; });
+        }
         updateDuration();
         redraw();
         return;
       }
       if (grab) {
-        const x = Math.max(0, secAt(ev, wave) - t.offset);
-        if (grab === 'trimStart') t.trimStart = Math.max(0, Math.min(x, t.trimEnd - 0.5));
-        else t.trimEnd = Math.min(t.buffer.duration, Math.max(x, t.trimStart + 0.5));
-        drawTrack(t, index);
+        if (!moved) { remember(); moved = true; }
+        const x = Math.max(0, secAt(ev, wave) - clip.offset);
+        if (grab === 'trimStart') clip.trimStart = Math.max(0, Math.min(x, clip.trimEnd - 0.1));
+        else clip.trimEnd = Math.min(clip.src.buffer.duration, Math.max(x, clip.trimStart + 0.1));
+        drawTrack(lane, index);
         return;
       }
       if (Math.abs(ev.clientX - x0) < 6 && !moved) return;
@@ -1206,8 +1382,13 @@ document.addEventListener('pointerdown', (e) => {
       wave.removeEventListener('pointermove', move);
       wave.removeEventListener('pointerup', up);
       wave.removeEventListener('pointercancel', up);
-      if (grab === 'move' && !moved && !pinch && ev.type === 'pointerup') { seek(sec); return; }
-      if (grab) { save(); if (playing) startAt(position()); return; }
+      if (grab && moved) {
+        tracks.forEach((t) => t.clips.sort((a, b) => clipStart(a) - clipStart(b)));
+        render();
+        save();
+        if (playing) startAt(position());
+        return;
+      }
       if (!moved && !pinch && ev.type === 'pointerup') seek(sec);
     };
     wave.addEventListener('pointermove', move);
@@ -1308,12 +1489,12 @@ function drawOverview() {
   g.fillStyle = 'rgba(167,171,184,.45)';
   for (let k = 0; k < n; k++) {
     let peak = 0;
-    tracks.forEach((t) => {
-      const sec = (k / n) * duration - t.offset;
-      if (sec < t.trimStart || sec > t.trimEnd) return;
-      const i = Math.floor((sec / t.buffer.duration) * t.peaks.length);
-      if (i >= 0 && i < t.peaks.length) peak = Math.max(peak, t.peaks[i]);
-    });
+    tracks.forEach((t) => t.clips.forEach((clip) => {
+      const sec = (k / n) * duration - clip.offset;
+      if (sec < clip.trimStart || sec > clip.trimEnd) return;
+      const i = Math.floor((sec / clip.src.buffer.duration) * clip.src.peaks.length);
+      if (i >= 0 && i < clip.src.peaks.length) peak = Math.max(peak, clip.src.peaks[i]);
+    }));
     const amp = Math.max(1, peak * (h / 2 - 2));
     g.fillRect((k / n) * w, h / 2 - amp, Math.max(1, w / n - 1), amp * 2);
   }
@@ -1344,19 +1525,34 @@ document.addEventListener('click', (e) => {
   const remove = e.target.closest('[data-remove]');
   if (mute) { const t = tracks[mute.dataset.mute]; t.mute = !t.mute; mute.setAttribute('aria-pressed', t.mute); }
   if (solo) { const t = tracks[solo.dataset.solo]; t.solo = !t.solo; solo.setAttribute('aria-pressed', t.solo); }
+  const loadFile = e.target.closest('[data-loadfile]');
+  if (loadFile) {
+    choose(Number(loadFile.dataset.loadfile), null);
+    $('addFile').click();
+    return;
+  }
   if (remove) {
     if (tracks.length === 1) { toast('Последнюю дорожку убрать нельзя'); return; }
-    const doomed = tracks[Number(remove.dataset.remove)];
-    if (doomed.extra && !tracks.some((x) => x !== doomed && x.key === doomed.key) && !confirm(`Удалить дорожку «${doomed.name}»? Её придётся загружать заново.`)) return;
-    const [t] = tracks.splice(Number(remove.dataset.remove), 1);
-    t.gain.disconnect();
+    const i = Number(remove.dataset.remove);
+    const doomed = tracks[i];
+    const used = (key) => tracks.some((t) => t !== doomed && t.clips.some((c) => c.src.key === key));
+    const ownExtra = doomed.extra && !used(doomed.key);
+    if (ownExtra && !confirm(`Удалить дорожку «${doomed.name}»? Её придётся загружать заново.`)) return;
+    remember();
+    tracks.splice(i, 1);
+    doomed.gain.disconnect();
     selected = -1;
-    if (tracks.some((x) => x.key === t.key)) {
-      save();                                  // убрали кусок после резки -- файл и другие куски на месте
-    } else if (t.extra) {
-      fetch(`/api/studio/${jobId}/extra/${t.extra}`, { method: 'DELETE' })
+    pick = null;
+    if (ownExtra) {
+      undoStack.length = 0;                       // файл удалён на сервере -- вернуть нечем
+      $('undoBtn').disabled = true;
+      fetch(`/api/studio/${jobId}/extra/${doomed.extra}`, { method: 'DELETE' })
         .then((r) => toast(r.ok ? 'Дорожка удалена' : 'Не получилось удалить дорожку на сервере'));
-    } else if (!t.local) { hidden.add(t.key); save(); showHidden(); }
+    } else if (doomed.url && !doomed.extra && !used(doomed.key)) {
+      hidden.add(doomed.key);
+      showHidden();
+    }
+    save();
     updateDuration();
     render();
     if (playing) startAt(Math.min(position(), duration));
@@ -1501,60 +1697,123 @@ $('tempoOk').addEventListener('click', () => {
 $('tempoReset').addEventListener('click', () => saveTempo(0));
 
 document.addEventListener('keydown', (e) => {
-  if (e.code !== 'Space' || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) && e.target.type !== 'range') return;
-  e.preventDefault();
-  play();
+  if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName) && e.target.type !== 'range') return;
+  if (document.querySelector('.mx-sheet:not([hidden])')) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (e.code === 'Space') { e.preventDefault(); play(); return; }
+  if (mod && e.code === 'KeyC') { if (copy()) e.preventDefault(); return; }
+  if (mod && e.code === 'KeyV') { e.preventDefault(); paste(); return; }
+  if (mod && e.code === 'KeyZ') { e.preventDefault(); undo(); return; }
+  if ((e.code === 'Delete' || e.code === 'Backspace') && pick) { e.preventDefault(); deleteClip(); return; }
+  if (e.code === 'KeyS' && !mod && tracks[selected]) { e.preventDefault(); cut(); }
 });
 window.addEventListener('resize', () => { clearTimeout(sizeCanvases.t); sizeCanvases.t = setTimeout(sizeCanvases, 120); });
 
 // ---------------------------------------------------------------- своя дорожка и микс
 
-$('addTrack').addEventListener('click', () => $('addFile').click());
+// «＋ Дорожка» -- пустая дорожка: в неё загружают файл с компьютера (кнопкой
+// или перетащив файл), перетаскивают кусок с другой дорожки, вставляют
+// скопированное.
+$('addTrack').addEventListener('click', () => {
+  audio();
+  remember();
+  let n = tracks.length + 1;
+  while (tracks.some((t) => t.name === `Дорожка ${n}`)) n++;
+  const lane = makeLane(`Дорожка ${n}`, { custom: true });
+  tracks.push(lane);
+  selected = tracks.length - 1;
+  pick = null;
+  render();
+  save();
+  document.querySelector(`.mx-row[data-i="${selected}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  toast('Пустая дорожка добавлена: загрузите в неё файл или перетащите кусок с другой дорожки');
+});
+
 $('addFile').addEventListener('change', async (e) => {
   const chosen = e.target.files[0];
   e.target.value = '';
-  if (!chosen) return;
+  if (chosen) await fileToLane(chosen, selected);
+});
+
+// Файл с компьютера -- кусок на дорожке, с курсора (на пустой -- с начала).
+// Сохраняется при треке на сервере: на репетиции он уже будет на месте.
+async function fileToLane(chosen, index) {
   audio();
-  let name = chosen.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'Своя дорожка';
-  while (tracks.some((x) => x.name === name)) name += ' ·';
+  let lane = tracks[index];
+  const name = chosen.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'Своя дорожка';
+  if (!lane) {
+    lane = makeLane(name, { custom: true });
+    tracks.push(lane);
+    index = tracks.length - 1;
+  }
+  const at = lane.clips.length ? position() : 0;
+  if (lane.custom && !lane.clips.length && /^Дорожка \d+$/.test(lane.name)) { lane.name = name; lane.color = colorOf(name); }
   let buffer = null;
   try { buffer = await ctx.decodeAudioData(await chosen.arrayBuffer()); } catch (error) { buffer = null; }
+  remember();
+  let src;
+  lane.uploading = true;
   if (!buffer) {
     // Браузер не читает формат (amr, 3gp, иногда m4a) -- сервер перекодирует в mp3
     toast('Перекодируем запись на сервере…');
-    const saved = await uploadExtra(name, chosen);
-    if (!saved) return;
+    render();
+    const done = await uploadExtra(lane.name, chosen);
+    lane.uploading = false;
+    if (!done) { render(); return; }
     try {
-      buffer = await ctx.decodeAudioData(await (await fetch(saved.url)).arrayBuffer());
-    } catch (error) { toast('Этот файл не получилось прочитать — попробуйте mp3 или wav'); return; }
-    const t = makeTrack(name, saved.url, buffer);
-    t.extra = saved.name;
-    addLoaded(t);
-    toast('Дорожка сохранена — она будет здесь и в следующий раз, на любом устройстве');
-    save();
-    return;
+      buffer = await ctx.decodeAudioData(await (await fetch(done.url)).arrayBuffer());
+    } catch (error) { toast('Этот файл не получилось прочитать — попробуйте mp3 или wav'); render(); return; }
+    src = addSource(keyOf(done.url), done.url, lane.name, buffer, done.name);
+  } else {
+    // Формат браузеру знаком -- играет сразу, на сервер уходит параллельно
+    src = addSource(`local:${Date.now().toString(36)}`, '', lane.name, buffer, '', true);
   }
-  // Формат браузеру знаком -- дорожка играет сразу, на сервер уходит параллельно
-  const t = makeTrack(name, '', buffer, {}, true);
-  t.uploading = true;
-  addLoaded(t);
-  toast('Дорожка добавлена, сохраняем её при треке…');
-  const saved = await uploadExtra(name, chosen);
-  t.uploading = false;
-  if (saved) {
-    Object.assign(t, { local: false, url: saved.url, extra: saved.name });
-    toast('Дорожка сохранена — она будет здесь и в следующий раз, на любом устройстве');
-    save();
-  }
-  render();
-});
-
-function addLoaded(t) {
-  tracks.push(t);
+  lane.clips.push(makeClip(src, { offset: at }));
+  lane.clips.sort((x, y) => clipStart(x) - clipStart(y));
+  selected = index;
+  pick = lane.clips.find((c) => c.src === src);
   updateDuration();
   render();
   if (playing) startAt(position());
+  if (src.local) {
+    toast('Дорожка добавлена, сохраняем её при треке…');
+    const done = await uploadExtra(lane.name, chosen);
+    if (done) {
+      files.delete(src.key);
+      Object.assign(src, { key: keyOf(done.url), url: done.url, extra: done.name, local: false });
+      files.set(src.key, src);
+    }
+  }
+  lane.uploading = false;
+  // Пустая своя дорожка с первым файлом -- теперь дорожка этого файла (название -- на сервере)
+  if (!src.local && lane.custom && lane.clips.length === 1) {
+    Object.assign(lane, { key: src.key, url: src.url, extra: src.extra, custom: false });
+  }
+  if (!src.local) toast('Сохранено при треке — будет здесь и в следующий раз, на любом устройстве');
+  render();
+  save();
 }
+
+// Файл с компьютера можно просто бросить на дорожку
+document.addEventListener('dragover', (e) => {
+  const zone = e.target.closest('[data-drop]');
+  if (!zone || !e.dataTransfer || ![...e.dataTransfer.types].includes('Files')) return;
+  e.preventDefault();
+  zone.classList.add('dropping');
+});
+document.addEventListener('dragleave', (e) => {
+  const zone = e.target.closest('[data-drop]');
+  if (zone) zone.classList.remove('dropping');
+});
+document.addEventListener('drop', (e) => {
+  const zone = e.target.closest('[data-drop]');
+  if (!zone || !e.dataTransfer || !e.dataTransfer.files.length) return;
+  e.preventDefault();
+  zone.classList.remove('dropping');
+  const chosen = [...e.dataTransfer.files].find((f) => /^audio\//.test(f.type) || /\.(mp3|wav|m4a|flac|ogg|aac|opus|amr|3gp|webm)$/i.test(f.name));
+  if (!chosen) { toast('Нужен аудиофайл: mp3, wav, m4a, flac, ogg'); return; }
+  fileToLane(chosen, Number(zone.dataset.drop));
+});
 
 // Дорожка хранится при треке: на репетиции открыл -- она уже на месте
 async function uploadExtra(label, chosen) {
@@ -1578,8 +1837,8 @@ async function uploadExtra(label, chosen) {
 // тактом отсчёта, целиком или только выделенный кусок (повтор).
 $('exportMix').addEventListener('click', () => {
   if (!tracks.length) return;
-  const on = tracks.filter(audible);
-  const off = tracks.filter((t) => !audible(t));
+  const on = tracks.filter((t) => audible(t) && t.clips.length);
+  const off = tracks.filter((t) => !audible(t) && t.clips.length);
   const names = (list) => [...new Set(list.map((t) => t.name))].join(', ');
   $('exportWhat').innerHTML = `<b>Звучат:</b> ${esc(names(on)) || '—'}`
     + (off.length ? `<br><span class="muted"><b>Без:</b> ${esc(names(off))}</span>` : '');
@@ -1607,11 +1866,11 @@ $('exportGo').addEventListener('click', async () => {
     const lead = $('exportCount').checked && interval ? 4 * interval : 0;    // такт отсчёта перед музыкой
     const offline = new OfflineAudioContext(2, Math.ceil((to - from + lead) * rate), rate);
     tracks.forEach((t) => {
-      if (!audible(t)) return;
+      if (!audible(t) || !t.clips.length) return;
       const g = offline.createGain();
       g.gain.value = t.vol / 100;
       g.connect(offline.destination);
-      schedule(offline, t, from, lead, g, to);
+      t.clips.forEach((clip) => schedule(offline, clip, from, lead, g, to));
     });
     if ($('exportMetro').checked || lead) {
       const out = window.metroSound.output(offline, $('metroVol').value);
