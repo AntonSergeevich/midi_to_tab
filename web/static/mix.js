@@ -47,7 +47,10 @@ let metroGain = null;
 const tracks = [];
 const files = new Map();  // key -> {key, url, name, buffer, peaks, extra, local}
 let selected = -1;        // выбранная дорожка
-let pick = null;          // выбранный кусок на ней
+let pick = null;          // выбранный кусок на ней (последний, на который нажали)
+// Несколько кусков -- с Ctrl (⌘ на Mac) или Shift: двигаются, копируются и
+// удаляются вместе
+let picks = new Set();
 let montage = false;      // режим монтажа: протяжка двигает кусок
 let clipboard = null;     // скопированное: {items: [{src, rel, trimStart, trimEnd}]}
 const undoStack = [];
@@ -176,6 +179,7 @@ function undo() {
   tracks.length = 0;
   tracks.push(...prev);
   pick = null;
+  picks = new Set();
   selected = Math.min(selected, tracks.length - 1);
   updateDuration();
   render();
@@ -386,15 +390,24 @@ function markSelected() {
   $('cutBtn').disabled = !lane || !lane.clips.length;
   $('copyBtn').disabled = !lane || !lane.clips.length;
   $('pasteBtn').disabled = !lane || !clipboard;
-  $('delClipBtn').disabled = !pick;
+  $('delClipBtn').disabled = !picks.size;
+  $('delClipBtn').querySelector('span').textContent = picks.size > 1 ? `Удалить куски (${picks.size})` : 'Удалить кусок';
 }
 
-function choose(i, clip = null) {
+function choose(i, clip = null, add = false) {
   selected = i;
-  pick = clip;
+  if (add && clip) {
+    // Ctrl/Shift -- добавить кусок к выбранным или убрать его из них
+    if (picks.has(clip)) { picks.delete(clip); pick = [...picks].pop() || null; } else { picks.add(clip); pick = clip; }
+  } else {
+    pick = clip;
+    picks = new Set(clip ? [clip] : []);
+  }
   markSelected();
   redraw();
 }
+
+const laneOf = (clip) => tracks.findIndex((t) => t.clips.includes(clip));
 
 function snapOffset(clip, offset, width) {
   const start = offset + clip.trimStart;
@@ -442,6 +455,7 @@ function cut() {
   c.trimEnd = at - c.offset;
   lane.clips.splice(lane.clips.indexOf(c) + 1, 0, right);
   pick = right;
+  picks = new Set([right]);
   setMontage(true, true);
   render();
   save();
@@ -453,6 +467,17 @@ function cut() {
 function copy() {
   const lane = tracks[selected];
   if (!lane || !lane.clips.length) { toast('Нажмите на дорожку, с которой копировать'); return false; }
+  // Несколько кусков (Ctrl) -- копируются как есть, каждый со своей дорожки
+  if (picks.size > 1) {
+    const chosen = [...picks];
+    const a0 = Math.min(...chosen.map(clipStart));
+    const lane0 = Math.min(...chosen.map(laneOf));
+    clipboard = { items: chosen.map((c) => ({ src: c.src, rel: clipStart(c) - a0, trimStart: c.trimStart,
+      trimEnd: c.trimEnd, lane: laneOf(c) - lane0 })), len: Math.max(...chosen.map(clipEnd)) - a0 };
+    markSelected();
+    toast(`Скопировано кусков: ${chosen.length} — поставьте курсор и нажмите «Вставить» (Ctrl+V)`);
+    return true;
+  }
   let a; let b;
   if (loop.b > loop.a) { a = loop.a; b = loop.b; } else if (pick) { a = clipStart(pick); b = clipEnd(pick); } else {
     toast('Выделите кусок на линейке над дорожками или нажмите на кусок');
@@ -477,12 +502,17 @@ function paste() {
   remember();
   const at = position();
   let last = null;
+  const pasted = [];
   clipboard.items.forEach((item) => {
+    // куски с разных дорожек -- на те же по счёту дорожки от выбранной
+    const target = tracks[Math.min(tracks.length - 1, selected + (item.lane || 0))];
     last = makeClip(item.src, { offset: at + item.rel - item.trimStart, trimStart: item.trimStart, trimEnd: item.trimEnd });
-    lane.clips.push(last);
+    target.clips.push(last);
+    target.clips.sort((x, y) => clipStart(x) - clipStart(y));
+    pasted.push(last);
   });
-  lane.clips.sort((x, y) => clipStart(x) - clipStart(y));
   pick = last;
+  picks = new Set(pasted);
   setMontage(true, true);
   updateDuration();
   render();
@@ -492,17 +522,20 @@ function paste() {
 }
 
 function deleteClip() {
-  if (!pick) { toast('Нажмите на кусок, который удалить'); return; }
-  const lane = tracks.find((t) => t.clips.includes(pick));
-  if (!lane) return;
+  if (!picks.size) { toast('Нажмите на кусок, который удалить'); return; }
   remember();
-  lane.clips.splice(lane.clips.indexOf(pick), 1);
+  const count = picks.size;
+  picks.forEach((clip) => {
+    const lane = tracks[laneOf(clip)];
+    if (lane) lane.clips.splice(lane.clips.indexOf(clip), 1);
+  });
   pick = null;
+  picks = new Set();
   updateDuration();
   render();
   save();
   if (playing) startAt(position());
-  toast('Кусок удалён. Вернуть — «Отменить» (Ctrl+Z)');
+  toast(`${count > 1 ? `Удалено кусков: ${count}` : 'Кусок удалён'}. Вернуть — «Отменить» (Ctrl+Z)`);
 }
 
 $('cutBtn').addEventListener('click', cut);
@@ -1077,7 +1110,7 @@ function drawTrack(t, i) {
     const bars = src.peaks.length;
     const a = clipStart(clip);
     const b = clipEnd(clip);
-    const mine = clip === pick;
+    const mine = picks.has(clip);
     if (x(b) < 0 || x(a) > w) return;
     // кусок -- плашкой: видно, где он начинается и кончается
     g.fillStyle = mine ? 'rgba(217,154,78,.16)' : 'rgba(255,255,255,.035)';
@@ -1412,11 +1445,20 @@ document.addEventListener('pointerdown', (e) => {
       clip = clipAt(lane, sec) || null;
       if (clip && montage) grab = 'move';
     }
-    if (selected !== index || pick !== clip) choose(index, clip);
+    const add = e.ctrlKey || e.metaKey || e.shiftKey;
+    if (add && clip) {                         // Ctrl/Shift + щелчок -- добавить кусок к выбранным
+      choose(index, clip, true);
+      setMontage(true, true);                  // выбранное -- сразу можно тянуть
+      return;
+    }
+    if (selected !== index || !picks.has(clip)) choose(index, clip);
+    else pick = clip;
     wave.setPointerCapture(e.pointerId);
     const x0 = e.clientX;
     const view0 = viewStart;
     const offset0 = clip ? clip.offset : 0;
+    // тянут один из выбранных -- едут все выбранные
+    const group = clip && picks.size > 1 && picks.has(clip) ? [...picks].map((c) => [c, c.offset]) : null;
     const rows = [...document.querySelectorAll('.mx-row[data-i]')].map((r) => r.getBoundingClientRect());
     let moved = false;
     const move = (ev) => {
@@ -1426,6 +1468,14 @@ document.addEventListener('pointerdown', (e) => {
         if (!moved) { remember(); moved = true; }
         const shift = (ev.clientX - x0) / width * viewLen();
         clip.offset = snapOffset(clip, Math.max(-clip.trimStart, offset0 + shift), width);
+        if (group) {
+          // все выбранные -- на тот же сдвиг, что и тот, за который тянут (с его прилипанием)
+          const delta = clip.offset - offset0;
+          group.forEach(([c, o]) => { c.offset = Math.max(-c.trimStart, o + delta); });
+          updateDuration();
+          redraw();
+          return;
+        }
         // на другую дорожку -- по строке под пальцем
         const to = rows.findIndex((r) => ev.clientY >= r.top && ev.clientY < r.bottom);
         if (to >= 0 && to !== index) {
@@ -1621,6 +1671,7 @@ document.addEventListener('click', (e) => {
     doomed.gain.disconnect();
     selected = -1;
     pick = null;
+    picks = new Set();
     if (ownExtra) {
       undoStack.length = 0;                       // файл удалён на сервере -- вернуть нечем
       $('undoBtn').disabled = true;
@@ -1782,7 +1833,7 @@ document.addEventListener('keydown', (e) => {
   if (mod && e.code === 'KeyC') { if (copy()) e.preventDefault(); return; }
   if (mod && e.code === 'KeyV') { e.preventDefault(); paste(); return; }
   if (mod && e.code === 'KeyZ') { e.preventDefault(); undo(); return; }
-  if ((e.code === 'Delete' || e.code === 'Backspace') && pick) { e.preventDefault(); deleteClip(); return; }
+  if ((e.code === 'Delete' || e.code === 'Backspace') && picks.size) { e.preventDefault(); deleteClip(); return; }
   if (e.code === 'KeyS' && !mod && tracks[selected]) { e.preventDefault(); cut(); }
 });
 window.addEventListener('resize', () => { clearTimeout(sizeCanvases.t); sizeCanvases.t = setTimeout(sizeCanvases, 120); });
@@ -1801,6 +1852,7 @@ const addLane = () => {
   tracks.push(lane);
   selected = tracks.length - 1;
   pick = null;
+  picks = new Set();
   render();
   save();
   document.querySelector(`.mx-row[data-i="${selected}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -1852,6 +1904,7 @@ async function fileToLane(chosen, index) {
   lane.clips.sort((x, y) => clipStart(x) - clipStart(y));
   selected = index;
   pick = lane.clips.find((c) => c.src === src);
+  picks = new Set(pick ? [pick] : []);
   updateDuration();
   render();
   if (playing) startAt(position());

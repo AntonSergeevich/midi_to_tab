@@ -1413,3 +1413,7 @@ header.top > nav.topnav {
 .mx-addlane:hover { background: rgba(217,154,78,.16); border-style: solid; }
 .mx-addlane-row { display: none; width: 100%; height: 44px; border-radius: 0 0 14px 14px; border-width: 1px 0 0; }
 @media (max-width: 720px) { .mx-addlane-row { display: block; } }
+
+/* Курсор не перехватывает щелчки по кускам: тянется за ручку сверху (и по линейке) */
+.mx-playhead { pointer-events: none; }
+.mx-playhead::before { pointer-events: auto; cursor: ew-resize; width: 16px; height: 16px; left: -1px; top: -2px; }
