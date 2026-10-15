@@ -1729,6 +1729,7 @@ def _studio_job_payload(job) -> dict:
     return {
         "id": job.id, "name": job.filename, "at": job.created_at, "status": job.status,
         "stage": job.stage, "progress": job.progress, "error": job.error, "fav": job.favorite,
+        "rights": (settings.get("rights") or {}).get("kind", ""),
         "mode": settings.get("mode"),
         "title": settings.get("title", "") + (
             f" · {settings.get('variant', 'новой версии').lower()}" if settings.get("from") else ""),

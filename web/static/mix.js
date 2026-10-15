@@ -128,6 +128,7 @@ function save() {
       metroMode: $('metroMode').value, trackHeight, lanes: layout(),
     }));
   } catch (error) { /* приватный режим -- просто без памяти */ }
+  refreshSplit();
 }
 
 const keyOf = (url, name) => (url ? decodeURIComponent(url.split('?')[0].split('/').pop()) : '') || name;
@@ -242,7 +243,9 @@ async function init() {
   $('sub').textContent = stems
     ? `${list.length} ${plural(list.length, 'дорожка', 'дорожки', 'дорожек')}${job.mode === 'stems' ? '' : ` · ${version.label}`}`
     : 'Одна дорожка — разделите трек, чтобы глушить отдельные инструменты';
-  if (!stems) showSplit(splitting);
+  hasStems = Boolean(stems);
+  showSplit(splitting);
+  if (stems) $('splitBox').hidden = true;      // покажется, когда появится монтаж (refreshSplit)
 
   // Аккорды и тональность: по партиям без голоса и барабанов, если трек
   // разделён (голос тянет ноты мимо аккорда), иначе -- по самой версии
@@ -331,6 +334,7 @@ async function loadTracks(list) {
   updateDuration();
   zoom = duration > 45 ? duration / 30 : 1;
   render();
+  refreshSplit();
 }
 
 // Звук дорожек -- через память устройства: открыли трек при интернете --
@@ -812,6 +816,25 @@ function gridBeats(bpm) {
 
 // ---------------------------------------------------------------- разделение
 
+// Смонтировано ли что-то: резка, сдвиги, обрезка, куски на чужих или
+// своих дорожках. Тогда «Разделить» раскладывает склейку, а не исходник.
+function edited() {
+  return tracks.some((t) => t.clips.length !== 1 || t.custom || t.clips.some((c) => c.src.key !== t.key
+    || Math.abs(c.offset) > 0.01 || c.trimStart > 0.01 || c.trimEnd < c.src.buffer.duration - 0.01));
+}
+
+let hasStems = false;
+function refreshSplit() {
+  if (!info || !info.services) return;
+  const glued = tracks.length && edited();
+  $('splitBox').hidden = hasStems && !glued;
+  if ($('splitBox').hidden) return;
+  $('splitTitle').textContent = glued ? 'Разложить склейку на дорожки' : 'Разложить трек на дорожки';
+  $('splitText').textContent = glued
+    ? 'Разложим то, что сейчас звучит на ленте, — вашу склейку: сохраним её отдельным треком «(склейка)» и разделим. Исходный трек останется как был.'
+    : 'Вокал, гитара, бас, барабаны, клавиши — отдельно. Заглушите то, что сыграете вживую.';
+}
+
 function showSplit(splitting) {
   $('splitBox').hidden = false;
   const s = info.services.stems;
@@ -826,6 +849,7 @@ function showSplit(splitting) {
 }
 
 async function split(pro) {
+  if (edited()) { splitGlued(pro); return; }
   const form = new FormData();
   form.append('file', file);
   form.append('pro', pro);
@@ -842,6 +866,60 @@ async function split(pro) {
     return;
   }
   waitSplit({ id: data.jobId, stage: 'В очереди' });
+}
+
+// Склейку -- отдельным треком «… (склейка)», и уже его -- на дорожки
+async function splitGlued(pro) {
+  if (!tracks.some((t) => audible(t) && t.clips.length)) { toast('Всё заглушено — раскладывать нечего'); return; }
+  $('splitGo').disabled = true;
+  $('splitPro').disabled = true;
+  const fail = (text) => {
+    note(esc(text));
+    $('splitGo').disabled = false;
+    $('splitPro').disabled = false;
+  };
+  try {
+    note('Сводим склейку…');
+    const rendered = await mixdown(0, duration).startRendering();
+    const base = (job && job.name || 'Трек').replace(/\.[^.]+$/, '').replace(/ \(склейка\)$/, '');
+    const form = new FormData();
+    form.append('file', wav(rendered), `${base} (склейка).wav`);
+    form.append('rights', ['own', 'cover'].includes(job && job.rights) ? job.rights : 'own');   // как у исходного трека
+    note('Сохраняем склейку отдельным треком…');
+    const up = await fetch('/api/studio/upload', { method: 'POST', body: form });
+    const made = await up.json().catch(() => ({}));
+    if (!up.ok) { fail(made.detail || 'Не получилось сохранить склейку'); return; }
+    // Дождаться, пока сервер примет файл (перекодирует), -- потом разделять
+    let glued = null;
+    for (let tries = 0; tries < 120 && !glued; tries++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const fresh = await (await fetch('/api/studio')).json();
+      const j = fresh.jobs.find((x) => x.id === made.jobId);
+      if (j && j.status === 'error') { fail(`Склейка не сохранилась: ${j.error || ''}`); return; }
+      if (j && j.status === 'done' && j.files.length) glued = j;
+    }
+    if (!glued) { fail('Сервер долго не отвечает — попробуйте ещё раз чуть позже'); return; }
+    const ask = new FormData();
+    ask.append('file', glued.files[0].name);
+    ask.append('pro', pro);
+    const response = await fetch(`/api/studio/${glued.id}/stems`, { method: 'POST', body: ask });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if (response.status === 402) {
+        note(`${esc(data.detail || 'Не хватает на балансе')} Склейка сохранена в Студии — разделите её оттуда после пополнения. `
+          + `<a href="/pricing?next=${encodeURIComponent(`/studio/mix/${glued.id}`)}">Пополнить</a>`);
+        $('splitGo').disabled = false;
+        $('splitPro').disabled = false;
+        return;
+      }
+      fail(data.detail || 'Не получилось запустить разделение');
+      return;
+    }
+    // Мультитрек склейки: там видно, как идёт разделение, и дорожки появятся сами
+    location.href = `/studio/mix/${glued.id}?file=${encodeURIComponent(glued.files[0].name)}`;
+  } catch (error) {
+    fail('Не получилось свести склейку в этом браузере');
+  }
 }
 
 async function waitSplit(splitting) {
@@ -1714,7 +1792,7 @@ window.addEventListener('resize', () => { clearTimeout(sizeCanvases.t); sizeCanv
 // «＋ Дорожка» -- пустая дорожка: в неё загружают файл с компьютера (кнопкой
 // или перетащив файл), перетаскивают кусок с другой дорожки, вставляют
 // скопированное.
-$('addTrack').addEventListener('click', () => {
+const addLane = () => {
   audio();
   remember();
   let n = tracks.length + 1;
@@ -1727,7 +1805,9 @@ $('addTrack').addEventListener('click', () => {
   save();
   document.querySelector(`.mx-row[data-i="${selected}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   toast('Пустая дорожка добавлена: загрузите в неё файл или перетащите кусок с другой дорожки');
-});
+};
+$('addTrack').addEventListener('click', addLane);
+$('addTrack2').addEventListener('click', addLane);
 
 $('addFile').addEventListener('change', async (e) => {
   const chosen = e.target.files[0];
@@ -1864,14 +1944,7 @@ $('exportGo').addEventListener('click', async () => {
     const to = part ? loop.b : duration;
     const interval = analysis && analysis.bpm ? 60 / analysis.bpm : 0;
     const lead = $('exportCount').checked && interval ? 4 * interval : 0;    // такт отсчёта перед музыкой
-    const offline = new OfflineAudioContext(2, Math.ceil((to - from + lead) * rate), rate);
-    tracks.forEach((t) => {
-      if (!audible(t) || !t.clips.length) return;
-      const g = offline.createGain();
-      g.gain.value = t.vol / 100;
-      g.connect(offline.destination);
-      t.clips.forEach((clip) => schedule(offline, clip, from, lead, g, to));
-    });
+    const offline = mixdown(from, to, lead, rate);
     if ($('exportMetro').checked || lead) {
       const out = window.metroSound.output(offline, $('metroVol').value);
       for (let k = 0; lead && k < 4; k++) window.metroSound.play(offline, out, k * interval, k === 0);
@@ -1896,6 +1969,21 @@ $('exportGo').addEventListener('click', async () => {
   }
   $('exportMix').disabled = false;
 });
+
+// Сведение того, что звучит (заглушённые -- нет), с from по to ленты,
+// со сдвигом lead секунд (такт отсчёта). Возвращает OfflineAudioContext:
+// метроном в него можно добавить до startRendering.
+function mixdown(from, to, lead = 0, rate = ctx.sampleRate) {
+  const offline = new OfflineAudioContext(2, Math.max(1, Math.ceil((to - from + lead) * rate)), rate);
+  tracks.forEach((t) => {
+    if (!audible(t) || !t.clips.length) return;
+    const g = offline.createGain();
+    g.gain.value = t.vol / 100;
+    g.connect(offline.destination);
+    t.clips.forEach((clip) => schedule(offline, clip, from, lead, g, to));
+  });
+  return offline;
+}
 
 // WAV 16 бит, стерео
 function wav(buffer) {

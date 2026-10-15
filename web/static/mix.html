@@ -77,7 +77,6 @@
     <button type="button" class="icon-btn" id="pasteBtn" disabled title="Вставить по курсору на выбранную дорожку (Ctrl+V)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6v3H9zM9 5H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-3"/><path d="M12 11v6m-3-3 3 3 3-3"/></svg> <span>Вставить</span></button>
     <button type="button" class="icon-btn" id="delClipBtn" disabled title="Удалить выбранный кусок (Delete)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg> <span>Удалить кусок</span></button>
     <button type="button" class="icon-btn" id="undoBtn" disabled title="Отменить последнее действие (Ctrl+Z)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg> <span>Отменить</span></button>
-    <button type="button" class="icon-btn" id="addTrack" title="Добавить пустую дорожку: загрузить в неё файл или перетащить кусок с другой дорожки"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> <span>Дорожка</span></button>
     <button type="button" class="icon-btn" id="exportMix" title="Скачать то, что сейчас звучит, одним файлом"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg> <span>Скачать микс</span></button>
     <button type="button" class="icon-btn" id="restoreTracks" hidden title="Вернуть убранные дорожки"></button>
     <input type="file" id="addFile" hidden accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a,.aac,.opus,.webm,.amr,.3gp">
@@ -125,17 +124,20 @@
       <div class="mx-lane"><canvas id="overview" height="26"></canvas></div>
     </div>
     <div class="mx-row mx-ruler-row">
-      <div class="mx-ctrl mx-ruler-label"><small>Такты · аккорды</small></div>
+      <div class="mx-ctrl mx-ruler-label mx-ruler-head"><small>Такты · аккорды</small>
+        <button type="button" class="mx-addlane" id="addTrack" title="Добавить пустую дорожку: загрузить в неё файл или перетащить кусок с другой дорожки">＋ Дорожка</button></div>
       <div class="mx-lane"><canvas id="ruler" height="46"></canvas></div>
     </div>
     <div id="tracks"></div>
+    <!-- На телефоне колонка с подписями скрыта -- «＋ Дорожка» строкой под дорожками -->
+    <button type="button" class="mx-addlane mx-addlane-row" id="addTrack2">＋ Дорожка</button>
     <div class="mx-playhead" id="playhead"></div>
   </section>
 
   <section class="mx-split" id="splitBox" hidden>
     <div>
-      <b>Разложить трек на дорожки</b>
-      <p class="muted">Вокал, гитара, бас, барабаны, клавиши — отдельно. Заглушите то, что сыграете вживую.</p>
+      <b id="splitTitle">Разложить трек на дорожки</b>
+      <p class="muted" id="splitText">Вокал, гитара, бас, барабаны, клавиши — отдельно. Заглушите то, что сыграете вживую.</p>
     </div>
     <button type="button" class="primary" id="splitGo">Разделить</button>
     <button type="button" id="splitPro" hidden>До 12 дорожек + MIDI</button>
