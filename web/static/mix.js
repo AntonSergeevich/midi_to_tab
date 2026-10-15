@@ -1608,8 +1608,10 @@ document.addEventListener('pointerdown', (e) => {
   }
   const ruler = e.target.closest('#ruler');
   if (ruler && duration) {
-    const from = secAt(e, ruler);
+    const rulerWidth = ruler.getBoundingClientRect().width;
+    const from = snapSec(secAt(e, ruler), rulerWidth, e.altKey);
     const adding = e.ctrlKey || e.metaKey || e.shiftKey;     // с Ctrl -- ещё одно место к выделенным
+    rulerDragging = true;
     ruler.setPointerCapture(e.pointerId);
     const finger = e.pointerType === 'touch';
     // пальцем -- повтор только после долгого нажатия, иначе протяжка двигает курсор
@@ -1620,7 +1622,8 @@ document.addEventListener('pointerdown', (e) => {
     }, 450) : null;
     const move = (ev) => {
       if (pinch) return;
-      const to = secAt(ev, ruler);
+      const to = snapSec(secAt(ev, ruler), rulerWidth, ev.altKey);
+      if (ev.pointerType !== 'touch') showHair(to);
       if (Math.abs(to - from) < viewLen() * 0.004) return;
       dragged = true;
       followPause = Date.now() + 4000;
@@ -1637,6 +1640,7 @@ document.addEventListener('pointerdown', (e) => {
     };
     const up = (ev) => {
       clearTimeout(hold);
+      rulerDragging = false;
       ruler.removeEventListener('pointermove', move);
       ruler.removeEventListener('pointerup', up);
       ruler.removeEventListener('pointercancel', up);
@@ -1645,7 +1649,8 @@ document.addEventListener('pointerdown', (e) => {
       if (!selecting) return;
       // Выделение -- только выделение: копировать его или включить «Повтор»
       // решает человек (раньше повтор включался сам, мешал копированию)
-      snapLoop();
+      // края уже стоят там, где показывал прицел (snapSec) -- не двигаем их
+      if (loop.b - loop.a < 0.05) loop.b = loop.a + 0.05;
       const fresh = { a: loop.a, b: loop.b };
       regions = adding ? regions.filter((r) => r.b <= fresh.a || r.a >= fresh.b).concat([fresh]) : [fresh];
       regions.sort((x, y) => x.a - y.a);
@@ -1722,6 +1727,57 @@ function drawOverview() {
   g.fillStyle = '#fff';
   g.fillRect((position() / duration) * w - 1, 0, 2, h);
 }
+
+// Прицел на линейке: точное место под мышью. К доле прилипает, только
+// когда она совсем рядом (8 пикселей), с Alt -- не прилипает вовсе: так
+// можно выделить ровно по доле или ровно там, где нужно между долями.
+function snapSec(sec, width, free) {
+  if (free || !beats.length) return sec;
+  const limit = (8 / width) * viewLen();
+  let best = sec;
+  let dist = limit;
+  for (const b of beats) {
+    const d = Math.abs(b - sec);
+    if (d < dist) { dist = d; best = b; }
+    if (b > sec + limit) break;
+  }
+  return best;
+}
+
+function barBeat(sec) {
+  if (!beats.length || sec < beats[0]) return '';
+  let k = 0;
+  while (k + 1 < beats.length && beats[k + 1] <= sec + 1e-6) k++;
+  const onBeat = Math.abs(beats[k] - sec) < 0.005;
+  return ` · такт ${(beatBar[k] ?? 0) + 1}, доля ${(beatPos[k] ?? 0) + 1}${onBeat ? '' : '+'}`;
+}
+
+const preciseClock = (sec) => {
+  const s = Math.max(0, sec);
+  return `${Math.floor(s / 60)}:${(s % 60).toFixed(2).padStart(5, '0')}`;
+};
+
+function showHair(sec) {
+  const hair = $('hair');
+  const lane = document.querySelector('.mx-ruler-row .mx-lane');
+  if (!lane || !duration || sec < viewStart || sec > viewStart + viewLen()) { hair.hidden = true; return; }
+  const board = $('board').getBoundingClientRect();
+  const box = lane.getBoundingClientRect();
+  hair.hidden = false;
+  hair.style.top = `${document.querySelector('.mx-ruler-row').offsetTop}px`;
+  hair.style.transform = `translateX(${box.left - board.left + ((sec - viewStart) / viewLen()) * box.width}px)`;
+  $('hairLabel').textContent = preciseClock(sec) + barBeat(sec);
+  // подпись -- не за краем доски
+  hair.classList.toggle('flip', box.left - board.left + ((sec - viewStart) / viewLen()) * box.width > board.width - 190);
+}
+
+document.addEventListener('pointermove', (e) => {
+  const ruler = e.target.closest && e.target.closest('#ruler');
+  if (!ruler || e.buttons || e.pointerType === 'touch') return;
+  showHair(snapSec(secAt(e, ruler), ruler.getBoundingClientRect().width, e.altKey));
+});
+$('ruler').addEventListener('pointerleave', () => { if (!rulerDragging) $('hair').hidden = true; });
+let rulerDragging = false;
 
 // Края повтора -- к ближайшим долям: кусок звучит ровно, без рваного начала
 function snapLoop() {
