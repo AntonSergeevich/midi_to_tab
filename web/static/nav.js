@@ -65,11 +65,62 @@
       const data = me || await (await fetch('/api/me')).json();
       const state = { ...badgeOf(data), email: data.registered ? data.email : '' };
       paint(state);
+      if (data.whatsNew) whatsNew(data.whatsNew);
       try { localStorage.setItem(CACHE, JSON.stringify(state)); } catch (error) { /* без памяти */ }
     } catch (error) {
       // Шапка -- не повод ломать страницу
     }
   };
+  // ---------------------------------------------- «Что нового» (как в «Твёрдом знаке»)
+  // Один раз после обновления: что изменилось и где теперь, не больше пяти
+  // пунктов. Закрыли любым способом -- сервер запоминает версию, и окно не
+  // всплывёт ни здесь, ни на другом устройстве. Подробности -- /updates.
+  let told = false;
+  function whatsNew(info) {
+    if (told || !info || !info.changes || !info.changes.length) return;
+    if (/^\/(updates|admin|offer|privacy)/.test(location.pathname)) return;
+    told = true;
+    const account = document.getElementById('account');
+    if (account && !account.querySelector('.nav-dot')) {
+      const dot = document.createElement('span');
+      dot.className = 'nav-dot';
+      dot.title = 'Есть обновления';
+      account.appendChild(dot);
+    }
+    const esc = (t) => String(t || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const dialog = document.createElement('dialog');
+    dialog.className = 'whats-new';
+    dialog.setAttribute('aria-labelledby', 'whatsNewTitle');
+    dialog.innerHTML = `<p class="whats-new-kicker">${esc(info.label)}</p>
+      <h2 class="whats-new-title" id="whatsNewTitle">${esc(info.title)}</h2>
+      <ul class="whats-new-list">${info.changes.map((c) => `<li><b>${esc(c.title)}</b>`
+        + `${c.where ? `<span>Где: ${esc(c.where)}</span>` : ''}</li>`).join('')}</ul>
+      ${info.more ? `<p class="whats-new-more">И ещё ${info.more} — на странице обновлений</p>` : ''}
+      <div class="whats-new-actions">
+        <button type="button" class="primary" data-close autofocus>Понятно</button>
+        <a href="/updates" data-more>Подробнее</a>
+      </div>`;
+    document.body.appendChild(dialog);
+    let seen = false;
+    const markSeen = () => {
+      if (seen) return;
+      seen = true;
+      // sendBeacon долетает, даже если человек в ту же секунду ушёл со страницы
+      if (!(navigator.sendBeacon && navigator.sendBeacon('/api/updates/seen'))) {
+        fetch('/api/updates/seen', { method: 'POST', keepalive: true }).catch(() => {});
+      }
+      document.querySelectorAll('.nav-dot').forEach((d) => d.remove());
+    };
+    dialog.addEventListener('close', markSeen);
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog || e.target.closest('[data-close]')) dialog.close();
+      if (e.target.closest('[data-more]')) markSeen();
+    });
+    if (typeof dialog.showModal !== 'function') return;
+    // Не поверх только что открывшейся страницы, а через мгновение после
+    setTimeout(() => { if (!dialog.open && !document.querySelector('dialog[open], .mx-sheet:not([hidden])')) dialog.showModal(); }, 700);
+  }
+
   window.refreshNav();
 
   // ------------------------------------------- приложение и без интернета

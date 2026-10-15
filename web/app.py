@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import os
 import re
 import secrets
@@ -35,7 +36,7 @@ from midi2tab import audiochords, audioin, lyrics as lyrics_mod, separate
 from midi2tab.timing import GRIDS
 from midi2tab.tuning import TUNINGS
 
-from . import auth, billing, mailer, oauth, seo, studio, support
+from . import auth, billing, mailer, oauth, releases, seo, studio, support
 from . import jobs as jobs_module
 from .jobs import JobRunner
 from .storage import Storage
@@ -1111,6 +1112,9 @@ def api_me(request: Request):
     payload["unlimited"] = user.unlimited
     payload["studioCredits"] = user.studio_credits
     payload["prefs"] = storage.prefs(user.id)
+    # «Что нового» -- тем, кто уже пользовался сервисом (а не новичку)
+    payload["whatsNew"] = (releases.notice(storage.release_seen(user.id), user.created_at)
+                           if user.registered or storage.has_jobs(user.id) else None)
     payload["tier"] = user.tier if user.subscribed else ""
     payload["studioPlan"] = user.studio_plan
     # Каталог тарифов -- для профиля: подписки на кредиты и пакеты без подписки
@@ -3056,6 +3060,34 @@ async def api_webhook(gateway_name: str, request: Request):
         "succeeded" if first_time else "succeeded (повтор, начислять нечего)",
     )
     return {"ok": True}
+
+
+@app.post("/api/updates/seen")
+def api_updates_seen(request: Request):
+    """Окно «Что нового» закрыли -- больше не показывать (и на других устройствах)."""
+    user = current_user(request)
+    storage.set_release_seen(user.id, releases.CURRENT.version)
+    return {"ok": True, "version": releases.CURRENT.version}
+
+
+@app.get("/updates", response_class=HTMLResponse)
+def updates_page() -> HTMLResponse:
+    """Все обновления: версия, дата, что нового и где это теперь."""
+    months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября",
+              "октября", "ноября", "декабря"]
+    index = "".join(f'<a href="#{r.anchor}">{r.version}</a>' for r in releases.RELEASES)
+    body = []
+    for r in releases.RELEASES:
+        items = "".join(
+            f'<li class="rel-change"><span class="rel-kind rel-kind-{c.kind}">{html.escape(c.kind_label)}</span>'
+            f'<h3>{html.escape(c.title)}</h3><p>{html.escape(c.text)}</p>'
+            + (f'<p class="rel-where">Где: {html.escape(c.where)}</p>' if c.where else "") + "</li>"
+            for c in r.changes)
+        body.append(f'<section class="rel" id="{r.anchor}"><header class="rel-head"><span class="rel-version">'
+                    f'{r.version}</span><div><h2>{html.escape(r.title)}</h2><p class="muted">'
+                    f'{r.date.day} {months[r.date.month - 1]} {r.date.year}</p></div></header>'
+                    f'<p class="rel-summary">{html.escape(r.summary)}</p><ol class="rel-list">{items}</ol></section>')
+    return page("updates.html", {"INDEX": index, "RELEASES": "".join(body)})
 
 
 @app.get("/sw.js", include_in_schema=False)

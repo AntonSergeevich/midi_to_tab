@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15161c">
+<title>NASLUX — что нового</title>
+<meta name="description" content="Обновления NASLUX: что нового, что стало удобнее и где это теперь.">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/static/favicon-120.png" type="image/png" sizes="120x120">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
+    <nav class="topnav" aria-label="Разделы">
+      <a href="/">Разобрать трек</a>
+      <a href="/studio">Студия</a>
+      <a href="/pricing">Тарифы</a>
+      <a href="/account" id="account" class="who">Вход</a>
+      <a href="/pricing" id="access" class="badge" hidden></a>
+    </nav>
+  </header>
+  <script src="/static/nav.js"></script>
+
+  <section class="hero rel-hero">
+    <h1>Что нового</h1>
+    <p class="lead">Что изменилось в NASLUX и где это теперь</p>
+  </section>
+  <nav class="rel-index" aria-label="Версии">{{INDEX}}</nav>
+  {{RELEASES}}
+
+  <footer class="legal">
+    <a href="/privacy">Политика конфиденциальности</a>
+    <a href="/offer">Оферта</a>
+    <a href="/updates">Что нового</a>
+    <span>© NASLUX</span>
+  </footer>
+</div>
+<script src="/static/consent.js"></script>
+</body>
+</html>

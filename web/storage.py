@@ -245,6 +245,8 @@ class Storage:
             ("welcome_given", "INTEGER NOT NULL DEFAULT 0"),
             # Личная среда (JSON): свои названия дорожек, свои стили
             ("prefs", "TEXT"),
+            # Окно «Что нового»: о какой версии уже рассказали
+            ("release_seen", "TEXT NOT NULL DEFAULT ''"),
         ):
             if column not in existing:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
@@ -354,6 +356,19 @@ class Storage:
     def set_prefs(self, user_id: str, prefs: dict) -> None:
         with self._connect() as conn:
             conn.execute("UPDATE users SET prefs = ? WHERE id = ?", (json.dumps(prefs, ensure_ascii=False), user_id))
+
+    def release_seen(self, user_id: str) -> str:
+        with self._connect() as conn:
+            row = conn.execute("SELECT release_seen FROM users WHERE id = ?", (user_id,)).fetchone()
+        return (row["release_seen"] or "") if row else ""
+
+    def set_release_seen(self, user_id: str, version: str) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE users SET release_seen = ? WHERE id = ?", (version, user_id))
+
+    def has_jobs(self, user_id: str) -> bool:
+        with self._connect() as conn:
+            return conn.execute("SELECT 1 FROM jobs WHERE user_id = ? LIMIT 1", (user_id,)).fetchone() is not None
 
     def set_studio_credits(self, user_id: str, count: int) -> None:
         """Ровно столько кредитов -- выдаёт владелец в админке."""

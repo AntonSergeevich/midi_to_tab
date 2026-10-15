@@ -2078,3 +2078,27 @@ def test_my_instrument_names_are_kept_in_profile(studio_app):
     client.post("/api/me/prefs", data={"key": "instruments", "remove": "Скретчи dj"})
     assert client.get("/api/me").json()["prefs"]["instruments"] == ["гармонь тульская"]
     assert client.post("/api/me/prefs", data={"key": "password", "add": "x"}).status_code == 400
+
+
+def test_whats_new_window_once_for_existing_users(studio_app):
+    """«Что нового» (как в «Твёрдом знаке»): тем, кто пользовался сервисом до
+    обновления, -- один раз; закрыли -- больше не всплывает; новичку -- нет."""
+    app_module, client, user, submitted = studio_app
+    from web import releases
+
+    store = app_module.storage
+    assert client.get("/api/me").json()["whatsNew"] is None          # ничего не делал -- не показываем
+    store.create_job(user.id, "песня.mp3", {"kind": "studio", "mode": "create"})
+    with store._connect() as conn:                                      # пришёл до обновлений
+        conn.execute("UPDATE users SET created_at = ? WHERE id = ?", (releases.RELEASES[-1].released_at - 86400, user.id))
+    notice = client.get("/api/me").json()["whatsNew"]
+    assert notice and notice["version"] == releases.CURRENT.version
+    assert 0 < len(notice["changes"]) <= releases.WINDOW_ITEMS and notice["changes"][0]["where"]
+    assert client.post("/api/updates/seen").json()["version"] == releases.CURRENT.version
+    assert client.get("/api/me").json()["whatsNew"] is None
+    # новичок, пришедший после всех версий, окна не видит
+    assert releases.notice("", releases.CURRENT.released_at + 3600) is None
+    page = client.get("/updates")
+    assert page.status_code == 200 and "{{" not in page.text
+    for release in releases.RELEASES:
+        assert f'id="{release.anchor}"' in page.text
