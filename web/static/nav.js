@@ -94,8 +94,8 @@
     dialog.innerHTML = `<p class="whats-new-kicker">${esc(info.label)}</p>
       <h2 class="whats-new-title" id="whatsNewTitle">${esc(info.title)}</h2>
       <ul class="whats-new-list">${info.changes.map((c) => `<li><b>${esc(c.title)}</b>`
-        + `${c.where ? `<span>Где: ${esc(c.where)}</span>` : ''}</li>`).join('')}</ul>
-      ${info.more ? `<p class="whats-new-more">И ещё ${info.more} — на странице обновлений</p>` : ''}
+        + `${c.where ? `<span><i>Где:</i> ${esc(c.where)}</span>` : ''}</li>`).join('')}</ul>
+      ${info.more ? `<p class="whats-new-more"><span>И ещё</span> ${info.more} <span>— на странице обновлений</span></p>` : ''}
       <div class="whats-new-actions">
         <button type="button" class="primary" data-close autofocus>Понятно</button>
         <a href="/updates" data-more>Подробнее</a>

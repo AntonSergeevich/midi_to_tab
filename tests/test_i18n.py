@@ -34,3 +34,24 @@ def test_every_page_loads_the_translator_once(monkeypatch, tmp_path):
             # первым скриптом в <head>, сразу после кодировки -- до того, как страница видна
             head = html[:html.index("</head>")]
             assert head.index("i18n.js") < head.index("<title>") if "<title>" in head else True, path
+
+
+def test_every_release_note_has_an_english_translation():
+    """Окно «Что нового» и /updates -- и по-английски: у каждой фразы
+    обновления должен быть перевод, иначе новая версия выйдет полурусской."""
+    import json as _json
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parent.parent
+    _sys.path.insert(0, str(root))
+    from web import releases
+
+    en = _json.loads((root / "web" / "i18n" / "en.json").read_text(encoding="utf-8"))
+    missing = []
+    for release in releases.RELEASES:
+        phrases = [release.title, release.summary, f"Что нового: {release.title.lower()}"]
+        for change in release.changes:
+            phrases += [change.title, change.text, change.kind_label] + ([change.where] if change.where else [])
+        missing += [p for p in phrases if p not in en]
+    assert not missing, f"нет перевода в web/i18n/en.json: {missing}"

@@ -1393,3 +1393,4 @@ header.top > nav.topnav {
   padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(217,154,78,.5); color: var(--accent); }
 .rel-kind-better { border-color: rgba(106,168,240,.55); color: #8fbcf3; }
 .rel-kind-fixed { border-color: rgba(127,209,139,.55); color: #7fd18b; }
+.whats-new-list span i { font-style: normal; }

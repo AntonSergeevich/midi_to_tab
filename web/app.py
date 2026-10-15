@@ -3081,7 +3081,7 @@ def updates_page() -> HTMLResponse:
         items = "".join(
             f'<li class="rel-change"><span class="rel-kind rel-kind-{c.kind}">{html.escape(c.kind_label)}</span>'
             f'<h3>{html.escape(c.title)}</h3><p>{html.escape(c.text)}</p>'
-            + (f'<p class="rel-where">Где: {html.escape(c.where)}</p>' if c.where else "") + "</li>"
+            + (f'<p class="rel-where"><span>Где:</span> {html.escape(c.where)}</p>' if c.where else "") + "</li>"
             for c in r.changes)
         body.append(f'<section class="rel" id="{r.anchor}"><header class="rel-head"><span class="rel-version">'
                     f'{r.version}</span><div><h2>{html.escape(r.title)}</h2><p class="muted">'
