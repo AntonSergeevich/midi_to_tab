@@ -364,7 +364,7 @@ function statusLine(j) {
   if (j.status === 'error') {
     return `<span class="bad">${pick(OOPS, seedOf(j.id))}</span><span class="muted">${esc(j.error)}</span>`;
   }
-  if (j.expired) return '<span class="muted">файлы удалены по сроку хранения</span>';
+  if (j.expired) return '<span class="muted">файлы удалены: трек долго не открывали. Загрузите его заново и отметьте ★</span>';
   if (j.status !== 'done') {
     const tick = Math.floor(Date.now() / 7000) + seedOf(j.id);
     return `<span class="muted">${esc(j.stage || 'В очереди')}</span>
@@ -374,7 +374,10 @@ function statusLine(j) {
   const when = new Date(j.at * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
   const length = j.files[0] && j.files[0].seconds ? ` · ${time(j.files[0].seconds)}` : '';
   const key = j.key ? ` · <b class="st-key">${esc(j.key)}${j.bpm ? ` · ${j.bpm} BPM` : ''}</b>` : '';
-  return `<span class="muted">${esc(MODE[j.mode] ? MODE[j.mode].title : j.title)}${key}${length} · ${when}</span>`;
+  // Скоро уборка: за неделю предупреждаем -- ★ сохраняет трек навсегда
+  const left = j.expiresAt && !j.fav ? Math.ceil((j.expiresAt * 1000 - Date.now()) / 86400000) : 99;
+  const soon = left <= 7 ? `<span class="st-expire">удалится через ${Math.max(1, left)} ${plural(Math.max(1, left), 'день', 'дня', 'дней')} — ☆ сохранит навсегда</span>` : '';
+  return `<span class="muted">${esc(MODE[j.mode] ? MODE[j.mode].title : j.title)}${key}${length} · ${when}</span>${soon}`;
 }
 
 function playButton(f, title) {

@@ -13,8 +13,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -22,6 +24,11 @@ from pathlib import Path
 DATA_DIR = Path(os.environ.get("MIDI2TAB_DATA", "/opt/nasluh/data"))
 KEEP_UPLOADS_DAYS = float(os.environ.get("NASLUH_KEEP_UPLOADS_DAYS", "14"))
 KEEP_STEMS_DAYS = float(os.environ.get("NASLUH_KEEP_STEMS_DAYS", "14"))
+# Треки Студии (mp3, единицы мегабайт) -- 60 дней с ПОСЛЕДНЕГО открытия:
+# сайт обновляет время папки, когда трек слушают или открывают в
+# мультитреке. 14 дней с создания (до 15.10) удаляли песню, с которой
+# владелец репетировал. Избранное (★) не удаляется никогда.
+KEEP_STUDIO_DAYS = float(os.environ.get("NASLUH_KEEP_STUDIO_DAYS", "60"))
 # Ниже этой доли свободного места удаляем агрессивнее, не дожидаясь срока
 LOW_DISK_RATIO = float(os.environ.get("NASLUH_LOW_DISK_RATIO", "0.12"))
 
@@ -50,14 +57,42 @@ def free_ratio(path: Path) -> float:
     return usage.free / usage.total
 
 
-def sweep(root: Path, max_age_days: float, label: str) -> tuple[int, int]:
-    """Удалить папки старше срока. Возвращает (сколько, сколько байт)."""
+def favorites(data_dir: Path) -> set[str]:
+    """Треки в избранном (★) -- их файлы не трогаем. Нет базы -- пусто."""
+    db = data_dir / "app.db"
+    if not db.is_file():
+        return set()
+    try:
+        with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+            if "favorite" not in columns:
+                return set()
+            keep = {row[0] for row in conn.execute("SELECT id FROM jobs WHERE favorite = 1")}
+            # И всё, что сделано из избранного трека: его дорожки, версии,
+            # разборы -- иначе мультитрек избранной песни остался бы пустым
+            for _ in range(3):
+                more = {row[0] for row in conn.execute(
+                    "SELECT id FROM jobs WHERE json_extract(settings, '$.from') IN (SELECT value FROM json_each(?))"
+                    " OR json_extract(settings, '$.parent') IN (SELECT value FROM json_each(?))"
+                    " OR json_extract(settings, '$.studio') IN (SELECT value FROM json_each(?))",
+                    (json.dumps(sorted(keep)),) * 3)}
+                if more <= keep:
+                    break
+                keep |= more
+            return keep
+    except sqlite3.Error as exc:
+        print(f"  база недоступна, избранное не прочитано: {exc}", file=sys.stderr)
+        raise
+
+
+def sweep(root: Path, max_age_days: float, label: str, keep: set[str] = frozenset()) -> tuple[int, int]:
+    """Удалить папки старше срока, кроме keep. Возвращает (сколько, сколько байт)."""
     if not root.is_dir():
         return 0, 0
     deadline = time.time() - max_age_days * 86400
     removed = freed = 0
     for entry in sorted(root.iterdir(), key=lambda p: p.stat().st_mtime if p.exists() else 0):
-        if not entry.is_dir():
+        if not entry.is_dir() or entry.name in keep:
             continue
         try:
             if entry.stat().st_mtime > deadline:
@@ -73,7 +108,7 @@ def sweep(root: Path, max_age_days: float, label: str) -> tuple[int, int]:
     return removed, freed
 
 
-def sweep_stems(results: Path, max_age_days: float) -> tuple[int, int]:
+def sweep_stems(results: Path, max_age_days: float, keep: set[str] = frozenset()) -> tuple[int, int]:
     """
     Удалить только партии внутри результатов, сам разбор оставить.
 
@@ -85,6 +120,8 @@ def sweep_stems(results: Path, max_age_days: float) -> tuple[int, int]:
     deadline = time.time() - max_age_days * 86400
     removed = freed = 0
     for job_dir in results.iterdir():
+        if job_dir.name in keep:
+            continue
         stems = job_dir / "stems"
         if not stems.is_dir():
             continue
@@ -110,17 +147,25 @@ def main() -> int:
     before = free_ratio(DATA_DIR)
     print(f"Свободно на диске: {before * 100:.0f}%")
 
-    keep_uploads, keep_stems = KEEP_UPLOADS_DAYS, KEEP_STEMS_DAYS
+    keep_uploads, keep_stems, keep_studio = KEEP_UPLOADS_DAYS, KEEP_STEMS_DAYS, KEEP_STUDIO_DAYS
     if before < LOW_DISK_RATIO:
         # Места мало -- режем сроки вчетверо, иначе сервис встанет
         keep_uploads = max(1.0, keep_uploads / 4)
         keep_stems = max(1.0, keep_stems / 4)
-        print(f"Мало места, сокращаю сроки до {keep_uploads:.0f} и {keep_stems:.0f} дней")
+        keep_studio = max(7.0, keep_studio / 4)
+        print(f"Мало места, сокращаю сроки до {keep_uploads:.0f}, {keep_stems:.0f} и {keep_studio:.0f} дней")
+    # База не прочиталась -- не знаем, что в избранном: лучше ничего не удалять
+    try:
+        starred = favorites(DATA_DIR)
+    except sqlite3.Error:
+        return 1
+    if starred:
+        print(f"В избранном треков: {len(starred)} -- их не трогаем")
 
-    sweep(DATA_DIR / "uploads", keep_uploads, "Загрузки")
-    sweep_stems(DATA_DIR / "results", keep_stems)
+    sweep(DATA_DIR / "uploads", keep_uploads, "Загрузки", starred)
+    sweep_stems(DATA_DIR / "results", keep_stems, starred)
     # Студия: исходник и результаты GPU-обработки (переделки, стемы).
-    sweep(DATA_DIR / "studio", keep_stems, "Студия")
+    sweep(DATA_DIR / "studio", keep_studio, "Студия", starred)
 
     after = free_ratio(DATA_DIR)
     print(f"Стало свободно: {after * 100:.0f}%")

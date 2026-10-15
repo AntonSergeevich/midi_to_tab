@@ -553,3 +553,35 @@ def test_no_memory_high_throttling(unit):
     lines = [line for line in unit.splitlines() if not line.lstrip().startswith("#")]
     assert any(line.startswith("MemoryMax=") for line in lines)
     assert not any(line.startswith("MemoryHigh=") for line in lines)
+
+
+def test_cleanup_keeps_favorites_and_recently_used(tmp_path, monkeypatch):
+    """15.10: песню для репетиции удалила уборка через 14 дней. Теперь
+    треки Студии живут 60 дней с последнего открытия, а избранное (★) и
+    всё, что из него сделано (дорожки), -- всегда."""
+    import importlib
+    import json as _json
+    import os as _os
+    import sqlite3
+    import sys as _sys
+    import time as _time
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path))
+    _sys.path.insert(0, str(DEPLOY))
+    cleanup = importlib.import_module("cleanup")
+    cleanup = importlib.reload(cleanup)
+    monkeypatch.setattr(cleanup, "LOW_DISK_RATIO", 0.0)   # диск машины с тестами не в счёт
+    with sqlite3.connect(tmp_path / "app.db") as conn:
+        conn.execute("CREATE TABLE jobs (id TEXT, settings TEXT, favorite INTEGER NOT NULL DEFAULT 0)")
+        conn.executemany("INSERT INTO jobs VALUES (?, ?, ?)", [
+            ("star", "{}", 1), ("stems", _json.dumps({"from": "star"}), 0),
+            ("old", "{}", 0), ("used", "{}", 0), ("month", "{}", 0)])
+    for name, age_days in (("star", 100), ("stems", 100), ("old", 100), ("used", 1), ("month", 30)):
+        folder = tmp_path / "studio" / name
+        folder.mkdir(parents=True)
+        (folder / "v1.mp3").write_bytes(b"x")
+        stamp = _time.time() - age_days * 86400
+        _os.utime(folder, (stamp, stamp))
+    assert cleanup.main() == 0
+    left = {p.name for p in (tmp_path / "studio").iterdir()}
+    assert left == {"star", "stems", "used", "month"}

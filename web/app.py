@@ -402,7 +402,27 @@ def api_health(request: Request):
         "время": time.time(),
         "версия": deployed_commit(),
         "зависания": _hangs(),
+        "диск": _disk(),
     }
+
+
+def _disk() -> dict:
+    """Сколько места: от этого зависит, как долго можно хранить треки."""
+    usage = shutil.disk_usage(DATA_DIR)
+    gb = lambda n: round(n / 1024 ** 3, 1)  # noqa: E731
+
+    def size(path: str) -> int:
+        total = 0
+        for root, _dirs, files in os.walk(path):
+            for name in files:
+                try:
+                    total += os.path.getsize(os.path.join(root, name))
+                except OSError:
+                    pass
+        return total
+
+    return {"всего_ГБ": gb(usage.total), "свободно_ГБ": gb(usage.free),
+            **{f"{name}_ГБ": gb(size(os.path.join(DATA_DIR, name))) for name in ("studio", "results", "uploads")}}
 
 
 def _hangs() -> dict:
@@ -1734,6 +1754,7 @@ def _studio_job_payload(job) -> dict:
         "chords": _chord_line(result),
         # Файлы Студии уборка удаляет через 14 дней (deploy/cleanup.py)
         "expired": job.status == "done" and not files and not result.get("midi"),
+        "expiresAt": _studio_expires(job) if files else None,
     }
 
 
@@ -2586,6 +2607,31 @@ async def api_studio_upload(job_id: str, request: Request, e: int = 0, s: str = 
     return {"ok": True, "bytes": size}
 
 
+def _touch_used(folder: str) -> None:
+    """Трек слушают или открыли в мультитреке -- отодвинуть его уборку
+    (deploy/cleanup.py удаляет треки Студии через 60 дней без открытий).
+    Не чаще раза в час: время папки -- и есть «последний раз открывали»."""
+    try:
+        if time.time() - os.stat(folder).st_mtime > 3600:
+            os.utime(folder)
+    except OSError:
+        pass
+
+
+STUDIO_KEEP_DAYS = float(os.environ.get("NASLUH_KEEP_STUDIO_DAYS", "60"))
+
+
+def _studio_expires(job) -> float | None:
+    """Когда уборка удалит файлы трека: не в избранном -- через 60 дней
+    после последнего открытия."""
+    if job.favorite or job.status != "done":
+        return None
+    try:
+        return os.stat(studio_runner.folder(job.id)).st_mtime + STUDIO_KEEP_DAYS * 86400
+    except OSError:
+        return None
+
+
 @app.get("/api/studio/file/{job_id}/{name}")
 def api_studio_file(job_id: str, name: str, request: Request):
     user = current_user(request)
@@ -2596,6 +2642,8 @@ def api_studio_file(job_id: str, name: str, request: Request):
     path = os.path.join(studio_runner.folder(job_id), safe)
     if not os.path.isfile(path):
         raise HTTPException(404, "Файл не найден")
+    if safe != "cover.jpg":
+        _touch_used(studio_runner.folder(job_id))
     if safe == "cover.jpg":
         return FileResponse(path, media_type="image/jpeg",
                             headers={"Cache-Control": "private, max-age=86400"})
