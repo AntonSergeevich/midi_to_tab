@@ -118,7 +118,7 @@
     });
     if (typeof dialog.showModal !== 'function') return;
     // Не поверх только что открывшейся страницы, а через мгновение после
-    setTimeout(() => { if (!dialog.open && !document.querySelector('dialog[open], .mx-sheet:not([hidden])')) dialog.showModal(); }, 700);
+    setTimeout(() => { if (!dialog.open && !document.querySelector('dialog[open], .mx-sheet:not([hidden]), .mx-rec.on')) dialog.showModal(); }, 700);
   }
 
   window.refreshNav();

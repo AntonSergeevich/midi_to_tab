@@ -66,6 +66,11 @@ let downbeats = new Set();
 let nextBeat = 0;
 let metroOn = false;
 let countIn = false;
+let rec = null;              // идёт запись голоса (см. «запись голоса»)
+let mic = null;              // поток микрофона
+let micFor = '';             // какой микрофон открыт
+let micMeter = null;         // индикатор уровня в окне записи
+let recorderReady = null;
 const loop = { on: false, a: 0, b: 0 };   // последнее выделение на линейке -- его играет «Повтор»
 // Все выделенные места на линейке (с Ctrl -- несколько): их копируют,
 // вырезают и удаляют на выбранной дорожке
@@ -117,7 +122,7 @@ function audio() {
   // вдвое меньше, чем на 44.1 кГц.
   try { ctx = new Ctx({ sampleRate: 32000 }); } catch (error) { ctx = new Ctx(); }
   master = ctx.createGain();
-  master.connect(ctx.destination);
+  master.connect(limiter(ctx)).connect(ctx.destination);
   metroGain = window.metroSound.output(ctx, $('metroVol').value);
   return ctx;
 }
@@ -130,7 +135,7 @@ function saved() {
 // можно менять). Куски из ещё не сохранённых на сервере файлов не пишем.
 function layout() {
   return tracks.map((t) => ({
-    key: t.key, name: t.name, custom: Boolean(t.custom), mute: t.mute, solo: t.solo, vol: t.vol,
+    key: t.key, name: t.name, custom: Boolean(t.custom), mute: t.mute, solo: t.solo, vol: t.vol, fx: t.fx || '',
     clips: t.clips.filter((c) => !c.src.local).map((c) => ({ src: c.src.key, offset: c.offset,
       trimStart: c.trimStart, trimEnd: c.trimEnd })),
   })).filter((l) => l.clips.length || l.custom || !l.key.startsWith('local:'));
@@ -157,10 +162,101 @@ function updateDuration() {
 
 function makeLane(name, extra = {}) {
   const gain = ctx.createGain();
-  gain.connect(master);
-  return { name, key: extra.key || `lane:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-    url: '', orig: '', extra: '', custom: false, mute: false, solo: false, vol: 100, ...extra,
+  const lane = { name, key: extra.key || `lane:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    url: '', orig: '', extra: '', custom: false, mute: false, solo: false, vol: 100, fx: '', ...extra,
     gain, color: colorOf(name), clips: [] };
+  route(lane);
+  return lane;
+}
+
+// ------------------------------------------------- обработка дорожки
+// Готовые цепочки (как в Audition, только одной кнопкой): обрезать гул,
+// убрать «бубнёж», добавить разборчивости, выровнять громкость
+// компрессором, по желанию -- зал. Звучит сразу и попадает в микс.
+const FX = {
+  '': { title: 'Без обработки', text: 'Как записано' },
+  clean: { title: 'Чистый голос', text: 'Срезать гул и «бубнёж», разборчивость, ровная громкость' },
+  studio: { title: 'Студия', text: 'Чистый голос + небольшая комната — как на записи' },
+  hall: { title: 'Зал', text: 'Чистый голос + большой зал — для баллад' },
+  radio: { title: 'Радио', text: 'Узкая полоса, как в телефоне — для вставок и эффектов' },
+  inst: { title: 'Мягкий инструмент', text: 'Срезать гул и немного выровнять — для гитары, клавиш' },
+};
+const irCache = new WeakMap();
+
+function impulse(c, seconds, decay) {
+  let byLen = irCache.get(c);
+  if (!byLen) { byLen = {}; irCache.set(c, byLen); }
+  const id = `${seconds}:${decay}`;
+  if (byLen[id]) return byLen[id];
+  const n = Math.round(c.sampleRate * seconds);
+  const buf = c.createBuffer(2, n, c.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, decay);
+  }
+  byLen[id] = buf;
+  return buf;
+}
+
+// Цепочка на контексте c (живой звук или сведение в файл): {input, output}
+function fxChain(c, kind) {
+  const input = c.createGain();
+  const output = c.createGain();
+  if (!kind || !FX[kind]) { input.connect(output); return { input, output }; }
+  const filter = (type, freq, q = 0.7, gain = 0) => {
+    const f = c.createBiquadFilter();
+    f.type = type; f.frequency.value = freq; f.Q.value = q; f.gain.value = gain;
+    return f;
+  };
+  const chain = [];
+  if (kind === 'radio') {
+    chain.push(filter('highpass', 350, 0.9), filter('lowpass', 3200, 0.9), filter('peaking', 1500, 1, 4));
+  } else {
+    chain.push(filter('highpass', kind === 'inst' ? 60 : 90, 0.7));
+    if (kind !== 'inst') {
+      chain.push(filter('peaking', 280, 1, -2.5), filter('peaking', 3200, 0.9, 3), filter('highshelf', 10000, 0.7, 2));
+    }
+  }
+  const comp = c.createDynamicsCompressor();
+  comp.threshold.value = kind === 'inst' ? -16 : -22;
+  comp.knee.value = 6;
+  comp.ratio.value = kind === 'inst' ? 2 : 3.5;
+  comp.attack.value = 0.006;
+  comp.release.value = 0.16;
+  const makeup = c.createGain();
+  makeup.gain.value = kind === 'inst' ? 1.15 : 1.5;
+  chain.push(comp, makeup);
+  let node = input;
+  chain.forEach((next) => { node.connect(next); node = next; });
+  node.connect(output);
+  if (kind === 'studio' || kind === 'hall') {
+    const verb = c.createConvolver();
+    verb.buffer = kind === 'hall' ? impulse(c, 3.2, 3) : impulse(c, 1.4, 4);
+    const wet = c.createGain();
+    wet.gain.value = kind === 'hall' ? 0.32 : 0.18;
+    node.connect(verb).connect(wet).connect(output);
+  }
+  return { input, output };
+}
+
+// Ограничитель на общем выходе: громкий дубль плюс дорожки не хрипят ни в
+// наушниках, ни в скачанном миксе (тише -1 дБ он ничего не трогает)
+function limiter(c) {
+  const l = c.createDynamicsCompressor();
+  l.threshold.value = -1;
+  l.knee.value = 0;
+  l.ratio.value = 20;
+  l.attack.value = 0.002;
+  l.release.value = 0.08;
+  return l;
+}
+
+function route(lane) {
+  try { lane.gain.disconnect(); } catch (error) { /* ещё не подключён */ }
+  if (lane.fxNodes) { try { lane.fxNodes.output.disconnect(); } catch (error) { /* */ } }
+  lane.fxNodes = fxChain(ctx, lane.fx);
+  lane.gain.connect(lane.fxNodes.input);
+  lane.fxNodes.output.connect(master);
 }
 
 function makeClip(src, r = {}) {
@@ -190,6 +286,7 @@ function undo() {
   prev.forEach((p) => { if (!tracks.some((t) => t.gain === p.gain)) p.gain.connect(master); });
   tracks.length = 0;
   tracks.push(...prev);
+  tracks.forEach(route);
   pick = null;
   picks = new Set();
   selected = Math.min(selected, tracks.length - 1);
@@ -317,7 +414,7 @@ async function loadTracks(list) {
       if (!item && !l.custom && !(l.clips || []).length) return;
       const lane = makeLane(item && !l.custom ? item.name : (l.name || 'Дорожка'),
         { ...(item ? origin(item) : { key: l.key }), custom: Boolean(l.custom) && !item,
-          mute: Boolean(l.mute), solo: Boolean(l.solo), vol: l.vol ?? 100 });
+          mute: Boolean(l.mute), solo: Boolean(l.solo), vol: l.vol ?? 100, fx: FX[l.fx] ? l.fx : '' });
       lane.clips = (l.clips || []).filter((c) => files.has(c.src)).map((c) => makeClip(files.get(c.src), c));
       if (lane.clips.length || lane.custom || item) tracks.push(lane);
     });
@@ -1055,20 +1152,23 @@ function render() {
         <div class="mx-name" data-grab="${i}" title="Перетащите выше или ниже, чтобы поменять порядок">
           <span class="mx-grip" data-grip="${i}" aria-hidden="true">⠿</span><i style="background:${t.color}"></i><b data-noi18n data-label="${i}" title="${esc(t.name)} — нажмите, чтобы переименовать">${esc(t.name)}</b>${t.clips.length > 1 ? `<small class="mx-part" title="Кусков на дорожке">${t.clips.length}</small>` : ''}
           <button type="button" class="mx-rename" data-label="${i}" title="Название дорожки" aria-label="Название дорожки">${ICON.pencil}</button>
-          ${t.uploading ? '<em title="Сохраняем при треке…">загрузка…</em>'
+          ${rec && rec.lane === t ? '<em class="mx-recmark">● запись</em>'
+    : t.uploading ? '<em title="Сохраняем при треке…">загрузка…</em>'
     : t.extra ? '<em title="Ваша дорожка — хранится при этом треке">своя</em>' : ''}</div>
         <div class="mx-btns">
           <button type="button" class="mx-ms" data-mute="${i}" aria-pressed="${t.mute}" title="Заглушить">M</button>
           <button type="button" class="mx-ms solo" data-solo="${i}" aria-pressed="${t.solo}" title="Только эта (соло)">S</button>
           <input type="range" class="mx-vol" data-vol="${i}" min="0" max="150" value="${t.vol}"
             aria-label="Громкость: ${esc(t.name)}" title="Громкость">
+          <button type="button" class="mx-ms mx-fxbtn" data-fx="${i}" aria-pressed="${Boolean(t.fx)}"
+            title="Обработка: ${esc(FX[t.fx] ? FX[t.fx].title : FX[''].title)}">FX</button>
           ${t.url && !t.uploading ? `<a class="mx-ms" href="${t.url}" download title="Скачать исходный файл дорожки">⤓</a>` : ''}
           <button type="button" class="mx-ms" data-loadfile="${i}" title="Загрузить файл на эту дорожку (по курсору)">⤒</button>
           <button type="button" class="mx-ms" data-remove="${i}" title="Убрать дорожку из микса">×</button>
         </div>
       </div>
       <div class="mx-lane" data-drop="${i}"><canvas class="mx-wave" data-wave="${i}" height="64"></canvas>
-        ${t.clips.length ? '' : `<span class="mx-empty"><button type="button" data-loadfile="${i}">⤒ Загрузить файл</button>
+        ${t.clips.length || (rec && rec.lane === t) ? '' : `<span class="mx-empty"><button type="button" data-loadfile="${i}">⤒ Загрузить файл</button>
           <em>или перетащите сюда файл, кусок с другой дорожки, вставьте скопированное (Ctrl+V)</em></span>`}</div>
     </div>`).join('');
   applyGains();
@@ -1222,6 +1322,23 @@ function drawTrack(t, i) {
     }
   });
   marks();                                    // поверх волны -- видно, что именно выделено
+  if (rec && rec.lane === t && rec.startTime !== undefined) drawTake(g, x, h, dpr);
+}
+
+// Идущий дубль: красная полоса от начала записи до курсора и живая волна
+function drawTake(g, x, h, dpr) {
+  const now = Math.max(rec.from, position());
+  g.fillStyle = 'rgba(229,72,72,.16)';
+  g.fillRect(x(rec.from), 2 * dpr, x(now) - x(rec.from), h - 4 * dpr);
+  g.fillStyle = 'rgba(240,96,96,.9)';
+  const sr = ctx.sampleRate;
+  rec.peaks.forEach(({ at, v }) => {
+    const sec = rec.startPos + (at / sr - rec.startTime) - rec.latency;
+    if (sec < rec.from || sec > now) return;
+    const amp = Math.max(dpr, Math.min(1, v) * (h / 2 - 4 * dpr));
+    g.fillRect(x(sec), h / 2 - amp, Math.max(dpr, x(sec + 2048 / sr) - x(sec)), amp * 2);
+  });
+  g.fillRect(Math.round(x(rec.from)), 2 * dpr, 2 * dpr, h - 4 * dpr);
 }
 
 function drawRuler() {
@@ -1409,6 +1526,7 @@ function schedule(c, clip, p, t0, dest, end = Infinity) {
 }
 
 function pause() {
+  if (rec && !rec.stopping) { stopRecording(); return; }
   pos = position();
   playing = false;
   stopSources();
@@ -1433,6 +1551,7 @@ async function play() {
 }
 
 function seek(sec) {
+  if (rec) { stopRecording().then(() => seek(sec)); return; }
   sec = Math.max(0, Math.min(duration, sec));
   if (playing) startAt(sec);
   else pos = sec;
@@ -1466,7 +1585,7 @@ setInterval(() => {
       nextBeat += 1;
     }
   }
-  if (loop.on && loop.b > loop.a && now >= loop.b) startAt(loop.a, 0.02);
+  if (loop.on && !rec && loop.b > loop.a && now >= loop.b) startAt(loop.a, 0.02);
   else if (now >= duration) { pause(); pos = 0; viewStart = 0; redraw(); }
 }, 25);
 
@@ -1474,6 +1593,12 @@ setInterval(() => {
   // следующий кадр -- при любой ошибке, иначе курсор замирает до перезагрузки
   requestAnimationFrame(frame);
   if (playing) movePlayhead();
+  if (rec) {
+    const i = tracks.indexOf(rec.lane);
+    if (i >= 0) drawTrack(rec.lane, i);
+    $('recTime').textContent = clock(Math.max(0, position() - rec.from));
+  }
+  if (micMeter) micMeter();
 }());
 
 // ---------------------------------------------------------------- мышь
@@ -1848,6 +1973,7 @@ document.addEventListener('click', (e) => {
     remember();
     tracks.splice(i, 1);
     doomed.gain.disconnect();
+    if (doomed.fxNodes) doomed.fxNodes.output.disconnect();
     selected = -1;
     pick = null;
     picks = new Set();
@@ -2017,6 +2143,7 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') { deselect(); return; }
   if ((e.code === 'Delete' || e.code === 'Backspace') && (picks.size || regions.length)) { e.preventDefault(); deleteClip(); return; }
   if (e.code === 'KeyS' && !mod && tracks[selected]) { e.preventDefault(); cut(); }
+  if (e.code === 'KeyR' && !mod) { e.preventDefault(); recButton(); }
 });
 window.addEventListener('resize', () => { clearTimeout(sizeCanvases.t); sizeCanvases.t = setTimeout(sizeCanvases, 120); });
 
@@ -2092,12 +2219,7 @@ async function fileToLane(chosen, index) {
   if (playing) startAt(position());
   if (src.local) {
     toast('Дорожка добавлена, сохраняем её при треке…');
-    const done = await uploadExtra(lane.name, chosen);
-    if (done) {
-      files.delete(src.key);
-      Object.assign(src, { key: keyOf(done.url), url: done.url, extra: done.name, local: false });
-      files.set(src.key, src);
-    }
+    await keepOnServer(lane, src, chosen);
   }
   lane.uploading = false;
   // Пустая своя дорожка с первым файлом -- теперь дорожка этого файла (название -- на сервере)
@@ -2130,6 +2252,17 @@ document.addEventListener('drop', (e) => {
   fileToLane(chosen, Number(zone.dataset.drop));
 });
 
+// Файл, который уже играет из памяти браузера, -- на сервер; дальше кусок
+// ссылается на сохранённый файл
+async function keepOnServer(lane, src, chosen) {
+  const done = await uploadExtra(lane.name, chosen);
+  if (!done) return false;
+  files.delete(src.key);
+  Object.assign(src, { key: keyOf(done.url), url: done.url, extra: done.name, local: false });
+  files.set(src.key, src);
+  return true;
+}
+
 // Дорожка хранится при треке: на репетиции открыл -- она уже на месте
 async function uploadExtra(label, chosen) {
   const form = new FormData();
@@ -2146,6 +2279,334 @@ async function uploadExtra(label, chosen) {
     return null;
   }
 }
+
+
+// ---------------------------------------------------------------- запись голоса
+// Как в Audition: песня играет в наушниках, вы поёте -- дубль ложится на
+// свою дорожку ровно в такт. Задержку звука (вывод в наушники + ввод с
+// микрофона) вычитаем сами; если на каком-то устройстве дубль всё же
+// съехал -- «Сдвиг записи» в настройках поправит раз и навсегда.
+// Обработка браузера (шумодав, эхоподавление, автогромкость) выключена:
+// она «жуёт» голос; чистим своими цепочками (FX), их можно сменить потом.
+const REC_KEY = 'naslux-rec';
+
+function recPrefs() {
+  try { return JSON.parse(localStorage.getItem(REC_KEY) || '{}'); } catch (error) { return {}; }
+}
+function setRecPrefs(patch) {
+  try { localStorage.setItem(REC_KEY, JSON.stringify({ ...recPrefs(), ...patch })); } catch (error) { /* приватный режим */ }
+}
+
+async function openMic(deviceId = '') {
+  if (mic && micFor === deviceId) return mic;
+  closeMic(true);
+  const wanted = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 };
+  if (deviceId) wanted.deviceId = { exact: deviceId };
+  try {
+    mic = await navigator.mediaDevices.getUserMedia({ audio: wanted });
+  } catch (error) {
+    if (deviceId && error.name === 'OverconstrainedError') return openMic('');   // тот микрофон отключили
+    throw error;
+  }
+  micFor = deviceId;
+  return mic;
+}
+
+function closeMic(force = false) {
+  if (!mic || (rec && !force)) return;
+  mic.getTracks().forEach((t) => t.stop());
+  mic = null;
+  micFor = '';
+}
+
+function micError(error) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return 'Этот браузер не умеет записывать звук — откройте сайт в Chrome, Edge или Safari';
+  if (error && (error.name === 'NotAllowedError' || error.name === 'SecurityError')) {
+    return 'Нет доступа к микрофону: разрешите его в браузере (значок 🔒 или 🎤 слева от адреса сайта)';
+  }
+  if (error && error.name === 'NotFoundError') return 'Микрофон не найден — подключите его и попробуйте снова';
+  return 'Микрофон занят другой программой или недоступен';
+}
+
+// Приёмник звука с микрофона: куски по ~2048 сэмплов с номером кадра часов
+// звука -- по нему дубль и ставится на ленту
+const RECORDER = `class NasluxRec extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = new Float32Array(2048 + 128); this.n = 0; this.at = 0; }
+  flush() { if (this.n) this.port.postMessage({ at: this.at, data: this.buf.slice(0, this.n) }); this.n = 0; }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (!ch) { this.flush(); return true; }
+    if (this.n && currentFrame !== this.at + this.n) this.flush();
+    if (!this.n) this.at = currentFrame;
+    this.buf.set(ch, this.n);
+    this.n += ch.length;
+    if (this.n >= 2048) this.flush();
+    return true;
+  }
+}
+registerProcessor('naslux-rec', NasluxRec);`;
+
+async function recorderNode(take) {
+  if (ctx.audioWorklet && window.AudioWorkletNode) {
+    try {
+      if (!recorderReady) {
+        recorderReady = ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([RECORDER], { type: 'text/javascript' })));
+      }
+      await recorderReady;
+      const node = new AudioWorkletNode(ctx, 'naslux-rec', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1, channelCountMode: 'explicit' });
+      node.port.onmessage = (e) => take(e.data.at, e.data.data);
+      return node;
+    } catch (error) { recorderReady = null; }
+  }
+  // Старый браузер -- запасной путь, чуть менее точный по времени
+  const node = ctx.createScriptProcessor(2048, 1, 1);
+  node.onaudioprocess = (e) => {
+    const data = new Float32Array(e.inputBuffer.getChannelData(0));
+    take(Math.round(ctx.currentTime * ctx.sampleRate) - data.length, data);
+  };
+  return node;
+}
+
+const nameFree = (base) => {
+  let n = 1;
+  const nameOf = (k) => (k === 1 ? base : `${base} ${k}`);
+  while (tracks.some((t) => t.name === nameOf(n))) n++;
+  return nameOf(n);
+};
+
+async function startRecording() {
+  if (rec || !tracks.length) return;
+  audio();
+  await ctx.resume();
+  if (playing) pause();
+  const prefs = recPrefs();
+  let stream;
+  try { stream = await openMic(prefs.mic || ''); } catch (error) { toast(micError(error), 9000); return; }
+  setRecPrefs({ ready: true });
+  remember();
+  // дубль -- на выбранную пустую дорожку, иначе на новую: «Голос», «Голос 2»…
+  let index = tracks[selected] && !tracks[selected].clips.length && !tracks[selected].uploading ? selected : -1;
+  if (index < 0) {
+    tracks.push(makeLane(nameFree('Голос'), { custom: true }));
+    index = tracks.length - 1;
+  }
+  const lane = tracks[index];
+  if (lane.custom && /^Дорожка \d+$/.test(lane.name)) { lane.name = nameFree('Голос'); lane.color = colorOf(lane.name); }
+  if (!lane.fx) { lane.fx = FX[prefs.fx] ? prefs.fx : prefs.fx === '' ? '' : 'clean'; route(lane); }
+  selected = index;
+  pick = null;
+  picks = new Set();
+  const chunks = [];
+  const peaks = [];
+  const take = (at, data) => {
+    if (!rec || rec.chunks !== chunks) return;
+    chunks.push({ at, data });
+    let v = 0;
+    for (let k = 0; k < data.length; k++) v = Math.max(v, Math.abs(data[k]));
+    peaks.push({ at, v });
+  };
+  const node = await recorderNode(take);
+  const source = ctx.createMediaStreamSource(stream);
+  const sink = ctx.createGain();
+  sink.gain.value = 0;
+  source.connect(node);
+  node.connect(sink).connect(ctx.destination);
+  const settings = (stream.getAudioTracks()[0] && stream.getAudioTracks()[0].getSettings()) || {};
+  const latency = (ctx.outputLatency || ctx.baseLatency || 0) + (Number(settings.latency) || 0)
+    + (Number(prefs.shift) || 0) / 1000;
+  const from = pos >= duration - 0.05 ? 0 : pos;
+  rec = { lane, chunks, peaks, source, node, sink, from, latency };
+  render();
+  const interval = analysis && analysis.bpm ? 60 / analysis.bpm : 0;
+  if (countIn && interval) {
+    const t = ctx.currentTime + 0.15;
+    for (let k = 0; k < 4; k++) click(t + k * interval, k === 0);
+    startAt(from, 0.15 + 4 * interval);
+  } else startAt(from, 0.15);
+  rec.startTime = startTime;
+  rec.startPos = startPos;
+  recUi();
+}
+
+async function stopRecording() {
+  if (!rec || rec.stopping) return;
+  const r = rec;
+  r.stopping = true;
+  const until = position();
+  pause();
+  recUi();
+  await new Promise((done) => { setTimeout(done, 250); });   // последние куски с микрофона
+  try { r.source.disconnect(); r.node.disconnect(); r.sink.disconnect(); } catch (error) { /* уже */ }
+  if (r.node.port) r.node.port.onmessage = null;
+  r.node.onaudioprocess = null;
+  rec = null;
+  recUi();
+  if ($('recSheet').hidden) closeMic();
+  const sr = ctx.sampleRate;
+  const n = Math.round((until - r.from) * sr);
+  const index = tracks.indexOf(r.lane);
+  if (index < 0) { render(); return; }
+  if (n < sr * 0.3) {
+    render();
+    toast('Запись слишком короткая — нажмите ● и пойте, остановить — ● ещё раз или пробел');
+    return;
+  }
+  // куски -- каждый на своё место по часам звука, за вычетом задержки
+  const data = new Float32Array(n);
+  let loud = 0;
+  r.chunks.forEach(({ at, data: part }) => {
+    const first = Math.round((r.startPos + (at / sr - r.startTime) - r.latency - r.from) * sr);
+    for (let k = 0; k < part.length; k++) {
+      const j = first + k;
+      if (j >= 0 && j < n) { data[j] = part[k]; loud = Math.max(loud, Math.abs(part[k])); }
+    }
+  });
+  if (loud < 0.002) {
+    render();
+    toast('Микрофон молчал: проверьте, тот ли выбран (настройки записи — 🎤 рядом с «Запись») и не выключен ли он', 9000);
+    return;
+  }
+  const buffer = ctx.createBuffer(1, n, sr);
+  buffer.copyToChannel(data, 0);
+  const src = addSource(`local:${Date.now().toString(36)}`, '', r.lane.name, buffer, '', true);
+  r.lane.clips.push(makeClip(src, { offset: r.from }));
+  r.lane.clips.sort((x, y) => clipStart(x) - clipStart(y));
+  selected = index;
+  pick = r.lane.clips.find((c) => c.src === src);
+  picks = new Set(pick ? [pick] : []);
+  updateDuration();
+  pos = r.from;
+  r.lane.uploading = true;
+  render();
+  movePlayhead();
+  toast(loud > 0.98 ? 'Дубль записан, но местами перегруз — отодвиньтесь от микрофона или убавьте его громкость'
+    : 'Дубль записан — пробел, чтобы послушать. Сохраняем при треке…', 6000);
+  const file = new File([wav(buffer)], `${r.lane.name}.wav`, { type: 'audio/wav' });
+  if (await keepOnServer(r.lane, src, file)) {
+    if (r.lane.custom && r.lane.clips.length === 1) {
+      Object.assign(r.lane, { key: src.key, url: src.url, extra: src.extra, custom: false });
+    }
+    toast('Дубль сохранён при треке — будет здесь и на любом устройстве');
+  }
+  r.lane.uploading = false;
+  render();
+  save();
+}
+
+function recUi() {
+  const on = Boolean(rec);
+  $('recBtn').classList.toggle('on', on);
+  $('recBtn').setAttribute('aria-pressed', on);
+  $('recBtn').querySelector('span').textContent = on ? 'Стоп' : 'Запись';
+  $('recTime').hidden = !on;
+  if (!on) $('recTime').textContent = '0:00';
+}
+
+function recButton() {
+  if (rec) { stopRecording(); return; }
+  if (!tracks.length) return;
+  if (recPrefs().ready) startRecording();
+  else openRecSheet();
+}
+$('recBtn').addEventListener('click', recButton);
+$('recSet').addEventListener('click', openRecSheet);
+
+// Окно записи: микрофон и его уровень, обработка дубля, отсчёт, сдвиг
+async function openRecSheet() {
+  if (rec) return;
+  audio();
+  await ctx.resume();
+  const prefs = recPrefs();
+  $('recFx').innerHTML = Object.entries(FX).map(([id, f]) => `<option value="${id}">${esc(f.title)}</option>`).join('');
+  $('recFx').value = FX[prefs.fx] || prefs.fx === '' ? prefs.fx : 'clean';
+  $('recShift').value = Number(prefs.shift) || 0;
+  $('recCount').checked = countIn;
+  $('recCountBox').hidden = !(analysis && analysis.bpm);
+  $('recSheet').hidden = false;
+  $('recLevel').style.width = '0';
+  try {
+    await openMic(prefs.mic || '');
+  } catch (error) {
+    $('recMicNote').textContent = micError(error);
+    $('recMicNote').hidden = false;
+    return;
+  }
+  $('recMicNote').hidden = true;
+  const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+  $('recMic').innerHTML = devices.map((d, k) => `<option value="${esc(d.deviceId)}">${esc(d.label || `Микрофон ${k + 1}`)}</option>`).join('');
+  const open = mic.getAudioTracks()[0];
+  const now = open && open.getSettings ? open.getSettings().deviceId : '';
+  if (now) $('recMic').value = now;
+  watchLevel();
+}
+
+function watchLevel() {
+  if (!mic) { micMeter = null; return; }
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 1024;
+  const source = ctx.createMediaStreamSource(mic);
+  source.connect(analyser);
+  const data = new Float32Array(analyser.fftSize);
+  let shown = 0;
+  micMeter = () => {
+    if ($('recSheet').hidden) { source.disconnect(); micMeter = null; return; }
+    analyser.getFloatTimeDomainData(data);
+    let v = 0;
+    for (let k = 0; k < data.length; k++) v = Math.max(v, Math.abs(data[k]));
+    shown = Math.max(v, shown * 0.92);
+    $('recLevel').style.width = `${Math.min(100, Math.round(Math.sqrt(shown) * 100))}%`;
+    $('recLevel').classList.toggle('hot', shown > 0.9);
+  };
+}
+
+$('recMic').addEventListener('change', async () => {
+  setRecPrefs({ mic: $('recMic').value });
+  try { await openMic($('recMic').value); watchLevel(); } catch (error) { toast(micError(error), 7000); }
+});
+$('recFx').addEventListener('change', () => setRecPrefs({ fx: $('recFx').value }));
+$('recShift').addEventListener('change', () => {
+  const v = Math.max(-500, Math.min(500, Math.round(Number($('recShift').value) || 0)));
+  $('recShift').value = v;
+  setRecPrefs({ shift: v });
+});
+$('recCount').addEventListener('change', () => { countIn = $('recCount').checked; pressed('countIn', countIn); save(); });
+const closeRecSheet = () => { $('recSheet').hidden = true; closeMic(); };
+$('recCancel').addEventListener('click', closeRecSheet);
+$('recSheet').addEventListener('click', (e) => { if (e.target === $('recSheet')) closeRecSheet(); });
+$('recGo').addEventListener('click', () => {
+  setRecPrefs({ mic: $('recMic').value || recPrefs().mic || '', fx: $('recFx').value });
+  $('recSheet').hidden = true;
+  startRecording();
+});
+
+// Обработка дорожки (FX): готовые цепочки, звучат сразу и попадают в микс
+let fxLane = -1;
+function openFx(i) {
+  fxLane = i;
+  const t = tracks[i];
+  $('fxTitle').textContent = `Обработка: ${t.name}`;
+  $('fxList').innerHTML = Object.entries(FX).map(([id, f]) => `
+    <button type="button" class="mx-fxpick" data-fxpick="${id}" aria-pressed="${(t.fx || '') === id}">
+      <b>${esc(f.title)}</b><small>${esc(f.text)}</small></button>`).join('');
+  $('fxSheet').hidden = false;
+}
+$('fxList').addEventListener('click', (e) => {
+  const chosen = e.target.closest('[data-fxpick]');
+  const t = tracks[fxLane];
+  if (!chosen || !t) return;
+  remember();
+  t.fx = chosen.dataset.fxpick;
+  route(t);
+  $('fxList').querySelectorAll('[data-fxpick]').forEach((b) => b.setAttribute('aria-pressed', b === chosen));
+  render();
+  save();
+});
+$('fxDone').addEventListener('click', () => { $('fxSheet').hidden = true; });
+$('fxSheet').addEventListener('click', (e) => { if (e.target === $('fxSheet')) $('fxSheet').hidden = true; });
+document.addEventListener('click', (e) => {
+  const fx = e.target.closest('[data-fx]');
+  if (fx) openFx(Number(fx.dataset.fx));
+});
 
 // Скачать микс: то, что сейчас звучит (заглушённые и «соло» -- как на
 // экране, громкость, обрезка, сдвиги монтажа), по желанию -- с метрономом и
@@ -2210,26 +2671,32 @@ $('exportGo').addEventListener('click', async () => {
 // метроном в него можно добавить до startRendering.
 function mixdown(from, to, lead = 0, rate = ctx.sampleRate) {
   const offline = new OfflineAudioContext(2, Math.max(1, Math.ceil((to - from + lead) * rate)), rate);
+  const bus = offline.createGain();
+  bus.connect(limiter(offline)).connect(offline.destination);
   tracks.forEach((t) => {
     if (!audible(t) || !t.clips.length) return;
     const g = offline.createGain();
     g.gain.value = t.vol / 100;
-    g.connect(offline.destination);
+    const fx = fxChain(offline, t.fx);
+    g.connect(fx.input);
+    fx.output.connect(bus);
     t.clips.forEach((clip) => schedule(offline, clip, from, lead, g, to));
   });
   return offline;
 }
 
-// WAV 16 бит, стерео
+// WAV 16 бит: стерео (микс) или моно (запись с микрофона -- вдвое легче)
 function wav(buffer) {
   const n = buffer.length;
-  const channels = [buffer.getChannelData(0), buffer.getChannelData(buffer.numberOfChannels > 1 ? 1 : 0)];
-  const out = new DataView(new ArrayBuffer(44 + n * 4));
+  const channels = buffer.numberOfChannels > 1 ? [buffer.getChannelData(0), buffer.getChannelData(1)]
+    : [buffer.getChannelData(0)];
+  const frame = channels.length * 2;
+  const out = new DataView(new ArrayBuffer(44 + n * frame));
   const text = (at, s) => [...s].forEach((ch, k) => out.setUint8(at + k, ch.charCodeAt(0)));
-  text(0, 'RIFF'); out.setUint32(4, 36 + n * 4, true); text(8, 'WAVE'); text(12, 'fmt ');
-  out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 2, true);
-  out.setUint32(24, buffer.sampleRate, true); out.setUint32(28, buffer.sampleRate * 4, true);
-  out.setUint16(32, 4, true); out.setUint16(34, 16, true); text(36, 'data'); out.setUint32(40, n * 4, true);
+  text(0, 'RIFF'); out.setUint32(4, 36 + n * frame, true); text(8, 'WAVE'); text(12, 'fmt ');
+  out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, channels.length, true);
+  out.setUint32(24, buffer.sampleRate, true); out.setUint32(28, buffer.sampleRate * frame, true);
+  out.setUint16(32, frame, true); out.setUint16(34, 16, true); text(36, 'data'); out.setUint32(40, n * frame, true);
   let at = 44;
   for (let i = 0; i < n; i++) {
     for (const data of channels) {
