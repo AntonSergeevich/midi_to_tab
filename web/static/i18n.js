@@ -64,7 +64,7 @@
   window.__t = tr;
 
   const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'PRE', 'CODE', 'NOSCRIPT']);
-  const ATTRS = ['placeholder', 'title', 'aria-label', 'alt'];
+  const ATTRS = ['placeholder', 'title', 'aria-label', 'alt', 'data-tip'];
   const skipped = (el) => !el || (el.closest && el.closest('[data-noi18n], [contenteditable="true"]'));
 
   function translateNode(node) {

@@ -66,7 +66,12 @@ let downbeats = new Set();
 let nextBeat = 0;
 let metroOn = false;
 let countIn = false;
-const loop = { on: false, a: 0, b: 0 };
+const loop = { on: false, a: 0, b: 0 };   // последнее выделение на линейке -- его играет «Повтор»
+// Все выделенные места на линейке (с Ctrl -- несколько): их копируют,
+// вырезают и удаляют на выбранной дорожке
+let regions = [];
+let lastSel = 'picks';    // что выделили последним -- с тем и работают копирование и удаление
+const useRegions = () => regions.length && (lastSel === 'regions' || !picks.size);
 let job = null;
 let info = null;
 let file = '';
@@ -387,15 +392,22 @@ function markSelected() {
     row.classList.toggle('picked', Number(row.dataset.i) === selected);
   });
   const lane = tracks[selected];
+  const something = picks.size || (regions.length && lane && lane.clips.length);
   $('cutBtn').disabled = !lane || !lane.clips.length;
-  $('copyBtn').disabled = !lane || !lane.clips.length;
+  $('copyBtn').disabled = !something;
+  $('cutXBtn').disabled = !something;
   $('pasteBtn').disabled = !lane || !clipboard;
-  $('delClipBtn').disabled = !picks.size;
-  $('delClipBtn').querySelector('span').textContent = picks.size > 1 ? `Удалить куски (${picks.size})` : 'Удалить кусок';
+  $('delClipBtn').disabled = !something;
+  $('deselectBtn').disabled = !picks.size && !regions.length;
+  const count = picks.size > 1 ? picks.size : regions.length > 1 ? regions.length : 0;
+  ['copyBtn', 'cutXBtn', 'delClipBtn'].forEach((id) => {
+    if (count) $(id).dataset.count = count; else delete $(id).dataset.count;
+  });
 }
 
 function choose(i, clip = null, add = false) {
   selected = i;
+  if (clip) lastSel = 'picks';
   if (add && clip) {
     // Ctrl/Shift -- добавить кусок к выбранным или убрать его из них
     if (picks.has(clip)) { picks.delete(clip); pick = [...picks].pop() || null; } else { picks.add(clip); pick = clip; }
@@ -468,7 +480,7 @@ function copy() {
   const lane = tracks[selected];
   if (!lane || !lane.clips.length) { toast('Нажмите на дорожку, с которой копировать'); return false; }
   // Несколько кусков (Ctrl) -- копируются как есть, каждый со своей дорожки
-  if (picks.size > 1) {
+  if (picks.size > 1 && !useRegions()) {
     const chosen = [...picks];
     const a0 = Math.min(...chosen.map(clipStart));
     const lane0 = Math.min(...chosen.map(laneOf));
@@ -478,20 +490,23 @@ function copy() {
     toast(`Скопировано кусков: ${chosen.length} — поставьте курсор и нажмите «Вставить» (Ctrl+V)`);
     return true;
   }
-  let a; let b;
-  if (loop.b > loop.a) { a = loop.a; b = loop.b; } else if (pick) { a = clipStart(pick); b = clipEnd(pick); } else {
+  const spans = useRegions() ? regions.map((r) => [r.a, r.b]) : pick ? [[clipStart(pick), clipEnd(pick)]] : [];
+  if (!spans.length) {
     toast('Выделите кусок на линейке над дорожками или нажмите на кусок');
     return false;
   }
-  const items = lane.clips.filter((c) => clipEnd(c) > a && clipStart(c) < b).map((c) => {
+  const a0 = spans[0][0];
+  const items = [];
+  spans.forEach(([a, b]) => lane.clips.filter((c) => clipEnd(c) > a && clipStart(c) < b).forEach((c) => {
     const from = Math.max(clipStart(c), a);
     const to = Math.min(clipEnd(c), b);
-    return { src: c.src, rel: from - a, trimStart: from - c.offset, trimEnd: to - c.offset };
-  });
+    items.push({ src: c.src, rel: from - a0, trimStart: from - c.offset, trimEnd: to - c.offset });
+  }));
   if (!items.length) { toast('В выделенном нет звука этой дорожки'); return false; }
-  clipboard = { items, len: b - a };
+  const len = spans[spans.length - 1][1] - a0;
+  clipboard = { items, len };
   markSelected();
-  toast(`Скопировано ${clock(b - a)} — поставьте курсор и нажмите «Вставить» (Ctrl+V)`);
+  toast(`Скопировано ${spans.length > 1 ? `мест: ${spans.length}` : clock(len)} — поставьте курсор и нажмите «Вставить» (Ctrl+V)`);
   return true;
 }
 
@@ -521,27 +536,74 @@ function paste() {
   toast('Вставлено. Кусок можно тянуть мышью или пальцем');
 }
 
-function deleteClip() {
-  if (!picks.size) { toast('Нажмите на кусок, который удалить'); return; }
-  remember();
-  const count = picks.size;
-  picks.forEach((clip) => {
-    const lane = tracks[laneOf(clip)];
-    if (lane) lane.clips.splice(lane.clips.indexOf(clip), 1);
-  });
-  pick = null;
-  picks = new Set();
+// Удалить: выбранные куски, а если их нет -- выделенные места на выбранной
+// дорожке (кусок, попавший на край, обрезается, середина -- уходит)
+function deleteClip(quiet = false) {
+  if (picks.size && !useRegions()) {
+    remember();
+    const count = picks.size;
+    picks.forEach((clip) => {
+      const lane = tracks[laneOf(clip)];
+      if (lane) lane.clips.splice(lane.clips.indexOf(clip), 1);
+    });
+    pick = null;
+    picks = new Set();
+    afterEdit();
+    if (!quiet) toast(`${count > 1 ? `Удалено кусков: ${count}` : 'Кусок удалён'}. Вернуть — «Отменить» (Ctrl+Z)`);
+    return true;
+  }
+  const lane = tracks[selected];
+  if (regions.length && lane) {
+    remember();
+    regions.forEach(({ a, b }) => {
+      lane.clips = lane.clips.flatMap((c) => {
+        if (clipEnd(c) <= a || clipStart(c) >= b) return [c];
+        const parts = [];
+        if (clipStart(c) < a - 0.02) parts.push({ ...c, trimEnd: a - c.offset });
+        if (clipEnd(c) > b + 0.02) parts.push({ ...c, trimStart: b - c.offset });
+        return parts;
+      });
+    });
+    afterEdit();
+    if (!quiet) toast('Выделенное убрано с дорожки. Вернуть — «Отменить» (Ctrl+Z)');
+    return true;
+  }
+  toast('Нажмите на кусок (с Ctrl — несколько) или выделите место на линейке и выберите дорожку');
+  return false;
+}
+
+function afterEdit() {
   updateDuration();
   render();
   save();
   if (playing) startAt(position());
-  toast(`${count > 1 ? `Удалено кусков: ${count}` : 'Кусок удалён'}. Вернуть — «Отменить» (Ctrl+Z)`);
+}
+
+// Вырезать = скопировать и убрать
+function cutOut() {
+  if (!copy()) return;
+  if (deleteClip(true)) toast('Вырезано — поставьте курсор и нажмите «Вставить» (Ctrl+V)');
+}
+
+// Снять выделение: куски, места на линейке, повтор
+function deselect() {
+  pick = null;
+  picks = new Set();
+  regions = [];
+  loop.on = false;
+  loop.a = 0;
+  loop.b = 0;
+  pressed('loop', false);
+  markSelected();
+  redraw();
 }
 
 $('cutBtn').addEventListener('click', cut);
 $('copyBtn').addEventListener('click', copy);
 $('pasteBtn').addEventListener('click', paste);
-$('delClipBtn').addEventListener('click', deleteClip);
+$('delClipBtn').addEventListener('click', () => deleteClip());
+$('cutXBtn').addEventListener('click', cutOut);
+$('deselectBtn').addEventListener('click', deselect);
 $('undoBtn').addEventListener('click', undo);
 $('montage').addEventListener('click', () => setMontage(!montage));
 
@@ -1105,6 +1167,15 @@ function drawTrack(t, i) {
   beats.forEach((b) => { if (downbeats.has(b.toFixed(2))) g.fillRect(Math.round(x(b)), 0, dpr, h); });
   const on = audible(t);
   const single = t.clips.length === 1;
+  // выделенные на линейке места -- видны на выбранной дорожке: с ней их и правят
+  const marks = () => regions.forEach((r) => {
+    g.fillStyle = i === selected ? 'rgba(255,236,206,.20)' : 'rgba(217,154,78,.06)';
+    g.fillRect(x(r.a), 0, x(r.b) - x(r.a), h);
+    if (i !== selected) return;
+    g.fillStyle = 'rgba(246,197,132,.95)';
+    g.fillRect(x(r.a), 0, 1.5 * dpr, h);
+    g.fillRect(x(r.b) - 1.5 * dpr, 0, 1.5 * dpr, h);
+  });
   t.clips.forEach((clip) => {
     const src = clip.src;
     const bars = src.peaks.length;
@@ -1141,6 +1212,7 @@ function drawTrack(t, i) {
       g.strokeRect(x(a) + dpr, 2 * dpr, x(b) - x(a) - 2 * dpr, h - 4 * dpr);
     }
   });
+  marks();                                    // поверх волны -- видно, что именно выделено
 }
 
 function drawRuler() {
@@ -1152,8 +1224,15 @@ function drawRuler() {
   const dpr = window.devicePixelRatio || 1;
   const x = (sec) => toX(sec, w);
   g.clearRect(0, 0, w, h);
-  if (loop.b > loop.a) {
-    g.fillStyle = loop.on ? 'rgba(217,154,78,.22)' : 'rgba(217,154,78,.10)';
+  regions.forEach((r) => {
+    g.fillStyle = 'rgba(217,154,78,.14)';
+    g.fillRect(x(r.a), 0, x(r.b) - x(r.a), h);
+    g.fillStyle = 'rgba(217,154,78,.85)';
+    g.fillRect(x(r.a), 0, dpr * 1.5, h);
+    g.fillRect(x(r.b) - dpr * 1.5, 0, dpr * 1.5, h);
+  });
+  if (loop.on && loop.b > loop.a) {
+    g.fillStyle = 'rgba(217,154,78,.18)';
     g.fillRect(x(loop.a), 0, x(loop.b) - x(loop.a), h);
   }
   // аккорды -- полосой снизу, названия там, где помещаются
@@ -1527,6 +1606,7 @@ document.addEventListener('pointerdown', (e) => {
   const ruler = e.target.closest('#ruler');
   if (ruler && duration) {
     const from = secAt(e, ruler);
+    const adding = e.ctrlKey || e.metaKey || e.shiftKey;     // с Ctrl -- ещё одно место к выделенным
     ruler.setPointerCapture(e.pointerId);
     const finger = e.pointerType === 'touch';
     // пальцем -- повтор только после долгого нажатия, иначе протяжка двигает курсор
@@ -1563,9 +1643,15 @@ document.addEventListener('pointerdown', (e) => {
       // Выделение -- только выделение: копировать его или включить «Повтор»
       // решает человек (раньше повтор включался сам, мешал копированию)
       snapLoop();
-      drawRuler();
-      drawOverview();
-      toast(`Выделено ${clock(loop.a)} – ${clock(loop.b)}: «Копировать» (Ctrl+C) или «Повтор» — играть по кругу`);
+      const fresh = { a: loop.a, b: loop.b };
+      regions = adding ? regions.filter((r) => r.b <= fresh.a || r.a >= fresh.b).concat([fresh]) : [fresh];
+      regions.sort((x, y) => x.a - y.a);
+      lastSel = 'regions';
+      markSelected();
+      redraw();
+      toast(regions.length > 1
+        ? `Выделено мест: ${regions.length} — «Копировать», «Вырезать» или «Удалить» на выбранной дорожке`
+        : `Выделено ${clock(loop.a)} – ${clock(loop.b)}: «Копировать» (Ctrl+C) или «Повтор» — играть по кругу. С Ctrl — ещё места`);
     };
     ruler.addEventListener('pointermove', move);
     ruler.addEventListener('pointerup', up);
@@ -1626,10 +1712,8 @@ function drawOverview() {
     const amp = Math.max(1, peak * (h / 2 - 2));
     g.fillRect((k / n) * w, h / 2 - amp, Math.max(1, w / n - 1), amp * 2);
   }
-  if (loop.b > loop.a) {
-    g.fillStyle = 'rgba(217,154,78,.25)';
-    g.fillRect((loop.a / duration) * w, 0, ((loop.b - loop.a) / duration) * w, h);
-  }
+  g.fillStyle = 'rgba(217,154,78,.25)';
+  regions.forEach((r) => g.fillRect((r.a / duration) * w, 0, ((r.b - r.a) / duration) * w, h));
   g.strokeStyle = '#d99a4e';
   g.lineWidth = Math.max(1, (window.devicePixelRatio || 1) * 1.5);
   g.strokeRect((viewStart / duration) * w + 1, 1, Math.max(4, (viewLen() / duration) * w - 2), h - 2);
@@ -1736,6 +1820,7 @@ $('metroVol').addEventListener('input', () => {
 });
 $('loop').addEventListener('click', () => {
   if (!(loop.b > loop.a)) { toast('Выделите кусок мышью на линейке с тактами над дорожками'); return; }
+  if (!loop.on && regions.length > 1) toast(`Повтор — последнего выделенного места: ${clock(loop.a)} – ${clock(loop.b)}`);
   loop.on = !loop.on;
   pressed('loop', loop.on);
   drawRuler();
@@ -1833,7 +1918,9 @@ document.addEventListener('keydown', (e) => {
   if (mod && e.code === 'KeyC') { if (copy()) e.preventDefault(); return; }
   if (mod && e.code === 'KeyV') { e.preventDefault(); paste(); return; }
   if (mod && e.code === 'KeyZ') { e.preventDefault(); undo(); return; }
-  if ((e.code === 'Delete' || e.code === 'Backspace') && picks.size) { e.preventDefault(); deleteClip(); return; }
+  if (mod && e.code === 'KeyX') { e.preventDefault(); cutOut(); return; }
+  if (e.code === 'Escape') { deselect(); return; }
+  if ((e.code === 'Delete' || e.code === 'Backspace') && (picks.size || regions.length)) { e.preventDefault(); deleteClip(); return; }
   if (e.code === 'KeyS' && !mod && tracks[selected]) { e.preventDefault(); cut(); }
 });
 window.addEventListener('resize', () => { clearTimeout(sizeCanvases.t); sizeCanvases.t = setTimeout(sizeCanvases, 120); });
