@@ -70,6 +70,11 @@ const loop = { on: false, a: 0, b: 0 };   // последнее выделени
 // Все выделенные места на линейке (с Ctrl -- несколько): их копируют,
 // вырезают и удаляют на выбранной дорожке
 let regions = [];
+let liveRegion = null;    // выделение, которое сейчас тянут мышью/пальцем -- видно сразу
+let liveAdding = false;
+// что показывать нижней строкой линейки: аккорды или время трека
+let rulerMode = 'chords';
+const shownRegions = () => (liveRegion ? (liveAdding ? regions.concat([liveRegion]) : [liveRegion]) : regions);
 // Есть выделенные места на линейке -- копируют, вырезают и удаляют их (на
 // выбранной дорожке); щелчок по дорожке тогда лишь выбирает её. Ctrl +
 // щелчок по кускам -- выделение кусков вместо мест.
@@ -135,7 +140,7 @@ function save() {
   try {
     localStorage.setItem(STORE, JSON.stringify({
       metro: metroOn, countIn, metroVol: $('metroVol').value, hidden: [...hidden],
-      metroMode: $('metroMode').value, trackHeight, lanes: layout(),
+      metroMode: $('metroMode').value, trackHeight, lanes: layout(), rulerMode,
     }));
   } catch (error) { /* приватный режим -- просто без памяти */ }
   refreshSplit();
@@ -281,6 +286,7 @@ async function loadTracks(list) {
   if (memory.metroVol) $('metroVol').value = memory.metroVol;
   if (memory.metroMode) $('metroMode').value = memory.metroMode;
   if (memory.trackHeight) setTrackHeight(memory.trackHeight, false);
+  setRulerMode(memory.rulerMode === 'time' ? 'time' : 'chords', false);
   metroGain.setVolume($('metroVol').value);
   pressed('metro', metroOn);
   pressed('countIn', countIn);
@@ -1074,7 +1080,7 @@ function sizeCanvases() {
   const dpr = window.devicePixelRatio || 1;
   document.querySelectorAll('.mx-lane canvas').forEach((c) => {
     c.width = Math.max(100, Math.round(c.clientWidth * dpr));
-    c.height = Math.round((c.id === 'ruler' ? 46 : c.id === 'overview' ? 26 : Math.max(trackHeight, c.clientHeight)) * dpr);
+    c.height = Math.round((c.id === 'ruler' ? 60 : c.id === 'overview' ? 26 : Math.max(trackHeight, c.clientHeight)) * dpr);
   });
   redraw();
 }
@@ -1171,7 +1177,7 @@ function drawTrack(t, i) {
   const on = audible(t);
   const single = t.clips.length === 1;
   // выделенные на линейке места -- видны на выбранной дорожке: с ней их и правят
-  const marks = () => regions.forEach((r) => {
+  const marks = () => shownRegions().forEach((r) => {
     g.fillStyle = i === selected ? 'rgba(255,236,206,.20)' : 'rgba(217,154,78,.06)';
     g.fillRect(x(r.a), 0, x(r.b) - x(r.a), h);
     if (i !== selected) return;
@@ -1227,8 +1233,8 @@ function drawRuler() {
   const dpr = window.devicePixelRatio || 1;
   const x = (sec) => toX(sec, w);
   g.clearRect(0, 0, w, h);
-  regions.forEach((r) => {
-    g.fillStyle = 'rgba(217,154,78,.14)';
+  shownRegions().forEach((r) => {
+    g.fillStyle = r === liveRegion ? 'rgba(217,154,78,.26)' : 'rgba(217,154,78,.14)';
     g.fillRect(x(r.a), 0, x(r.b) - x(r.a), h);
     g.fillStyle = 'rgba(217,154,78,.85)';
     g.fillRect(x(r.a), 0, dpr * 1.5, h);
@@ -1238,10 +1244,24 @@ function drawRuler() {
     g.fillStyle = 'rgba(217,154,78,.18)';
     g.fillRect(x(loop.a), 0, x(loop.b) - x(loop.a), h);
   }
-  // аккорды -- полосой снизу, названия там, где помещаются
+  // аккорды -- полосой снизу, названия там, где помещаются (или время трека)
   g.font = `${11 * dpr}px system-ui, sans-serif`;
   g.textBaseline = 'middle';
-  ((analysis && analysis.chords) || []).forEach(([a, b, name], k) => {
+  if (rulerMode === 'time') {
+    // шаг подписей -- чтобы между ними было не меньше 56 px
+    const steps = [0.5, 1, 2, 5, 10, 15, 30, 60, 120];
+    const step = steps.find((st) => (st / viewLen()) * w >= 56 * dpr) || 300;
+    g.fillStyle = 'rgba(255,255,255,.06)';
+    g.fillRect(0, h * 0.5, w, h * 0.5);
+    for (let t = Math.floor(viewStart / step) * step; t <= viewStart + viewLen(); t += step) {
+      const px = x(t);
+      g.fillStyle = 'rgba(255,255,255,.35)';
+      g.fillRect(Math.round(px), h * 0.5, dpr, h * 0.22);
+      g.fillStyle = '#e8e3da';
+      const label = step < 1 ? preciseClock(t).replace(/0$/, '') : clock(t);
+      g.fillText(label, px + 3 * dpr, h * 0.78);
+    }
+  } else ((analysis && analysis.chords) || []).forEach(([a, b, name], k) => {
     g.fillStyle = k % 2 ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.09)';
     if (x(b) < 0 || x(a) > w) return;
     g.fillRect(x(a), h * 0.5, x(b) - x(a) - dpr, h * 0.5);
@@ -1630,7 +1650,9 @@ document.addEventListener('pointerdown', (e) => {
       if (selecting) {
         loop.a = Math.min(from, to);
         loop.b = Math.max(from, to);
-        drawRuler();
+        liveRegion = { a: loop.a, b: loop.b };     // видно сразу -- на линейке и на дорожках
+        liveAdding = adding;
+        redraw();
       } else {
         clearTimeout(hold);
         pos = to;
@@ -1641,6 +1663,7 @@ document.addEventListener('pointerdown', (e) => {
     const up = (ev) => {
       clearTimeout(hold);
       rulerDragging = false;
+      liveRegion = null;
       ruler.removeEventListener('pointermove', move);
       ruler.removeEventListener('pointerup', up);
       ruler.removeEventListener('pointercancel', up);
@@ -1720,13 +1743,21 @@ function drawOverview() {
     g.fillRect((k / n) * w, h / 2 - amp, Math.max(1, w / n - 1), amp * 2);
   }
   g.fillStyle = 'rgba(217,154,78,.25)';
-  regions.forEach((r) => g.fillRect((r.a / duration) * w, 0, ((r.b - r.a) / duration) * w, h));
+  shownRegions().forEach((r) => g.fillRect((r.a / duration) * w, 0, ((r.b - r.a) / duration) * w, h));
   g.strokeStyle = '#d99a4e';
   g.lineWidth = Math.max(1, (window.devicePixelRatio || 1) * 1.5);
   g.strokeRect((viewStart / duration) * w + 1, 1, Math.max(4, (viewLen() / duration) * w - 2), h - 2);
   g.fillStyle = '#fff';
   g.fillRect((position() / duration) * w - 1, 0, 2, h);
 }
+
+function setRulerMode(mode, persist = true) {
+  rulerMode = mode;
+  document.querySelectorAll('[data-rulermode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.rulermode === mode)));
+  drawRuler();
+  if (persist) save();
+}
+document.querySelectorAll('[data-rulermode]').forEach((b) => b.addEventListener('click', () => setRulerMode(b.dataset.rulermode)));
 
 // Прицел на линейке: точное место под мышью. К доле прилипает, только
 // когда она совсем рядом (8 пикселей), с Alt -- не прилипает вовсе: так

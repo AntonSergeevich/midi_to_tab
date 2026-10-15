@@ -1142,7 +1142,7 @@ header.top > nav.topnav {
 .mx-lane { position: relative; min-width: 0; }
 .mx-lane canvas { display: block; width: 100%; height: 100%; min-height: var(--track-h, 64px); cursor: pointer; touch-action: pan-y; }
 .mx-overview-row .mx-lane canvas { height: 26px; min-height: 26px; cursor: pointer; touch-action: none; }
-.mx-ruler-row .mx-lane canvas { height: 46px; min-height: 46px; cursor: crosshair; touch-action: none; }
+.mx-ruler-row .mx-lane canvas { height: 60px; min-height: 60px; cursor: crosshair; touch-action: none; }
 .mx-row.silent .mx-name b { color: var(--muted); text-decoration: line-through; }
 /* Курсор -- тонкая линия, но ухватить его можно в полосе 14 px */
 .mx-playhead { position: absolute; top: 0; bottom: 0; left: -6px; width: 14px; cursor: ew-resize; touch-action: none;
@@ -1439,14 +1439,20 @@ header.top > nav.topnav {
 @media (hover: none) { [data-tip]::after { display: none; } }
 
 /* Прицел на линейке: линия через все дорожки и точное время */
-.mx-ruler-row .mx-lane canvas { cursor: none; }
 .mx-hair { position: absolute; top: 0; bottom: 0; left: 0; width: 0; z-index: 4; pointer-events: none;
   border-left: 1px dashed rgba(246,197,132,.95); }
 .mx-hair[hidden] { display: none; }
-.mx-hair::before { content: ""; position: absolute; top: 14px; left: -9px; width: 17px; height: 17px;
-  background: linear-gradient(rgba(246,197,132,.95), rgba(246,197,132,.95)) center / 1px 100% no-repeat,
-              linear-gradient(rgba(246,197,132,.95), rgba(246,197,132,.95)) center / 100% 1px no-repeat; }
+
 .mx-hair span { position: absolute; top: -26px; left: 6px; white-space: nowrap; padding: 3px 8px; border-radius: 7px;
   background: #0e0f13; border: 1px solid rgba(217,154,78,.6); color: #f6c584; font-size: 12px; font-weight: 600;
   font-variant-numeric: tabular-nums; }
 .mx-hair.flip span { left: auto; right: 6px; }
+
+/* Линейка: переключатель «Аккорды / Время» */
+.mx-rulermode { display: inline-flex; padding: 2px; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); }
+.mx-rulermode button { border: 0; background: transparent; color: var(--muted); font-size: 12px; padding: 4px 10px; border-radius: 999px;
+  cursor: pointer; min-height: 0; }
+.mx-rulermode button[aria-pressed="true"] { background: var(--panel-hi); color: var(--text); font-weight: 600; }
+.mx-ruler-head { gap: 6px; padding-left: 10px; padding-right: 10px; }
+.mx-ruler-head .mx-rulermode button { padding: 4px 8px; }
+.mx-ruler-head .mx-addlane { padding: 0 10px; }

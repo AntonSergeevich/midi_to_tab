@@ -128,9 +128,13 @@
       <div class="mx-lane"><canvas id="overview" height="26"></canvas></div>
     </div>
     <div class="mx-row mx-ruler-row">
-      <div class="mx-ctrl mx-ruler-label mx-ruler-head"><small>Такты · аккорды</small>
+      <div class="mx-ctrl mx-ruler-label mx-ruler-head">
+        <span class="mx-rulermode" role="group" aria-label="Что показать на линейке">
+          <button type="button" data-rulermode="chords" aria-pressed="true" title="Нижняя строка линейки — аккорды">Аккорды</button>
+          <button type="button" data-rulermode="time" aria-pressed="false" title="Нижняя строка линейки — время трека">Время</button>
+        </span>
         <button type="button" class="mx-addlane" id="addTrack" title="Добавить пустую дорожку: загрузить в неё файл или перетащить кусок с другой дорожки">＋ Дорожка</button></div>
-      <div class="mx-lane"><canvas id="ruler" height="46"></canvas></div>
+      <div class="mx-lane"><canvas id="ruler" height="60"></canvas></div>
     </div>
     <div id="tracks"></div>
     <!-- На телефоне колонка с подписями скрыта -- «＋ Дорожка» строкой под дорожками -->
