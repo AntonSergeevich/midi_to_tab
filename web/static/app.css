@@ -1396,12 +1396,14 @@ header.top > nav.topnav {
 .whats-new-list span i { font-style: normal; }
 
 /* Пустая дорожка и бросание файла */
-.mx-lane .mx-empty { position: absolute; inset: 6px 8px; display: flex; align-items: center; justify-content: center; text-align: center;
-  padding: 0 12px; border: 1.5px dashed rgba(217,154,78,.45); border-radius: 10px; background: rgba(217,154,78,.04);
-  color: var(--muted); font-size: 13px; cursor: pointer; min-height: 0; }
-.mx-lane .mx-empty b { color: var(--accent); font-weight: 600; margin: 0 .25em; }
-.mx-lane .mx-empty:hover { border-color: var(--accent); color: var(--text); }
+.mx-lane .mx-empty { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); display: flex; align-items: center;
+  gap: 10px; max-width: calc(100% - 20px); pointer-events: none; }
+.mx-lane .mx-empty button { pointer-events: auto; flex: none; height: 30px; padding: 0 12px; border-radius: 999px; min-height: 0;
+  border: 1px dashed rgba(217,154,78,.6); background: rgba(217,154,78,.08); color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer; }
+.mx-lane .mx-empty button:hover { border-style: solid; background: rgba(217,154,78,.16); }
+.mx-lane .mx-empty em { font-style: normal; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mx-lane .mx-empty[hidden] { display: none; }
+.mx-row[data-i] .mx-ctrl { cursor: pointer; }
 .mx-lane.dropping { outline: 2px dashed var(--accent); outline-offset: -4px; background: rgba(217,154,78,.08); }
 .mx-board.montage .mx-lane canvas { cursor: grab; }
 .mx-board.montage .mx-lane canvas { touch-action: none; }

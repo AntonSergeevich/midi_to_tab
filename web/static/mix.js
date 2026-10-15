@@ -70,8 +70,10 @@ const loop = { on: false, a: 0, b: 0 };   // последнее выделени
 // Все выделенные места на линейке (с Ctrl -- несколько): их копируют,
 // вырезают и удаляют на выбранной дорожке
 let regions = [];
-let lastSel = 'picks';    // что выделили последним -- с тем и работают копирование и удаление
-const useRegions = () => regions.length && (lastSel === 'regions' || !picks.size);
+// Есть выделенные места на линейке -- копируют, вырезают и удаляют их (на
+// выбранной дорожке); щелчок по дорожке тогда лишь выбирает её. Ctrl +
+// щелчок по кускам -- выделение кусков вместо мест.
+const useRegions = () => regions.length > 0;
 let job = null;
 let info = null;
 let file = '';
@@ -407,7 +409,8 @@ function markSelected() {
 
 function choose(i, clip = null, add = false) {
   selected = i;
-  if (clip) lastSel = 'picks';
+  if (add && clip) regions = [];            // Ctrl + кусок -- выделяем куски, места на линейке снимаем
+  if (!add && regions.length) clip = null;  // места выделены -- щелчок только выбирает дорожку
   if (add && clip) {
     // Ctrl/Shift -- добавить кусок к выбранным или убрать его из них
     if (picks.has(clip)) { picks.delete(clip); pick = [...picks].pop() || null; } else { picks.add(clip); pick = clip; }
@@ -1059,8 +1062,8 @@ function render() {
         </div>
       </div>
       <div class="mx-lane" data-drop="${i}"><canvas class="mx-wave" data-wave="${i}" height="64"></canvas>
-        ${t.clips.length ? '' : `<button type="button" class="mx-empty" data-loadfile="${i}">Пустая дорожка — <b>загрузить файл</b>,
-          перетащите сюда файл с компьютера или кусок с другой дорожки</button>`}</div>
+        ${t.clips.length ? '' : `<span class="mx-empty"><button type="button" data-loadfile="${i}">⤒ Загрузить файл</button>
+          <em>или перетащите сюда файл, кусок с другой дорожки, вставьте скопированное (Ctrl+V)</em></span>`}</div>
     </div>`).join('');
   applyGains();
   sizeCanvases();
@@ -1646,7 +1649,6 @@ document.addEventListener('pointerdown', (e) => {
       const fresh = { a: loop.a, b: loop.b };
       regions = adding ? regions.filter((r) => r.b <= fresh.a || r.a >= fresh.b).concat([fresh]) : [fresh];
       regions.sort((x, y) => x.a - y.a);
-      lastSel = 'regions';
       markSelected();
       redraw();
       toast(regions.length > 1
@@ -1730,6 +1732,12 @@ function snapLoop() {
 }
 
 document.addEventListener('click', (e) => {
+  // щелчок по пульту дорожки (мимо кнопок) -- выбрать её: туда и вставится скопированное
+  const head = e.target.closest('.mx-row[data-i] .mx-ctrl');
+  if (head && !e.target.closest('button, a, input, b[data-label], [data-grip]')) {
+    choose(Number(head.closest('.mx-row').dataset.i), null);
+    return;
+  }
   const label = e.target.closest('.mx-rename[data-label]') || (tracks.length < 2 && e.target.closest('b[data-label]'));
   if (label && Date.now() - lastDrag > 400) { openLabel(Number(label.dataset.label)); return; }
   const mute = e.target.closest('[data-mute]');
