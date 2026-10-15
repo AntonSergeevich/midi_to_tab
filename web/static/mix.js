@@ -1189,12 +1189,11 @@ function render() {
           <button type="button" class="mx-ms" data-mute="${i}" aria-pressed="${t.mute}" title="Заглушить">M</button>
           <button type="button" class="mx-ms solo" data-solo="${i}" aria-pressed="${t.solo}" title="Только эта (соло)">S</button>
           <input type="range" class="mx-vol" data-vol="${i}" min="0" max="150" value="${t.vol}"
-            aria-label="Громкость: ${esc(t.name)}" title="Громкость">
+            aria-label="Громкость: ${esc(t.name)}" title="Громкость: ${t.vol}%">
           <button type="button" class="mx-ms mx-fxbtn" data-fx="${i}" aria-pressed="${Boolean(t.fx)}"
             title="Обработка: ${esc(FX[t.fx] ? FX[t.fx].title : FX[''].title)}">FX</button>
-          ${t.url && !t.uploading ? `<a class="mx-ms" href="${t.url}" download title="Скачать исходный файл дорожки">⤓</a>` : ''}
-          <button type="button" class="mx-ms" data-loadfile="${i}" title="Загрузить файл на эту дорожку (по курсору)">⤒</button>
-          <button type="button" class="mx-ms" data-remove="${i}" title="Убрать дорожку из микса">×</button>
+          <button type="button" class="mx-ms" data-lanemenu="${i}" title="Ещё: загрузить или скачать файл, убрать дорожку"
+            aria-label="Ещё" aria-haspopup="menu">⋯</button>
         </div>
       </div>
       <div class="mx-lane" data-drop="${i}"><canvas class="mx-wave" data-wave="${i}" height="64"></canvas>
@@ -2029,7 +2028,7 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('input', (e) => {
   const vol = e.target.closest('[data-vol]');
-  if (vol) { tracks[vol.dataset.vol].vol = Number(vol.value); applyGains(); save(); }
+  if (vol) { tracks[vol.dataset.vol].vol = Number(vol.value); vol.title = `Громкость: ${vol.value}%`; applyGains(); save(); }
 });
 
 function pressed(id, on) {
@@ -2677,6 +2676,28 @@ $('fxAi').addEventListener('click', (e) => {
   const b = e.target.closest('[data-voiceop]');
   if (b) voiceOp(fxLane, b.dataset.voiceop);
 });
+// «⋯» у дорожки: редкие действия -- чтобы ручке громкости хватало места
+function openLaneMenu(button) {
+  const i = Number(button.dataset.lanemenu);
+  const t = tracks[i];
+  if (!t) return;
+  const menu = $('laneMenu');
+  menu.innerHTML = `<button type="button" data-loadfile="${i}">⤒ Загрузить файл на дорожку (по курсору)</button>`
+    + (t.url && !t.uploading ? `<a href="${t.url}" download>⤓ Скачать исходный файл дорожки</a>` : '')
+    + `<button type="button" class="danger" data-remove="${i}">× Убрать дорожку из микса</button>`;
+  menu.hidden = false;
+  const box = button.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(window.innerWidth - menu.offsetWidth - 8, box.left)) + window.scrollX}px`;
+  menu.style.top = `${box.bottom + window.scrollY + 4}px`;
+}
+document.addEventListener('click', (e) => {
+  const opener = e.target.closest('[data-lanemenu]');
+  if (opener) { openLaneMenu(opener); return; }
+  if (!$('laneMenu').hidden && (!e.target.closest('#laneMenu') || e.target.closest('button, a'))) {
+    setTimeout(() => { $('laneMenu').hidden = true; }, 0);
+  }
+});
+
 $('fxList').addEventListener('click', (e) => {
   const chosen = e.target.closest('[data-fxpick]');
   const t = tracks[fxLane];

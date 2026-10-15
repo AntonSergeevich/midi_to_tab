@@ -1138,7 +1138,7 @@ header.top > nav.topnav {
 }
 .mx-ms[aria-pressed="true"] { background: #c0563f; border-color: #c0563f; color: #fff; }
 .mx-ms.solo[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #15161c; }
-.mx-vol { flex: 1; min-width: 0; }
+.mx-vol { flex: 1 1 auto; min-width: 72px; accent-color: var(--accent); }
 .mx-lane { position: relative; min-width: 0; }
 .mx-lane canvas { display: block; width: 100%; height: 100%; min-height: var(--track-h, 64px); cursor: pointer; touch-action: pan-y; }
 .mx-overview-row .mx-lane canvas { height: 26px; min-height: 26px; cursor: pointer; touch-action: none; }
@@ -1167,7 +1167,7 @@ header.top > nav.topnav {
   .mx-ctrl { min-width: 0; }
   .mx-ctrl .mx-name { flex: 0 0 auto; max-width: 40%; }
   .mx-ctrl .mx-btns { flex: 1 1 0; min-width: 0; }
-  .mx-ctrl .mx-vol { min-width: 40px; }
+  .mx-ctrl .mx-vol { min-width: 64px; }
   .mx-ruler-label { display: none; }
   .mx-transport .icon-btn span { display: none; }
   .mx-mini { display: none; }
@@ -1548,3 +1548,12 @@ header.top > nav.topnav {
 .primary-link { display: inline-flex; align-items: center; padding: 11px 20px; border-radius: 999px; font-weight: 700;
   background: var(--accent); color: #15161c; text-decoration: none; }
 .primary-link:hover { filter: brightness(1.08); }
+
+/* «⋯» у дорожки */
+.mx-lanemenu { position: absolute; z-index: 60; min-width: 250px; padding: 6px; border-radius: 12px; background: var(--panel);
+  border: 1px solid var(--border); box-shadow: 0 14px 40px rgba(0,0,0,.45); display: flex; flex-direction: column; }
+.mx-lanemenu[hidden] { display: none; }
+.mx-lanemenu button, .mx-lanemenu a { text-align: left; padding: 9px 12px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--text); font-size: 13.5px; cursor: pointer; text-decoration: none; min-height: 0; }
+.mx-lanemenu button:hover, .mx-lanemenu a:hover { background: var(--panel-hi); }
+.mx-lanemenu .danger { color: var(--red); }
