@@ -1110,6 +1110,7 @@ def api_me(request: Request):
     payload["isAdmin"] = user.is_admin
     payload["unlimited"] = user.unlimited
     payload["studioCredits"] = user.studio_credits
+    payload["prefs"] = storage.prefs(user.id)
     payload["tier"] = user.tier if user.subscribed else ""
     payload["studioPlan"] = user.studio_plan
     # Каталог тарифов -- для профиля: подписки на кредиты и пакеты без подписки
@@ -1715,7 +1716,10 @@ def _studio_job_payload(job) -> dict:
     settings = job.settings or {}
     result = job.result or {}
     folder = studio_runner.folder(job.id)
-    files = [{**f, "url": f"/api/studio/file/{job.id}/{f['name']}"}
+    # Названия дорожек, которые дал сам человек (мультитрек: «Бас», «2-я гитара»)
+    labels = result.get("labels") or {}
+    files = [{**f, "url": f"/api/studio/file/{job.id}/{f['name']}",
+              **({"label": labels[f["name"]], "origLabel": f.get("label", "")} if f["name"] in labels else {})}
              for f in result.get("files") or []
              if os.path.isfile(os.path.join(folder, f["name"]))]
     return {
@@ -2705,6 +2709,71 @@ async def api_studio_extra(job_id: str, request: Request, file: UploadFile = Fil
         result["extras"] = (result.get("extras") or []) + [entry]
         storage.update_job(job_id, result=result)
     return {**entry, "url": f"/api/studio/file/{job_id}/{name}"}
+
+
+@app.post("/api/studio/{job_id}/label")
+def api_studio_label(job_id: str, request: Request, file: str = Form(...), label: str = Form("")):
+    """Переименовать дорожку: партию после разделения, версию или свою
+    дорожку. Пустое название -- вернуть то, что дал сервис."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(404, "Трек не найден")
+    label = " ".join(label.split())[:40]
+    with studio_runner._analysis_lock:
+        fresh = storage.job(job_id)
+        result = dict(fresh.result or {})
+        extras = result.get("extras") or []
+        if any(x["name"] == file for x in extras):
+            result["extras"] = [{**x, "label": label or x.get("label") or "Своя дорожка"} if x["name"] == file else x
+                                for x in extras]
+        elif any(f["name"] == file for f in result.get("files") or []):
+            labels = dict(result.get("labels") or {})
+            if label:
+                labels[file] = label
+            else:
+                labels.pop(file, None)
+            result["labels"] = labels
+        else:
+            raise HTTPException(404, "Дорожка не найдена")
+        storage.update_job(job_id, result=result)
+    return {"ok": True, "label": label}
+
+
+@app.post("/api/job/{job_id}/rename")
+def api_job_rename(job_id: str, request: Request, name: str = Form(...)):
+    """Название трека в списке Студии (и разбора) -- как удобно человеку."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(404, "Трек не найден")
+    name = " ".join(name.split())[:120]
+    if not name:
+        raise HTTPException(400, "Название не может быть пустым")
+    storage.update_job(job_id, filename=name)
+    return {"ok": True, "name": name}
+
+
+# Личная среда: свои названия дорожек, свои стили -- то, что человек вводил
+# сам, предлагается ему снова. Хранится в профиле, на любом устройстве.
+PREF_LISTS = {"instruments": 40, "styles": 30}
+
+
+@app.post("/api/me/prefs")
+def api_me_prefs(request: Request, key: str = Form(...), add: str = Form(""), remove: str = Form("")):
+    if key not in PREF_LISTS:
+        raise HTTPException(400, "Неизвестная настройка")
+    user = current_user(request)
+    prefs = storage.prefs(user.id)
+    items = [x for x in prefs.get(key) or [] if isinstance(x, str)]
+    add = " ".join(add.split())[:60]
+    if remove:
+        items = [x for x in items if x.lower() != remove.strip().lower()]
+    if add:
+        items = [add] + [x for x in items if x.lower() != add.lower()]   # свежее -- первым
+    prefs[key] = items[:PREF_LISTS[key]]
+    storage.set_prefs(user.id, prefs)
+    return {"ok": True, key: prefs[key]}
 
 
 @app.delete("/api/studio/{job_id}/extra/{name}")

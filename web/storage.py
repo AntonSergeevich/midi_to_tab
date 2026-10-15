@@ -243,6 +243,8 @@ class Storage:
             ("vk_id", "TEXT"),
             # Приветственные кредиты Студии уже выданы
             ("welcome_given", "INTEGER NOT NULL DEFAULT 0"),
+            # Личная среда (JSON): свои названия дорожек, свои стили
+            ("prefs", "TEXT"),
         ):
             if column not in existing:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
@@ -339,6 +341,19 @@ class Storage:
         with self._connect() as conn:
             conn.execute("UPDATE users SET studio_credits = studio_credits + ? WHERE id = ?",
                          (count, user_id))
+
+    def prefs(self, user_id: str) -> dict:
+        with self._connect() as conn:
+            row = conn.execute("SELECT prefs FROM users WHERE id = ?", (user_id,)).fetchone()
+        try:
+            data = json.loads(row["prefs"]) if row and row["prefs"] else {}
+        except ValueError:
+            data = {}
+        return data if isinstance(data, dict) else {}
+
+    def set_prefs(self, user_id: str, prefs: dict) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE users SET prefs = ? WHERE id = ?", (json.dumps(prefs, ensure_ascii=False), user_id))
 
     def set_studio_credits(self, user_id: str, count: int) -> None:
         """Ровно столько кредитов -- выдаёт владелец в админке."""

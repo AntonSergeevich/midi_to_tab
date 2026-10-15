@@ -734,13 +734,21 @@ body.working .flow, body.working .studio-card, body.working .pay-note { display:
 .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
 .icon-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 #lyricsAi svg { fill: var(--accent); stroke: none; }
+/* Кнопка «Играть» в стиле NASLUX: тёплый янтарный круг с бликом сверху,
+   мягкая тень того же цвета; нажатие -- чуть утопить */
 .play-btn {
   width: 40px; height: 40px; padding: 0; border-radius: 50%; border: 0; flex: none; cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center;
-  background: var(--text); color: var(--bg);
+  display: inline-flex; align-items: center; justify-content: center; position: relative;
+  background: radial-gradient(120% 90% at 30% 20%, #f6c584 0%, #e2a457 45%, #c27f35 100%);
+  color: #1a1408;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.45), inset 0 -2px 4px rgba(120,64,10,.35), 0 4px 14px rgba(217,154,78,.28);
+  transition: transform .12s ease, box-shadow .2s ease, filter .2s ease;
 }
 .play-btn svg { width: 18px; height: 18px; fill: currentColor; }
-.play-btn.on, .play-btn:hover { background: var(--accent); }
+.play-btn:hover { filter: brightness(1.08); box-shadow: inset 0 1px 0 rgba(255,255,255,.5), inset 0 -2px 4px rgba(120,64,10,.35), 0 6px 20px rgba(217,154,78,.42); }
+.play-btn:active { transform: scale(.94); }
+.play-btn.on { box-shadow: inset 0 1px 0 rgba(255,255,255,.45), inset 0 -2px 4px rgba(120,64,10,.35), 0 0 0 4px rgba(217,154,78,.18), 0 6px 22px rgba(217,154,78,.45); }
+.play-btn:focus-visible { outline: 2px solid #f6c584; outline-offset: 3px; }
 
 .st-library { min-width: 0; }
 .st-libhead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
@@ -1078,8 +1086,19 @@ header.top > nav.topnav {
   padding: 10px 12px; margin-bottom: 12px; border-radius: 14px;
   background: rgba(29,31,39,.92); backdrop-filter: blur(8px); border: 1px solid var(--border);
 }
-.mx-transport .play-btn { width: 52px; height: 52px; flex: none; }
-.mx-transport .play-btn svg { width: 22px; height: 22px; }
+.mx-transport .play-btn { width: 58px; height: 58px; flex: none; }
+.mx-transport .play-btn svg { width: 24px; height: 24px; }
+/* Вспышка на долю: кольцо расходится от кнопки -- видно темп даже без звука */
+.mx-play::after { content: ""; position: absolute; inset: -3px; border-radius: 50%; pointer-events: none;
+  border: 2px solid rgba(246,197,132,.0); }
+.mx-play.beat::after { animation: mx-beat .42s ease-out; }
+.mx-play.down::after { animation: mx-beat-down .5s ease-out; }
+@keyframes mx-beat { from { border-color: rgba(246,197,132,.55); transform: scale(1); } to { border-color: rgba(246,197,132,0); transform: scale(1.28); } }
+@keyframes mx-beat-down { from { border-color: rgba(246,197,132,.95); border-width: 3px; transform: scale(1); } to { border-color: rgba(246,197,132,0); transform: scale(1.42); } }
+@media (prefers-reduced-motion: reduce) { .mx-play.beat::after, .mx-play.down::after { animation: none; } }
+.icon-btn.mx-round { width: 40px; min-width: 40px; height: 40px; padding: 0; }
+.mx-transport .icon-btn svg { width: 17px; height: 17px; }
+.mx-transport .icon-btn:disabled { opacity: .4; cursor: default; border-color: var(--border); color: var(--text); }
 .mx-time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; min-width: 96px; }
 .mx-time b { color: var(--text); }
 .mx-sep { width: 1px; height: 26px; background: var(--border); margin: 0 4px; }
@@ -1288,3 +1307,52 @@ header.top > nav.topnav {
 .mx-offline { display: inline-block; margin-top: 4px; font-size: 12px; color: #7fd18b; }
 .mx-offline[hidden] { display: none; }
 .st-expire { font-size: 12px; color: var(--accent); }
+
+/* Переименование трека: карандаш у названия */
+.st-titleline { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.st-titleline b, .st-titleline h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-titleline h2 { cursor: text; }
+.st-rename { flex: none; display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0;
+  border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; opacity: .7; }
+.st-rename:hover { color: var(--accent); opacity: 1; background: var(--panel-hi); }
+.st-rename svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.st-rename-input { width: 100%; font: inherit; font-weight: 700; padding: 6px 10px; border-radius: 10px;
+  border: 1px solid var(--accent); background: var(--bg); color: var(--text); }
+
+/* Мультитрек: выбранная дорожка, монтаж, название, окна */
+.mx-row.picked .mx-ctrl { box-shadow: inset 3px 0 0 var(--accent); }
+.mx-board.montage .mx-lane canvas { cursor: grab; }
+.mx-name .mx-part { flex: none; font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 0 5px; }
+.mx-name b[data-label] { cursor: pointer; }
+.mx-name b[data-label]:hover { color: var(--accent); }
+.mx-rename { flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0;
+  border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
+.mx-rename:hover { color: var(--accent); background: var(--panel-hi); }
+.mx-rename svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mx-sheet { position: fixed; inset: 0; z-index: 70; background: rgba(8,9,12,.62); display: flex; align-items: center;
+  justify-content: center; padding: 16px; }
+.mx-sheet[hidden] { display: none; }
+.mx-sheet-box { width: min(520px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.mx-sheet-box h3 { margin: 0; font-size: 18px; }
+.mx-sheet-box input[type="text"] { width: 100%; padding: 11px 14px; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font: inherit; }
+.mx-sheet-box input[type="text"]:focus { border-color: var(--accent); outline: none; }
+.mx-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mx-chips:empty { display: none; }
+.mx-chips small { width: 100%; color: var(--muted); font-size: 12px; }
+.mx-chip { display: inline-flex; align-items: center; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-hi); }
+.mx-chip button { border: 0; background: transparent; color: var(--text); padding: 7px 12px; font-size: 13px; cursor: pointer; min-height: 0; }
+.mx-chip:hover { border-color: var(--accent); }
+.mx-chip.mine { border-color: rgba(217,154,78,.55); }
+.mx-chip .mx-chip-x { padding: 7px 10px 7px 0; color: var(--muted); }
+.mx-chip .mx-chip-x:hover { color: #e06a55; }
+.mx-sheet-actions { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.mx-sheet-actions .spacer { flex: 1; }
+.mx-export-what { margin: 0; font-size: 14px; line-height: 1.5; }
+.mx-export-hint { margin: -4px 0 0; font-size: 12.5px; }
+@media (max-width: 720px) {
+  .mx-sheet { align-items: flex-end; padding: 0; }
+  .mx-sheet-box { border-radius: 18px 18px 0 0; padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
+}

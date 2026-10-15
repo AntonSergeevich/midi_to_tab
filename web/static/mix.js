@@ -18,8 +18,9 @@ const clock = (sec) => {
 };
 
 const ICON = {
-  play: '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
-  pause: '<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>',
+  play: '<svg viewBox="0 0 24 24"><path d="M8.5 5.6v12.8a1 1 0 0 0 1.5.86l10.2-6.4a1 1 0 0 0 0-1.72L10 4.74a1 1 0 0 0-1.5.86z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1.4"/><rect x="13.5" y="5" width="4" height="14" rx="1.4"/></svg>',
+  pencil: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4"/></svg>',
 };
 // Цвет волны по инструменту: дорожки различаются с первого взгляда
 const COLORS = [
@@ -36,7 +37,13 @@ const STORE = `naslux.mix.${jobId}.${params.get('file') || ''}`;
 let ctx = null;
 let master = null;
 let metroGain = null;
-const tracks = [];        // {name, url, buffer, gain, mute, solo, vol, trimStart, trimEnd, local, peaks, color}
+// Дорожка на ленте -- кусок звука: {name, key, url, buffer, gain, mute, solo, vol,
+// offset -- где на ленте время 0 файла, trimStart/trimEnd -- что звучит из файла
+// (в секундах файла), local, peaks, color}. Один файл может лежать на ленте
+// несколькими кусками (резка ✂): у них общий key.
+const tracks = [];
+let selected = -1;        // выбранная дорожка: её режет ✂ и двигает «Монтаж»
+let montage = false;      // режим монтажа: протяжка двигает дорожку по времени
 let duration = 0;
 let playing = false;
 let startTime = 0;        // момент часов ctx, когда позиция была startPos
@@ -97,16 +104,28 @@ function saved() {
   try { return JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (error) { return {}; }
 }
 
+// Настройки дорожек -- по ключу файла, а не по названию: название теперь
+// можно менять. Куски одного файла (резка) -- списком под тем же ключом.
 function save() {
   try {
+    const kept = tracks.filter((t) => !t.local);
+    const clips = {};
+    kept.forEach((t) => {
+      (clips[t.key] = clips[t.key] || []).push({ mute: t.mute, solo: t.solo, vol: t.vol, offset: t.offset,
+        trimStart: t.trimStart, trimEnd: t.trimEnd });
+    });
     localStorage.setItem(STORE, JSON.stringify({
       metro: metroOn, countIn, metroVol: $('metroVol').value, hidden: [...hidden],
-      metroMode: $('metroMode').value, trackHeight, order: tracks.filter((t) => !t.local).map((t) => t.name),
-      tracks: Object.fromEntries(tracks.filter((t) => !t.local).map((t) => [t.name, {
-        mute: t.mute, solo: t.solo, vol: t.vol, trimStart: t.trimStart, trimEnd: t.trimEnd,
-      }])),
+      metroMode: $('metroMode').value, trackHeight, order: [...new Set(kept.map((t) => t.key))], clips,
     }));
   } catch (error) { /* приватный режим -- просто без памяти */ }
+}
+
+const keyOf = (url, name) => (url ? decodeURIComponent(url.split('?')[0].split('/').pop()) : '') || name;
+const trackEnd = (t) => t.offset + t.buffer.duration;
+function updateDuration() {
+  duration = tracks.length ? Math.max(...tracks.map(trackEnd)) : 0;
+  $('total').textContent = clock(duration);
 }
 
 // ---------------------------------------------------------------- загрузка
@@ -152,9 +171,9 @@ async function init() {
   shifted = shifts.find((j) => j.id === params.get('v') && j.status === 'done') || null;
   versionPicker(shifts);
 
-  const list = shifted ? shifted.files.map((f) => ({ name: stems ? f.label : 'Трек целиком', url: f.url }))
-    : stems ? stems.files.map((f) => ({ name: f.label, url: f.url }))
-      : [{ name: version.label === 'Оригинал' ? 'Трек целиком' : version.label, url: version.url }];
+  const list = shifted ? shifted.files.map((f) => ({ name: stems || f.origLabel ? f.label : 'Трек целиком', url: f.url, orig: f.origLabel || '' }))
+    : stems ? stems.files.map((f) => ({ name: f.label, url: f.url, orig: f.origLabel || '' }))
+      : [{ name: version.label === 'Оригинал' ? 'Трек целиком' : version.label, url: version.url, orig: version.origLabel || '' }];
   // Свои дорожки (репетиция, подложка) хранятся при треке. В сдвинутой
   // версии их нет: они в исходной тональности и темпе.
   if (!shifted) {
@@ -199,11 +218,16 @@ async function loadTracks(list) {
   pressed('countIn', countIn);
   // Убранные дорожки («×») не грузим вовсе -- и память, и трафик
   hidden = new Set(memory.hidden || []);
-  const kept = list.filter((item) => !hidden.has(item.name));
+  list.forEach((item) => { item.key = keyOf(item.url, item.name); });
+  const kept = list.filter((item) => !hidden.has(item.key) && !hidden.has(item.name));
   if (kept.length) list = kept; else hidden.clear();   // убрать все нельзя
   // Порядок, в который дорожки расставили перетаскиванием; новые -- в конец
   const order = memory.order || [];
-  const rank = (item) => { const k = order.indexOf(item.name); return k < 0 ? order.length : k; };
+  const rank = (item) => {
+    let k = order.indexOf(item.key);
+    if (k < 0) k = order.indexOf(item.name);           // память до 15.10 -- по названиям
+    return k < 0 ? order.length : k;
+  };
   list = list.map((item, k) => [item, k]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([item]) => item);
   showHidden();
   let done = 0;
@@ -213,12 +237,18 @@ async function loadTracks(list) {
     const data = await audioBytes(item.url).catch(() => null);
     if (!data) { missing++; return; }
     const buffer = await ctx.decodeAudioData(data);
-    const remembered = (memory.tracks || {})[item.name] || {};
-    tracks[index] = makeTrack(item.name, item.url, buffer, remembered);
-    tracks[index].extra = item.extra || '';
+    const clips = (memory.clips || {})[item.key] || [(memory.tracks || {})[item.name] || {}];
+    tracks[index] = clips.map((remembered, part) => {
+      const t = makeTrack(item.name, item.url, buffer, remembered);
+      Object.assign(t, { extra: item.extra || '', key: item.key, owner: item.owner || '', file: item.file || '',
+        orig: item.orig || '', part });
+      return t;
+    });
     note(`Загружаем дорожки: ${++done} из ${list.length}…`);
   }));
-  for (let i = tracks.length - 1; i >= 0; i--) if (!tracks[i]) tracks.splice(i, 1);
+  const loaded = tracks.filter(Boolean).flat();
+  tracks.length = 0;
+  tracks.push(...loaded);
   if (!tracks.length) {
     note('Нет интернета, а этот трек ещё не сохранён на устройстве. Откройте его один раз при интернете — '
       + 'дальше он будет работать и без сети.');
@@ -226,8 +256,7 @@ async function loadTracks(list) {
   }
   note(missing ? `Без интернета загрузились не все дорожки: нет ${missing}. Откройте трек при интернете, чтобы сохранить все.` : '');
   keepOffline();
-  duration = Math.max(...tracks.map((t) => t.buffer.duration));
-  $('total').textContent = clock(duration);
+  updateDuration();
   zoom = duration > 45 ? duration / 30 : 1;
   render();
 }
@@ -267,6 +296,152 @@ async function keepOffline() {
   mark.title = 'Трек сохранён на этом устройстве: откроется и сыграет без интернета';
 }
 
+// ------------------------------------------------------------- монтаж
+// «Монтаж»: протяжка двигает дорожку по времени; края прилипают к тактам и
+// к краям других дорожек -- так куски склеиваются встык. ✂ режет выбранную
+// дорожку по курсору на два куска; лишний кусок -- «×».
+function markSelected() {
+  document.querySelectorAll('.mx-row[data-i]').forEach((row) => {
+    row.classList.toggle('picked', Number(row.dataset.i) === selected);
+  });
+  $('cutBtn').disabled = selected < 0;
+}
+
+function snapOffset(t, offset, width) {
+  const start = offset + t.trimStart;
+  const end = offset + t.trimEnd;
+  const limit = (12 / width) * viewLen();        // 12 пикселей
+  let best = null;
+  const edges = [0];
+  tracks.forEach((o) => { if (o !== t) edges.push(o.offset + o.trimStart, o.offset + o.trimEnd); });
+  beats.forEach((b) => { if (downbeats.has(b.toFixed(2))) edges.push(b); });
+  edges.forEach((edge) => {
+    [[start, edge - start], [end, edge - end]].forEach(([, d]) => {
+      if (Math.abs(d) < limit && (best === null || Math.abs(d) < Math.abs(best))) best = d;
+    });
+  });
+  return Math.max(-t.trimStart, offset + (best || 0));
+}
+
+function cut() {
+  const t = tracks[selected];
+  if (!t) { toast('Нажмите на дорожку, которую резать, и поставьте курсор, где резать'); return; }
+  const at = position() - t.offset;                 // секунда файла
+  if (at <= t.trimStart + 0.05 || at >= t.trimEnd - 0.05) {
+    toast('Поставьте курсор внутрь выбранной дорожки — там, где резать');
+    return;
+  }
+  const piece = makeTrack(t.name, t.url, t.buffer, { mute: t.mute, solo: t.solo, vol: t.vol, offset: t.offset,
+    trimStart: at, trimEnd: t.trimEnd }, t.local);
+  Object.assign(piece, { key: t.key, extra: t.extra, orig: t.orig, peaks: t.peaks, part: t.part + 1 });
+  t.trimEnd = at;
+  tracks.splice(selected + 1, 0, piece);
+  selected += 1;
+  render();
+  save();
+  if (playing) startAt(position());
+  toast(montage ? 'Разрезано. Тяните кусок, чтобы сдвинуть; лишний — «×»'
+    : 'Разрезано. Включите «Монтаж», чтобы двигать куски; лишний — «×»');
+}
+
+$('cutBtn').addEventListener('click', cut);
+$('montage').addEventListener('click', () => {
+  montage = !montage;
+  pressed('montage', montage);
+  $('board').classList.toggle('montage', montage);
+  if (montage) toast('Монтаж: тяните дорожку, чтобы сдвинуть по времени. Края прилипают к тактам и к другим дорожкам — так дорожки склеиваются. ✂ режет выбранную по курсору', 7000);
+  redraw();
+});
+
+// --------------------------------------------------- название дорожки
+// «Что это за дорожка?»: список инструментов, свои названия из профиля
+// (их человек вводил раньше -- на любом устройстве) и поле для своего.
+const INSTRUMENTS = ['Вокал', 'Бэк-вокал', 'Гитара', 'Ритм-гитара', 'Соло-гитара', 'Вторая гитара', 'Акустика',
+  'Бас', 'Барабаны', 'Перкуссия', 'Клавиши', 'Пиано', 'Синтезатор', 'Орган', 'Скретчи', 'Сэмплы', 'Струнные',
+  'Скрипка', 'Виолончель', 'Духовые', 'Саксофон', 'Труба', 'Флейта', 'Аккордеон', 'Баян', 'Гармонь',
+  'Подложка', 'Минус', 'Клик'];
+let me = null;
+let labeling = null;        // {i, before}
+
+async function myLabels() {
+  if (!me) me = await fetch('/api/me').then((r) => r.json()).catch(() => ({}));
+  return ((me && me.prefs && me.prefs.instruments) || []).filter((x) => typeof x === 'string');
+}
+
+function chip(text, mine) {
+  return `<span class="mx-chip${mine ? ' mine' : ''}"><button type="button" data-pick="${esc(text)}">${esc(text)}</button>`
+    + `${mine ? `<button type="button" class="mx-chip-x" data-forget="${esc(text)}" title="Убрать из моих" aria-label="Убрать «${esc(text)}» из моих">×</button>` : ''}</span>`;
+}
+
+async function openLabel(i) {
+  const t = tracks[i];
+  if (!t) return;
+  labeling = { i, before: t.name };
+  $('labelInput').value = t.name;
+  $('labelReset').hidden = !t.orig;
+  $('labelSheet').hidden = false;
+  $('labelInput').focus();
+  $('labelInput').select();
+  const mine = await myLabels();
+  $('labelMine').innerHTML = mine.length
+    ? `<small>Мои</small>${mine.map((x) => chip(x, true)).join('')}` : '';
+  $('labelChips').innerHTML = INSTRUMENTS.filter((x) => !mine.some((m) => m.toLowerCase() === x.toLowerCase()))
+    .map((x) => chip(x, false)).join('');
+}
+
+function closeLabel() { $('labelSheet').hidden = true; labeling = null; }
+
+async function saveLabel(text, reset = false) {
+  if (!labeling) return;
+  const t = tracks[labeling.i];
+  const name = reset ? t.orig : text.trim().replace(/\s+/g, ' ').slice(0, 40);
+  closeLabel();
+  if (!name || name === t.name) return;
+  tracks.filter((x) => x.key === t.key).forEach((x) => { x.name = name; x.color = colorOf(name); });
+  render();
+  const where = /\/api\/studio\/file\/([^/]+)\/([^/?]+)/.exec(t.url || '');
+  if (where) {
+    const form = new FormData();
+    form.append('file', decodeURIComponent(where[2]));
+    form.append('label', reset ? '' : name);
+    const answer = await fetch(`/api/studio/${where[1]}/label`, { method: 'POST', body: form }).catch(() => null);
+    if (!answer || !answer.ok) toast('Название не сохранилось на сервере — проверьте интернет');
+  }
+  // Своё название (не из списка) -- запомнить в профиле, чтобы предложить снова
+  if (!reset && !INSTRUMENTS.some((x) => x.toLowerCase() === name.toLowerCase())) {
+    const form = new FormData();
+    form.append('key', 'instruments');
+    form.append('add', name);
+    const answer = await fetch('/api/me/prefs', { method: 'POST', body: form }).catch(() => null);
+    const data = answer && answer.ok ? await answer.json() : null;
+    if (data && me) me.prefs = { ...(me.prefs || {}), instruments: data.instruments };
+  }
+}
+
+$('labelSheet').addEventListener('click', async (e) => {
+  const pick = e.target.closest('[data-pick]');
+  if (pick) { saveLabel(pick.dataset.pick); return; }
+  const forget = e.target.closest('[data-forget]');
+  if (forget) {
+    const form = new FormData();
+    form.append('key', 'instruments');
+    form.append('remove', forget.dataset.forget);
+    const answer = await fetch('/api/me/prefs', { method: 'POST', body: form }).catch(() => null);
+    const data = answer && answer.ok ? await answer.json() : null;
+    if (data && me) me.prefs = { ...(me.prefs || {}), instruments: data.instruments };
+    if (labeling) openLabel(labeling.i);
+    return;
+  }
+  if (e.target === $('labelSheet')) closeLabel();
+});
+$('labelOk').addEventListener('click', () => saveLabel($('labelInput').value));
+$('labelCancel').addEventListener('click', closeLabel);
+$('labelReset').addEventListener('click', () => saveLabel('', true));
+$('labelInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); saveLabel($('labelInput').value); }
+  if (e.key === 'Escape') closeLabel();
+});
+
 function showHidden() {
   $('restoreTracks').hidden = !hidden.size;
   $('restoreTracks').textContent = `↺ Вернуть убранные (${hidden.size})`;
@@ -282,9 +457,9 @@ function makeTrack(name, url, buffer, remembered = {}, local = false) {
   const gain = ctx.createGain();
   gain.connect(master);
   const t = {
-    name, url, buffer, gain, local,
+    name, url, buffer, gain, local, key: keyOf(url, name), part: 0,
     mute: Boolean(remembered.mute), solo: Boolean(remembered.solo),
-    vol: remembered.vol ?? 100,
+    vol: remembered.vol ?? 100, offset: Math.max(0, remembered.offset || 0),
     trimStart: remembered.trimStart ?? 0,
     trimEnd: Math.min(remembered.trimEnd ?? buffer.duration, buffer.duration),
     peaks: peaksOf(buffer, 1600), color: colorOf(name),
@@ -549,10 +724,11 @@ async function waitSplit(splitting) {
 
 function render() {
   $('tracks').innerHTML = tracks.map((t, i) => `
-    <div class="mx-row" data-i="${i}">
+    <div class="mx-row${i === selected ? ' picked' : ''}" data-i="${i}">
       <div class="mx-ctrl">
         <div class="mx-name" data-grab="${i}" title="Перетащите выше или ниже, чтобы поменять порядок">
-          <span class="mx-grip" data-grip="${i}" aria-hidden="true">⠿</span><i style="background:${t.color}"></i><b title="${esc(t.name)}">${esc(t.name)}</b>
+          <span class="mx-grip" data-grip="${i}" aria-hidden="true">⠿</span><i style="background:${t.color}"></i><b data-noi18n data-label="${i}" title="${esc(t.name)} — нажмите, чтобы переименовать">${esc(t.name)}</b>${tracks.filter((x) => x.key === t.key).length > 1 ? `<small class="mx-part">${tracks.filter((x, k) => x.key === t.key && k <= i).length}</small>` : ''}
+          <button type="button" class="mx-rename" data-label="${i}" title="Название дорожки" aria-label="Название дорожки">${ICON.pencil}</button>
           ${t.local ? `<em title="Загружаем на сервер…">${t.uploading ? 'загрузка…' : 'не сохранена'}</em>`
     : t.extra ? '<em title="Ваша дорожка — хранится при этом треке">своя</em>' : ''}</div>
         <div class="mx-btns">
@@ -568,6 +744,7 @@ function render() {
     </div>`).join('');
   applyGains();
   sizeCanvases();
+  markSelected();
 }
 
 function sizeCanvases() {
@@ -583,16 +760,21 @@ function sizeCanvases() {
 // Мышью -- за название или ручку «⠿», пальцем -- только за ручку (иначе
 // вертикальный свайп по названию перестал бы листать страницу).
 let drag = null;
+let lastDrag = 0;           // только что тянули -- щелчок по названию не открывает переименование
 
 document.addEventListener('pointerdown', (e) => {
   const grab = e.target.closest('[data-grab]');
-  if (!grab || e.button > 0 || tracks.length < 2) return;
+  if (!grab || e.button > 0 || e.target.closest('.mx-rename')) return;
+  // Нажали на название и отпустили, не двигая, -- переименовать (dropTrack)
+  const label = e.target.closest('b[data-label]');
+  if (tracks.length < 2) return;        // одна дорожка: щелчок по названию -- обычный click
   if (e.pointerType !== 'mouse' && !e.target.closest('[data-grip]')) return;
   const row = grab.closest('.mx-row');
   const rows = [...document.querySelectorAll('.mx-row[data-i]')];
   drag = { from: Number(grab.dataset.grab), to: Number(grab.dataset.grab), row, rows, y0: e.clientY,
     mids: rows.map((r) => { const b = r.getBoundingClientRect(); return b.top + b.height / 2; }),
-    height: row.getBoundingClientRect().height, id: e.pointerId, moved: false };
+    height: row.getBoundingClientRect().height, id: e.pointerId, moved: false,
+    label: label ? Number(label.dataset.label) : null };
   grab.setPointerCapture(e.pointerId);
   e.preventDefault();
 });
@@ -621,9 +803,12 @@ document.addEventListener('pointermove', (e) => {
 function dropTrack(e) {
   if (!drag || e.pointerId !== drag.id) return;
   const { from, to, moved } = drag;
+  const labelTap = drag.label;
   drag.rows.forEach((r) => { r.style.transform = ''; r.classList.remove('dragging'); });
   $('board').classList.remove('reordering');
   drag = null;
+  if (moved) lastDrag = Date.now();
+  if (!moved && e.type === 'pointerup' && labelTap !== null) openLabel(labelTap);
   if (!moved || from === to) return;
   const [t] = tracks.splice(from, 1);
   tracks.splice(to, 0, t);
@@ -662,20 +847,34 @@ function drawTrack(t, i) {
   beats.forEach((b) => { if (downbeats.has(b.toFixed(2))) g.fillRect(Math.round(x(b)), 0, dpr, h); });
   const bars = t.peaks.length;
   const on = audible(t);
+  const a = t.offset + t.trimStart;          // кусок на ленте
+  const b = t.offset + t.trimEnd;
+  if (i === selected) {                       // выбранная -- подсветка куска
+    g.fillStyle = 'rgba(217,154,78,.10)';
+    g.fillRect(x(a), 0, x(b) - x(a), h);
+  }
   for (let k = 0; k < bars; k++) {
     const sec = (k / bars) * t.buffer.duration;
-    if (sec < viewStart - 1 || sec > viewStart + viewLen() + 1) continue;
+    const at = t.offset + sec;
+    if (at < viewStart - 1 || at > viewStart + viewLen() + 1) continue;
     const inside = sec >= t.trimStart && sec <= t.trimEnd;
+    // за краями куска -- только для монтажа (видно, что можно вернуть)
+    if (!inside && !montage && (t.part || tracks.some((o) => o !== t && o.key === t.key))) continue;
     const amp = Math.max(1, t.peaks[k] * (h / 2 - 3 * dpr));
     g.fillStyle = !inside ? 'rgba(255,255,255,.10)' : on ? t.color : 'rgba(167,171,184,.35)';
-    g.fillRect(x(sec), h / 2 - amp, Math.max(1, w / bars * (t.buffer.duration / viewLen())), amp * 2);
+    g.fillRect(x(at), h / 2 - amp, Math.max(1, w / bars * (t.buffer.duration / viewLen())), amp * 2);
   }
   // обрезанное -- затемнено, края -- ручки
   g.fillStyle = 'rgba(10,11,15,.55)';
-  g.fillRect(0, 0, x(t.trimStart), h);
-  g.fillRect(x(t.trimEnd), 0, w - x(t.trimEnd), h);
+  g.fillRect(0, 0, x(a), h);
+  g.fillRect(x(b), 0, w - x(b), h);
   g.fillStyle = '#d99a4e';
-  [t.trimStart, t.trimEnd].forEach((edge) => g.fillRect(Math.round(x(edge)) - 2 * dpr, 6 * dpr, 4 * dpr, h - 12 * dpr));
+  [a, b].forEach((edge) => g.fillRect(Math.round(x(edge)) - 2 * dpr, 6 * dpr, 4 * dpr, h - 12 * dpr));
+  if (montage && i === selected) {            // рамка: эту дорожку можно тянуть
+    g.strokeStyle = 'rgba(217,154,78,.9)';
+    g.lineWidth = 2 * dpr;
+    g.strokeRect(x(a) + dpr, dpr, x(b) - x(a) - 2 * dpr, h - 2 * dpr);
+  }
 }
 
 function drawRuler() {
@@ -778,6 +977,23 @@ function movePlayhead() {
   chordNow();
   if (playing) drawOverview();
   $('now').textContent = clock(position());
+  pulse();
+}
+
+// Кнопка «Играть» дышит в такт песне: вспышка на каждую долю, ярче -- на первую
+let pulsed = -1;
+function pulse() {
+  if (!playing || !beats.length) return;
+  const now = position();
+  let k = pulsed >= 0 && pulsed < beats.length && beats[pulsed] <= now ? pulsed : 0;
+  while (k + 1 < beats.length && beats[k + 1] <= now) k++;
+  if (k === pulsed || beats[k] > now || now - beats[k] > 0.25) { pulsed = k; return; }
+  pulsed = k;
+  const button = $('play');
+  button.classList.remove('beat', 'down');
+  void button.offsetWidth;                  // перезапустить анимацию
+  button.classList.add('beat');
+  if (beatPos[k] === 0) button.classList.add('down');
 }
 
 // ---------------------------------------------------------------- звук
@@ -798,14 +1014,8 @@ function startAt(p, delay = 0.06) {
   stopSources();
   const t0 = ctx.currentTime + delay;
   tracks.forEach((t) => {
-    const from = Math.max(p, t.trimStart);
-    const to = Math.min(t.trimEnd, t.buffer.duration);
-    if (to - from <= 0.01) return;
-    const src = ctx.createBufferSource();
-    src.buffer = t.buffer;
-    src.connect(t.gain);
-    src.start(t0 + (from - p), from, to - from);
-    sources.push(src);
+    const src = schedule(ctx, t, p, t0, t.gain);
+    if (src) sources.push(src);
   });
   startTime = t0;
   startPos = p;
@@ -814,6 +1024,19 @@ function startAt(p, delay = 0.06) {
   if (nextBeat < 0) nextBeat = beats.length;
   $('play').innerHTML = ICON.pause;
   $('play').classList.add('on');
+}
+
+// Кусок дорожки на ленте -- с позиции p ленты, в момент t0 часов ctx
+// (и для живого звука, и для сведения в файл). end -- где лента кончается.
+function schedule(c, t, p, t0, dest, end = Infinity) {
+  const from = Math.max(p - t.offset, t.trimStart);               // секунда файла
+  const to = Math.min(t.trimEnd, t.buffer.duration, end - t.offset);
+  if (to - from <= 0.01) return null;
+  const src = c.createBufferSource();
+  src.buffer = t.buffer;
+  src.connect(dest);
+  src.start(t0 + (t.offset + from - p), from, to - from);
+  return src;
 }
 
 function pause() {
@@ -938,24 +1161,37 @@ document.addEventListener('pointerdown', (e) => {
   }
   const wave = e.target.closest('[data-wave]');
   if (wave && duration) {
-    const t = tracks[wave.dataset.wave];
+    const index = Number(wave.dataset.wave);
+    const t = tracks[index];
     const sec = secAt(e, wave);
     const width = wave.getBoundingClientRect().width;
     const px = (x) => toX(x, width);
     const reach = e.pointerType === 'touch' ? 18 : 10;
-    const grab = Math.abs(px(sec) - px(t.trimStart)) < reach ? 'trimStart'
-      : Math.abs(px(sec) - px(t.trimEnd)) < reach ? 'trimEnd' : null;
+    const grab = Math.abs(px(sec) - px(t.offset + t.trimStart)) < reach ? 'trimStart'
+      : Math.abs(px(sec) - px(t.offset + t.trimEnd)) < reach ? 'trimEnd'
+        : montage && sec >= t.offset + t.trimStart && sec <= t.offset + t.trimEnd ? 'move' : null;
+    if (selected !== index) { selected = index; markSelected(); redraw(); }
     wave.setPointerCapture(e.pointerId);
     const x0 = e.clientX;
     const view0 = viewStart;
+    const offset0 = t.offset;
     let moved = false;
     const move = (ev) => {
       if (pinch) return;
+      if (grab === 'move') {
+        if (Math.abs(ev.clientX - x0) < 4 && !moved) return;
+        moved = true;
+        const shift = (ev.clientX - x0) / width * viewLen();
+        t.offset = snapOffset(t, Math.max(-t.trimStart, offset0 + shift), width);
+        updateDuration();
+        redraw();
+        return;
+      }
       if (grab) {
-        const x = secAt(ev, wave);
+        const x = Math.max(0, secAt(ev, wave) - t.offset);
         if (grab === 'trimStart') t.trimStart = Math.max(0, Math.min(x, t.trimEnd - 0.5));
         else t.trimEnd = Math.min(t.buffer.duration, Math.max(x, t.trimStart + 0.5));
-        drawTrack(t, Number(wave.dataset.wave));
+        drawTrack(t, index);
         return;
       }
       if (Math.abs(ev.clientX - x0) < 6 && !moved) return;
@@ -970,6 +1206,7 @@ document.addEventListener('pointerdown', (e) => {
       wave.removeEventListener('pointermove', move);
       wave.removeEventListener('pointerup', up);
       wave.removeEventListener('pointercancel', up);
+      if (grab === 'move' && !moved && !pinch && ev.type === 'pointerup') { seek(sec); return; }
       if (grab) { save(); if (playing) startAt(position()); return; }
       if (!moved && !pinch && ev.type === 'pointerup') seek(sec);
     };
@@ -1072,8 +1309,10 @@ function drawOverview() {
   for (let k = 0; k < n; k++) {
     let peak = 0;
     tracks.forEach((t) => {
-      const i = Math.floor((k / n) * (duration / t.buffer.duration) * t.peaks.length);
-      if (i < t.peaks.length) peak = Math.max(peak, t.peaks[i]);
+      const sec = (k / n) * duration - t.offset;
+      if (sec < t.trimStart || sec > t.trimEnd) return;
+      const i = Math.floor((sec / t.buffer.duration) * t.peaks.length);
+      if (i >= 0 && i < t.peaks.length) peak = Math.max(peak, t.peaks[i]);
     });
     const amp = Math.max(1, peak * (h / 2 - 2));
     g.fillRect((k / n) * w, h / 2 - amp, Math.max(1, w / n - 1), amp * 2);
@@ -1098,6 +1337,8 @@ function snapLoop() {
 }
 
 document.addEventListener('click', (e) => {
+  const label = e.target.closest('.mx-rename[data-label]') || (tracks.length < 2 && e.target.closest('b[data-label]'));
+  if (label && Date.now() - lastDrag > 400) { openLabel(Number(label.dataset.label)); return; }
   const mute = e.target.closest('[data-mute]');
   const solo = e.target.closest('[data-solo]');
   const remove = e.target.closest('[data-remove]');
@@ -1106,15 +1347,17 @@ document.addEventListener('click', (e) => {
   if (remove) {
     if (tracks.length === 1) { toast('Последнюю дорожку убрать нельзя'); return; }
     const doomed = tracks[Number(remove.dataset.remove)];
-    if (doomed.extra && !confirm(`Удалить дорожку «${doomed.name}»? Её придётся загружать заново.`)) return;
+    if (doomed.extra && !tracks.some((x) => x !== doomed && x.key === doomed.key) && !confirm(`Удалить дорожку «${doomed.name}»? Её придётся загружать заново.`)) return;
     const [t] = tracks.splice(Number(remove.dataset.remove), 1);
     t.gain.disconnect();
-    if (t.extra) {
+    selected = -1;
+    if (tracks.some((x) => x.key === t.key)) {
+      save();                                  // убрали кусок после резки -- файл и другие куски на месте
+    } else if (t.extra) {
       fetch(`/api/studio/${jobId}/extra/${t.extra}`, { method: 'DELETE' })
         .then((r) => toast(r.ok ? 'Дорожка удалена' : 'Не получилось удалить дорожку на сервере'));
-    } else if (!t.local) { hidden.add(t.name); save(); showHidden(); }
-    duration = Math.max(...tracks.map((x) => x.buffer.duration));
-    $('total').textContent = clock(duration);
+    } else if (!t.local) { hidden.add(t.key); save(); showHidden(); }
+    updateDuration();
     render();
     if (playing) startAt(Math.min(position(), duration));
     return;
@@ -1308,8 +1551,7 @@ $('addFile').addEventListener('change', async (e) => {
 
 function addLoaded(t) {
   tracks.push(t);
-  duration = Math.max(duration, t.buffer.duration);
-  $('total').textContent = clock(duration);
+  updateDuration();
   render();
   if (playing) startAt(position());
 }
@@ -1331,28 +1573,63 @@ async function uploadExtra(label, chosen) {
   }
 }
 
-$('exportMix').addEventListener('click', async () => {
+// Скачать микс: то, что сейчас звучит (заглушённые и «соло» -- как на
+// экране, громкость, обрезка, сдвиги монтажа), по желанию -- с метрономом и
+// тактом отсчёта, целиком или только выделенный кусок (повтор).
+$('exportMix').addEventListener('click', () => {
   if (!tracks.length) return;
+  const on = tracks.filter(audible);
+  const off = tracks.filter((t) => !audible(t));
+  const names = (list) => [...new Set(list.map((t) => t.name))].join(', ');
+  $('exportWhat').innerHTML = `<b>Звучат:</b> ${esc(names(on)) || '—'}`
+    + (off.length ? `<br><span class="muted"><b>Без:</b> ${esc(names(off))}</span>` : '');
+  $('exportMetro').checked = metroOn;
+  $('exportMetroBox').hidden = !beats.length;
+  $('exportCount').checked = false;
+  $('exportCountBox').hidden = !(analysis && analysis.bpm);
+  $('exportLoopBox').hidden = !(loop.b > loop.a);
+  $('exportLoop').checked = loop.on && loop.b > loop.a;
+  $('exportSheet').hidden = false;
+});
+$('exportCancel').addEventListener('click', () => { $('exportSheet').hidden = true; });
+$('exportSheet').addEventListener('click', (e) => { if (e.target === $('exportSheet')) $('exportSheet').hidden = true; });
+
+$('exportGo').addEventListener('click', async () => {
+  $('exportSheet').hidden = true;
   $('exportMix').disabled = true;
   toast('Сводим микс…');
   try {
     const rate = ctx.sampleRate;
-    const offline = new OfflineAudioContext(2, Math.ceil(duration * rate), rate);
+    const part = $('exportLoop').checked && loop.b > loop.a;
+    const from = part ? loop.a : 0;
+    const to = part ? loop.b : duration;
+    const interval = analysis && analysis.bpm ? 60 / analysis.bpm : 0;
+    const lead = $('exportCount').checked && interval ? 4 * interval : 0;    // такт отсчёта перед музыкой
+    const offline = new OfflineAudioContext(2, Math.ceil((to - from + lead) * rate), rate);
     tracks.forEach((t) => {
       if (!audible(t)) return;
       const g = offline.createGain();
       g.gain.value = t.vol / 100;
       g.connect(offline.destination);
-      const src = offline.createBufferSource();
-      src.buffer = t.buffer;
-      src.connect(g);
-      src.start(t.trimStart, t.trimStart, Math.max(0, t.trimEnd - t.trimStart));
+      schedule(offline, t, from, lead, g, to);
     });
+    if ($('exportMetro').checked || lead) {
+      const out = window.metroSound.output(offline, $('metroVol').value);
+      for (let k = 0; lead && k < 4; k++) window.metroSound.play(offline, out, k * interval, k === 0);
+      if ($('exportMetro').checked) {
+        beats.forEach((b, k) => {
+          if (b < from - 0.001 || b >= to || !metroKeeps(k)) return;
+          window.metroSound.play(offline, out, lead + b - from, beatPos[k] === 0);
+        });
+      }
+    }
     const rendered = await offline.startRendering();
     const blob = wav(rendered);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${(job && job.name || 'naslux').replace(/\.[^.]+$/, '')} — микс.wav`;
+    const what = [part ? `${clock(from)}-${clock(to)}`.replace(/:/g, '.') : '', $('exportMetro').checked ? 'с метрономом' : '']
+      .filter(Boolean).join(', ');
+    a.download = `${(job && job.name || 'naslux').replace(/\.[^.]+$/, '')} — микс${what ? ` (${what})` : ''}.wav`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
   } catch (error) {

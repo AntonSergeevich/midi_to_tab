@@ -40,6 +40,7 @@ const ICON = {
   expand: '<svg viewBox="0 0 24 24"><path d="M15 4h5v5M9 20H4v-5M20 4l-6 6M4 20l6-6"/></svg>',
   down: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
   tempo: '<svg viewBox="0 0 24 24"><path d="M9 3h6l3 18H6L9 3zM12 14l5-6M8 17h8"/></svg>',
+  pencil: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4"/></svg>',
   star: '<svg viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>',
   more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
   again: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15m0 5v-5h5"/></svg>',
@@ -466,7 +467,7 @@ function renderList(jobs) {
     const first = j.status === 'done' && j.files[0];
     return `<div class="st-row${j.id === fresh ? ' st-new' : ''}" data-open="${j.id}">
       ${cover(j)}<span class="st-mode">${MODE_ICON[j.mode] || ''}</span>
-      <div class="st-row-main"><b data-noi18n>${esc(j.name)}</b>${statusLine(j)}</div>
+      <div class="st-row-main"><span class="st-titleline"><b data-noi18n data-rename="${j.id}">${esc(j.name)}</b>${renameButton(j)}</span>${statusLine(j)}</div>
       ${favButton(j)}${first ? playButton(first, j.name) : ''}
     </div>`;
   }).join('');
@@ -493,6 +494,55 @@ function tabsLine(a) {
 function rerender() {
   renderList(info.jobs);
   if (openJob) renderDetail(info.jobs);
+}
+
+// Название трека -- своё: карандаш у названия (а в карточке -- и само название)
+function renameButton(j) {
+  return `<button type="button" class="st-rename" data-renamebtn="${j.id}" title="Переименовать"
+    aria-label="Переименовать">${ICON.pencil}</button>`;
+}
+
+function startRename(id) {
+  const title = document.querySelector(`#detailView:not([hidden]) [data-rename="${id}"]`)
+    || document.querySelector(`#jobs [data-rename="${id}"]`);
+  if (!title || title.isContentEditable) return;
+  const items = [...((info && info.jobs) || []), ...((info && info.analyses) || [])].filter((x) => x.id === id);
+  if (!items.length) return;
+  const before = items[0].name;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'st-rename-input';
+  input.value = before;
+  input.maxLength = 120;
+  input.setAttribute('aria-label', 'Новое название');
+  input.dataset.noi18n = '';
+  const line = title.closest('.st-titleline');
+  line.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = async (keep) => {
+    if (done) return;
+    done = true;
+    const name = input.value.trim().replace(/\s+/g, ' ');
+    if (!keep || !name || name === before) { rerender(); return; }
+    items.forEach((x) => { x.name = name; });
+    rerender();
+    const form = new FormData();
+    form.append('name', name);
+    const answer = await fetch(`/api/job/${id}/rename`, { method: 'POST', body: form }).catch(() => null);
+    if (!answer || !answer.ok) {
+      items.forEach((x) => { x.name = before; });
+      rerender();
+      toast('Не получилось переименовать — проверьте интернет');
+    }
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    if (e.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
+  input.addEventListener('click', (e) => e.stopPropagation());
 }
 
 // Звёздочка: в избранное и обратно
@@ -523,7 +573,7 @@ async function toggleFav(id) {
 function tabsRow(a, label) {
   return `<div class="st-row${label ? ' st-tabsub' : ''}" data-tabs="${a.id}" title="Открыть аккорды и табы">
     ${label ? '' : cover(a)}<span class="st-mode">♫</span>
-    <div class="st-row-main"><b${label ? '' : ' data-noi18n'}>${esc(label || a.name)}</b>${tabsLine(a)}</div>
+    <div class="st-row-main">${label ? `<b>${esc(label)}</b>` : `<span class="st-titleline"><b data-noi18n data-rename="${a.id}">${esc(a.name)}</b>${renameButton(a)}</span>`}${tabsLine(a)}</div>
     ${label ? '' : favButton(a)}<button type="button" class="icon-btn" data-menu="${a.id}" data-analysis="1" title="Что сделать">${ICON.more}</button>
   </div>`;
 }
@@ -615,7 +665,7 @@ function renderDetail(jobs) {
     <div class="st-dhead">
       <button type="button" class="icon-btn" id="back" title="Назад">${ICON.back}</button>
       ${cover(j, true)}
-      <div class="st-row-main"><h2 data-noi18n>${esc(j.name)}</h2><span class="muted">${esc(meta)}</span></div>
+      <div class="st-row-main"><span class="st-titleline"><h2 data-noi18n data-rename="${j.id}" title="Нажмите, чтобы переименовать">${esc(j.name)}</h2>${renameButton(j)}</span><span class="muted">${esc(meta)}</span></div>
       ${favButton(j)}${['done', 'error'].includes(j.status)
     ? `<button type="button" class="icon-btn" data-menu="${j.id}" data-track="1" data-upload="${j.mode === 'upload' ? 1 : ''}" data-done="${j.status === 'done' && j.files.length && j.mode !== 'stems' ? 1 : ''}" title="Что сделать">${ICON.more}</button>` : ''}
     </div>
@@ -729,8 +779,10 @@ async function loadOnce() {
     afterPayment(restored);
   }
   renderVoices();
-  renderList(info.jobs);
-  if (openJob) renderDetail(info.jobs);
+  if (!document.querySelector('.st-rename-input')) {    // пишут новое название -- не перерисовывать под рукой
+    renderList(info.jobs);
+    if (openJob) renderDetail(info.jobs);
+  }
   if (!listRestored) {                 // вернулись на страницу «назад»
     listRestored = true;
     const back = history.state && history.state.detail;
@@ -1068,6 +1120,11 @@ $('start').addEventListener('click', async () => {
 });
 
 document.addEventListener('click', async (e) => {
+  const renameBtn = e.target.closest('[data-renamebtn]');
+  if (renameBtn) { e.stopPropagation(); startRename(renameBtn.dataset.renamebtn); return; }
+  const titleClick = e.target.closest('#detailView [data-rename]');
+  if (titleClick) { startRename(titleClick.dataset.rename); return; }
+  if (e.target.closest('.st-rename-input')) return;
   const fav = e.target.closest('[data-fav]');
   if (fav) { e.stopPropagation(); toggleFav(fav.dataset.fav); return; }
   const favTab = e.target.closest('[data-favtab]');

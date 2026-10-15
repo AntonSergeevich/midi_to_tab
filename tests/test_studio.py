@@ -2042,3 +2042,39 @@ def test_service_worker_forgets_previous_user_after_oauth_callback(studio_app):
     sw = client.get("/sw.js").text
     assert "/^\\/api\\/auth\\/[^/]+\\/callback/" in sw, (
         "GET .../callback (OAuth) должен звать forgetUser(), как login/logout/register")
+
+
+def test_rename_track_and_label_tracks(studio_app):
+    """Своё название трека в списке и дорожек мультитрека; пустое -- как было."""
+    app_module, client, user, submitted = studio_app
+    store = app_module.storage
+    job = store.create_job(user.id, "песня.mp3", {"kind": "studio", "mode": "stems"})
+    folder = app_module.studio_runner.folder(job.id)
+    os.makedirs(folder, exist_ok=True)
+    for name in ("bass.mp3", "extra_ab12.mp3"):
+        open(os.path.join(folder, name), "wb").write(b"ID3")
+    store.update_job(job.id, status="done", result={
+        "files": [{"name": "bass.mp3", "label": "Бас"}],
+        "extras": [{"name": "extra_ab12.mp3", "label": "Запись", "for": ""}]})
+    assert client.post(f"/api/job/{job.id}/rename", data={"name": "  Пожары   репетиция "}).json()["name"] == "Пожары репетиция"
+    assert client.post(f"/api/job/{job.id}/rename", data={"name": "  "}).status_code == 400
+    client.post(f"/api/studio/{job.id}/label", data={"file": "bass.mp3", "label": "Бас-гитара"})
+    client.post(f"/api/studio/{job.id}/label", data={"file": "extra_ab12.mp3", "label": "Вторая гитара"})
+    row = next(j for j in client.get("/api/studio").json()["jobs"] if j["id"] == job.id)
+    assert row["name"] == "Пожары репетиция"
+    assert row["files"][0]["label"] == "Бас-гитара" and row["files"][0]["origLabel"] == "Бас"
+    assert row["extras"][0]["label"] == "Вторая гитара"
+    client.post(f"/api/studio/{job.id}/label", data={"file": "bass.mp3", "label": ""})
+    row = next(j for j in client.get("/api/studio").json()["jobs"] if j["id"] == job.id)
+    assert row["files"][0]["label"] == "Бас" and "origLabel" not in row["files"][0]
+    assert client.post(f"/api/studio/{job.id}/label", data={"file": "nope.mp3", "label": "x"}).status_code == 404
+
+
+def test_my_instrument_names_are_kept_in_profile(studio_app):
+    app_module, client, user, submitted = studio_app
+    for name in ("Гармонь Тульская", "Скретчи DJ", "гармонь тульская"):
+        client.post("/api/me/prefs", data={"key": "instruments", "add": name})
+    assert client.get("/api/me").json()["prefs"]["instruments"] == ["гармонь тульская", "Скретчи DJ"]
+    client.post("/api/me/prefs", data={"key": "instruments", "remove": "Скретчи dj"})
+    assert client.get("/api/me").json()["prefs"]["instruments"] == ["гармонь тульская"]
+    assert client.post("/api/me/prefs", data={"key": "password", "add": "x"}).status_code == 400
