@@ -1581,6 +1581,48 @@ def test_own_track_in_mixer_is_kept_with_the_track(studio_app, tmp_path):
     assert os.listdir(folder) == [] and app_module.storage.job(job.id).result["extras"] == []
 
 
+def test_extra_track_quota_holds_even_when_a_parallel_upload_fills_it_first(studio_app, monkeypatch, tmp_path):
+    """Было: `/api/studio/{id}/extra` сверяла квоту `EXTRAS_PER_TRACK` по
+    снимку JOB, снятому ДО медленной перекодировки ffmpeg -- если за это
+    время квоту заполнила параллельная загрузка, вторая всё равно проходила:
+    итоговый список дорожек не держал лимит. Теперь есть вторая сверка -- под
+    замком, по свежим данным -- прямо перед записью."""
+    import dataclasses
+    import subprocess
+
+    app_module, client, user, submitted = studio_app
+    take = tmp_path / "дубль.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                    str(take)], check=True)
+    job = app_module.storage.create_job(user.id, "song.mp3", {"kind": "studio", "mode": "upload"})
+    os.makedirs(app_module.studio_runner.folder(job.id), exist_ok=True)
+    extras = [{"name": f"extra_{i}.mp3", "label": "x", "for": ""}
+              for i in range(app_module.EXTRAS_PER_TRACK - 1)]
+    app_module.storage.update_job(job.id, status="done", result={"files": [], "extras": extras})
+    ghost = extras + [{"name": "extra_ghost.mp3", "label": "гость", "for": ""}]
+
+    real_job = app_module.storage.job
+    calls = {"n": 0}
+
+    def racy(job_id):
+        got = real_job(job_id)
+        calls["n"] += 1
+        if calls["n"] == 1 or got is None or got.id != job.id:
+            return got      # первая сверка (до перекодировки) -- квота ещё свободна
+        # к моменту второй, атомарной, сверки параллельная загрузка уже заполнила квоту
+        return dataclasses.replace(got, result={**got.result, "extras": ghost})
+
+    monkeypatch.setattr(app_module.storage, "job", racy)
+    answer = client.post(f"/api/studio/{job.id}/extra", data={"label": "Опоздавшая"},
+                         files={"file": (take.name, take.read_bytes(), "audio/wav")})
+    assert answer.status_code == 400, answer.text
+    folder = app_module.studio_runner.folder(job.id)
+    # файл, созданный перекодировкой до отказа, не должен остаться осиротевшим на диске
+    assert os.listdir(folder) == []
+    # и опоздавшая загрузка не добавилась поверх уже занятой (параллельно) квоты
+    assert real_job(job.id).result["extras"] == extras
+
+
 def test_own_tempo_replaces_detected_one_everywhere(studio_app, monkeypatch):
     """Музыкант поправил темп (автомат дал 108 вместо 81): ровная сетка от
     его «раз», в строке трека -- его темп; у партий темп хранится на

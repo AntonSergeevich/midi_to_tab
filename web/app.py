@@ -2717,7 +2717,14 @@ async def api_studio_extra(job_id: str, request: Request, file: UploadFile = Fil
     with studio_runner._analysis_lock:
         fresh = storage.job(job_id)
         result = dict(fresh.result or {})
-        result["extras"] = (result.get("extras") or []) + [entry]
+        extras = result.get("extras") or []
+        # сверка квоты выше (до конвертации) смотрит на старый снимок -- при
+        # нескольких одновременных загрузках все они её проходят; здесь же,
+        # под замком, сверяем ещё раз по свежим данным, иначе лимит не держит
+        if len(extras) >= EXTRAS_PER_TRACK:
+            os.remove(os.path.join(folder, name))
+            raise HTTPException(400, f"К одному треку — не больше {EXTRAS_PER_TRACK} своих дорожек")
+        result["extras"] = extras + [entry]
         storage.update_job(job_id, result=result)
     return {**entry, "url": f"/api/studio/file/{job_id}/{name}"}
 
