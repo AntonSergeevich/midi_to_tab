@@ -1487,3 +1487,64 @@ header.top > nav.topnav {
 .mx-fxpick small { color: var(--muted); font-size: 12.5px; }
 .mx-fxpick:hover { border-color: rgba(217,154,78,.6); }
 .mx-fxpick[aria-pressed="true"] { border-color: var(--accent); background: rgba(217,154,78,.12); }
+
+/* Мультитрек: сведение */
+.mx-mixbtn[aria-pressed="true"] { background: rgba(217,154,78,.14); }
+.mx-subhead { margin: 2px 0 0; font-size: 14px; font-weight: 600; }
+.mx-roles { display: flex; flex-wrap: wrap; gap: 6px; }
+.mx-role { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--panel-hi); color: var(--text); font-size: 13px; }
+.mx-role i { width: 8px; height: 8px; border-radius: 50%; }
+.mx-role small { color: var(--muted); font-size: 12px; }
+.mx-role.voice { border-color: rgba(217,154,78,.7); background: rgba(217,154,78,.12); }
+.mx-role.voice small { color: var(--accent); }
+.mx-mixreport { background: rgba(217,154,78,.10); color: var(--text); }
+.mx-wrap { flex-wrap: wrap; }
+.mx-fxai { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px;
+  border: 1px solid rgba(217,154,78,.35); background: rgba(217,154,78,.06); }
+.mx-fxai .mx-subhead { margin: 0; }
+.mx-fxai p { margin: 0; font-size: 13px; }
+.mx-aibtns { display: flex; flex-wrap: wrap; gap: 6px; }
+.mx-aibtns button { padding: 8px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-hi);
+  color: var(--text); font-size: 13px; cursor: pointer; min-height: 0; }
+.mx-aibtns button:hover:not(:disabled) { border-color: var(--accent); }
+.mx-aibtns button:disabled { opacity: .5; cursor: progress; }
+.mx-ainote:empty { display: none; }
+.mx-ainote { color: var(--accent); }
+
+/* Ссылка «послушать» (/listen/...) */
+.ls { display: flex; flex-direction: column; gap: 20px; max-width: 760px; margin: 12px auto 40px; }
+.ls-card { display: flex; gap: 22px; align-items: center; padding: 22px; border-radius: 22px; background: var(--panel);
+  border: 1px solid var(--border); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+.ls-cover { flex: none; width: 168px; height: 168px; border-radius: 16px; overflow: hidden; display: grid; place-items: center;
+  background: radial-gradient(circle at 30% 25%, rgba(217,154,78,.45), rgba(217,154,78,.08) 60%), var(--panel-hi);
+  font-size: 64px; color: var(--accent); }
+.ls-cover img { width: 100%; height: 100%; object-fit: cover; }
+.ls-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.ls-kicker { margin: 0; color: var(--accent); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; font-weight: 700; }
+.ls-title { margin: 0; font-size: clamp(22px, 4vw, 32px); line-height: 1.15; overflow-wrap: anywhere; }
+.ls-facts { margin: 0; color: var(--muted); font-size: 14px; }
+.ls-facts:empty { display: none; }
+.ls-player { display: flex; align-items: center; gap: 14px; margin-top: 4px; }
+.ls-play { width: 58px; height: 58px; flex: none; }
+.ls-play svg { width: 24px; height: 24px; }
+.ls-track { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ls-track input { width: 100%; accent-color: var(--accent); }
+.ls-time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+.ls-time b { color: var(--text); }
+.ls-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ls-btn { display: inline-flex; align-items: center; padding: 9px 16px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--panel-hi); color: var(--text); font-size: 14px; cursor: pointer; text-decoration: none; }
+.ls-btn:hover { border-color: var(--accent); }
+.ls-chords, .ls-cta { padding: 18px 22px; border-radius: 18px; background: var(--panel); border: 1px solid var(--border); }
+.ls-chords h2, .ls-cta h2 { margin: 0 0 8px; font-size: 18px; }
+.ls-chords p { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.ls-chords b { padding: 4px 10px; border-radius: 8px; background: var(--panel-hi); font-size: 14px; }
+.ls-cta p { margin: 0 0 12px; }
+@media (max-width: 600px) {
+  .ls-card { flex-direction: column; align-items: stretch; padding: 16px; }
+  .ls-cover { width: 100%; height: auto; aspect-ratio: 1; max-height: 300px; }
+}
+.primary-link { display: inline-flex; align-items: center; padding: 11px 20px; border-radius: 999px; font-weight: 700;
+  background: var(--accent); color: #15161c; text-decoration: none; }
+.primary-link:hover { filter: brightness(1.08); }

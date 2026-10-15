@@ -1157,6 +1157,12 @@ document.addEventListener('click', async (e) => {
   if (menuBtn) { openMenu(menuBtn); return; }
   const action = e.target.closest('[data-act]');
   if (action) { await act(action.dataset.act, action.dataset.job, action.dataset.file); return; }
+  const unshare = e.target.closest('[data-unshare]');
+  if (unshare) {
+    const r = await fetch(`/api/share/${encodeURIComponent(unshare.dataset.unshare)}`, { method: 'DELETE' });
+    toast(r.ok ? 'Доступ по ссылке закрыт — она больше не открывается' : 'Не получилось закрыть доступ');
+    return;
+  }
   const notes = e.target.closest('[data-notes]');
   if (notes) { openNotes(notes.dataset.notes); return; }
   if (!e.target.closest('#menu')) $('menu').hidden = true;
@@ -1187,6 +1193,7 @@ function openMenu(button) {
           button.dataset.busy ? 'disabled' : '')) : '')
       + (info.yue2Open && !button.dataset.stem ? item('notes', ICON.tabs, '🧪 Ноты, аккорды и MIDI (проба)') : '')
       + item('shift', ICON.tempo, 'Темп и тональность')
+      + (button.dataset.stem ? '' : item('share', ICON.mix, 'Поделиться ссылкой: послушать без входа'))
       + (button.dataset.extend ? item('extend', ICON.again, 'Продлить песню') : '')
       + (button.dataset.stem ? '' : item('reference', ICON.tabs, 'Сверить аккорды с эталоном'))
       + '<hr>' + (button.dataset.stem ? '' : item('cover', ICON.again, 'Кавер на эту версию'))
@@ -1424,6 +1431,21 @@ async function act(what, jobId, fileName) {
     if (!response.ok) toast(`${pick(OOPS, Date.now())} ${data.detail || ''}`);
     else toast('Дописываем продолжение — появится под треком 🎶');
     load();
+    return;
+  }
+  if (what === 'share') {
+    // Ссылка «послушать»: музыкантам, друзьям, для продвижения -- без входа
+    const response = await fetch(`/api/studio/${jobId}/share`, { method: 'POST', body: form });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { toast(esc(data.detail || 'Не получилось сделать ссылку'), 9000); return; }
+    const url = `${location.origin}${data.path}`;
+    let how = 'Ссылка скопирована';
+    try {
+      if (navigator.share && matchMedia('(pointer: coarse)').matches) { await navigator.share({ url }); how = 'Ссылка готова'; }
+      else await navigator.clipboard.writeText(url);
+    } catch (error) { how = 'Ссылка готова'; }
+    toast(`${how}: <a href="${esc(data.path)}" target="_blank" rel="noopener">${esc(url)}</a>`
+      + `${data.plays ? ` · прослушиваний: ${data.plays}` : ''} · <button type="button" class="st-linkbtn" data-unshare="${esc(data.token)}">закрыть доступ</button>`, 15000);
     return;
   }
   if (what === 'shift') {

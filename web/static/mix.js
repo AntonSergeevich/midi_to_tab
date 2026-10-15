@@ -71,6 +71,10 @@ let mic = null;              // поток микрофона
 let micFor = '';             // какой микрофон открыт
 let micMeter = null;         // индикатор уровня в окне записи
 let recorderReady = null;
+// Сведение (см. mixbus.js): стиль, роли дорожек и что насчитал анализ
+let mixing = { on: false, style: '', roles: {} };
+let mixState = { voice: 1, music: 1, curve: null, sig: '' };
+let liveBus = null;
 const loop = { on: false, a: 0, b: 0 };   // последнее выделение на линейке -- его играет «Повтор»
 // Все выделенные места на линейке (с Ctrl -- несколько): их копируют,
 // вырезают и удаляют на выбранной дорожке
@@ -146,9 +150,14 @@ function save() {
     localStorage.setItem(STORE, JSON.stringify({
       metro: metroOn, countIn, metroVol: $('metroVol').value, hidden: [...hidden],
       metroMode: $('metroMode').value, trackHeight, lanes: layout(), rulerMode,
+      mixing: { on: mixing.on, style: mixing.style, roles: mixing.roles },
     }));
   } catch (error) { /* приватный режим -- просто без памяти */ }
   refreshSplit();
+  if (mixing.on) {
+    clearTimeout(save.mixTimer);
+    save.mixTimer = setTimeout(() => analyzeMix().catch(() => {}), 900);
+  }
 }
 
 const keyOf = (url, name) => (url ? decodeURIComponent(url.split('?')[0].split('/').pop()) : '') || name;
@@ -254,9 +263,23 @@ function limiter(c) {
 function route(lane) {
   try { lane.gain.disconnect(); } catch (error) { /* ещё не подключён */ }
   if (lane.fxNodes) { try { lane.fxNodes.output.disconnect(); } catch (error) { /* */ } }
-  lane.fxNodes = fxChain(ctx, lane.fx);
+  const voice = liveBus && roleOf(lane) === 'voice';
+  lane.fxNodes = voice ? window.mixBus.voiceChain(ctx, mixing.style) : fxChain(ctx, lane.fx);
   lane.gain.connect(lane.fxNodes.input);
-  lane.fxNodes.output.connect(master);
+  lane.fxNodes.output.connect(!liveBus ? master : voice ? liveBus.voice : liveBus.music);
+}
+
+// Голос это или музыка: как отметили в «Сведении», иначе -- по названию
+const VOICE_RE = /голос|вокал|vocal|voice|бэк|хор|choir|рэп|rap/i;
+function roleOf(t) {
+  return mixing.roles[t.key] || (VOICE_RE.test(t.name) ? 'voice' : 'music');
+}
+// Своя дорожка (записанная или загруженная), а не партия из разделения
+const isOwn = (t) => Boolean(t.extra || t.custom || t.clips.some((c) => c.src.extra || c.src.local));
+// Голос нейросети: голосовая партия из разделения -- когда спет свой голос
+function aiVoices() {
+  const own = tracks.some((t) => roleOf(t) === 'voice' && isOwn(t) && t.clips.length);
+  return own ? tracks.filter((t) => roleOf(t) === 'voice' && !isOwn(t) && t.clips.length) : [];
 }
 
 function makeClip(src, r = {}) {
@@ -384,6 +407,11 @@ async function loadTracks(list) {
   if (memory.metroMode) $('metroMode').value = memory.metroMode;
   if (memory.trackHeight) setTrackHeight(memory.trackHeight, false);
   setRulerMode(memory.rulerMode === 'time' ? 'time' : 'chords', false);
+  if (memory.mixing && typeof memory.mixing === 'object') {
+    const style = window.mixBus.STYLES[memory.mixing.style] ? memory.mixing.style : '';
+    mixing = { on: Boolean(memory.mixing.on && style), style,
+      roles: memory.mixing.roles && typeof memory.mixing.roles === 'object' ? memory.mixing.roles : {} };
+  }
   metroGain.setVolume($('metroVol').value);
   pressed('metro', metroOn);
   pressed('countIn', countIn);
@@ -449,6 +477,8 @@ async function loadTracks(list) {
   zoom = duration > 45 ? duration / 30 : 1;
   render();
   refreshSplit();
+  mixUi();
+  if (mixing.on) { buildLiveBus(); analyzeMix().catch(() => {}); }
 }
 
 // Звук дорожек -- через память устройства: открыли трек при интернете --
@@ -1505,6 +1535,7 @@ function startAt(p, delay = 0.06) {
   startTime = t0;
   startPos = p;
   playing = true;
+  if (liveBus) duckFrom(liveBus.duck.gain, p, t0);
   nextBeat = beats.findIndex((b) => b >= p - 0.001);
   if (nextBeat < 0) nextBeat = beats.length;
   $('play').innerHTML = ICON.pause;
@@ -1530,6 +1561,7 @@ function pause() {
   pos = position();
   playing = false;
   stopSources();
+  if (liveBus) duckFrom(liveBus.duck.gain, 0, 0, false);
   $('play').innerHTML = ICON.play;
   $('play').classList.remove('on');
   movePlayhead();
@@ -2588,8 +2620,63 @@ function openFx(i) {
   $('fxList').innerHTML = Object.entries(FX).map(([id, f]) => `
     <button type="button" class="mx-fxpick" data-fxpick="${id}" aria-pressed="${(t.fx || '') === id}">
       <b>${esc(f.title)}</b><small>${esc(f.text)}</small></button>`).join('');
+  $('fxMixNote').hidden = !(liveBus && roleOf(t) === 'voice');
+  $('fxAi').hidden = !laneSource(t);
+  $('fxAiNote').textContent = '';
   $('fxSheet').hidden = false;
 }
+
+// Нейросеть на сервере -- для своих дорожек (записанный голос, загруженный файл)
+const laneSource = (t) => t && t.clips.map((c) => c.src).find((src) => src.extra && !src.local);
+const VOICE_DONE = {
+  denoise: 'Шум убран',
+  tune: 'Ноты подтянуты к тональности',
+  undo: 'Вернули исходную запись',
+};
+let voiceBusy = false;
+async function voiceOp(i, op) {
+  const t = tracks[i];
+  const old = laneSource(t);
+  if (!old || voiceBusy) return;
+  const [kind, strength] = op.split(':');
+  const form = new FormData();
+  form.append('file', old.extra);
+  form.append('op', kind);
+  form.append('strength', strength || 'soft');
+  form.append('key', (analysis && analysis.key) || '');
+  voiceBusy = true;
+  $('fxAi').querySelectorAll('button').forEach((b) => { b.disabled = true; });
+  $('fxAiNote').textContent = kind === 'undo' ? 'Возвращаем исходник…'
+    : 'Нейросеть обрабатывает запись на сервере — обычно до минуты, для длинной песни дольше…';
+  try {
+    const answer = await fetch(`/api/studio/${jobId}/voice`, { method: 'POST', body: form });
+    const data = await answer.json().catch(() => ({}));
+    if (!answer.ok) throw new Error(data.detail || 'сервер не ответил');
+    const buffer = await ctx.decodeAudioData(await audioBytes(data.url));
+    const src = addSource(keyOf(data.url), data.url, t.name, buffer, data.name);
+    tracks.forEach((l) => {
+      l.clips.forEach((c) => { if (c.src === old) c.src = src; });
+      if (l.key === old.key) Object.assign(l, { key: src.key, url: src.url, extra: src.extra });
+    });
+    mixState.sig = '';
+    render();
+    save();
+    if (playing) startAt(position(), 0.03);
+    const cents = data.info && data.info.cents;
+    const what = `${VOICE_DONE[kind]}${kind === 'tune' && cents ? ` — в среднем на ${cents} цента` : ''}`
+      + `${kind === 'denoise' && data.info && data.info.by === 'ffmpeg' ? ' (простым шумодавом: нейросеть на сервере ещё ставится)' : ''}`;
+    $('fxAiNote').textContent = kind === 'undo' ? `${what}.` : `${what}. Исходник сохранён — «Вернуть как было».`;
+    toast(what);
+  } catch (error) {
+    $('fxAiNote').textContent = `Не получилось: ${error.message || error}`;
+  }
+  voiceBusy = false;
+  $('fxAi').querySelectorAll('button').forEach((b) => { b.disabled = false; });
+}
+$('fxAi').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-voiceop]');
+  if (b) voiceOp(fxLane, b.dataset.voiceop);
+});
 $('fxList').addEventListener('click', (e) => {
   const chosen = e.target.closest('[data-fxpick]');
   const t = tracks[fxLane];
@@ -2608,6 +2695,191 @@ document.addEventListener('click', (e) => {
   if (fx) openFx(Number(fx.dataset.fx));
 });
 
+// ---------------------------------------------------------------- сведение
+// «Свести»: голос встраивается в музыку, как у звукорежиссёра (что именно
+// происходит -- в mixbus.js). Включается и выключается одной кнопкой --
+// сравнить «до» и «после» на слух.
+const songBpm = () => (analysis && analysis.bpm) || 0;
+
+function buildLiveBus() {
+  if (liveBus) { try { liveBus.glue.disconnect(); } catch (error) { /* */ } }
+  liveBus = mixing.on && window.mixBus.STYLES[mixing.style]
+    ? window.mixBus.bus(ctx, mixing.style, master, songBpm()) : null;
+  if (liveBus) {
+    liveBus.voice.gain.value = mixState.voice;
+    liveBus.music.gain.value = mixState.music;
+  }
+  tracks.forEach(route);
+  if (playing) startAt(position(), 0.03);
+  mixUi();
+}
+
+// Подмешивание: громкость музыки по огибающей голоса -- с позиции p ленты,
+// с момента t0 часов. go=false -- просто вернуть музыку на место.
+function duckFrom(param, p, t0, go = true) {
+  param.cancelScheduledValues(0);
+  param.value = 1;
+  const curve = mixState.curve;
+  if (!go || !curve) return;
+  const part = curve.subarray(Math.max(0, Math.floor(p * 50)));
+  if (part.length < 2) return;
+  try { param.setValueCurveAtTime(part, Math.max(t0, 0), part.length / 50); } catch (error) { /* старый браузер */ }
+}
+
+function mixSig() {
+  return JSON.stringify([mixing.style, tracks.map((t) => [t.key, roleOf(t), audible(t), t.fx,
+    t.clips.map((c) => [c.src.key, +c.offset.toFixed(3), +c.trimStart.toFixed(3), +c.trimEnd.toFixed(3)])])]);
+}
+
+// Замер: голос и музыку отдельно, через их обработку, при громкости 100% --
+// ручки громкости дорожек остаются вашей поправкой поверх сведения
+async function analyzeMix() {
+  if (!mixing.on || !duration) return mixState;
+  const sig = mixSig();
+  if (sig === mixState.sig) return mixState;
+  const rate = 22050;
+  const len = Math.max(1, Math.ceil(duration * rate));
+  const part = async (role) => {
+    const lanes = tracks.filter((t) => audible(t) && t.clips.length && roleOf(t) === role);
+    if (!lanes.length) return null;
+    const off = new OfflineAudioContext(2, len, rate);
+    lanes.forEach((t) => {
+      const g = off.createGain();
+      const chain = role === 'voice' ? window.mixBus.voiceChain(off, mixing.style) : fxChain(off, t.fx);
+      g.connect(chain.input);
+      chain.output.connect(off.destination);
+      t.clips.forEach((c) => schedule(off, c, 0, 0, g, duration));
+    });
+    const out = await off.startRendering();
+    return [out.getChannelData(0), out.getChannelData(1)];
+  };
+  const [v, m] = await Promise.all([part('voice'), part('music')]);
+  if (sig !== mixSig() || !mixing.on) return mixState;      // пока мерили, всё поменялось -- замер ещё раз
+  const s = window.mixBus.STYLES[mixing.style];
+  const lv = v ? window.mixBus.loudness(v, rate) : -Infinity;
+  const lm = m ? window.mixBus.loudness(m, rate) : -Infinity;
+  let gv = Number.isFinite(lv) && Number.isFinite(lm) ? 10 ** ((lm + s.voice - lv) / 20) : 1;
+  // сумма -- к одному уровню перед склейкой: компрессор работает одинаково на любом треке
+  const power = (Number.isFinite(lm) ? 10 ** (lm / 10) : 0) + (Number.isFinite(lv) ? 10 ** ((lv + 20 * Math.log10(gv)) / 10) : 0);
+  const k = power > 0 ? 10 ** ((window.mixBus.STAGE - 10 * Math.log10(power)) / 20) : 1;
+  const clamp = (x) => Math.max(0.05, Math.min(16, x));
+  gv = clamp(gv * k);
+  const gm = clamp(k);
+  mixState = { voice: gv, music: gm, sig, lv, lm,
+    curve: v && m ? window.mixBus.duckCurve(v[0], rate, s.duck, duration) : null };
+  if (liveBus) {
+    liveBus.voice.gain.setTargetAtTime(gv, ctx.currentTime, 0.05);
+    liveBus.music.gain.setTargetAtTime(gm, ctx.currentTime, 0.05);
+    if (playing) duckFrom(liveBus.duck.gain, position(), ctx.currentTime + 0.02);
+  }
+  return mixState;
+}
+
+function mixUi() {
+  const on = Boolean(mixing.on && liveBus);
+  pressed('mixBtn', on);
+  $('mixBtn').title = on ? `Сведение «${window.mixBus.STYLES[mixing.style].title}» включено — нажмите, чтобы сравнить с исходным звуком`
+    : 'Влить голос в микс: уровни, обработка, общее пространство — как у звукорежиссёра';
+}
+
+function mixReport() {
+  const st = mixState;
+  const s = window.mixBus.STYLES[mixing.style];
+  if (!Number.isFinite(st.lv)) return 'Голосовых дорожек нет — сведение выровняло и склеило музыку. Отметьте, какая дорожка — голос.';
+  if (!Number.isFinite(st.lm)) return 'Только голос, без музыки — обработали голос и дали ему пространство.';
+  const sign = s.voice > 0 ? `на ${s.voice} дБ громче музыки` : s.voice < 0 ? `на ${-s.voice} дБ тише музыки, внутри неё` : 'вровень с музыкой';
+  return `Голос поставлен ${sign}; пока он звучит, музыка уступает ${s.duck} дБ и освобождает ему место в середине. `
+    + `Общий зал${s.delay && songBpm() ? ' и эхо в темп песни' : ''} — одно пространство на всех.`;
+}
+
+let mixPick = '';
+function openMix() {
+  if (!tracks.length) return;
+  mixPick = mixing.style || 'pop';
+  const styles = window.mixBus.STYLES;
+  $('mixStyles').innerHTML = Object.entries(styles).map(([id, st]) => `
+    <button type="button" class="mx-fxpick" data-mixstyle="${id}" aria-pressed="${id === mixPick}">
+      <b>${esc(st.title)}</b><small>${esc(st.text)}</small></button>`).join('');
+  mixRoles();
+  $('mixOff').hidden = !mixing.on;
+  $('mixReport').hidden = !(mixing.on && mixState.sig);
+  if (mixing.on && mixState.sig) $('mixReport').textContent = mixReport();
+  $('mixSheet').hidden = false;
+}
+
+function mixRoles() {
+  $('mixRoles').innerHTML = tracks.map((t, i) => {
+    const voice = roleOf(t) === 'voice';
+    return `<button type="button" class="mx-role${voice ? ' voice' : ''}" data-role="${i}" aria-pressed="${voice}"
+      title="Нажмите, чтобы поменять: голос или музыка"><i style="background:${t.color}"></i><b data-noi18n>${esc(t.name)}</b>
+      <small>${voice ? '🎤 голос' : '🎸 музыка'}</small></button>`;
+  }).join('');
+  const ai = aiVoices().filter((t) => audible(t));
+  $('mixAiBox').hidden = !ai.length;
+  $('mixAiNames').textContent = ai.map((t) => `«${t.name}»`).join(', ');
+  $('mixAi').checked = true;
+}
+
+$('mixStyles').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-mixstyle]');
+  if (!b) return;
+  mixPick = b.dataset.mixstyle;
+  $('mixStyles').querySelectorAll('[data-mixstyle]').forEach((x) => x.setAttribute('aria-pressed', x === b));
+});
+$('mixRoles').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-role]');
+  const t = b && tracks[b.dataset.role];
+  if (!t) return;
+  mixing.roles[t.key] = roleOf(t) === 'voice' ? 'music' : 'voice';
+  mixRoles();
+});
+$('mixGo').addEventListener('click', async () => {
+  audio();
+  const ai = $('mixAiBox').hidden || !$('mixAi').checked ? [] : aiVoices().filter((t) => audible(t));
+  if (ai.length) {
+    remember();
+    ai.forEach((t) => { t.mute = true; t.solo = false; });
+    render();
+  }
+  mixing.on = true;
+  mixing.style = mixPick || 'pop';
+  mixState.sig = '';
+  buildLiveBus();
+  $('mixGo').disabled = true;
+  toast('Сводим: меряем голос и музыку…');
+  try { await analyzeMix(); } catch (error) { /* звучит и без замера */ }
+  $('mixGo').disabled = false;
+  if (liveBus) {
+    liveBus.voice.gain.value = mixState.voice;
+    liveBus.music.gain.value = mixState.music;
+  }
+  $('mixSheet').hidden = true;
+  save();
+  toast(`Сведено: ${window.mixBus.STYLES[mixing.style].title}. ${mixReport()} Кнопка «Свести» — сравнить с исходным звуком.`, 9000);
+});
+$('mixOff').addEventListener('click', () => {
+  mixing.on = false;
+  buildLiveBus();
+  $('mixSheet').hidden = true;
+  save();
+  toast('Сведение выключено — звучит как было');
+});
+$('mixCancel').addEventListener('click', () => { $('mixSheet').hidden = true; });
+$('mixSheet').addEventListener('click', (e) => { if (e.target === $('mixSheet')) $('mixSheet').hidden = true; });
+$('mixSet').addEventListener('click', openMix);
+// Кнопка «Свести»: первый раз -- выбрать стиль, дальше -- вкл/выкл для сравнения
+$('mixBtn').addEventListener('click', async () => {
+  if (!tracks.length) return;
+  if (!mixing.style) { openMix(); return; }
+  audio();
+  mixing.on = !mixing.on;
+  if (mixing.on) mixState.sig = '';
+  buildLiveBus();
+  if (mixing.on) await analyzeMix().catch(() => {});
+  save();
+  toast(mixing.on ? `Сведение «${window.mixBus.STYLES[mixing.style].title}»` : 'Без сведения — как было', 2500);
+});
+
 // Скачать микс: то, что сейчас звучит (заглушённые и «соло» -- как на
 // экране, громкость, обрезка, сдвиги монтажа), по желанию -- с метрономом и
 // тактом отсчёта, целиком или только выделенный кусок (повтор).
@@ -2624,40 +2896,76 @@ $('exportMix').addEventListener('click', () => {
   $('exportCountBox').hidden = !(analysis && analysis.bpm);
   $('exportLoopBox').hidden = !(loop.b > loop.a);
   $('exportLoop').checked = loop.on && loop.b > loop.a;
+  $('exportLoud').checked = mixing.on;
   $('exportSheet').hidden = false;
+});
+// Сохранить микс треком в Студии: слушать в плеере, делиться ссылкой,
+// показать музыкантам -- как шаблон песни
+$('exportSave').addEventListener('click', async () => {
+  $('exportSheet').hidden = true;
+  $('exportMix').disabled = true;
+  toast('Сводим микс…', 60000);
+  try {
+    const { rendered, part, from, to } = await renderMix();
+    const form = new FormData();
+    form.append('file', wav(rendered), `${mixName(part, from, to)}.wav`);
+    form.append('rights', ['own', 'cover'].includes(job && job.rights) ? job.rights : 'own');
+    toast('Сохраняем в Студию…', 60000);
+    const up = await fetch('/api/studio/upload', { method: 'POST', body: form });
+    const made = await up.json().catch(() => ({}));
+    if (!up.ok) throw new Error(made.detail || 'сервер не принял файл');
+    note(`Микс сохранён в Студии: «${esc(mixName(part, from, to))}». Там его можно послушать, скачать и `
+      + `поделиться ссылкой. <a href="/studio">Открыть в Студии</a>`);
+    toast('Микс сохранён в Студии');
+  } catch (error) {
+    toast(`Не получилось сохранить микс: ${error.message || error}`, 7000);
+  }
+  $('exportMix').disabled = false;
 });
 $('exportCancel').addEventListener('click', () => { $('exportSheet').hidden = true; });
 $('exportSheet').addEventListener('click', (e) => { if (e.target === $('exportSheet')) $('exportSheet').hidden = true; });
+
+// Готовый микс одним AudioBuffer -- как в окне «Скачать микс»
+async function renderMix() {
+  if (mixing.on) await analyzeMix();
+  const rate = ctx.sampleRate;
+  const part = $('exportLoop').checked && loop.b > loop.a;
+  const from = part ? loop.a : 0;
+  const to = part ? loop.b : duration;
+  const interval = analysis && analysis.bpm ? 60 / analysis.bpm : 0;
+  const lead = $('exportCount').checked && interval ? 4 * interval : 0;    // такт отсчёта перед музыкой
+  const offline = mixdown(from, to, lead, rate);
+  if ($('exportMetro').checked || lead) {
+    const out = window.metroSound.output(offline, $('metroVol').value);
+    for (let k = 0; lead && k < 4; k++) window.metroSound.play(offline, out, k * interval, k === 0);
+    if ($('exportMetro').checked) {
+      beats.forEach((b, k) => {
+        if (b < from - 0.001 || b >= to || !metroKeeps(k)) return;
+        window.metroSound.play(offline, out, lead + b - from, beatPos[k] === 0);
+      });
+    }
+  }
+  const rendered = await offline.startRendering();
+  if ($('exportLoud').checked) window.mixBus.master(rendered);
+  return { rendered, part, from, to };
+}
+
+const mixName = (part, from, to) => {
+  const what = [part ? `${clock(from)}-${clock(to)}`.replace(/:/g, '.') : '', $('exportMetro').checked ? 'с метрономом' : '']
+    .filter(Boolean).join(', ');
+  return `${(job && job.name || 'naslux').replace(/\.[^.]+$/, '').replace(/ \((микс|склейка)\)$/, '')} — микс${what ? ` (${what})` : ''}`;
+};
 
 $('exportGo').addEventListener('click', async () => {
   $('exportSheet').hidden = true;
   $('exportMix').disabled = true;
   toast('Сводим микс…');
   try {
-    const rate = ctx.sampleRate;
-    const part = $('exportLoop').checked && loop.b > loop.a;
-    const from = part ? loop.a : 0;
-    const to = part ? loop.b : duration;
-    const interval = analysis && analysis.bpm ? 60 / analysis.bpm : 0;
-    const lead = $('exportCount').checked && interval ? 4 * interval : 0;    // такт отсчёта перед музыкой
-    const offline = mixdown(from, to, lead, rate);
-    if ($('exportMetro').checked || lead) {
-      const out = window.metroSound.output(offline, $('metroVol').value);
-      for (let k = 0; lead && k < 4; k++) window.metroSound.play(offline, out, k * interval, k === 0);
-      if ($('exportMetro').checked) {
-        beats.forEach((b, k) => {
-          if (b < from - 0.001 || b >= to || !metroKeeps(k)) return;
-          window.metroSound.play(offline, out, lead + b - from, beatPos[k] === 0);
-        });
-      }
-    }
-    const rendered = await offline.startRendering();
+    const { rendered, part, from, to } = await renderMix();
     const blob = wav(rendered);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    const what = [part ? `${clock(from)}-${clock(to)}`.replace(/:/g, '.') : '', $('exportMetro').checked ? 'с метрономом' : '']
-      .filter(Boolean).join(', ');
-    a.download = `${(job && job.name || 'naslux').replace(/\.[^.]+$/, '')} — микс${what ? ` (${what})` : ''}.wav`;
+    a.download = `${mixName(part, from, to)}.wav`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
   } catch (error) {
@@ -2673,13 +2981,20 @@ function mixdown(from, to, lead = 0, rate = ctx.sampleRate) {
   const offline = new OfflineAudioContext(2, Math.max(1, Math.ceil((to - from + lead) * rate)), rate);
   const bus = offline.createGain();
   bus.connect(limiter(offline)).connect(offline.destination);
+  const mb = mixing.on ? window.mixBus.bus(offline, mixing.style, bus, songBpm()) : null;
+  if (mb) {
+    mb.voice.gain.value = mixState.voice;
+    mb.music.gain.value = mixState.music;
+    duckFrom(mb.duck.gain, from, lead);
+  }
   tracks.forEach((t) => {
     if (!audible(t) || !t.clips.length) return;
     const g = offline.createGain();
     g.gain.value = t.vol / 100;
-    const fx = fxChain(offline, t.fx);
+    const voice = mb && roleOf(t) === 'voice';
+    const fx = voice ? window.mixBus.voiceChain(offline, mixing.style) : fxChain(offline, t.fx);
     g.connect(fx.input);
-    fx.output.connect(bus);
+    fx.output.connect(!mb ? bus : voice ? mb.voice : mb.music);
     t.clips.forEach((clip) => schedule(offline, clip, from, lead, g, to));
   });
   return offline;

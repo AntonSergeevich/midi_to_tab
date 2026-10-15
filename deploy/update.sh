@@ -33,6 +33,30 @@ systemctl daemon-reload
 systemctl enable --now nasluh-watchdog.timer
 
 echo
+echo "=== Шумодав для записанного голоса (DeepFilterNet) ==="
+# Одна статическая программа с моделью внутри (MIT/Apache-2.0). Ставится
+# один раз; не скачалась (нет сети, сменилась сумма) -- сайт работает,
+# голос чистится запасным шумодавом ffmpeg. Деплой из-за этого не падает.
+DF_VER=0.5.6
+DF_SHA=70775e251eee44c0f2451a1e833326cf8bcbbe304d3e7cd12851e6fce72ef7da
+DF_BIN=/opt/nasluh/bin/deep-filter
+if ! echo "$DF_SHA  $DF_BIN" | sha256sum -c --status 2>/dev/null; then
+    mkdir -p /opt/nasluh/bin
+    tmp=$(mktemp)
+    if curl -fsSL --max-time 300 -o "$tmp" \
+        "https://github.com/Rikorose/DeepFilterNet/releases/download/v$DF_VER/deep-filter-$DF_VER-x86_64-unknown-linux-musl" \
+        && echo "$DF_SHA  $tmp" | sha256sum -c --status; then
+        install -m 755 "$tmp" "$DF_BIN"
+        echo "deep-filter $DF_VER поставлен"
+    else
+        echo "ВНИМАНИЕ: deep-filter не скачался или сумма не совпала -- шумодав будет запасной (ffmpeg)"
+    fi
+    rm -f "$tmp"
+else
+    echo "deep-filter уже стоит"
+fi
+
+echo
 echo "=== Nginx ==="
 cp "$APP_DIR/deploy/nginx.conf" /etc/nginx/sites-available/nasluh
 if nginx -t; then

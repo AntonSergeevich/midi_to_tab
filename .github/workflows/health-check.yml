@@ -78,6 +78,7 @@ jobs:
           fi
 
           echo "::notice title=Диск::$(echo "$body" | jq -c '.["диск"]')"
+          echo "::notice title=Шумодав голоса::$(echo "$body" | jq -r '.["шумодав_голоса"] // "нет данных"')"
 
           total="$(echo "$body" | jq -r '.["уведомлений_за_последние"]')"
           rejected="$(echo "$body" | jq -r '.["из_них_отклонено"]')"

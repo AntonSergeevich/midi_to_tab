@@ -86,6 +86,11 @@
       <button type="button" class="mx-tool" id="deselectBtn" disabled data-tip="Снять выделение (Esc)" aria-label="Снять выделение (Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2.5" stroke-dasharray="3 2.6"/><path d="m9.5 9.5 5 5m0-5-5 5"/></svg></button>
       <button type="button" class="mx-tool" id="undoBtn" disabled data-tip="Отменить (Ctrl+Z)" aria-label="Отменить (Ctrl+Z)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
     </span>
+    <span class="mx-recgroup">
+      <button type="button" class="mx-toggle mx-mixbtn" id="mixBtn" aria-pressed="false"
+              title="Влить голос в микс: уровни, обработка, общее пространство — как у звукорежиссёра"><span class="mx-led"></span>Свести</button>
+      <button type="button" class="mx-tool" id="mixSet" data-tip="Стиль сведения и какие дорожки — голос" aria-label="Стиль сведения и какие дорожки — голос"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v16M12 4v16M19 4v16"/><rect x="3" y="13" width="4" height="3.4" rx="1"/><rect x="10" y="6.5" width="4" height="3.4" rx="1"/><rect x="17" y="10.5" width="4" height="3.4" rx="1"/></svg></button>
+    </span>
     <button type="button" class="icon-btn mx-export" id="exportMix" title="Скачать то, что сейчас звучит, одним файлом"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg><span>Скачать микс</span></button>
     <button type="button" class="icon-btn" id="restoreTracks" hidden title="Вернуть убранные дорожки"></button>
     <input type="file" id="addFile" hidden accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a,.aac,.opus,.webm,.amr,.3gp">
@@ -130,11 +135,46 @@
     </div>
   </div>
 
+  <!-- Сведение: стиль и роли дорожек -->
+  <div class="mx-sheet" id="mixSheet" hidden>
+    <div class="mx-sheet-box" role="dialog" aria-modal="true" aria-labelledby="mixTitle">
+      <h3 id="mixTitle">Влить голос в микс</h3>
+      <p class="muted">Как у звукорежиссёра: громкость голоса подбирается по замеру, голос чистится и уплотняется,
+        музыка освобождает ему место и уступает, пока он звучит, а общий зал собирает всё в одну песню.
+        Включили — кнопка «Свести» сравнивает с исходным звуком.</p>
+      <p class="mx-recwarn mx-mixreport" id="mixReport" hidden></p>
+      <div class="mx-fxlist" id="mixStyles"></div>
+      <h4 class="mx-subhead">Где голос, а где музыка</h4>
+      <div class="mx-roles" id="mixRoles"></div>
+      <label class="check" id="mixAiBox" hidden><input type="checkbox" id="mixAi" checked>
+        <span>Заглушить голос нейросети: <b id="mixAiNames" data-noi18n></b></span></label>
+      <div class="mx-sheet-actions">
+        <button type="button" id="mixOff" hidden>Выключить</button>
+        <span class="spacer"></span>
+        <button type="button" id="mixCancel">Отмена</button>
+        <button type="button" class="primary" id="mixGo">Свести</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Обработка дорожки -->
   <div class="mx-sheet" id="fxSheet" hidden>
     <div class="mx-sheet-box" role="dialog" aria-modal="true" aria-labelledby="fxTitle">
       <h3 id="fxTitle" data-noi18n>Обработка</h3>
+      <div class="mx-fxai" id="fxAi" hidden>
+        <h4 class="mx-subhead">Нейросеть</h4>
+        <p class="muted">Обработка на сервере, исходник сохраняется. Сначала уберите шум, потом подтяните ноты.</p>
+        <div class="mx-aibtns">
+          <button type="button" data-voiceop="denoise" title="Нейросеть DeepFilterNet уберёт шум комнаты, гул, вентилятор">🎧 Убрать шум</button>
+          <button type="button" data-voiceop="tune:soft" title="Центр каждой ноты — в ноту тональности песни, вибрато остаётся живым">🎯 Подтянуть ноты</button>
+          <button type="button" data-voiceop="tune:hard" title="Каждая точка ровно в ноту — эффект «автотюна» из поп-музыки">🤖 Автотюн</button>
+          <button type="button" data-voiceop="undo" title="Вернуть запись, как она была спета">↺ Вернуть как было</button>
+        </div>
+        <p class="mx-ainote" id="fxAiNote" aria-live="polite"></p>
+      </div>
+      <h4 class="mx-subhead">Обработка звука</h4>
       <p class="muted">Звучит сразу и попадает в «Скачать микс». Исходная запись не меняется — можно передумать.</p>
+      <p class="mx-recwarn mx-mixreport" id="fxMixNote" hidden>Сейчас голос обрабатывает «Сведение» — эти настройки звучат, когда сведение выключено.</p>
       <div class="mx-fxlist" id="fxList"></div>
       <div class="mx-sheet-actions">
         <span class="spacer"></span>
@@ -152,7 +192,9 @@
       <label class="check" id="exportMetroBox"><input type="checkbox" id="exportMetro"> С метрономом (звук и громкость — как сейчас)</label>
       <label class="check" id="exportCountBox"><input type="checkbox" id="exportCount"> Такт отсчёта в начале</label>
       <label class="check" id="exportLoopBox"><input type="checkbox" id="exportLoop"> Только выделенный кусок</label>
-      <div class="mx-sheet-actions">
+      <label class="check"><input type="checkbox" id="exportLoud"> Громкость для публикации: −14 LUFS, как у треков в стримингах</label>
+      <div class="mx-sheet-actions mx-wrap">
+        <button type="button" id="exportSave" title="Сохранить микс отдельным треком в Студии: слушать, скачать, отправить">Сохранить в Студию</button>
         <span class="spacer"></span>
         <button type="button" id="exportCancel">Отмена</button>
         <button type="button" class="primary" id="exportGo">Скачать WAV</button>
@@ -241,6 +283,7 @@
 </div>
 <div class="st-toast" id="toast" hidden></div>
 <script src="/static/metro_sounds.js"></script>
+<script src="/static/mixbus.js"></script>
 <script src="/static/mix.js"></script>
 </body>
 </html>

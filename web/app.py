@@ -367,6 +367,11 @@ def require_health_token(request: Request) -> None:
         raise HTTPException(403, "Неверный токен")
 
 
+def voicefx_ready() -> bool:
+    from web import voicefx
+    return bool(voicefx.deep_filter_path())
+
+
 @app.get("/api/health")
 def api_health(request: Request):
     """
@@ -382,6 +387,7 @@ def api_health(request: Request):
     failed_recent = sum(1 for n in recent if not n["accepted"])
     return {
         "оплата": gateway.diagnose(),
+        "шумодав_голоса": "deepfilternet" if voicefx_ready() else "ffmpeg (deep-filter не установлен)",
         "уведомлений_за_последние": len(recent),
         "из_них_отклонено": failed_recent,
         # Только время и причина, без тела: в теле бывают почта и номера
@@ -2665,7 +2671,7 @@ def api_studio_file(job_id: str, name: str, request: Request):
     return FileResponse(path, filename=download_name(job.filename, label, ".mp3"))
 
 
-EXTRAS_PER_TRACK = 8
+EXTRAS_PER_TRACK = 16
 # Диктофоны телефонов пишут и в aac/opus/amr -- ffmpeg прочтёт всё
 EXTRA_ALLOWED = (".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aiff", ".aif",
                  ".aac", ".opus", ".webm", ".amr", ".3gp", ".wma", ".mp4")
@@ -2714,6 +2720,163 @@ async def api_studio_extra(job_id: str, request: Request, file: UploadFile = Fil
         result["extras"] = (result.get("extras") or []) + [entry]
         storage.update_job(job_id, result=result)
     return {**entry, "url": f"/api/studio/file/{job_id}/{name}"}
+
+
+# Нейросеть для своей дорожки (записанного голоса): шумодав и подтяжка нот.
+# Работает на процессоре сервера -- по одной задаче за раз, чтобы сайт не
+# тормозил у остальных. Исходник хранится: «Вернуть как было» -- в один шаг.
+_voice_slot = threading.Semaphore(1)
+VOICE_OPS = {"denoise", "tune", "undo"}
+
+
+@app.post("/api/studio/{job_id}/voice")
+async def api_studio_voice(job_id: str, request: Request, file: str = Form(...), op: str = Form(...),
+                           strength: str = Form("soft"), key: str = Form("")):
+    from web import voicefx
+
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id or (job.settings or {}).get("kind") != "studio":
+        raise HTTPException(404, "Трек не найден")
+    if op not in VOICE_OPS:
+        raise HTTPException(400, "Неизвестная обработка")
+    entry = next((x for x in (job.result or {}).get("extras") or [] if x["name"] == file), None)
+    if not entry:
+        raise HTTPException(404, "Обрабатывать можно свои дорожки: записанный голос или загруженный файл")
+    folder = studio_runner.folder(job_id)
+    src = os.path.join(folder, entry["name"])
+    if not os.path.isfile(src):
+        raise HTTPException(404, "Файл дорожки не найден")
+    orig = entry.get("orig") or ""
+    info: dict = {}
+    if op == "undo":
+        if not orig or not os.path.isfile(os.path.join(folder, orig)):
+            raise HTTPException(400, "Эта дорожка и так в исходном виде")
+        name = orig
+    else:
+        name = f"extra_{secrets.token_hex(4)}.mp3"
+        dst = os.path.join(folder, name)
+
+        def work() -> dict:
+            with _voice_slot:
+                if op == "denoise":
+                    return {"by": voicefx.denoise(src, dst)}
+                return voicefx.tune(src, dst, key[:8] or None, "hard" if strength == "hard" else "soft")
+        try:
+            info = await asyncio.to_thread(work)
+        except Exception as error:   # noqa: BLE001 -- человеку -- понятная причина, не трейс
+            if os.path.exists(dst):
+                os.remove(dst)
+            print(f"  Голос ({op}, {job_id}): {error}", flush=True)
+            raise HTTPException(500, "Не получилось обработать запись — попробуйте ещё раз") from error
+    ops = [] if op == "undo" else [*(entry.get("ops") or []), op if op != "tune" else f"tune:{strength}"]
+    fresh_entry = {k: v for k, v in entry.items() if k not in ("orig", "ops")}
+    fresh_entry["name"] = name
+    if op != "undo":
+        fresh_entry.update({"orig": orig or entry["name"], "ops": ops[-6:]})
+    with studio_runner._analysis_lock:
+        fresh = storage.job(job_id)
+        result = dict(fresh.result or {})
+        result["extras"] = [fresh_entry if x["name"] == file else x for x in result.get("extras") or []]
+        storage.update_job(job_id, result=result)
+    # промежуточный вариант больше не нужен -- исходник храним всегда
+    if entry["name"] not in (name, fresh_entry.get("orig")) and os.path.isfile(src):
+        os.remove(src)
+    return {**fresh_entry, "url": f"/api/studio/file/{job_id}/{name}", "info": info}
+
+
+# ------------------------------------------------- ссылка «послушать»
+# Готовый трек (например, микс со своим голосом) -- музыкантам, друзьям,
+# для продвижения: страница без входа, слушать и скачать. Только свои
+# песни: кавер на чужую -- для себя (авторское право, оферта п. 6.3).
+def _shareable(job, file: str) -> None:
+    if (job.settings or {}).get("kind") != "studio" or job.status != "done":
+        raise HTTPException(404, "Трек не найден")
+    if file not in [f["name"] for f in (job.result or {}).get("files") or []]:
+        raise HTTPException(404, "Такой версии нет")
+    if ((job.settings or {}).get("rights") or {}).get("kind") == "cover":
+        raise HTTPException(403, "Ссылкой можно поделиться своей песней. Кавер на чужую песню — только для себя: "
+                                 "так требует авторское право")
+
+
+@app.post("/api/studio/{job_id}/share")
+def api_studio_share(job_id: str, request: Request, file: str = Form(...)):
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(404, "Трек не найден")
+    _shareable(job, file)
+    found = storage.share_for(job_id, file) or storage.create_share(secrets.token_urlsafe(9), job_id, file, user.id)
+    return {"token": found["token"], "path": f"/listen/{found['token']}", "plays": found["plays"]}
+
+
+@app.delete("/api/share/{token}")
+def api_share_delete(token: str, request: Request):
+    user = current_user(request)
+    if not storage.delete_share(token, user.id):
+        raise HTTPException(404, "Ссылка не найдена")
+    return {"ok": True}
+
+
+def _shared(token: str):
+    found = storage.share(token) if re.fullmatch(r"[\w-]{6,40}", token or "") else None
+    job = storage.job(found["job_id"]) if found else None
+    path = os.path.join(studio_runner.folder(job.id), found["file"]) if job else ""
+    if not job or not os.path.isfile(path):
+        raise HTTPException(404, "Ссылка больше не работает: трек удалён")
+    try:
+        _shareable(job, found["file"])
+    except HTTPException as error:
+        raise HTTPException(404, "Ссылка больше не работает") from error
+    return found, job, path
+
+
+@app.get("/listen/{token}", response_class=HTMLResponse)
+def listen_page(token: str, request: Request) -> HTMLResponse:
+    found, job, _ = _shared(token)
+    title = Path(job.filename).stem[:120] or "Песня"
+    analysis = ((job.result or {}).get("analysis") or {}).get(found["file"]) or {}
+    facts = [x for x in (f"Тональность {analysis['key']}" if analysis.get("key") else "",
+                         f"{analysis['bpm']} BPM" if analysis.get("bpm") else "") if x]
+    chords: list[str] = []
+    for item in analysis.get("chords") or []:
+        name = item[2] if len(item) > 2 else ""
+        if name and name not in ("N", "—") and (not chords or chords[-1] != name):
+            chords.append(name)
+    base = str(request.base_url).rstrip("/")
+    cover = os.path.isfile(os.path.join(studio_runner.folder(job.id), "cover.jpg"))
+    esc = html.escape
+    return page("listen.html", {
+        "TITLE": esc(title),
+        "DESCRIPTION": esc(" · ".join(["Песня, сделанная в NASLUX", *facts])),
+        "FACTS": esc(" · ".join(facts)),
+        "IMAGE": esc(f"{base}/api/listen/{token}/cover" if cover else f"{base}/static/og.png"),
+        "AUDIO": esc(f"{base}/api/listen/{token}/audio"),
+        "AUDIO_PATH": esc(f"/api/listen/{token}/audio"),
+        "COVER": f'<img src="/api/listen/{esc(token)}/cover" alt="">' if cover else '<span aria-hidden="true">♪</span>',
+        "CHORDS": ('<section class="ls-chords"><h2>Аккорды</h2><p data-noi18n>'
+                   + " ".join(f"<b>{esc(c)}</b>" for c in chords[:80]) + "</p></section>") if chords else "",
+    })
+
+
+@app.get("/api/listen/{token}/audio")
+def listen_audio(token: str, request: Request, download: int = 0):
+    found, job, path = _shared(token)
+    if not download and request.headers.get("range", "bytes=0-").startswith("bytes=0-"):
+        storage.count_play(token)          # начали слушать с начала -- одно прослушивание
+    _touch_used(studio_runner.folder(job.id))
+    name = download_name(job.filename, "", ".mp3") if download else None
+    return FileResponse(path, media_type="audio/mpeg", filename=name,
+                        content_disposition_type="attachment" if download else "inline")
+
+
+@app.get("/api/listen/{token}/cover")
+def listen_cover(token: str):
+    _, job, _ = _shared(token)
+    path = os.path.join(studio_runner.folder(job.id), "cover.jpg")
+    if not os.path.isfile(path):
+        raise HTTPException(404, "Обложки нет")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.post("/api/studio/{job_id}/label")
@@ -2793,11 +2956,13 @@ def api_studio_extra_delete(job_id: str, name: str, request: Request):
         extras = result.get("extras") or []
         if not any(x["name"] == name for x in extras):
             raise HTTPException(404, "Дорожка не найдена")
+        doomed = next(x for x in extras if x["name"] == name)
         result["extras"] = [x for x in extras if x["name"] != name]
         storage.update_job(job_id, result=result)
-    path = os.path.join(studio_runner.folder(job_id), name)
-    if os.path.isfile(path):
-        os.remove(path)
+    for file in {name, doomed.get("orig") or name}:
+        path = os.path.join(studio_runner.folder(job_id), file)
+        if os.path.isfile(path):
+            os.remove(path)
     return {"ok": True}
 
 

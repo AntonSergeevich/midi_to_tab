@@ -2102,3 +2102,155 @@ def test_whats_new_window_once_for_existing_users(studio_app):
     assert page.status_code == 200 and "{{" not in page.text
     for release in releases.RELEASES:
         assert f'id="{release.anchor}"' in page.text
+
+
+def test_voice_scale_and_snapping():
+    """Подтяжка нот: тональность из разбора -> ноты лада; ноты тянутся к
+    ближайшей ступени, в «сильном» режиме -- ровно в ноту."""
+    import numpy as np
+
+    from web import voicefx
+
+    assert voicefx.scale_of("Am") == (0, 2, 4, 5, 7, 9, 11)          # ля минор = до мажор по нотам
+    assert voicefx.scale_of("F#") == (1, 3, 5, 6, 8, 10, 11)
+    assert voicefx.scale_of("F#m") == (1, 2, 4, 6, 8, 9, 11)
+    assert voicefx.scale_of("Bbm") == (0, 1, 3, 5, 6, 8, 10)
+    assert voicefx.scale_of("") is None and voicefx.scale_of("—") is None
+    # ля (440 Гц) спет на 40 центов выше: в до мажоре/ля миноре -- вниз к ля
+    f0 = np.full(200, 440 * 2 ** (0.4 / 12))
+    voiced = np.ones(200, dtype=bool)
+    hard = voicefx.correction(f0, voiced, "Am", "hard", 0.01)
+    assert abs(hard[50:150].mean() + 0.4) < 0.02
+    soft = voicefx.correction(f0, voiced, "Am", "soft", 0.01)
+    assert -0.4 < soft[50:150].mean() < -0.25                          # мягко -- почти, но живо
+    # си-бемоль (не в ладу до мажора) уходит к ближайшей ступени лада, а не к полутону
+    f0b = np.full(200, 440 * 2 ** (1.1 / 12))
+    assert abs(voicefx.correction(f0b, voiced, "C", "hard", 0.01)[100] - 0.9) < 0.02     # -> си
+    assert not voicefx.correction(f0, np.zeros(200, dtype=bool), "Am", "hard", 0.01).any()
+
+
+def test_voice_tune_moves_pitch_into_the_note(tmp_path):
+    """Сдвиг высоты (PSOLA): тон 40 центов выше ля после «автотюна» -- ля."""
+    import subprocess
+
+    import numpy as np
+
+    from web import voicefx
+
+    rate = 44100
+    t = np.arange(int(rate * 1.5)) / rate
+    f = 440 * 2 ** (0.4 / 12)
+    y = sum(np.sin(2 * np.pi * k * f * t) / k for k in range(1, 8)) * 0.2
+    src = tmp_path / "take.wav"
+    raw = tmp_path / "take.f32"
+    raw.write_bytes(y.astype(np.float32).tobytes())
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(rate), "-ac", "1", "-i", str(raw),
+                    str(src)], check=True)
+    dst = tmp_path / "tuned.mp3"
+    info = voicefx.tune(str(src), str(dst), "Am", "hard")
+    assert 30 < info["cents"] < 50 and info["scale"]
+    out = voicefx._read(str(dst), rate)[int(rate * 0.3):int(rate * 1.2)]
+    spectrum = np.abs(np.fft.rfft(out * np.hanning(len(out)), n=1 << 20))
+    peak = np.argmax(spectrum) * rate / (1 << 20)
+    assert abs(1200 * np.log2(peak / 440)) < 8                          # в ноте ля, ±8 центов
+
+
+def test_voice_endpoint_keeps_original_and_undoes(studio_app, tmp_path, monkeypatch):
+    """Нейросеть для своей дорожки: новая версия файла, исходник хранится,
+    «Вернуть как было» -- в один шаг; промежуточные версии не копятся;
+    чужим и для партий из разделения -- нельзя."""
+    import os
+    import shutil
+    import subprocess
+
+    from web import voicefx
+
+    app_module, client, user, submitted = studio_app
+    monkeypatch.setattr(voicefx, "DEEP_FILTER", str(tmp_path / "нет"))
+    monkeypatch.setattr(shutil, "which", lambda name: None)              # без нейросети -- запасной шумодав
+    job = app_module.storage.create_job(user.id, "song.mp3", {"kind": "studio", "mode": "upload"})
+    folder = app_module.studio_runner.folder(job.id)
+    os.makedirs(folder, exist_ok=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                    os.path.join(folder, "extra_a.mp3")], check=True)
+    app_module.storage.update_job(job.id, status="done", result={
+        "files": [{"name": "track.mp3", "label": "Оригинал"}],
+        "extras": [{"name": "extra_a.mp3", "label": "Голос", "for": "track.mp3"}]})
+    url = f"/api/studio/{job.id}/voice"
+
+    first = client.post(url, data={"file": "extra_a.mp3", "op": "denoise"})
+    assert first.status_code == 200, first.text
+    one = first.json()
+    assert one["orig"] == "extra_a.mp3" and one["name"] != "extra_a.mp3" and one["info"]["by"] == "ffmpeg"
+    assert one["label"] == "Голос" and one["ops"] == ["denoise"]
+    second = client.post(url, data={"file": one["name"], "op": "tune", "strength": "soft", "key": "Am"}).json()
+    assert second["orig"] == "extra_a.mp3" and second["ops"] == ["denoise", "tune:soft"]
+    assert sorted(os.listdir(folder)) == sorted(["extra_a.mp3", second["name"]])   # промежуточная -- удалена
+    assert client.get(second["url"]).status_code == 200
+
+    back = client.post(url, data={"file": second["name"], "op": "undo"}).json()
+    assert back["name"] == "extra_a.mp3" and "orig" not in back
+    assert os.listdir(folder) == ["extra_a.mp3"]
+    assert app_module.storage.job(job.id).result["extras"] == [
+        {"name": "extra_a.mp3", "label": "Голос", "for": "track.mp3"}]
+    assert client.post(url, data={"file": "extra_a.mp3", "op": "undo"}).status_code == 400
+
+    assert client.post(url, data={"file": "track.mp3", "op": "denoise"}).status_code == 404   # партия, не своя
+    assert client.post(url, data={"file": "extra_a.mp3", "op": "rm"}).status_code == 400
+    from fastapi.testclient import TestClient
+
+    stranger = TestClient(app_module.app)
+    stranger.cookies.set("uid", app_module.signer.dumps(app_module.storage.ensure_user(None).id))
+    assert stranger.post(url, data={"file": "extra_a.mp3", "op": "denoise"}).status_code == 404
+
+    # удалить дорожку после обработки -- уходят и версия, и исходник
+    done = client.post(url, data={"file": "extra_a.mp3", "op": "denoise"}).json()
+    assert client.delete(f"/api/studio/{job.id}/extra/{done['name']}").json() == {"ok": True}
+    assert os.listdir(folder) == []
+
+
+def test_share_link_plays_without_login(studio_app):
+    """Ссылка «послушать»: своя песня -- открывается без входа, звук и
+    скачивание; та же версия -- та же ссылка; кавер на чужую -- нельзя;
+    закрыли доступ -- ссылка не открывается."""
+    import os
+
+    from fastapi.testclient import TestClient
+
+    app_module, client, user, submitted = studio_app
+    job = app_module.storage.create_job(user.id, "Моя песня.mp3", {"kind": "studio", "mode": "upload",
+                                                                   "rights": {"kind": "own"}})
+    folder = app_module.studio_runner.folder(job.id)
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "track.mp3"), "wb") as out:
+        out.write(b"ID3" + b"\0" * 2000)
+    app_module.storage.update_job(job.id, status="done", result={
+        "files": [{"name": "track.mp3", "label": "Оригинал"}],
+        "analysis": {"track.mp3": {"key": "Am", "bpm": 96, "chords": [[0, 2, "Am"], [2, 4, "Am"], [4, 6, "F"]]}}})
+    made = client.post(f"/api/studio/{job.id}/share", data={"file": "track.mp3"})
+    assert made.status_code == 200, made.text
+    link = made.json()
+    assert link["path"].startswith("/listen/")
+    assert client.post(f"/api/studio/{job.id}/share", data={"file": "track.mp3"}).json()["token"] == link["token"]
+
+    guest = TestClient(app_module.app)
+    page_ = guest.get(link["path"])
+    assert page_.status_code == 200 and "Моя песня" in page_.text and "Тональность Am" in page_.text
+    assert "<b>Am</b> <b>F</b>" in page_.text                       # аккорды без повторов подряд
+    assert "og:audio" in page_.text
+    audio = guest.get(f"/api/listen/{link['token']}/audio")
+    assert audio.status_code == 200 and audio.content.startswith(b"ID3")
+    assert "attachment" in guest.get(f"/api/listen/{link['token']}/audio?download=1").headers["content-disposition"]
+    assert app_module.storage.share(link["token"])["plays"] == 1
+
+    assert client.post(f"/api/studio/{job.id}/share", data={"file": "нет.mp3"}).status_code == 404
+    assert guest.post(f"/api/studio/{job.id}/share", data={"file": "track.mp3"}).status_code == 404
+    assert guest.delete(f"/api/share/{link['token']}").status_code == 404
+    assert client.delete(f"/api/share/{link['token']}").json() == {"ok": True}
+    assert guest.get(link["path"]).status_code == 404
+
+    cover = app_module.storage.create_job(user.id, "Чужая.mp3", {"kind": "studio", "mode": "upload",
+                                                               "rights": {"kind": "cover"}})
+    app_module.storage.update_job(cover.id, status="done", result={"files": [{"name": "track.mp3"}]})
+    refused = client.post(f"/api/studio/{cover.id}/share", data={"file": "track.mp3"})
+    assert refused.status_code == 403 and "своей песней" in refused.json()["detail"]

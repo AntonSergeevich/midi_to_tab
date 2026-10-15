@@ -130,6 +130,18 @@ CREATE TABLE IF NOT EXISTS studio_upload_counts (
 
 CREATE INDEX IF NOT EXISTS studio_upload_counts_user ON studio_upload_counts(user_id, created_at);
 
+-- Ссылка «послушать»: трек (одна версия) по секретной ссылке -- показать
+-- музыкантам, отправить людям. Без входа, только слушать и скачать.
+CREATE TABLE IF NOT EXISTS shares (
+    token        TEXT PRIMARY KEY,
+    job_id       TEXT NOT NULL,
+    file         TEXT NOT NULL,
+    user_id      TEXT NOT NULL,
+    created_at   REAL NOT NULL,
+    plays        INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS shares_job ON shares(job_id, file);
 CREATE INDEX IF NOT EXISTS voices_user ON voices(user_id, created_at);
 CREATE INDEX IF NOT EXISTS tickets_status ON tickets(status, created_at);
 CREATE INDEX IF NOT EXISTS jobs_user ON jobs(user_id, created_at);
@@ -1118,6 +1130,31 @@ class Storage:
                          " VALUES (?, ?, ?, ?, ?, ?)",
                          (voice_id, user_id, time.time(), name, vocal_id, json.dumps(consent)))
         return voice_id
+
+    def share_for(self, job_id: str, file: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM shares WHERE job_id = ? AND file = ?", (job_id, file)).fetchone()
+        return dict(row) if row else None
+
+    def create_share(self, token: str, job_id: str, file: str, user_id: str) -> dict:
+        with self._connect() as conn:
+            conn.execute("INSERT INTO shares (token, job_id, file, user_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                         (token, job_id, file, user_id, time.time()))
+        return self.share(token)
+
+    def share(self, token: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM shares WHERE token = ?", (token,)).fetchone()
+        return dict(row) if row else None
+
+    def count_play(self, token: str) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE shares SET plays = plays + 1 WHERE token = ?", (token,))
+
+    def delete_share(self, token: str, user_id: str) -> bool:
+        with self._connect() as conn:
+            return bool(conn.execute("DELETE FROM shares WHERE token = ? AND user_id = ?",
+                                     (token, user_id)).rowcount)
 
     def voices(self, user_id: str) -> list[dict]:
         with self._connect() as conn:
