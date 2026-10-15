@@ -1533,7 +1533,7 @@ document.addEventListener('pointerdown', (e) => {
     let selecting = !finger;
     let dragged = false;
     const hold = finger ? setTimeout(() => {
-      if (!dragged) { selecting = true; navigator.vibrate?.(15); toast('Ведите пальцем — выделяем кусок для повтора'); }
+      if (!dragged) { selecting = true; navigator.vibrate?.(15); toast('Ведите пальцем — выделяем кусок'); }
     }, 450) : null;
     const move = (ev) => {
       if (pinch) return;
@@ -1560,12 +1560,12 @@ document.addEventListener('pointerdown', (e) => {
       if (ev.type !== 'pointerup' || pinch) return;
       if (!dragged) { seek(from); return; }
       if (!selecting) return;
+      // Выделение -- только выделение: копировать его или включить «Повтор»
+      // решает человек (раньше повтор включался сам, мешал копированию)
       snapLoop();
-      loop.on = true;
-      pressed('loop', true);
       drawRuler();
-      seek(loop.a);
-      toast(`Повтор: ${clock(loop.a)} – ${clock(loop.b)}. Выключить — кнопка «Повтор»`);
+      drawOverview();
+      toast(`Выделено ${clock(loop.a)} – ${clock(loop.b)}: «Копировать» (Ctrl+C) или «Повтор» — играть по кругу`);
     };
     ruler.addEventListener('pointermove', move);
     ruler.addEventListener('pointerup', up);
