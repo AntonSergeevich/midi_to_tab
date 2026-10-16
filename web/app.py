@@ -2784,7 +2784,17 @@ async def api_studio_voice(job_id: str, request: Request, file: str = Form(...),
     with studio_runner._analysis_lock:
         fresh = storage.job(job_id)
         result = dict(fresh.result or {})
-        result["extras"] = [fresh_entry if x["name"] == file else x for x in result.get("extras") or []]
+        extras = result.get("extras") or []
+        # за время обработки (секунды: ffmpeg/DeepFilterNet шли вне замка)
+        # дорожку могли удалить или обработать повторно другим запросом --
+        # тогда записи с этим именем уже нет, и писать сюда поздно: иначе
+        # результат этого запроса либо потеряется молча, либо воскресит
+        # удалённую дорожку с только что созданным, но никому не нужным файлом
+        if not any(x["name"] == file for x in extras):
+            if op != "undo" and os.path.isfile(dst):
+                os.remove(dst)
+            raise HTTPException(409, "Дорожка изменилась, пока шла обработка — обновите страницу")
+        result["extras"] = [fresh_entry if x["name"] == file else x for x in extras]
         storage.update_job(job_id, result=result)
     # промежуточный вариант больше не нужен -- исходник храним всегда
     if entry["name"] not in (name, fresh_entry.get("orig")) and os.path.isfile(src):

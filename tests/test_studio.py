@@ -2251,6 +2251,53 @@ def test_voice_endpoint_keeps_original_and_undoes(studio_app, tmp_path, monkeypa
     assert os.listdir(folder) == []
 
 
+def test_voice_endpoint_does_not_orphan_file_when_track_vanishes_mid_processing(studio_app, monkeypatch,
+                                                                                 tmp_path):
+    """Было: `/api/studio/{id}/voice` читала запись дорожки один раз в начале,
+    затем секунды обрабатывала файл (шумодав/подтяжка нот) вне замка, и только
+    потом под замком писала результат по ИМЕНИ, без проверки, что дорожка с
+    этим именем всё ещё существует. Если за время обработки дорожку удалили
+    (или её же обработал параллельный запрос, сменив имя) -- запись никуда не
+    попадала, а только что созданный файл оставался на диске ничьим. Теперь
+    перед записью под замком сверяем по свежим данным, что дорожка жива."""
+    import dataclasses
+    import shutil
+    import subprocess
+
+    from web import voicefx
+
+    app_module, client, user, submitted = studio_app
+    monkeypatch.setattr(voicefx, "DEEP_FILTER", str(tmp_path / "нет"))
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    job = app_module.storage.create_job(user.id, "song.mp3", {"kind": "studio", "mode": "upload"})
+    folder = app_module.studio_runner.folder(job.id)
+    os.makedirs(folder, exist_ok=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                    os.path.join(folder, "extra_a.mp3")], check=True)
+    app_module.storage.update_job(job.id, status="done", result={
+        "files": [{"name": "track.mp3", "label": "Оригинал"}],
+        "extras": [{"name": "extra_a.mp3", "label": "Голос", "for": "track.mp3"}]})
+
+    real_job = app_module.storage.job
+    calls = {"n": 0}
+
+    def racy(job_id):
+        got = real_job(job_id)
+        calls["n"] += 1
+        if calls["n"] == 1 or got is None or got.id != job.id:
+            return got        # первое чтение -- до обработки, дорожка ещё на месте
+        # к моменту записи дорожку уже удалили (или её переименовал другой запрос)
+        return dataclasses.replace(got, result={**got.result, "extras": []})
+
+    monkeypatch.setattr(app_module.storage, "job", racy)
+    answer = client.post(f"/api/studio/{job.id}/voice", data={"file": "extra_a.mp3", "op": "denoise"})
+    assert answer.status_code == 409, answer.text
+    # файл, созданный обработкой до отказа, не должен остаться осиротевшим на диске
+    assert os.listdir(folder) == ["extra_a.mp3"]
+    # и запись не перезатёрлась поверх того, что «увидел» параллельный уход дорожки
+    assert real_job(job.id).result["extras"] == [{"name": "extra_a.mp3", "label": "Голос", "for": "track.mp3"}]
+
+
 def test_share_link_plays_without_login(studio_app):
     """Ссылка «послушать»: своя песня -- открывается без входа, звук и
     скачивание; та же версия -- та же ссылка; кавер на чужую -- нельзя;
