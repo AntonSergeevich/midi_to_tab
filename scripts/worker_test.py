@@ -17,7 +17,7 @@ import time
 import requests
 
 # Serverless flex, $/сек: 24 ГБ (A5000/A4500/L4) и 24 ГБ PRO (4090).
-PRICE_PER_SECOND = {"24GB": 0.00019, "24GB PRO": 0.00031}
+PRICE_PER_SECOND = {"24GB": 0.00019, "24GB PRO": 0.00031, "48GB": 0.00034}
 USD_RUB = 95
 
 

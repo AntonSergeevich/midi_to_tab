@@ -15,7 +15,9 @@ import requests
 API = "https://rest.runpod.io/v1"
 NAME = os.environ.get("WORKER_NAME", "naslux-worker")
 IMAGE = os.environ.get("WORKER_IMAGE", "ghcr.io/antonsergeevich/naslux-worker:latest")
-GPUS = ["NVIDIA RTX A5000", "NVIDIA GeForce RTX 4090", "NVIDIA RTX A4500", "NVIDIA L4"]
+GPUS = [g.strip() for g in os.environ.get("WORKER_GPUS", "").split(",") if g.strip()] or [
+    "NVIDIA RTX A5000", "NVIDIA GeForce RTX 4090", "NVIDIA RTX A4500", "NVIDIA L4"]
+DISK = int(os.environ.get("WORKER_DISK", "40"))
 # Образ собран под CUDA 12.8: на хосте со старым драйвером torch не видит
 # видеокарту и тихо считает на процессоре -- в разы медленнее и дороже.
 CUDA = ["12.8", "12.9"]
@@ -37,7 +39,7 @@ def main() -> None:
     template = next((t for t in call("GET", "/templates") if t.get("name") == NAME), None)
     if template is None:
         template = call("POST", "/templates", json={
-            "name": NAME, "imageName": IMAGE, "isServerless": True, "containerDiskInGb": 40,
+            "name": NAME, "imageName": IMAGE, "isServerless": True, "containerDiskInGb": DISK,
         })
     elif template.get("imageName") != IMAGE:
         call("PATCH", f"/templates/{template['id']}", json={"imageName": IMAGE})

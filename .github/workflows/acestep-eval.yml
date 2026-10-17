@@ -1,0 +1,73 @@
+name: Замер ACE-Step на русском (против YuE2)
+
+# Одни и те же свои тексты (scripts/acestep_job_ru.json): ACE-Step 1.5 в
+# четырёх настройках (SFT/XL, с планировщиком и без) и YuE2. Оценка -- на
+# раннере: разборчивость (Whisper, WER) и ровность такта (Beat This).
+# mp3 и report.md -- в ветку test-results (acestep-<номер прогона>).
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: Варианты ACE-Step через запятую (пусто -- все)
+        default: ""
+      yue2:
+        description: Прогнать и YuE2 для сравнения
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      ONLY: ${{ inputs.only }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q requests numpy librosa onnxruntime faster-whisper
+      - name: ACE-Step -- эндпоинт (видеокарта 48 ГБ, диск под веса XL)
+        run: |
+          export WORKER_NAME=naslux-acestep WORKER_IMAGE=ghcr.io/antonsergeevich/naslux-acestep-test:latest
+          export WORKER_GPUS="NVIDIA RTX A6000,NVIDIA A40,NVIDIA L40S,NVIDIA RTX 6000 Ada Generation" WORKER_DISK=90
+          python scripts/runpod_endpoint.py
+      - name: ACE-Step -- генерация
+        run: python -u scripts/acestep_eval.py scripts/acestep_job_ru.json --engine ace --only "$ONLY" --out results
+      - name: YuE2 -- эндпоинт
+        if: ${{ inputs.yue2 }}
+        run: |
+          export WORKER_NAME=naslux-yue2 WORKER_IMAGE=ghcr.io/antonsergeevich/naslux-yue2:latest
+          python scripts/runpod_endpoint.py
+      - name: YuE2 -- генерация
+        if: ${{ inputs.yue2 }}
+        continue-on-error: true
+        run: python -u scripts/acestep_eval.py scripts/acestep_job_ru.json --engine yue2 --out results
+      - name: Оценка (Whisper + Beat This)
+        if: always()
+        run: python -u scripts/acestep_score.py results scripts/acestep_job_ru.json
+      - name: Итог в аннотации
+        if: always()
+        run: |
+          [ -f results/report.md ] || exit 0
+          sed -n '1,12p' results/report.md | while IFS= read -r line; do echo "::notice title=Замер::$line"; done
+      - name: В ветку test-results
+        if: always()
+        run: |
+          [ -n "$(ls -A results 2>/dev/null)" ] || exit 0
+          dir="acestep-${{ github.run_id }}"
+          git clone -q --depth 1 --branch test-results \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
+          mkdir -p "out/$dir" && cp results/* "out/$dir/"
+          cd out
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "Замер ACE-Step: прогон ${{ github.run_id }}"
+          git push -q origin HEAD:test-results
+          echo "Файлы: test-results/$dir"

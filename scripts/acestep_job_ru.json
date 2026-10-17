@@ -1,0 +1,62 @@
+{
+ "_about": "Замер ACE-Step 1.5 против YuE2 на русском. Тексты -- свои (написаны для замера), не чужие песни.",
+ "seconds": 70,
+ "seed": 2026,
+ "variants": {
+  "sft_nolm": {
+   "title": "SFT 2B без планировщика (как было 05.10)",
+   "raw": {}
+  },
+  "sft_lm4b": {
+   "title": "SFT 2B + планировщик 4B",
+   "raw": {
+    "thinking": true
+   }
+  },
+  "xl_nolm": {
+   "title": "XL 4B без планировщика",
+   "raw": {
+    "model": "acestep-v15-xl-sft"
+   }
+  },
+  "xl_lm4b": {
+   "title": "XL 4B + планировщик 4B",
+   "raw": {
+    "model": "acestep-v15-xl-sft",
+    "thinking": true
+   }
+  }
+ },
+ "songs": [
+  {
+   "id": "poprock",
+   "style": "Russian pop rock, emotional male lead vocal, electric guitars, driving drums, bass, anthemic chorus",
+   "bpm": 120,
+   "lyrics": "[verse]\nУтро режет тишину,\nЯ сжимаю старый ключ,\nОтпускаю ту весну,\nЧто пряталась среди туч.\n\n[chorus]\nЯ лечу навстречу дню,\nСлышишь, сердце, не молчи,\nЯ себя не изменю,\nЯ — твой свет в глухой ночи."
+  },
+  {
+   "id": "ballad",
+   "style": "Russian pop ballad, tender female vocal, piano, soft strings, warm and intimate",
+   "bpm": 76,
+   "lyrics": "[verse]\nТы оставил на столе\nНедопитый горький чай,\nИ теперь в моём окне\nТолько осень и печаль.\n\n[chorus]\nПозвони мне, позвони,\nЯ не сплю который день,\nПогасают все огни,\nБез тебя я — только тень."
+  },
+  {
+   "id": "bard",
+   "style": "Russian acoustic bard song, warm male vocal, acoustic guitar, campfire mood, simple and heartfelt",
+   "bpm": 100,
+   "lyrics": "[verse]\nНад рекою дым костра,\nПесня тянется к утру,\nМы не спим ещё с вчера,\nПодпеваем ветерку.\n\n[chorus]\nДорога, дорога, веди нас домой,\nГде ждут и где помнят, где тихо зимой,\nДорога, дорога, не дай нам свернуть,\nПока не допет наш нехоженый путь."
+  },
+  {
+   "id": "rap",
+   "style": "Russian hip hop, confident male rap vocal, punchy drums, deep 808 bass, dark piano loop",
+   "bpm": 92,
+   "lyrics": "[verse]\nЯ встаю в шесть, город ещё в дыму,\nКаждый мой шаг — это вызов тому,\nКто говорил, что я не дойду,\nЯ превращаю сомнения в руду.\n\n[chorus]\nВыше, выше, только вперёд,\nКто не рискует, тот не поёт,\nВыше, выше, страх не берёт,\nВремя моё наконец-то придёт."
+  },
+  {
+   "id": "rock",
+   "style": "Russian hard rock, powerful raspy male vocal, distorted guitars, heavy drums, energetic",
+   "bpm": 140,
+   "lyrics": "[verse]\nЖелезный ветер рвёт провода,\nГорят над городом облака,\nМы не уйдём уже никуда,\nПока сжимается рука.\n\n[chorus]\nКричи, кричи, пока живой,\nНе прогибайся под толпой,\nКричи, кричи, мы за тобой,\nНаш голос — это наш прибой."
+  }
+ ]
+}
