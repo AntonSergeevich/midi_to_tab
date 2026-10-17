@@ -35,7 +35,7 @@ jobs:
           pip install -q requests numpy librosa onnxruntime faster-whisper
       - name: ACE-Step -- эндпоинт (видеокарта 48 ГБ, диск под веса XL)
         run: |
-          export WORKER_NAME=naslux-acestep WORKER_IMAGE=ghcr.io/antonsergeevich/naslux-acestep-test:latest
+          export WORKER_NAME=naslux-acestep WORKER_IMAGE=ghcr.io/antonsergeevich/naslux-worker:acestep-test
           export WORKER_GPUS="NVIDIA RTX A6000,NVIDIA A40,NVIDIA L40S,NVIDIA RTX 6000 Ada Generation" WORKER_DISK=90
           python scripts/runpod_endpoint.py
       - name: ACE-Step -- генерация

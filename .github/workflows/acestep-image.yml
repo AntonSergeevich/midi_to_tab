@@ -1,8 +1,9 @@
 name: Собрать образ замера ACE-Step (XL + планировщик)
 
-# Образ ghcr.io/<владелец>/naslux-acestep-test для RunPod Serverless
+# Образ ghcr.io/<владелец>/naslux-worker:acestep-test для RunPod Serverless
 # (acestep_test/): поверх готового образа воркера -- тонкий слой, веса XL и
-# планировщика качаются при старте воркера.
+# планировщика качаются при старте воркера. Тег в пакете воркера, а не свой
+# пакет: тот уже публичный (RunPod тянет без логина), новый был бы приватным.
 on:
   workflow_dispatch:
   push:
@@ -31,13 +32,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - name: Имя образа
-        run: echo "IMAGE=ghcr.io/$(echo '${{ github.repository_owner }}' | tr A-Z a-z)/naslux-acestep-test" >> "$GITHUB_ENV"
+        run: echo "IMAGE=ghcr.io/$(echo '${{ github.repository_owner }}' | tr A-Z a-z)/naslux-worker" >> "$GITHUB_ENV"
       - uses: docker/build-push-action@v6
         with:
           context: acestep_test
           push: true
           provenance: false
-          tags: ${{ env.IMAGE }}:latest,${{ env.IMAGE }}:${{ github.run_number }}
+          tags: ${{ env.IMAGE }}:acestep-test
           labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
       - name: Образ публичный?
         run: |
@@ -45,6 +46,6 @@ jobs:
           token=$(curl -s "https://ghcr.io/token?scope=repository:${IMAGE#ghcr.io/}:pull" | jq -r .token)
           code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" \
             -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
-            "https://ghcr.io/v2/${IMAGE#ghcr.io/}/manifests/${{ github.run_number }}")
+            "https://ghcr.io/v2/${IMAGE#ghcr.io/}/manifests/acestep-test")
           echo "Анонимный доступ к образу: HTTP $code"
-          [ "$code" = 200 ] || echo "::warning::Образ приватный -- сделайте пакет naslux-acestep-test публичным"
+          [ "$code" = 200 ] || echo "::warning::Образ приватный -- сделайте пакет naslux-worker публичным"
