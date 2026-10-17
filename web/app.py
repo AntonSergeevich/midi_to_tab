@@ -2823,7 +2823,7 @@ def api_studio_share(job_id: str, request: Request, file: str = Form(...)):
     if not job or job.user_id != user.id:
         raise HTTPException(404, "Трек не найден")
     _shareable(job, file)
-    found = storage.share_for(job_id, file) or storage.create_share(secrets.token_urlsafe(9), job_id, file, user.id)
+    found = storage.get_or_create_share(secrets.token_urlsafe(9), job_id, file, user.id)
     return {"token": found["token"], "path": f"/listen/{found['token']}", "plays": found["plays"]}
 
 

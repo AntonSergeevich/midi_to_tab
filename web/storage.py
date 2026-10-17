@@ -141,7 +141,13 @@ CREATE TABLE IF NOT EXISTS shares (
     plays        INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE INDEX IF NOT EXISTS shares_job ON shares(job_id, file);
+-- Уникальность (job_id, file): без неё два одновременных запроса на
+-- "поделиться" одной и той же версией (два окна, двойной клик, повтор
+-- после обрыва связи) создают два разных токена на один и тот же файл --
+-- в интерфейсе виден и отзывается только последний полученный, а первый
+-- продолжает отдавать трек без входа бессрочно (см. _migrate: на базе,
+-- где уже есть такие дубликаты, индекс сам по себе их не уберёт).
+CREATE UNIQUE INDEX IF NOT EXISTS shares_job ON shares(job_id, file);
 CREATE INDEX IF NOT EXISTS voices_user ON voices(user_id, created_at);
 CREATE INDEX IF NOT EXISTS tickets_status ON tickets(status, created_at);
 CREATE INDEX IF NOT EXISTS jobs_user ON jobs(user_id, created_at);
@@ -289,6 +295,27 @@ class Storage:
             "     AND json_extract(body, '$.notificationType') = 1"
             "     AND json_extract(body, '$.isSuccess') = 1)"
         )
+
+        # shares_job стал уникальным (см. SCHEMA) -- на уже работающей базе
+        # индекс с этим именем мог существовать как обычный (не упавший,
+        # потому что IF NOT EXISTS смотрит только на имя) и под ним -- строки,
+        # которых сам новый индекс уже не допускает: пара одновременных
+        # "поделиться" на одну версию трека до этой правки создавала два
+        # разных токена на один (job_id, file). Чиним один раз: для каждой
+        # такой пары оставляем самый ранний токен (его уже могли отправить
+        # людям), остальные -- тихо удаляем, и только потом поднимаем индекс.
+        share_index = next((row for row in conn.execute("PRAGMA index_list(shares)")
+                            if row["name"] == "shares_job"), None)
+        if share_index and not share_index["unique"]:
+            conn.execute(
+                "DELETE FROM shares WHERE rowid NOT IN ("
+                "  SELECT s1.rowid FROM shares s1 WHERE NOT EXISTS ("
+                "    SELECT 1 FROM shares s2 WHERE s2.job_id = s1.job_id AND s2.file = s1.file"
+                "      AND (s2.created_at < s1.created_at"
+                "           OR (s2.created_at = s1.created_at AND s2.rowid < s1.rowid))))"
+            )
+            conn.execute("DROP INDEX shares_job")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS shares_job ON shares(job_id, file)")
 
     @contextmanager
     def _connect(self):
@@ -1131,16 +1158,23 @@ class Storage:
                          (voice_id, user_id, time.time(), name, vocal_id, json.dumps(consent)))
         return voice_id
 
-    def share_for(self, job_id: str, file: str) -> dict | None:
-        with self._connect() as conn:
-            row = conn.execute("SELECT * FROM shares WHERE job_id = ? AND file = ?", (job_id, file)).fetchone()
-        return dict(row) if row else None
+    def get_or_create_share(self, token: str, job_id: str, file: str, user_id: str) -> dict:
+        """Вернуть существующую ссылку на эту версию трека или завести новую.
 
-    def create_share(self, token: str, job_id: str, file: str, user_id: str) -> dict:
+        Одним запросом под одним соединением (не "посмотреть, потом
+        вставить" из двух отдельных обращений к базе) -- иначе два
+        одновременных запроса на "поделиться" одной версией (два окна,
+        двойной клик) видят отсутствие строки оба и заводят два разных
+        токена на один и тот же (job_id, file): уникальный индекс
+        shares_job не даст вставить второй, но без INSERT OR IGNORE та
+        вторая вставка упала бы ошибкой вместо того, чтобы вернуть уже
+        существующую ссылку."""
         with self._connect() as conn:
-            conn.execute("INSERT INTO shares (token, job_id, file, user_id, created_at) VALUES (?, ?, ?, ?, ?)",
-                         (token, job_id, file, user_id, time.time()))
-        return self.share(token)
+            conn.execute(
+                "INSERT OR IGNORE INTO shares (token, job_id, file, user_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                (token, job_id, file, user_id, time.time()))
+            row = conn.execute("SELECT * FROM shares WHERE job_id = ? AND file = ?", (job_id, file)).fetchone()
+        return dict(row)
 
     def share(self, token: str) -> dict | None:
         with self._connect() as conn:

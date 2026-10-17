@@ -2343,3 +2343,26 @@ def test_share_link_plays_without_login(studio_app):
     app_module.storage.update_job(cover.id, status="done", result={"files": [{"name": "track.mp3"}]})
     refused = client.post(f"/api/studio/{cover.id}/share", data={"file": "track.mp3"})
     assert refused.status_code == 403 and "своей песней" in refused.json()["detail"]
+
+
+def test_two_concurrent_share_requests_do_not_mint_two_tokens(studio_app):
+    """Два «поделиться» на одну версию трека почти одновременно (два окна,
+    двойной клик) не должны завести два разных токена: иначе интерфейс
+    отдаёт и помнит только последний, а первый так и остаётся рабочим
+    бессрочно -- "закрыть доступ" на видимой ссылке его не тронет."""
+    app_module, client, user, submitted = studio_app
+    job = app_module.storage.create_job(user.id, "Моя песня.mp3", {"kind": "studio", "mode": "upload",
+                                                                   "rights": {"kind": "own"}})
+    app_module.storage.update_job(job.id, status="done", result={"files": [{"name": "track.mp3"}]})
+
+    first = app_module.storage.get_or_create_share("tok-a", job.id, "track.mp3", user.id)
+    second = app_module.storage.get_or_create_share("tok-b", job.id, "track.mp3", user.id)
+    assert first["token"] == second["token"] == "tok-a"
+
+    with app_module.storage._connect() as conn:
+        rows = conn.execute("SELECT token FROM shares WHERE job_id = ? AND file = ?",
+                             (job.id, "track.mp3")).fetchall()
+    assert [r["token"] for r in rows] == ["tok-a"]
+    # отзыв закрывает именно и только эту единственную ссылку
+    assert client.delete("/api/share/tok-a").json() == {"ok": True}
+    assert app_module.storage.share("tok-a") is None
