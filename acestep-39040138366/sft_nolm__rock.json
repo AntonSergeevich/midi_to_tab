@@ -1,0 +1,29 @@
+{
+ "song": "rock",
+ "variant": "sft_nolm",
+ "title": "SFT 2B без планировщика (как было 05.10)",
+ "ok": true,
+ "seconds_worked": 14.2,
+ "seconds_queued": 0.4,
+ "info": {
+  "dit_model": "acestep-v15-sft",
+  "metas": {
+   "bpm": 140,
+   "duration": 70,
+   "genres": "N/A",
+   "keyscale": "A minor",
+   "lyrics": "[verse]\nЖелезный ветер рвёт провода,\nГорят над городом облака,\nМы не уйдём уже никуда,\nПока сжимается рука.\n\n[chorus]\nКричи, кричи, пока живой,\nНе прогибайся под толпой,\nКричи, кричи, мы за тобой,\nНаш голос — это наш прибой.",
+   "prompt": "Russian hard rock, powerful raspy male vocal, distorted guitars, heavy drums, energetic",
+   "timesignature": "4"
+  },
+  "seed_value": "2026",
+  "settings": {
+   "audio_duration": 70,
+   "guidance_scale": 7,
+   "inference_steps": 50,
+   "model": "acestep-v15-sft",
+   "vocal_language": "ru"
+  }
+ },
+ "error": ""
+}

@@ -1,0 +1,29 @@
+{
+ "song": "ballad",
+ "variant": "sft_nolm",
+ "title": "SFT 2B без планировщика (как было 05.10)",
+ "ok": true,
+ "seconds_worked": 11.0,
+ "seconds_queued": 0.1,
+ "info": {
+  "dit_model": "acestep-v15-sft",
+  "metas": {
+   "bpm": 76,
+   "duration": 70,
+   "genres": "N/A",
+   "keyscale": "E minor",
+   "lyrics": "[verse]\nТы оставил на столе\nНедопитый горький чай,\nИ теперь в моём окне\nТолько осень и печаль.\n\n[chorus]\nПозвони мне, позвони,\nЯ не сплю который день,\nПогасают все огни,\nБез тебя я — только тень.",
+   "prompt": "Russian pop ballad, tender female vocal, piano, soft strings, warm and intimate",
+   "timesignature": "3"
+  },
+  "seed_value": "2026",
+  "settings": {
+   "audio_duration": 70,
+   "guidance_scale": 7,
+   "inference_steps": 50,
+   "model": "acestep-v15-sft",
+   "vocal_language": "ru"
+  }
+ },
+ "error": ""
+}

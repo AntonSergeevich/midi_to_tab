@@ -1,0 +1,29 @@
+{
+ "song": "poprock",
+ "variant": "sft_lm4b",
+ "title": "SFT 2B + планировщик 4B",
+ "ok": true,
+ "seconds_worked": 20.4,
+ "seconds_queued": 0.0,
+ "info": {
+  "dit_model": "acestep-v15-sft",
+  "metas": {
+   "bpm": 120,
+   "duration": 70,
+   "genres": "N/A",
+   "keyscale": "B minor",
+   "lyrics": "[verse]\nУтро режет тишину,\nЯ сжимаю старый ключ,\nОтпускаю ту весну,\nЧто пряталась среди туч.\n\n[chorus]\nЯ лечу навстречу дню,\nСлышишь, сердце, не молчи,\nЯ себя не изменю,\nЯ — твой свет в глухой ночи.",
+   "prompt": "Russian pop rock, emotional male lead vocal, electric guitars, driving drums, bass, anthemic chorus",
+   "timesignature": "4"
+  },
+  "seed_value": "2026",
+  "settings": {
+   "audio_duration": 70,
+   "guidance_scale": 7,
+   "inference_steps": 50,
+   "model": "acestep-v15-sft",
+   "vocal_language": "ru"
+  }
+ },
+ "error": ""
+}

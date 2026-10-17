@@ -1,0 +1,29 @@
+{
+ "song": "ballad",
+ "variant": "xl_nolm",
+ "title": "XL 4B без планировщика",
+ "ok": true,
+ "seconds_worked": 20.1,
+ "seconds_queued": 0.4,
+ "info": {
+  "dit_model": "acestep-v15-xl-sft",
+  "metas": {
+   "bpm": 76,
+   "duration": 70,
+   "genres": "N/A",
+   "keyscale": "A minor",
+   "lyrics": "[verse]\nТы оставил на столе\nНедопитый горький чай,\nИ теперь в моём окне\nТолько осень и печаль.\n\n[chorus]\nПозвони мне, позвони,\nЯ не сплю который день,\nПогасают все огни,\nБез тебя я — только тень.",
+   "prompt": "Russian pop ballad, tender female vocal, piano, soft strings, warm and intimate",
+   "timesignature": "3"
+  },
+  "seed_value": "2026",
+  "settings": {
+   "audio_duration": 70,
+   "guidance_scale": 7,
+   "inference_steps": 50,
+   "model": "acestep-v15-xl-sft",
+   "vocal_language": "ru"
+  }
+ },
+ "error": ""
+}
