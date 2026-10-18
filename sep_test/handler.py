@@ -3,7 +3,10 @@
   demucs6s -- как сейчас на сайте: Demucs htdemucs_6s;
   sw       -- BS-RoFormer SW (6 партий: вокал, барабаны, бас, гитара, клавиши, прочее);
   chain    -- «сначала голос»: вокал моделью Resurrection (BS-RoFormer), минус
-              (запись без голоса) -- на SW; голос из SW не берём.
+              (запись без голоса) -- на SW; голос из SW не берём;
+  ftchain  -- только Demucs (веса MIT): голос, барабаны и бас -- точной
+              htdemucs_ft, «остальное» -- на htdemucs_6s за гитарой и клавишами;
+              всё, что 6s нашла сверх них, возвращается в «прочее».
 Вход: input.audio_b64 (любой формат), input.method. Выход: mp3 каждой партии.
 """
 import base64
@@ -33,12 +36,36 @@ def mp3(path, bitrate="160k"):
                           capture_output=True, check=True).stdout
 
 
+def demucs(model, wav, out):
+    subprocess.run([sys.executable, "-m", "demucs", "-n", model, "-d", "cuda", "-o", out, wav],
+                   check=True, stdout=sys.stderr, stderr=subprocess.STDOUT)
+    return {os.path.basename(p)[:-4]: p for p in glob.glob(os.path.join(out, model, "*", "*.wav"))}
+
+
+def mix(paths, out):
+    import numpy as np
+    import soundfile as sf
+    total, rate = None, 44100
+    for path in paths:
+        data, rate = sf.read(path, dtype="float32")
+        total = data if total is None else total[:len(data)] + data[:len(total)]
+    sf.write(out, total, rate, subtype="FLOAT")
+    return out
+
+
 def separate(method, wav, work):
     if method == "demucs6s":
         out = os.path.join(work, "demucs")
         subprocess.run([sys.executable, "-m", "demucs", "-n", "htdemucs_6s", "-d", "cuda", "-o", out, wav],
                        check=True, stdout=sys.stderr, stderr=subprocess.STDOUT)
         return {os.path.basename(p)[:-4]: p for p in glob.glob(os.path.join(out, "htdemucs_6s", "*", "*.wav"))}
+    if method == "ftchain":
+        first = demucs("htdemucs_ft", wav, os.path.join(work, "ft"))
+        rest = demucs("htdemucs_6s", first["other"], os.path.join(work, "rest"))
+        parts = {k: first[k] for k in ("vocals", "drums", "bass")}
+        parts.update(guitar=rest["guitar"], piano=rest["piano"])
+        parts["other"] = mix([rest[k] for k in ("other", "vocals", "drums", "bass")], os.path.join(work, "other.wav"))
+        return parts
     if method == "sw":
         found = roformer(SW, wav, os.path.join(work, "sw"))
         return {k: v for k, v in found.items() if k != "instrumental"}

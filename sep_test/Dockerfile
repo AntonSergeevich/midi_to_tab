@@ -13,5 +13,5 @@ get('roformer-model-bs-roformer-sw-by-jarredou'); get('roformer-model-bs-roforme
     && du -sh /app/roformer
 
 COPY handler.py /app/sep_handler.py
-RUN python -m py_compile /app/sep_handler.py && python -c "import bs_roformer, demucs, runpod"
+RUN python -c "from demucs.pretrained import get_model; get_model('htdemucs_ft')" && python -m py_compile /app/sep_handler.py && python -c "import bs_roformer, demucs, runpod, soundfile"
 CMD ["python", "-u", "/app/sep_handler.py"]

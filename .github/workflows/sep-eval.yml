@@ -9,6 +9,9 @@ on:
       songs:
         description: Песни из test-results/acestep-39040138366 через пробел
         default: "yue2__rock.mp3 yue2__poprock.mp3"
+      methods:
+        description: Способы через запятую (demucs6s, sw, chain, ftchain)
+        default: "demucs6s,sw,chain,ftchain"
 
 permissions:
   contents: write
@@ -20,6 +23,7 @@ jobs:
     env:
       RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
       SONGS: ${{ inputs.songs }}
+      SEP_METHODS: ${{ inputs.methods }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

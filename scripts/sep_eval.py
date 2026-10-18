@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from worker_test import report, run  # noqa: E402
 
-METHODS = ["demucs6s", "sw", "chain"]
+METHODS = [m for m in os.environ.get("SEP_METHODS", "demucs6s,sw,chain").split(",") if m]
 
 
 def main() -> None:
