@@ -1,0 +1,20 @@
+[
+ {
+  "song": "yue2__poprock",
+  "method": "ftchain",
+  "ok": false,
+  "separate_seconds": null,
+  "gpu_seconds": 0.5,
+  "parts": [],
+  "error": null
+ },
+ {
+  "song": "yue2__rock",
+  "method": "ftchain",
+  "ok": false,
+  "separate_seconds": null,
+  "gpu_seconds": 0.4,
+  "parts": [],
+  "error": null
+ }
+]
