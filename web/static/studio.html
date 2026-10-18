@@ -118,21 +118,6 @@
       <div id="lyricsBox">
         <div class="st-label st-labelrow">
           <span>Текст песни <em id="lyricsNote" class="muted"></em></span>
-          <span class="st-tools">
-            <button type="button" class="icon-btn" id="lyricsAi" title="Сочинить текст нейросетью">
-              <svg viewBox="0 0 24 24"><path d="m12 3 1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3Zm6 11 .9 2.1 2.1.9-2.1.9L18 20l-.9-2.1L15 17l2.1-.9L18 14Z"/></svg>
-              <span>Сочинить</span>
-            </button>
-            <button type="button" class="icon-btn" data-clear="lyrics" title="Очистить текст" aria-label="Очистить текст"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg></button>
-            <button type="button" class="icon-btn" id="lyricsExpand" title="Развернуть на весь экран">
-              <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
-            </button>
-          </span>
-        </div>
-        <div class="st-ai" id="aiBox" hidden>
-          <textarea id="aiPrompt" rows="3" maxlength="500" class="st-textarea"
-                    placeholder="О чём песня, кому и какое настроение. Например: весёлое поздравление маме с юбилеем, вспомнить дачу и её пироги"></textarea>
-          <button type="button" class="primary" id="aiGo">Сочинить</button>
         </div>
         <div class="lyrics-wrap" id="lyricsWrap">
           <div class="lyrics-bar">
@@ -156,6 +141,21 @@
             <button type="button" class="st-tag" data-singer="male" title="Строку под курсором поёт мужской голос (нажать ещё раз — снять)">♂ Он</button>
             <button type="button" class="st-tag" data-singer="female" title="Строку под курсором поёт женский голос (нажать ещё раз — снять)">♀ Она</button>
             <button type="button" class="st-tag" data-singer="duet" title="Строку под курсором поют вместе (нажать ещё раз — снять)">♂♀ Вместе</button>
+          </div>
+          <div class="st-tools st-lyrics-tools">
+            <button type="button" class="icon-btn" id="lyricsAi" title="Сочинить текст нейросетью">
+              <svg viewBox="0 0 24 24"><path d="m12 3 1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3Zm6 11 .9 2.1 2.1.9-2.1.9L18 20l-.9-2.1L15 17l2.1-.9L18 14Z"/></svg>
+              <span>Сочинить</span>
+            </button>
+            <button type="button" class="icon-btn" data-clear="lyrics" title="Очистить текст" aria-label="Очистить текст"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg></button>
+            <button type="button" class="icon-btn" id="lyricsExpand" title="Развернуть на весь экран">
+              <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+            </button>
+          </div>
+          <div class="st-ai" id="aiBox" hidden>
+            <textarea id="aiPrompt" rows="3" maxlength="500" class="st-textarea"
+                      placeholder="О чём песня, кому и какое настроение. Например: весёлое поздравление маме с юбилеем, вспомнить дачу и её пироги"></textarea>
+            <button type="button" class="primary" id="aiGo">Сочинить</button>
           </div>
           <textarea id="lyrics" rows="8" maxlength="5000"
                     placeholder="[Verse]&#10;Первая строка куплета&#10;Вторая строка&#10;&#10;[Chorus]&#10;Строки припева&#10;&#10;[Bridge]&#10;…&#10;&#10;Можно вставить текст сплошняком и нажать «✨ Разметить» — куплеты и припевы расставим сами"></textarea>

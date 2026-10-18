@@ -1584,3 +1584,8 @@ body.has-player .st-go { bottom: var(--player-h, 72px); }
     margin-left: -19px; border-radius: 999px; background: rgba(255,255,255,.28); }
   .st-full-cover { touch-action: pan-y; }
 }
+
+/* «Сочинить», корзина и «развернуть» -- вплотную к полю текста */
+.st-lyrics-tools { justify-content: flex-end; margin: 0 0 6px; }
+.st-lyrics-tools + .st-ai { margin-bottom: 8px; }
+.lyrics-wrap.full .st-lyrics-tools, .lyrics-wrap.full .st-ai { display: none; }
