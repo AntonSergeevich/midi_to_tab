@@ -3,6 +3,44 @@
 // · 50 ₽» на главной, «Безлимит» в Студии), и меню прыгало при переходах.
 // Последняя надпись хранится в браузере: следующая страница рисует её
 // сразу, ещё до ответа сервера, -- без «загрузка…» и сдвигов.
+// Тактильный отклик -- как на iPhone: взял дорожку, сработал свайп,
+// удалил -- палец чувствует. Android и Chrome -- navigator.vibrate. На
+// iPhone (Safari 18+) вибрации из страницы нет, но системный переключатель
+// <input switch> «щёлкает» Taptic Engine -- им и пользуемся. Отключить:
+// localStorage 'naslux.haptics' = 'off'.
+window.haptic = (() => {
+  const PATTERN = { tick: 6, light: 10, pick: 18, drop: 12, medium: 22, success: [12, 40, 18], warn: [30, 50, 30] };
+  const ios = /iP(hone|ad|od)/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  let label = null;
+  let last = 0;
+  const off = () => { try { return localStorage.getItem('naslux.haptics') === 'off'; } catch (error) { return false; } };
+  return (kind = 'light') => {
+    if (off()) return;
+    const now = Date.now();
+    if (kind === 'tick' && now - last < 40) return;     // частые «тики» не сливаются в гул
+    last = now;
+    try {
+      if (navigator.vibrate && !ios) { navigator.vibrate(PATTERN[kind] || 10); return; }
+      if (!ios) return;
+      if (!label) {
+        label = document.createElement('label');
+        label.setAttribute('aria-hidden', 'true');
+        label.style.cssText = 'position:fixed;left:-200px;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.setAttribute('switch', '');
+        input.tabIndex = -1;
+        label.appendChild(input);
+        // щелчок по скрытому переключателю -- не «щелчок по странице»: меню не закрываются
+        label.addEventListener('click', (e) => e.stopPropagation());
+        document.body.appendChild(label);
+      }
+      label.click();
+    } catch (error) { /* без отклика -- не страшно */ }
+  };
+})();
+
 (() => {
   const CACHE = 'naslux.nav';
   const rub = (n) => `${Math.round(n || 0)} ₽`;

@@ -66,6 +66,7 @@ let downbeats = new Set();
 let nextBeat = 0;
 let metroOn = false;
 let countIn = false;
+const haptic = (kind) => { if (window.haptic) window.haptic(kind); };   // отклик (nav.js)
 let rec = null;              // идёт запись голоса (см. «запись голоса»)
 let mic = null;              // поток микрофона
 let micFor = '';             // какой микрофон открыт
@@ -305,6 +306,7 @@ function undo() {
   const prev = undoStack.pop();
   $('undoBtn').disabled = !undoStack.length;
   if (!prev) { toast('Отменять нечего'); return; }
+  haptic('light');
   tracks.forEach((t) => { if (!prev.some((p) => p.gain === t.gain)) t.gain.disconnect(); });
   prev.forEach((p) => { if (!tracks.some((t) => t.gain === p.gain)) p.gain.connect(master); });
   tracks.length = 0;
@@ -599,6 +601,7 @@ function cut() {
     return;
   }
   remember();
+  haptic('light');
   const right = { ...c, trimStart: at - c.offset };
   c.trimEnd = at - c.offset;
   lane.clips.splice(lane.clips.indexOf(c) + 1, 0, right);
@@ -651,6 +654,7 @@ function paste() {
   if (!clipboard) { toast('Сначала скопируйте кусок'); return; }
   if (!lane) { toast('Нажмите на дорожку, куда вставить'); return; }
   remember();
+  haptic('light');
   const at = position();
   let last = null;
   const pasted = [];
@@ -677,6 +681,7 @@ function paste() {
 function deleteClip(quiet = false) {
   if (picks.size && !useRegions()) {
     remember();
+    haptic('medium');
     const count = picks.size;
     picks.forEach((clip) => {
       const lane = tracks[laneOf(clip)];
@@ -691,6 +696,7 @@ function deleteClip(quiet = false) {
   const lane = tracks[selected];
   if (regions.length && lane) {
     remember();
+    haptic('medium');
     regions.forEach(({ a, b }) => {
       lane.clips = lane.clips.flatMap((c) => {
         if (clipEnd(c) <= a || clipStart(c) >= b) return [c];
@@ -1226,22 +1232,58 @@ document.addEventListener('pointerdown', (e) => {
   // Нажали на название и отпустили, не двигая, -- переименовать (dropTrack)
   const label = e.target.closest('b[data-label]');
   if (tracks.length < 2) return;        // одна дорожка: щелчок по названию -- обычный click
-  if (e.pointerType !== 'mouse' && !e.target.closest('[data-grip]')) return;
+  if (e.pointerType !== 'mouse' && !e.target.closest('[data-grip]')) {
+    // Пальцем по названию: подержать -- дорожка «поднимается» (отклик), можно нести
+    if (e.pointerType === 'touch') holdToPick(e, grab);
+    return;
+  }
+  startDrag(e, grab, label, false);
+});
+
+// Долгое нажатие на название дорожки (телефон): 380 мс без движения --
+// дорожка поднимается с отжиком, дальше её несут пальцем. Сдвинули палец
+// раньше -- это была прокрутка страницы, не трогаем.
+function holdToPick(e, grab) {
+  const x0 = e.clientX;
+  const y0 = e.clientY;
+  const id = e.pointerId;
+  const cancel = () => { clearTimeout(timer); document.removeEventListener('pointermove', early); document.removeEventListener('pointerup', cancel); document.removeEventListener('pointercancel', cancel); };
+  const early = (ev) => { if (ev.pointerId === id && Math.hypot(ev.clientX - x0, ev.clientY - y0) > 8) cancel(); };
+  const timer = setTimeout(() => {
+    cancel();
+    startDrag(e, grab, null, true);
+    haptic('pick');
+    drag.row.classList.add('dragging');
+    toast('Ведите пальцем вверх или вниз — дорожка встанет на новое место', 2500);
+  }, 380);
+  document.addEventListener('pointermove', early);
+  document.addEventListener('pointerup', cancel);
+  document.addEventListener('pointercancel', cancel);
+}
+// пока дорожку несут пальцем, страница не прокручивается
+document.addEventListener('touchmove', (e) => { if (drag) e.preventDefault(); }, { passive: false });
+
+function startDrag(e, grab, label, held) {
   const row = grab.closest('.mx-row');
   const rows = [...document.querySelectorAll('.mx-row[data-i]')];
   drag = { from: Number(grab.dataset.grab), to: Number(grab.dataset.grab), row, rows, y0: e.clientY,
     mids: rows.map((r) => { const b = r.getBoundingClientRect(); return b.top + b.height / 2; }),
-    height: row.getBoundingClientRect().height, id: e.pointerId, moved: false,
+    height: row.getBoundingClientRect().height, id: e.pointerId, moved: false, held,
     label: label ? Number(label.dataset.label) : null };
-  grab.setPointerCapture(e.pointerId);
-  e.preventDefault();
-});
+  try { grab.setPointerCapture(e.pointerId); } catch (error) { /* палец уже отпущен */ }
+  if (!held) e.preventDefault();
+}
 
 document.addEventListener('pointermove', (e) => {
   if (!drag || e.pointerId !== drag.id) return;
   const dy = e.clientY - drag.y0;
   if (!drag.moved && Math.abs(dy) < 4) return;
-  if (!drag.moved) { drag.moved = true; drag.row.classList.add('dragging'); $('board').classList.add('reordering'); }
+  if (!drag.moved) {
+    drag.moved = true;
+    drag.row.classList.add('dragging');
+    $('board').classList.add('reordering');
+    if (!drag.held) haptic('pick');
+  }
   drag.row.style.transform = `translateY(${dy}px)`;
   // куда встанет: по серединам строк, свою не считаем
   const y = drag.mids[drag.from] + dy;
@@ -1250,6 +1292,7 @@ document.addEventListener('pointermove', (e) => {
     if (k < drag.from && y < mid) to = Math.min(to, k);
     if (k > drag.from && y > mid) to = Math.max(to, k);
   });
+  if (to !== drag.to) haptic('tick');               // встала на новое место -- «щелчок»
   drag.to = to;
   drag.rows.forEach((r, k) => {
     if (k === drag.from) return;
@@ -1267,6 +1310,7 @@ function dropTrack(e) {
   drag = null;
   if (moved) lastDrag = Date.now();
   if (!moved && e.type === 'pointerup' && labelTap !== null) openLabel(labelTap);
+  if (moved) haptic('drop');
   if (!moved || from === to) return;
   const [t] = tracks.splice(from, 1);
   tracks.splice(to, 0, t);
@@ -1719,13 +1763,18 @@ document.addEventListener('pointerdown', (e) => {
     const group = clip && picks.size > 1 && picks.has(clip) ? [...picks].map((c) => [c, c.offset]) : null;
     const rows = [...document.querySelectorAll('.mx-row[data-i]')].map((r) => r.getBoundingClientRect());
     let moved = false;
+    let wasSnapped = false;
     const move = (ev) => {
       if (pinch) return;
       if (grab === 'move') {
         if (!moved && Math.abs(ev.clientX - x0) < 4 && Math.abs(ev.clientY - e.clientY) < 6) return;
-        if (!moved) { remember(); moved = true; }
+        if (!moved) { remember(); moved = true; haptic('pick'); }
         const shift = (ev.clientX - x0) / width * viewLen();
-        clip.offset = snapOffset(clip, Math.max(-clip.trimStart, offset0 + shift), width);
+        const raw = Math.max(-clip.trimStart, offset0 + shift);
+        clip.offset = snapOffset(clip, raw, width);
+        const snapped = Math.abs(clip.offset - raw) > 1e-6;          // прилип к такту или соседу -- «щелчок»
+        if (snapped && !wasSnapped) haptic('tick');
+        wasSnapped = snapped;
         if (group) {
           // все выбранные -- на тот же сдвиг, что и тот, за который тянут (с его прилипанием)
           const delta = clip.offset - offset0;
@@ -1741,6 +1790,7 @@ document.addEventListener('pointerdown', (e) => {
           tracks[to].clips.push(clip);
           index = to;
           selected = to;
+          haptic('tick');
           markSelected();
           document.querySelectorAll('.mx-empty').forEach((b) => { b.hidden = true; });
         }
@@ -1769,6 +1819,7 @@ document.addEventListener('pointerdown', (e) => {
       wave.removeEventListener('pointerup', up);
       wave.removeEventListener('pointercancel', up);
       if (grab && moved) {
+        haptic('drop');
         tracks.forEach((t) => t.clips.sort((a, b) => clipStart(a) - clipStart(b)));
         render();
         save();
@@ -1794,7 +1845,7 @@ document.addEventListener('pointerdown', (e) => {
     let selecting = !finger;
     let dragged = false;
     const hold = finger ? setTimeout(() => {
-      if (!dragged) { selecting = true; navigator.vibrate?.(15); toast('Ведите пальцем — выделяем кусок'); }
+      if (!dragged) { selecting = true; haptic('pick'); toast('Ведите пальцем — выделяем кусок'); }
     }, 450) : null;
     const move = (ev) => {
       if (pinch) return;
@@ -1986,8 +2037,8 @@ document.addEventListener('click', (e) => {
   const mute = e.target.closest('[data-mute]');
   const solo = e.target.closest('[data-solo]');
   const remove = e.target.closest('[data-remove]');
-  if (mute) { const t = tracks[mute.dataset.mute]; t.mute = !t.mute; mute.setAttribute('aria-pressed', t.mute); }
-  if (solo) { const t = tracks[solo.dataset.solo]; t.solo = !t.solo; solo.setAttribute('aria-pressed', t.solo); }
+  if (mute) { const t = tracks[mute.dataset.mute]; t.mute = !t.mute; mute.setAttribute('aria-pressed', t.mute); haptic('tick'); }
+  if (solo) { const t = tracks[solo.dataset.solo]; t.solo = !t.solo; solo.setAttribute('aria-pressed', t.solo); haptic('tick'); }
   const loadFile = e.target.closest('[data-loadfile]');
   if (loadFile) {
     choose(Number(loadFile.dataset.loadfile), null);
@@ -2447,6 +2498,7 @@ async function startRecording() {
     + (Number(prefs.shift) || 0) / 1000;
   const from = pos >= duration - 0.05 ? 0 : pos;
   rec = { lane, chunks, peaks, source, node, sink, from, latency };
+  haptic('medium');
   render();
   const interval = analysis && analysis.bpm ? 60 / analysis.bpm : 0;
   if (countIn && interval) {
@@ -2463,6 +2515,7 @@ async function stopRecording() {
   if (!rec || rec.stopping) return;
   const r = rec;
   r.stopping = true;
+  haptic('medium');
   const until = position();
   pause();
   recUi();
@@ -2518,6 +2571,7 @@ async function stopRecording() {
       Object.assign(r.lane, { key: src.key, url: src.url, extra: src.extra, custom: false });
     }
     toast('Дубль сохранён при треке — будет здесь и на любом устройстве');
+    haptic('success');
   }
   r.lane.uploading = false;
   render();
@@ -3046,4 +3100,49 @@ function wav(buffer) {
 
 init().catch((error) => {
   note(`Не получилось открыть мультитрек: ${esc(error.message || error)}`);
+});
+
+// Окна снизу на телефоне -- «шторки» как на iPhone: потянуть вниз за
+// верх окна -- закрыть (то же, что нажать мимо окна). Порог -- отклик.
+document.querySelectorAll('.mx-sheet').forEach((sheet) => {
+  const box = sheet.querySelector('.mx-sheet-box');
+  if (!box) return;
+  let g = null;
+  box.addEventListener('touchstart', (e) => {
+    g = null;
+    if (e.touches.length !== 1 || box.scrollTop > 0 || e.target.closest('input, select, textarea')) return;
+    g = { y: e.touches[0].clientY, x: e.touches[0].clientX, dy: 0, on: false, armed: false };
+  }, { passive: true });
+  box.addEventListener('touchmove', (e) => {
+    if (!g) return;
+    g.dy = e.touches[0].clientY - g.y;
+    const dx = e.touches[0].clientX - g.x;
+    if (!g.on) {
+      if (g.dy < 10 || Math.abs(dx) > g.dy) { if (Math.abs(dx) > 10 || g.dy < -10) g = null; return; }
+      g.on = true;
+    }
+    e.preventDefault();
+    box.style.transition = 'none';
+    box.style.transform = `translateY(${Math.max(0, g.dy)}px)`;
+    const armed = g.dy > 90;
+    if (armed !== g.armed) { g.armed = armed; if (armed) haptic('tick'); }
+  }, { passive: false });
+  const end = () => {
+    if (!g || !g.on) { g = null; return; }
+    const close = g.armed;
+    g = null;
+    box.style.transition = 'transform .2s ease-out';
+    box.style.transform = close ? 'translateY(100%)' : '';
+    setTimeout(() => {
+      box.style.transition = '';
+      box.style.transform = '';
+      if (close) {
+        haptic('light');
+        if (sheet.id === 'labelSheet') $('labelCancel').click();
+        else sheet.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }
+    }, close ? 200 : 0);
+  };
+  box.addEventListener('touchend', end);
+  box.addEventListener('touchcancel', end);
 });

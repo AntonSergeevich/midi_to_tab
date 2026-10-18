@@ -1557,3 +1557,30 @@ header.top > nav.topnav {
   color: var(--text); font-size: 13.5px; cursor: pointer; text-decoration: none; min-height: 0; }
 .mx-lanemenu button:hover, .mx-lanemenu a:hover { background: var(--panel-hi); }
 .mx-lanemenu .danger { color: var(--red); }
+
+/* Плеер не закрывает кнопку «Создать / Переделать» */
+body.has-player .st-go { bottom: var(--player-h, 72px); }
+
+/* Свайпы строк «Моих треков»: вправо -- в избранное, влево -- удалить */
+.st-swipe { position: relative; border-radius: 12px; overflow: hidden; }
+.st-swipe > .st-row { touch-action: pan-y; }
+.st-swipe-bg { position: absolute; inset: 0; display: none; align-items: center; justify-content: space-between;
+  padding: 0 18px; font-weight: 700; font-size: 14px; border-radius: 12px; }
+.st-swipe-bg i { font-style: normal; opacity: .55; transition: opacity .12s, transform .12s; }
+.st-swipe.moving .st-swipe-bg { display: flex; }
+.st-swipe.moving > .st-row { background: var(--bg); }
+.st-swipe.to-fav .st-swipe-bg { background: rgba(217,154,78,.22); color: var(--accent); }
+.st-swipe.to-del .st-swipe-bg { background: rgba(224,96,95,.22); color: #ffb3ae; }
+.st-swipe.to-fav .st-swipe-del, .st-swipe.to-del .st-swipe-fav { visibility: hidden; }
+.st-swipe.armed .st-swipe-bg i { opacity: 1; transform: scale(1.06); }
+.st-swipe.armed.to-fav .st-swipe-bg { background: rgba(217,154,78,.42); }
+.st-swipe.armed.to-del .st-swipe-bg { background: rgba(224,96,95,.5); color: #fff; }
+
+/* Плеер во весь экран: «ручка» сверху -- тянуть вниз, свернуть */
+.st-full-inner { will-change: transform; }
+.st-full-head { position: relative; }
+@media (pointer: coarse) {
+  .st-full-head::before { content: ""; position: absolute; left: 50%; top: -10px; width: 38px; height: 5px;
+    margin-left: -19px; border-radius: 999px; background: rgba(255,255,255,.28); }
+  .st-full-cover { touch-action: pan-y; }
+}

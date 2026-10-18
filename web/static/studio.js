@@ -465,11 +465,13 @@ function renderList(jobs) {
   $('jobs').innerHTML = shown.map((j) => {
     if (j.mode === 'tabs') return tabsRow(j);
     const first = j.status === 'done' && j.files[0];
-    return `<div class="st-row${j.id === fresh ? ' st-new' : ''}" data-open="${j.id}">
+    return `<div class="st-swipe" data-swipe="${j.id}"><span class="st-swipe-bg" aria-hidden="true">
+      <i class="st-swipe-fav">${j.fav ? '☆ Убрать из избранного' : '★ В избранное'}</i><i class="st-swipe-del">Удалить</i></span>
+      <div class="st-row${j.id === fresh ? ' st-new' : ''}" data-open="${j.id}">
       ${cover(j)}<span class="st-mode">${MODE_ICON[j.mode] || ''}</span>
       <div class="st-row-main"><span class="st-titleline"><b data-noi18n data-rename="${j.id}">${esc(j.name)}</b>${renameButton(j)}</span>${statusLine(j)}</div>
       ${favButton(j)}${first ? playButton(first, j.name) : ''}
-    </div>`;
+    </div></div>`;
   }).join('');
 }
 
@@ -556,6 +558,7 @@ async function toggleFav(id) {
   const items = [...((info && info.jobs) || []), ...((info && info.analyses) || [])].filter((x) => x.id === id);
   if (!items.length) return;
   const on = !items[0].fav;
+  window.haptic(on ? 'success' : 'light');
   items.forEach((x) => { x.fav = on; });           // сразу на экране, не дожидаясь сервера
   rerender();
   const form = new FormData();
@@ -892,8 +895,18 @@ function startTrack() {
   const many = queue.length > 1;
   ['pPrev', 'pNext', 'fPrev', 'fNext'].forEach((id) => { $(id).disabled = !many; });
   $('player').hidden = false;
+  playerSpace();
   syncButtons();
 }
+
+// Полоска плеера внизу не должна закрывать кнопку «Создать / Переделать»:
+// кнопка (липкая к низу экрана) встаёт над плеером
+function playerSpace() {
+  const on = !$('player').hidden;
+  document.body.classList.toggle('has-player', on);
+  if (on) document.documentElement.style.setProperty('--player-h', `${$('player').offsetHeight}px`);
+}
+window.addEventListener('resize', () => { if (!$('player').hidden) playerSpace(); });
 
 function step(delta) {
   if (queue.length < 2) return;
@@ -1120,6 +1133,7 @@ $('start').addEventListener('click', async () => {
 });
 
 document.addEventListener('click', async (e) => {
+  if (Date.now() - swiped < 450 && e.target.closest('.st-swipe, #player, #full')) return;   // это был свайп, а не нажатие
   const renameBtn = e.target.closest('[data-renamebtn]');
   if (renameBtn) { e.stopPropagation(); startRename(renameBtn.dataset.renamebtn); return; }
   const titleClick = e.target.closest('#detailView [data-rename]');
@@ -1414,6 +1428,7 @@ async function act(what, jobId, fileName) {
     return;
   }
   if (what === 'delete') {
+    window.haptic('warn');
     if (!confirm('Удалить трек вместе с файлами?')) return;
     await fetch(`/api/studio/${jobId}`, { method: 'DELETE' });
     closeDetail();
@@ -1690,6 +1705,177 @@ $('fSeek').addEventListener('input', () => {
   const audio = $('audio');
   if (audio.duration) audio.currentTime = ($('fSeek').value / 1000) * audio.duration;
 });
+
+// ---------------------------------------------------------------- жесты
+// Как в музыкальных приложениях на телефоне. Направления -- как просил
+// владелец (17.10): вправо -- следующий трек, влево -- предыдущий.
+//   плеер во весь экран: вниз -- свернуть, вправо/влево -- трек;
+//   полоска плеера: вверх -- во весь экран, вправо/влево -- трек;
+//   строка трека в списке: вправо -- в избранное, влево -- удалить.
+// Порог пройден -- лёгкий «щелчок» (haptic), отпустили -- действие.
+let swiped = 0;
+
+function swipe(el, { canStart = () => true, onMove, onEnd }) {
+  let g = null;
+  el.addEventListener('touchstart', (e) => {
+    g = null;
+    if (e.touches.length !== 1 || !canStart(e)) return;
+    const t = e.touches[0];
+    g = { x: t.clientX, y: t.clientY, dx: 0, dy: 0, mode: '', target: e.target };
+  }, { passive: true });
+  el.addEventListener('touchmove', (e) => {
+    if (!g) return;
+    const t = e.touches[0];
+    g.dx = t.clientX - g.x;
+    g.dy = t.clientY - g.y;
+    if (!g.mode) {
+      if (Math.abs(g.dx) < 10 && Math.abs(g.dy) < 10) return;
+      g.mode = Math.abs(g.dx) > Math.abs(g.dy) * 1.2 ? 'h' : 'v';
+    }
+    if (onMove(g, e) === false) { g = null; return; }
+  }, { passive: false });
+  const end = () => {
+    if (!g) return;
+    const done = g;
+    g = null;
+    if (done.mode) swiped = Date.now();
+    onEnd(done);
+  };
+  el.addEventListener('touchend', end);
+  el.addEventListener('touchcancel', () => { if (g) { g.cancelled = true; end(); } });
+}
+
+const springBack = (el) => {
+  el.style.transition = 'transform .22s cubic-bezier(.2,.8,.2,1), opacity .22s';
+  el.style.transform = '';
+  el.style.opacity = '';
+  setTimeout(() => { el.style.transition = ''; }, 240);
+};
+
+// Обложка улетает в сторону жеста, новая въезжает с другой
+function slideTrack(cover, dir) {
+  cover.style.transition = 'transform .18s ease-in, opacity .18s';
+  cover.style.transform = `translateX(${dir * 110}%) rotate(${dir * 6}deg)`;
+  cover.style.opacity = '0';
+  setTimeout(() => {
+    step(dir);
+    cover.style.transition = 'none';
+    cover.style.transform = `translateX(${-dir * 60}%)`;
+    requestAnimationFrame(() => requestAnimationFrame(() => springBack(cover)));
+  }, 180);
+}
+
+const PULL = 110;     // свернуть
+const FLIP = 70;      // сменить трек
+
+swipe($('full'), {
+  canStart: (e) => !e.target.closest('input[type="range"], .st-full-lyrics, a, .st-full-volume'),
+  onMove: (g, e) => {
+    const inner = $('full').querySelector('.st-full-inner');
+    if (g.mode === 'v') {
+      if (g.dy < 0 || $('full').scrollTop > 0) return false;      // листают текст -- не мешаем
+      e.preventDefault();
+      inner.style.transition = 'none';
+      inner.style.transform = `translateY(${g.dy}px)`;
+      $('full').style.background = `rgba(14,15,19,${Math.max(0.35, 1 - g.dy / 600)})`;
+    } else {
+      if (queue.length < 2) return false;
+      e.preventDefault();
+      const cover = $('fCover');
+      cover.style.transition = 'none';
+      cover.style.transform = `translateX(${g.dx}px) rotate(${g.dx / 40}deg)`;
+    }
+    const armed = g.mode === 'v' ? g.dy > PULL : Math.abs(g.dx) > FLIP;
+    if (armed !== Boolean(g.armed)) { g.armed = armed; if (armed) window.haptic('tick'); }
+    return true;
+  },
+  onEnd: (g) => {
+    const inner = $('full').querySelector('.st-full-inner');
+    if (g.mode === 'v') {
+      if (g.armed && !g.cancelled) {
+        window.haptic('light');
+        inner.style.transition = 'transform .22s ease-in';
+        inner.style.transform = 'translateY(100vh)';
+        setTimeout(() => {
+          fullPlayer(false);
+          inner.style.transition = '';
+          inner.style.transform = '';
+          $('full').style.background = '';
+        }, 220);
+      } else {
+        springBack(inner);
+        $('full').style.background = '';
+      }
+    } else if (g.mode === 'h') {
+      const cover = $('fCover');
+      if (g.armed && !g.cancelled) { window.haptic('light'); slideTrack(cover, g.dx > 0 ? 1 : -1); } else springBack(cover);
+    }
+  },
+});
+
+swipe($('player'), {
+  canStart: (e) => !e.target.closest('.st-pprogress, .play-btn'),
+  onMove: (g, e) => {
+    const info = $('pOpen');
+    if (g.mode === 'v') {
+      if (g.dy > 0) return false;
+      e.preventDefault();
+      g.armed = g.dy < -40;
+      return true;
+    }
+    if (queue.length < 2) return false;
+    e.preventDefault();
+    info.style.transition = 'none';
+    info.style.transform = `translateX(${g.dx}px)`;
+    info.style.opacity = String(Math.max(0.3, 1 - Math.abs(g.dx) / 220));
+    const armed = Math.abs(g.dx) > FLIP;
+    if (armed !== Boolean(g.armed)) { g.armed = armed; if (armed) window.haptic('tick'); }
+    return true;
+  },
+  onEnd: (g) => {
+    const info = $('pOpen');
+    if (g.mode === 'v') { if (g.armed && !g.cancelled) { window.haptic('light'); fullPlayer(true); } return; }
+    springBack(info);
+    if (g.mode === 'h' && g.armed && !g.cancelled) { window.haptic('light'); step(g.dx > 0 ? 1 : -1); }
+  },
+});
+
+// Строки «Моих треков»: вправо -- в избранное, влево -- удалить
+const ROW_ACT = 84;
+function rowSwipes(root) {
+  swipe(root, {
+    // с кнопок ★ и ▶ тоже: свайп влево пальцем как раз оттуда и начинают
+    canStart: (e) => Boolean(e.target.closest('.st-swipe .st-row')) && !e.target.closest('input'),
+    onMove: (g, e) => {
+      if (g.mode !== 'h') return false;
+      e.preventDefault();
+      const wrap = g.target.closest('.st-swipe');
+      const row = wrap.querySelector('.st-row');
+      wrap.classList.add('moving');
+      wrap.classList.toggle('to-fav', g.dx > 0);
+      wrap.classList.toggle('to-del', g.dx < 0);
+      row.style.transition = 'none';
+      row.style.transform = `translateX(${g.dx}px)`;
+      const armed = Math.abs(g.dx) > ROW_ACT;
+      wrap.classList.toggle('armed', armed);
+      if (armed !== Boolean(g.armed)) { g.armed = armed; if (armed) window.haptic('tick'); }
+      return true;
+    },
+    onEnd: (g) => {
+      const wrap = g.target.closest('.st-swipe');
+      if (!wrap) return;
+      const row = wrap.querySelector('.st-row');
+      springBack(row);
+      setTimeout(() => wrap.classList.remove('moving', 'to-fav', 'to-del', 'armed'), 230);
+      if (g.mode !== 'h' || !g.armed || g.cancelled) return;
+      const id = wrap.dataset.swipe;
+      if (g.dx > 0) toggleFav(id);
+      else setTimeout(() => act('delete', id), 240);
+    },
+  });
+}
+rowSwipes($('jobs'));
+
 $('pPrev').addEventListener('click', () => step(-1));
 $('pNext').addEventListener('click', () => step(1));
 $('fPrev').addEventListener('click', () => step(-1));
