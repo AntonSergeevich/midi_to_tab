@@ -1,0 +1,34 @@
+[
+ {
+  "song": "yue2__poprock",
+  "method": "ftchain",
+  "ok": true,
+  "separate_seconds": 15,
+  "gpu_seconds": 19.9,
+  "parts": [
+   "bass.mp3",
+   "drums.mp3",
+   "guitar.mp3",
+   "other.mp3",
+   "piano.mp3",
+   "vocals.mp3"
+  ],
+  "error": null
+ },
+ {
+  "song": "yue2__rock",
+  "method": "ftchain",
+  "ok": true,
+  "separate_seconds": 12.5,
+  "gpu_seconds": 17.3,
+  "parts": [
+   "bass.mp3",
+   "drums.mp3",
+   "guitar.mp3",
+   "other.mp3",
+   "piano.mp3",
+   "vocals.mp3"
+  ],
+  "error": null
+ }
+]
