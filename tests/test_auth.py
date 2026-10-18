@@ -389,6 +389,33 @@ def test_overdue_ticket_is_flagged():
     assert level.overdue and level.level == "late"
 
 
+def test_personal_data_deadline_counts_business_days_not_calendar():
+    """152-ФЗ про персональные данные отводит 10 РАБОЧИХ дней -- в отличие от
+    ЗОЗПП (refund/problem), где срок -- в календарных днях (см. note в TOPICS).
+    Раньше urgency() считала "data" так же, как и остальные темы, в
+    календарных днях -- запрос, поданный перед выходными, помечался
+    "просрочен" на несколько дней раньше срока, который даёт закон."""
+    import datetime as dt
+
+    friday = dt.datetime(2026, 10, 16, 12, 0, tzinfo=dt.timezone.utc)
+    assert friday.weekday() == 4  # пятница -- дальше два полных выходных
+    created = friday.timestamp()
+
+    # 12 календарных дней после пятницы -- это только 8 рабочих (два
+    # выходных внутри): по 152-ФЗ срок ещё не истёк.
+    still_within = support.urgency(created, "data", created + 12 * 86400)
+    assert not still_within.overdue
+
+    # 10 рабочих дней от пятницы истекают только через 14 календарных --
+    # на 15-й день срок уже вышел.
+    truly_late = support.urgency(created, "data", created + 15 * 86400)
+    assert truly_late.overdue
+
+    # А "refund" на тех же 12 днях остаётся в календарных -- и это уже
+    # просрочка, в отличие от "data".
+    assert support.urgency(created, "refund", created + 12 * 86400).overdue
+
+
 def test_answered_ticket_judged_by_answer_time():
     """В истории должно быть видно, уложились ли, а не что срок давно вышел."""
     created = time.time() - 30 * 86400
