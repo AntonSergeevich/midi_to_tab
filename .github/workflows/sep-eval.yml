@@ -1,0 +1,56 @@
+name: Замер разделения на партии (Demucs против BS-RoFormer)
+
+# Две песни YuE2 из замера генерации (тексты наши) -- партии тремя
+# способами: Demucs htdemucs_6s (как на сайте), BS-RoFormer SW, цепочка
+# «сначала голос». Партии -- в test-results/sep-<номер прогона>, слушать.
+on:
+  workflow_dispatch:
+    inputs:
+      songs:
+        description: Песни из test-results/acestep-39040138366 через пробел
+        default: "yue2__rock.mp3 yue2__poprock.mp3"
+
+permissions:
+  contents: write
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      SONGS: ${{ inputs.songs }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -q requests
+      - name: Песни
+        run: |
+          git clone -q --depth 1 --branch test-results --filter=blob:none --sparse \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" src
+          git -C src sparse-checkout set acestep-39040138366
+          mkdir songs
+          for s in $SONGS; do cp "src/acestep-39040138366/$s" songs/; done
+          ls -la songs
+      - name: Эндпоинт
+        run: |
+          export WORKER_NAME=naslux-sep WORKER_IMAGE=ghcr.io/antonsergeevich/naslux-worker:sep-test
+          python scripts/runpod_endpoint.py
+      - name: Разделение
+        run: python -u scripts/sep_eval.py songs/*.mp3 --out results
+      - name: В ветку test-results
+        if: always()
+        run: |
+          [ -n "$(ls -A results 2>/dev/null)" ] || exit 0
+          dir="sep-${{ github.run_id }}"
+          git clone -q --depth 1 --branch test-results \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
+          mkdir -p "out/$dir" && cp results/* "out/$dir/"
+          cd out
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "Замер разделения: прогон ${{ github.run_id }}"
+          git push -q origin HEAD:test-results
+          echo "::notice title=Партии::test-results/$dir"
