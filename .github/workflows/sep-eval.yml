@@ -12,6 +12,9 @@ on:
       methods:
         description: Способы через запятую (demucs6s, sw, chain, ftchain)
         default: "demucs6s,sw,chain,ftchain"
+      image:
+        description: Тег образа (номер сборки sep-image, пусто -- sep-test)
+        default: ""
 
 permissions:
   contents: write
@@ -24,6 +27,7 @@ jobs:
       RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
       SONGS: ${{ inputs.songs }}
       SEP_METHODS: ${{ inputs.methods }}
+      TAG: ${{ inputs.image }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -40,7 +44,7 @@ jobs:
           ls -la songs
       - name: Эндпоинт
         run: |
-          export WORKER_NAME=naslux-sep WORKER_IMAGE=ghcr.io/antonsergeevich/naslux-worker:sep-test
+          export WORKER_NAME=naslux-sep WORKER_IMAGE="ghcr.io/antonsergeevich/naslux-worker:sep-test${TAG:+-$TAG}"
           python scripts/runpod_endpoint.py
       - name: Разделение
         run: python -u scripts/sep_eval.py songs/*.mp3 --out results

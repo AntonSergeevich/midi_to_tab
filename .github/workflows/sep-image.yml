@@ -33,5 +33,5 @@ jobs:
           context: sep_test
           push: true
           provenance: false
-          tags: ghcr.io/antonsergeevich/naslux-worker:sep-test
+          tags: ghcr.io/antonsergeevich/naslux-worker:sep-test,ghcr.io/antonsergeevich/naslux-worker:sep-test-${{ github.run_number }}
           labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}

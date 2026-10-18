@@ -39,7 +39,8 @@ def main() -> None:
             row = {"song": name, "method": method, "ok": bool(output.get("ok")),
                    "separate_seconds": output.get("separate_seconds"),
                    "gpu_seconds": round(status.get("executionTime", 0) / 1000, 1),
-                   "parts": [x["name"] for x in output.get("files") or []], "error": output.get("error")}
+                   "parts": [x["name"] for x in output.get("files") or []],
+                   "error": output.get("error") or status.get("error") or (status.get("status") if not output else None)}
             print(json.dumps(row, ensure_ascii=False))
             summary.append(row)
             if not row["ok"]:
