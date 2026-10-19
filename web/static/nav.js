@@ -41,6 +41,35 @@ window.haptic = (() => {
   };
 })();
 
+// Ползунки «щёлкают» на делениях -- как колёсико выбора на iPhone: на
+// каждом шаге (крупный ползунок -- на каждой двадцатой части) лёгкий тик,
+// на краях -- чуть сильнее. Перемотка трека (data-nohaptic) -- без тиков,
+// иначе телефон дрожал бы без остановки.
+(() => {
+  const slot = (el) => {
+    const min = Number(el.min || 0);
+    const max = Number(el.max || 100);
+    const span = max - min;
+    if (!(span > 0)) return null;
+    const step = el.step === 'any' ? 0 : Number(el.step || 1);
+    const detent = Math.max(step || 0, span / 20);
+    return Math.round((Number(el.value) - min) / detent);
+  };
+  const ranged = (e) => e.target && e.target.type === 'range' && !('nohaptic' in e.target.dataset);
+  const remember = (e) => { if (ranged(e)) e.target.hapticSlot = slot(e.target); };
+  document.addEventListener('pointerdown', remember, true);
+  document.addEventListener('focusin', remember, true);
+  document.addEventListener('input', (e) => {
+    if (!ranged(e)) return;
+    const el = e.target;
+    const now = slot(el);
+    if (now === null || now === el.hapticSlot) return;
+    el.hapticSlot = now;
+    const v = Number(el.value);
+    window.haptic(v <= Number(el.min || 0) || v >= Number(el.max || 100) ? 'light' : 'tick');
+  }, true);
+})();
+
 (() => {
   const CACHE = 'naslux.nav';
   const rub = (n) => `${Math.round(n || 0)} ₽`;
