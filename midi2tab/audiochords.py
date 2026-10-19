@@ -414,7 +414,15 @@ def _net_analysis(np, chordnet, librosa, y, sr, bpm, beats, chroma, min_duration
     if progress:
         progress("Слушаю аккорды нейросетью...")
     key = guess_key(chroma)
-    found = chordnet.detect(y, sr, key=key, chroma=chroma)
+    # Сеть обучена на записях ровно в 440 Гц (chordnet.py), а живая гитара
+    # и телефонная запись сплошь и рядом на треть полутона ниже или выше:
+    # без поправки сетка нот частично лежит МЕЖДУ её ступенями, и CQT
+    # размазывает энергию соседних нот. Поправка уже была проверена
+    # (test_tuning_follows_detuned_recording, web/benchmark.py) -- только
+    # не доходила досюда: chordnet.detect() не принимал tuning вовсе, и
+    # на сайте запись всегда слушалась так, будто она идеально в строе.
+    tuning = float(librosa.estimate_tuning(y=y, sr=sr, n_fft=8192, resolution=0.01))
+    found = chordnet.detect(y, sr, key=key, chroma=chroma, tuning=tuning)
     chords = _merge_short([AudioChord(name, start, end, confidence)
                            for start, end, name, confidence in found],
                           min(min_duration, 0.6))

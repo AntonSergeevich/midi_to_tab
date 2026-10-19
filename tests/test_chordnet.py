@@ -95,3 +95,45 @@ def test_tuning_follows_detuned_recording():
     segments = chordnet.decode(chordnet.probabilities(y, sr, tuning=tuning))
     heard = [next((c for a, b, c, _ in segments if a <= i * 2 + 1 < b), None) for i in range(len(seq))]
     assert heard == [name for name, _ in seq]
+
+
+def test_net_analysis_estimates_and_forwards_tuning():
+    """
+    `audiochords._net_analysis()` (боевой путь -- `detect_from_audio()`,
+    то, что реально слушает сайт) обязан сам оценивать строй записи и
+    передавать его в `chordnet.detect()`.
+
+    Поправка строя уже была проверена (`test_tuning_follows_detuned_recording`
+    выше, `web/benchmark.py:run_models`) -- но только КАК ВОЗМОЖНОСТЬ, не
+    как часть боевого разбора: `chordnet.detect()` раньше не принимал
+    `tuning` вовсе, а `_net_analysis()` звал его без этого довода. Сайт
+    слушал любую запись так, будто она идеально настроена на 440 Гц, хотя
+    живая гитара и телефонная запись сплошь и рядом на треть полутона
+    ниже или выше.
+    """
+    librosa = pytest.importorskip("librosa")
+
+    from midi2tab import audiochords
+
+    sr = 22050
+    t = np.arange(int(sr * 2)) / sr
+    shift = 2 ** (0.4 / 12)                      # +40 центов от 440 Гц
+    y = (sum(np.sin(2 * np.pi * f * shift * t) for f in (220.0, 261.63, 329.63))
+         * 0.2).astype(np.float32)               # ля минорное трезвучие
+
+    captured = {}
+
+    class StubChordnet:
+        @staticmethod
+        def detect(y, sr, key=None, chroma=None, tuning=0.0):
+            captured["tuning"] = tuning
+            return []
+
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr, bins_per_octave=36)
+    beats = np.array([0, 5, 10, 15])             # короче beats_per_bar*2 -- детали такта не нужны здесь
+
+    audiochords._net_analysis(np, StubChordnet, librosa, y, sr, 120.0, beats, chroma,
+                              audiochords.MIN_DURATION, 4, None)
+
+    assert "tuning" in captured
+    assert abs(captured["tuning"] - 0.4) < 0.05

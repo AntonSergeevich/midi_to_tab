@@ -215,8 +215,10 @@ def decode(probs, change_penalty: float = 5.0) -> list[tuple[float, float, str, 
 
 
 def detect(y, sr: int, change_penalty: float = 5.0, key=None, chroma=None,
-           key_strength: float = KEY_STRENGTH, model: Path | None = None) -> list[tuple[float, float, str, float]]:
+           key_strength: float = KEY_STRENGTH, model: Path | None = None,
+           tuning: float = 0.0) -> list[tuple[float, float, str, float]]:
     """Запись -> [(начало, конец, аккорд, уверенность)], без участков «N»;
     key -- (тон, мажор ли) песни для подсказки мажор/минор; model -- другой
-    файл модели вместо того, что на сайте."""
-    return decode(with_key(probabilities(y, sr, model), key, chroma, key_strength), change_penalty)
+    файл модели вместо того, что на сайте; tuning -- отклонение строя
+    записи от 440 Гц в долях полутона (см. features())."""
+    return decode(with_key(probabilities(y, sr, model, tuning), key, chroma, key_strength), change_penalty)
