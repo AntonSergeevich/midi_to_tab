@@ -6,7 +6,11 @@
               (запись без голоса) -- на SW; голос из SW не берём;
   ftchain  -- только Demucs (веса MIT): голос, барабаны и бас -- точной
               htdemucs_ft, «остальное» -- на htdemucs_6s за гитарой и клавишами;
-              всё, что 6s нашла сверх них, возвращается в «прочее».
+              всё, что 6s нашла сверх них, возвращается в «прочее»;
+  clean2   -- ftchain + второй проход: каждая партия ещё раз через htdemucs_ft,
+              остаётся только её инструмент (звук родной, примеси -- долой);
+  ace      -- партии заново «играет» ACE-Step (extract, модель base) по всей
+              песне: примесей нет совсем, но это новое исполнение.
 Вход: input.audio_b64 (любой формат), input.method. Выход: mp3 каждой партии.
 """
 import base64
@@ -65,6 +69,29 @@ def separate(method, wav, work):
         parts = {k: first[k] for k in ("vocals", "drums", "bass")}
         parts.update(guitar=rest["guitar"], piano=rest["piano"])
         parts["other"] = mix([rest[k] for k in ("other", "vocals", "drums", "bass")], os.path.join(work, "other.wav"))
+        return parts
+    if method == "clean2":
+        os.makedirs(os.path.join(work, "c1"), exist_ok=True)
+        first = separate("ftchain", wav, os.path.join(work, "c1"))
+        own = {"vocals": "vocals", "drums": "drums", "bass": "bass", "guitar": "other", "piano": "other", "other": "other"}
+        cleaned = {}
+        for name, path in first.items():
+            again = demucs("htdemucs_ft", path, os.path.join(work, f"c2_{name}"))
+            cleaned[name] = again[own[name]]
+        return cleaned
+    if method == "ace":
+        sys.path.insert(0, "/app")
+        import handler as worker   # обработчик рабочего воркера: сервер ACE-Step и задачи к нему
+        wav48 = os.path.join(work, "song48.wav")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", wav, "-ac", "2", "-ar", "48000", wav48], check=True)
+        parts = {}
+        for name, track in (("vocals", "vocals"), ("drums", "drums"), ("bass", "bass"), ("guitar", "guitar"),
+                            ("piano", "keyboard")):
+            files, _ = worker.enrich({"track": track, "prompt": ""}, wav48, "extract")
+            path = os.path.join(work, f"ace_{name}.mp3")
+            with open(path, "wb") as f:
+                f.write(files[0][1])
+            parts[name] = path
         return parts
     if method == "sw":
         found = roformer(SW, wav, os.path.join(work, "sw"))

@@ -8,8 +8,11 @@
   extract  -- вытащить одну партию силами ACE-Step (extract, base);
   create   -- песня с нуля по описанию и тексту (ACE-Step text2music, SFT),
               без исходника; seconds -- длина (иначе -- по длине текста);
-  stems    -- разделить на 6 партий (Demucs htdemucs_6s): вокал, гитара,
-              бас, барабаны, клавиши, остальное;
+  stems    -- разделить на 6 партий: вокал, гитара, бас, барабаны, клавиши,
+              остальное. Цепочка Demucs (веса MIT): голос, барабаны и бас --
+              точной htdemucs_ft, гитара и клавиши -- htdemucs_6s из «остатка»
+              (там уже нет голоса и барабанов -- меньше примесей). Замер на
+              слух 18.10: чище прежней одной htdemucs_6s;
   ping     -- проверить воркер: какая видеокарта, какие модели загружены.
 
 Исходник: input.audio_url (воркер скачивает сам) или input.audio_b64.
@@ -314,18 +317,35 @@ def enrich(job_input, source, task_type):
     return [(f"{task_type}_{track}.mp3", audios[0])], info
 
 
+def demucs(model, wav, out):
+    subprocess.run([sys.executable, "-m", "demucs", "-n", model, "-d", "cuda", "-o", out, wav],
+                   check=True, stdout=sys.stderr, stderr=subprocess.STDOUT)
+    return {os.path.basename(p)[:-4]: p for p in glob.glob(os.path.join(out, model, "*", "*.wav"))}
+
+
 def stems(job_input, source, workdir):
-    out = os.path.join(workdir, "stems")
-    subprocess.run([sys.executable, "-m", "demucs", "-n", "htdemucs_6s", "-d", "cuda",
-                    "--mp3", "--mp3-bitrate", str(job_input.get("bitrate") or 256),
-                    "-o", out, source], check=True, stdout=sys.stderr, stderr=subprocess.STDOUT)
-    files = []
-    for path in sorted(glob.glob(os.path.join(out, "htdemucs_6s", "*", "*.mp3"))):
-        with open(path, "rb") as f:
-            files.append((os.path.basename(path), f.read()))
-    if not files:
+    import soundfile as sf
+
+    first = demucs("htdemucs_ft", source, os.path.join(workdir, "ft"))
+    rest = demucs("htdemucs_6s", first["other"], os.path.join(workdir, "rest"))
+    if not first or not rest:
         raise RuntimeError("Demucs не выдал ни одной дорожки")
-    return files, {"model": "htdemucs_6s"}
+    parts = {k: first[k] for k in ("vocals", "drums", "bass")}
+    parts.update(guitar=rest["guitar"], piano=rest["piano"])
+    # всё, что 6s нашла в «остатке» сверх гитары и клавиш, -- обратно в «прочее»
+    other = None
+    for key in ("other", "vocals", "drums", "bass"):
+        data, rate = sf.read(rest[key], dtype="float32")
+        other = data if other is None else other[:len(data)] + data[:len(other)]
+    parts["other"] = os.path.join(workdir, "other.wav")
+    sf.write(parts["other"], other, rate, subtype="FLOAT")
+    bitrate = f"{int(job_input.get('bitrate') or 256)}k"
+    files = []
+    for name, path in sorted(parts.items()):
+        mp3 = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-b:a", bitrate, "-f", "mp3", "pipe:1"],
+                             capture_output=True, check=True).stdout
+        files.append((f"{name}.mp3", mp3))
+    return files, {"model": "htdemucs_ft+htdemucs_6s"}
 
 
 def deliver(job_input, files):
