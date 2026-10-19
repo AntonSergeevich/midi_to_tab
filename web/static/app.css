@@ -1589,3 +1589,8 @@ body.has-player .st-go { bottom: var(--player-h, 72px); }
 .st-lyrics-tools { justify-content: flex-end; margin: 0 0 6px; }
 .st-lyrics-tools + .st-ai { margin-bottom: 8px; }
 .lyrics-wrap.full .st-lyrics-tools, .lyrics-wrap.full .st-ai { display: none; }
+
+/* Иконки внутри кнопок и ссылок не перехватывают касание: на iPhone «тик»
+   подкладывается в элемент под пальцем, а в SVG и картинку его не вложить
+   (static/vibration.js) -- касание должно приходиться на саму кнопку */
+button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-events: none; }

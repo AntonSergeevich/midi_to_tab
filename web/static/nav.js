@@ -52,14 +52,15 @@ window.haptic = (() => {
   const remember = (e) => { if (ranged(e.target)) e.target.hapticSlot = slot(e.target); };
   document.addEventListener('pointerdown', remember, true);
   document.addEventListener('focusin', remember, true);
-  document.addEventListener('input', (e) => {
-    const el = e.target;
-    if (!ranged(el)) return;
+  const detent = (el) => {
     const now = slot(el);
     if (now === null || now === el.hapticSlot) return;
     el.hapticSlot = now;
     const v = Number(el.value);
     window.haptic(v <= Number(el.min || 0) || v >= Number(el.max || 100) ? 'light' : 'tick');
+  };
+  document.addEventListener('input', (e) => {
+    if (ranged(e.target) && !e.target.hapticDriving) detent(e.target);
   }, true);
 
   const ios = V && (V.engine === 'ios-relay' || V.engine === 'ios-switch');
@@ -104,7 +105,11 @@ window.haptic = (() => {
       const v = valueAt(el, x);
       if (String(v) === el.value) return;
       el.value = String(v);
-      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.hapticDriving = true;
+      try { el.dispatchEvent(new Event('input', { bubbles: true })); } finally { el.hapticDriving = false; }
+      // «тик» -- прямо в обработчике движения пальца: библиотека узнаёт
+      // его по событию touchmove, из вложенного input он запоздал бы на шаг
+      detent(el);
     };
     // поверхность запрещает браузеру прокрутку (touch-action:none), поэтому
     // сами различаем жест: вбок -- двигаем ползунок, вверх-вниз -- листаем

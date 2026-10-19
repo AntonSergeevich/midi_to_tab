@@ -1082,6 +1082,12 @@ def privacy_page() -> HTMLResponse:
     return page("privacy.html")
 
 
+@app.get("/vibro", response_class=HTMLResponse, include_in_schema=False)
+def vibro_page() -> HTMLResponse:
+    """Самопроверка вибрации на телефоне: что именно щёлкает, а что нет."""
+    return page("vibro.html")
+
+
 @app.get("/offer", response_class=HTMLResponse)
 def offer_page() -> HTMLResponse:
     return page("offer.html")

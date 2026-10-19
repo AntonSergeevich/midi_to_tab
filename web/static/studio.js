@@ -560,7 +560,9 @@ async function toggleFav(id) {
   const on = !items[0].fav;
   window.haptic(on ? 'success' : 'light');
   items.forEach((x) => { x.fav = on; });           // сразу на экране, не дожидаясь сервера
-  rerender();
+  // перерисовка -- сразу после нажатия, а не внутри него: на iPhone «тик»
+  // играет невидимый переключатель внутри нажатой кнопки, ей нельзя исчезнуть раньше
+  setTimeout(rerender, 0);
   const form = new FormData();
   form.append('on', on);
   const answer = await fetch(`/api/job/${id}/favorite`, { method: 'POST', body: form }).catch(() => null);
