@@ -1,0 +1,64 @@
+[
+ {
+  "song": "yue2__poprock",
+  "method": "clean2",
+  "ok": true,
+  "separate_seconds": 62.9,
+  "gpu_seconds": 68.0,
+  "parts": [
+   "bass.mp3",
+   "drums.mp3",
+   "guitar.mp3",
+   "other.mp3",
+   "piano.mp3",
+   "vocals.mp3"
+  ],
+  "error": null
+ },
+ {
+  "song": "yue2__poprock",
+  "method": "ace",
+  "ok": true,
+  "separate_seconds": 88.9,
+  "gpu_seconds": 94.2,
+  "parts": [
+   "bass.mp3",
+   "drums.mp3",
+   "guitar.mp3",
+   "piano.mp3",
+   "vocals.mp3"
+  ],
+  "error": null
+ },
+ {
+  "song": "yue2__rock",
+  "method": "clean2",
+  "ok": true,
+  "separate_seconds": 58.4,
+  "gpu_seconds": 63.1,
+  "parts": [
+   "bass.mp3",
+   "drums.mp3",
+   "guitar.mp3",
+   "other.mp3",
+   "piano.mp3",
+   "vocals.mp3"
+  ],
+  "error": null
+ },
+ {
+  "song": "yue2__rock",
+  "method": "ace",
+  "ok": true,
+  "separate_seconds": 34.1,
+  "gpu_seconds": 39.4,
+  "parts": [
+   "bass.mp3",
+   "drums.mp3",
+   "guitar.mp3",
+   "piano.mp3",
+   "vocals.mp3"
+  ],
+  "error": null
+ }
+]
