@@ -2366,3 +2366,23 @@ def test_two_concurrent_share_requests_do_not_mint_two_tokens(studio_app):
     # отзыв закрывает именно и только эту единственную ссылку
     assert client.delete("/api/share/tok-a").json() == {"ok": True}
     assert app_module.storage.share("tok-a") is None
+
+
+def test_minus_without_vocals_in_one_click(studio_app):
+    """«Минус без голоса»: та же цена, что у разделения, воркеру -- parts=minus
+    (минус и голос, без раскладки на шесть партий)."""
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_balance(user.id, 150)
+    job_id = _start(client).json()["jobId"]
+    with open(f"{app_module.studio_runner.folder(job_id)}/restyle.mp3", "wb") as f:
+        f.write(b"song")
+    app_module.storage.update_job(job_id, status="done", result={
+        "files": [{"name": "restyle.mp3", "label": "Новая версия"}]})
+    response = client.post(f"/api/studio/{job_id}/stems", data={"minus": "true"})
+    assert response.status_code == 200, response.text
+    child = response.json()["jobId"]
+    assert submitted[-1][0] == child
+    assert submitted[-1][1]["mode"] == "stems" and submitted[-1][1]["parts"] == "minus"
+    assert app_module.storage.user(user.id).balance == pytest.approx(150 - 99 - 19)
+    assert app_module.storage.job(child).settings["title"] == "Минус без голоса"
+    assert app_module.studio.label_of("stems", "instrumental.mp3") == "Минус"

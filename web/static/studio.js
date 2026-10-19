@@ -1198,6 +1198,7 @@ function openMenu(button) {
     : `<a href="${button.dataset.url}" download>${ICON.download}<span>Скачать mp3</span></a>`
       + `<a href="/studio/mix/${job}?file=${encodeURIComponent(f)}">${ICON.mix}<span>Открыть в мультитреке</span></a>`
       + item('tabs', ICON.tabs, 'Табы, аккорды и MIDI')
+      + (button.dataset.splitOk ? item('minus', ICON.split, 'Минус без голоса') : '')
       + (button.dataset.splitOk ? item('split', ICON.split, 'Разделить на партии') : '')
       + (button.dataset.splitOk && info.restyleEngine === 'mureka'
         ? item('splitpro', ICON.split, 'Глубокое разделение + MIDI') : '')
@@ -1493,6 +1494,20 @@ async function act(what, jobId, fileName) {
     const data = await response.json().catch(() => ({}));
     if (response.ok) toast('Снимаем ноты, аккорды и MIDI — несколько минут 🎼');
     else toast(`${pick(OOPS, Date.now())} ${data.detail || ''}`);
+    load();
+    return;
+  }
+  if (what === 'minus') {
+    // Минус и голос отдельно -- в один клик (раньше: разделить на 6 партий и глушить вокал)
+    const service = info.services.stems;
+    const price = info.unlimited ? '' : ` за ${service.pack} кредитов или ${rub(service.price)}`;
+    if (!confirm(`Сделать минус — дорожку без голоса (и голос отдельно)${price}?`)) return;
+    form.append('minus', true);
+    const response = await fetch(`/api/studio/${jobId}/stems`, { method: 'POST', body: form });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      toast(`${pick(OOPS, Date.now())} ${error.detail || ''}`);
+    } else toast('Делаем минус — появится под треком за минуту 🎤');
     load();
     return;
   }

@@ -13,6 +13,7 @@
               точной htdemucs_ft, гитара и клавиши -- htdemucs_6s из «остатка»
               (там уже нет голоса и барабанов -- меньше примесей). Замер на
               слух 18.10: чище прежней одной htdemucs_6s;
+              parts=minus -- только «минус» и голос (htdemucs_ft): быстрее;
   ping     -- проверить воркер: какая видеокарта, какие модели загружены.
 
 Исходник: input.audio_url (воркер скачивает сам) или input.audio_b64.
@@ -326,26 +327,36 @@ def demucs(model, wav, out):
 def stems(job_input, source, workdir):
     import soundfile as sf
 
+    def summed(paths, out):
+        total, rate = None, 44100
+        for path in paths:
+            data, rate = sf.read(path, dtype="float32")
+            total = data if total is None else total[:len(data)] + data[:len(total)]
+        sf.write(out, total, rate, subtype="FLOAT")
+        return out
+
     first = demucs("htdemucs_ft", source, os.path.join(workdir, "ft"))
-    rest = demucs("htdemucs_6s", first["other"], os.path.join(workdir, "rest"))
-    if not first or not rest:
+    if not first:
         raise RuntimeError("Demucs не выдал ни одной дорожки")
-    parts = {k: first[k] for k in ("vocals", "drums", "bass")}
-    parts.update(guitar=rest["guitar"], piano=rest["piano"])
-    # всё, что 6s нашла в «остатке» сверх гитары и клавиш, -- обратно в «прочее»
-    other = None
-    for key in ("other", "vocals", "drums", "bass"):
-        data, rate = sf.read(rest[key], dtype="float32")
-        other = data if other is None else other[:len(data)] + data[:len(other)]
-    parts["other"] = os.path.join(workdir, "other.wav")
-    sf.write(parts["other"], other, rate, subtype="FLOAT")
+    if job_input.get("parts") == "minus":
+        # Минус: всё, кроме голоса, одной дорожкой -- и сам голос отдельно
+        parts = {"vocals": first["vocals"],
+                 "instrumental": summed([first[k] for k in ("drums", "bass", "other")],
+                                        os.path.join(workdir, "instrumental.wav"))}
+    else:
+        rest = demucs("htdemucs_6s", first["other"], os.path.join(workdir, "rest"))
+        parts = {k: first[k] for k in ("vocals", "drums", "bass")}
+        parts.update(guitar=rest["guitar"], piano=rest["piano"])
+        # всё, что 6s нашла в «остатке» сверх гитары и клавиш, -- обратно в «прочее»
+        parts["other"] = summed([rest[k] for k in ("other", "vocals", "drums", "bass")],
+                                os.path.join(workdir, "other.wav"))
     bitrate = f"{int(job_input.get('bitrate') or 256)}k"
     files = []
     for name, path in sorted(parts.items()):
         mp3 = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-b:a", bitrate, "-f", "mp3", "pipe:1"],
                              capture_output=True, check=True).stdout
         files.append((f"{name}.mp3", mp3))
-    return files, {"model": "htdemucs_ft+htdemucs_6s"}
+    return files, {"model": "htdemucs_ft" if job_input.get("parts") == "minus" else "htdemucs_ft+htdemucs_6s"}
 
 
 def deliver(job_input, files):

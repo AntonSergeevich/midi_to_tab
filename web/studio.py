@@ -1296,8 +1296,9 @@ class StudioRunner:
         remote = settings.get("vocals_remote")
         if not remote:
             endpoint = endpoint_id()
+            # нужен только голос -- быстрый «минус» (одна модель, а не цепочка)
             started = call("POST", f"{RUNPOD_API}/{endpoint}/run",
-                           {"input": {**settings["input"], "mode": "stems"}})
+                           {"input": {**settings["input"], "mode": "stems", "parts": "minus"}})
             remote = settings["vocals_remote"] = {"endpoint": endpoint, "id": started["id"]}
             self.storage.update_job(job_id, settings=settings)
         created = self.storage.job(job_id).created_at

@@ -2005,9 +2005,11 @@ def _studio_charge_and_submit(request: Request, user, job_id: str, service, fold
 
 @app.post("/api/studio/{job_id}/stems")
 def api_studio_split_result(job_id: str, request: Request, file: str = Form(""),
-                            pro: bool = Form(False)):
+                            pro: bool = Form(False), minus: bool = Form(False)):
     """Разделить на партии уже готовую переделку -- без повторной загрузки;
-    pro -- глубокое разделение Mureka с MIDI."""
+    pro -- глубокое разделение Mureka с MIDI; minus -- только минус и голос
+    (самый частый вопрос: «как сделать минус из песни»)."""
+    pro = pro and not minus
     user = current_user(request)
     parent = storage.job(job_id)
     if (not parent or parent.user_id != user.id
@@ -2032,7 +2034,7 @@ def api_studio_split_result(job_id: str, request: Request, file: str = Form(""),
     title = f"{(parent.settings or {}).get('title', '')}: {parent.filename}"
     variant = studio.label_of((parent.settings or {}).get("mode", ""), files[0]["name"])
     job = storage.create_job(user.id, parent.filename, {
-        "kind": "studio", "mode": "stems", "title": service.title, "from": job_id,
+        "kind": "studio", "mode": "stems", "title": "Минус без голоса" if minus else service.title, "from": job_id,
         "variant": variant, "sourceFile": files[0]["name"], "charged": 0,
         **({"engine": "mureka"} if pro else {})})
     folder = studio_runner.folder(job.id)
@@ -2040,7 +2042,7 @@ def api_studio_split_result(job_id: str, request: Request, file: str = Form(""),
     shutil.copyfile(os.path.join(studio_runner.folder(job_id), files[0]["name"]),
                     os.path.join(folder, "source.mp3"))
     _studio_charge_and_submit(request, user, job.id, service, folder,
-                              {"mode": "stems", "cost_key": cost_key})
+                              {"mode": "stems", "cost_key": cost_key, **({"parts": "minus"} if minus else {})})
     return {"jobId": job.id, "from": title}
 
 
