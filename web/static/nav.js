@@ -12,7 +12,6 @@ window.haptic = (() => {
   const PATTERN = { tick: 6, light: 10, pick: 18, drop: 12, medium: 22, success: [12, 40, 18], warn: [30, 50, 30] };
   const ios = /iP(hone|ad|od)/.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  let label = null;
   let last = 0;
   const off = () => { try { return localStorage.getItem('naslux.haptics') === 'off'; } catch (error) { return false; } };
   return (kind = 'light') => {
@@ -23,20 +22,19 @@ window.haptic = (() => {
     try {
       if (navigator.vibrate && !ios) { navigator.vibrate(PATTERN[kind] || 10); return; }
       if (!ios) return;
-      if (!label) {
-        label = document.createElement('label');
-        label.setAttribute('aria-hidden', 'true');
-        label.style.cssText = 'position:fixed;left:-200px;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
-        const input = document.createElement('input');
-        input.type = 'checkbox';
-        input.setAttribute('switch', '');
-        input.tabIndex = -1;
-        label.appendChild(input);
-        // щелчок по скрытому переключателю -- не «щелчок по странице»: меню не закрываются
-        label.addEventListener('click', (e) => e.stopPropagation());
-        document.body.appendChild(label);
-      }
+      // как в библиотеке ios-haptics: свежий скрытый переключатель, щелчок, убрать
+      const label = document.createElement('label');
+      label.setAttribute('aria-hidden', 'true');
+      label.style.display = 'none';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.setAttribute('switch', '');
+      label.appendChild(input);
+      // щелчок по скрытому переключателю -- не «щелчок по странице»: меню не закрываются
+      label.addEventListener('click', (e) => e.stopPropagation());
+      document.head.appendChild(label);
       label.click();
+      label.remove();
     } catch (error) { /* без отклика -- не страшно */ }
   };
 })();
@@ -56,11 +54,22 @@ window.haptic = (() => {
     return Math.round((Number(el.value) - min) / detent);
   };
   const ranged = (e) => e.target && e.target.type === 'range' && !('nohaptic' in e.target.dataset);
-  const remember = (e) => { if (ranged(e)) e.target.hapticSlot = slot(e.target); };
+  const remember = (e) => { if (ranged(e)) e.target.hapticSlot = e.target.hapticStart = slot(e.target); };
+  // iPhone даёт «тик» только в ответ на касание, которое закончилось (отпустили
+  // палец), а пока ползунок тянут -- глушит. Поэтому там щелчок -- при
+  // отпускании на новом значении; на Android -- на каждом делении.
+  const ios = /iP(hone|ad|od)/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   document.addEventListener('pointerdown', remember, true);
   document.addEventListener('focusin', remember, true);
+  document.addEventListener('change', (e) => {
+    if (!ios || !ranged(e)) return;
+    const now = slot(e.target);
+    if (now !== null && now !== e.target.hapticStart) window.haptic('light');
+    e.target.hapticStart = now;
+  }, true);
   document.addEventListener('input', (e) => {
-    if (!ranged(e)) return;
+    if (ios || !ranged(e)) return;
     const el = e.target;
     const now = slot(el);
     if (now === null || now === el.hapticSlot) return;
