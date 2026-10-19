@@ -4,14 +4,16 @@
 // Последняя надпись хранится в браузере: следующая страница рисует её
 // сразу, ещё до ответа сервера, -- без «загрузка…» и сдвигов.
 // Тактильный отклик -- как на iPhone: взял дорожку, сработал свайп,
-// удалил -- палец чувствует. Android и Chrome -- navigator.vibrate. На
-// iPhone (Safari 18+) вибрации из страницы нет, но системный переключатель
-// <input switch> «щёлкает» Taptic Engine -- им и пользуемся. Отключить:
-// localStorage 'naslux.haptics' = 'off'.
+// удалил -- палец чувствует. Работает библиотека vibration (MIT,
+// static/vibration.js): Android -- navigator.vibrate; iPhone -- «тик»
+// системного переключателя. С iOS 26.5 он звучит только от настоящего
+// касания: библиотека подкладывает переключатель под палец, поэтому на
+// iPhone отклик -- в обработчике нажатия (click), а не из таймера.
+// Отключить: localStorage 'naslux.haptics' = 'off'.
 window.haptic = (() => {
-  const PATTERN = { tick: 6, light: 10, pick: 18, drop: 12, medium: 22, success: [12, 40, 18], warn: [30, 50, 30] };
-  const ios = /iP(hone|ad|od)/.test(navigator.userAgent)
-    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const V = window.NasluxVibration;
+  const PRESET = { tick: 'selection', light: 'light', pick: 'medium', drop: 'light', medium: 'medium',
+    success: 'success', warn: 'warning' };
   let last = 0;
   const off = () => { try { return localStorage.getItem('naslux.haptics') === 'off'; } catch (error) { return false; } };
   return (kind = 'light') => {
@@ -20,21 +22,8 @@ window.haptic = (() => {
     if (kind === 'tick' && now - last < 40) return;     // частые «тики» не сливаются в гул
     last = now;
     try {
-      if (navigator.vibrate && !ios) { navigator.vibrate(PATTERN[kind] || 10); return; }
-      if (!ios) return;
-      // как в библиотеке ios-haptics: свежий скрытый переключатель, щелчок, убрать
-      const label = document.createElement('label');
-      label.setAttribute('aria-hidden', 'true');
-      label.style.display = 'none';
-      const input = document.createElement('input');
-      input.type = 'checkbox';
-      input.setAttribute('switch', '');
-      label.appendChild(input);
-      // щелчок по скрытому переключателю -- не «щелчок по странице»: меню не закрываются
-      label.addEventListener('click', (e) => e.stopPropagation());
-      document.head.appendChild(label);
-      label.click();
-      label.remove();
+      if (V && V.engine !== 'none') V.haptic(PRESET[kind] || 'light');
+      else if (navigator.vibrate) navigator.vibrate(10);
     } catch (error) { /* без отклика -- не страшно */ }
   };
 })();
@@ -43,7 +32,13 @@ window.haptic = (() => {
 // каждом шаге (крупный ползунок -- на каждой двадцатой части) лёгкий тик,
 // на краях -- чуть сильнее. Перемотка трека (data-nohaptic) -- без тиков,
 // иначе телефон дрожал бы без остановки.
+//
+// На iPhone тик во время перетаскивания возможен, только если палец ведёт
+// по невидимому переключателю (vibration.hapticDrag). Поэтому там ползунок
+// оборачивается такой «поверхностью», а значение ставим сами -- по
+// положению пальца (сам ползунок касаний под поверхностью не получает).
 (() => {
+  const V = window.NasluxVibration;
   const slot = (el) => {
     const min = Number(el.min || 0);
     const max = Number(el.max || 100);
@@ -53,30 +48,110 @@ window.haptic = (() => {
     const detent = Math.max(step || 0, span / 20);
     return Math.round((Number(el.value) - min) / detent);
   };
-  const ranged = (e) => e.target && e.target.type === 'range' && !('nohaptic' in e.target.dataset);
-  const remember = (e) => { if (ranged(e)) e.target.hapticSlot = e.target.hapticStart = slot(e.target); };
-  // iPhone даёт «тик» только в ответ на касание, которое закончилось (отпустили
-  // палец), а пока ползунок тянут -- глушит. Поэтому там щелчок -- при
-  // отпускании на новом значении; на Android -- на каждом делении.
-  const ios = /iP(hone|ad|od)/.test(navigator.userAgent)
-    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const ranged = (el) => el && el.type === 'range' && !('nohaptic' in el.dataset);
+  const remember = (e) => { if (ranged(e.target)) e.target.hapticSlot = slot(e.target); };
   document.addEventListener('pointerdown', remember, true);
   document.addEventListener('focusin', remember, true);
-  document.addEventListener('change', (e) => {
-    if (!ios || !ranged(e)) return;
-    const now = slot(e.target);
-    if (now !== null && now !== e.target.hapticStart) window.haptic('light');
-    e.target.hapticStart = now;
-  }, true);
   document.addEventListener('input', (e) => {
-    if (ios || !ranged(e)) return;
     const el = e.target;
+    if (!ranged(el)) return;
     const now = slot(el);
     if (now === null || now === el.hapticSlot) return;
     el.hapticSlot = now;
     const v = Number(el.value);
     window.haptic(v <= Number(el.min || 0) || v >= Number(el.max || 100) ? 'light' : 'tick');
   }, true);
+
+  const ios = V && (V.engine === 'ios-relay' || V.engine === 'ios-switch');
+  if (!ios) return;
+  const wrapped = new WeakSet();
+  const valueAt = (el, x) => {
+    const box = el.getBoundingClientRect();
+    const min = Number(el.min || 0);
+    const max = Number(el.max || 100);
+    const step = el.step === 'any' ? 0 : Number(el.step || 1);
+    const frac = Math.max(0, Math.min(1, (x - box.left) / (box.width || 1)));
+    let v = min + frac * (max - min);
+    if (step) v = Math.round((v - min) / step) * step + min;
+    return Math.max(min, Math.min(max, Number(v.toFixed(6))));
+  };
+  const wrap = (el) => {
+    if (wrapped.has(el) || !ranged(el) || !el.isConnected || el.disabled) return;
+    wrapped.add(el);
+    // раскладку ползунка переносим на обёртку. Ширину читаем у скрытого
+    // элемента -- так видно заданное в CSS («100%», «auto»), а не пиксели
+    const shown = getComputedStyle(el);
+    const display = shown.display;
+    const prev = el.style.display;
+    el.style.display = 'none';
+    const cs = getComputedStyle(el);
+    const lay = { width: cs.width, minWidth: cs.minWidth, maxWidth: cs.maxWidth, flex: `${cs.flexGrow} ${cs.flexShrink} ${cs.flexBasis}`,
+      alignSelf: cs.alignSelf, margin: `${cs.marginTop} ${cs.marginRight} ${cs.marginBottom} ${cs.marginLeft}`, order: cs.order };
+    el.style.display = prev;
+    const box = document.createElement('span');
+    box.className = 'hv-wrap';
+    box.style.cssText = `position:relative;display:${display === 'block' ? 'block' : 'inline-block'};vertical-align:middle;`
+      + `flex:${lay.flex};align-self:${lay.alignSelf};order:${lay.order};margin:${lay.margin};`
+      + `min-width:${lay.minWidth};max-width:${lay.maxWidth};` + (lay.width !== 'auto' ? `width:${lay.width};` : '');
+    el.parentNode.insertBefore(box, el);
+    box.appendChild(el);
+    el.style.margin = '0';
+    el.style.display = 'block';
+    if (lay.width !== 'auto' || Number(cs.flexGrow) > 0 || display === 'block') el.style.width = '100%';
+    el.style.minWidth = '0';
+    V.hapticDrag(box);
+    const set = (x) => {
+      const v = valueAt(el, x);
+      if (String(v) === el.value) return;
+      el.value = String(v);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    // поверхность запрещает браузеру прокрутку (touch-action:none), поэтому
+    // сами различаем жест: вбок -- двигаем ползунок, вверх-вниз -- листаем
+    // страницу, лёгкое касание -- ставим значение, куда ткнули
+    let gesture = null;
+    box.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      el.hapticSlot = slot(el);
+      gesture = { x: t.clientX, y: t.clientY, lastY: t.clientY, mode: '' };
+    }, { passive: true });
+    box.addEventListener('touchmove', (e) => {
+      if (!gesture) return;
+      const t = e.touches[0];
+      if (!gesture.mode) {
+        const dx = Math.abs(t.clientX - gesture.x);
+        const dy = Math.abs(t.clientY - gesture.y);
+        if (dx < 6 && dy < 6) return;
+        gesture.mode = dx >= dy ? 'slide' : 'scroll';
+      }
+      if (gesture.mode === 'slide') set(t.clientX);
+      else window.scrollBy(0, gesture.lastY - t.clientY);
+      gesture.lastY = t.clientY;
+    }, { passive: true });
+    const finish = (e) => {
+      if (!gesture) return;
+      const { mode, x } = gesture;
+      gesture = null;
+      if (e.type === 'touchcancel' || mode === 'scroll') return;
+      if (!mode) set(x);
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    box.addEventListener('touchend', finish);
+    box.addEventListener('touchcancel', finish);
+  };
+  const scan = (root) => {
+    if (root.querySelectorAll) root.querySelectorAll('input[type="range"]').forEach(wrap);
+  };
+  const start = () => {
+    scan(document);
+    // ползунки, которые страница дорисовывает позже (дорожки мультитрека, окна)
+    new MutationObserver((list) => list.forEach((m) => m.addedNodes.forEach((n) => {
+      if (n.nodeType !== 1) return;
+      if (n.matches && n.matches('input[type="range"]')) wrap(n); else scan(n);
+    }))).observe(document.documentElement, { childList: true, subtree: true });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();
 
 (() => {

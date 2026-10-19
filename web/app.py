@@ -117,6 +117,11 @@ def page_stamp(html: str) -> str:
     if "/static/i18n.js" not in html:
         anchor = r"(<meta charset=[^>]*>)" if re.search(r"<meta charset=", html) else r"(<head[^>]*>)"
         html = re.sub(anchor, r'\1\n<script src="/static/i18n.js"></script>', html, count=1)
+    # Отклик пальцу (вибрация; на iPhone -- «тик» на настоящем касании): до
+    # любых скриптов страницы, чтобы ловить касания с самого начала (nav.js)
+    if "/static/vibration.js" not in html:
+        html = html.replace('<script src="/static/i18n.js"></script>',
+                            '<script src="/static/i18n.js"></script>\n<script src="/static/vibration.js"></script>', 1)
     # Приложение: значок на экран и работа без интернета (sw.js, nav.js)
     if 'rel="manifest"' not in html and "</head>" in html:
         html = html.replace("</head>", '<link rel="manifest" href="/manifest.webmanifest">\n</head>', 1)
