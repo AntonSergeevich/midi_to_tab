@@ -74,7 +74,16 @@
     </section>
 
     <section class="vb-step">
-      <h2>6. Для сравнения</h2>
+      <h2>6. Серия из 10 нажатий</h2>
+      <p>Нажимайте кнопку спокойно, примерно раз в секунду, и считайте щелчки.
+        Потом напишите: «щёлкнуло N из 10» и пришлите скриншот строки под кнопкой.</p>
+      <div class="vb-row"><button type="button" class="vb-btn" id="vbSeries">Нажатие 1 из 10</button>
+        <button type="button" class="vb-btn" id="vbSeriesReset">Заново</button></div>
+      <p class="vb-out" id="vbSeriesOut"></p>
+    </section>
+
+    <section class="vb-step">
+      <h2>7. Для сравнения</h2>
       <p>Сайт автора библиотеки: <a href="https://vibration.ilyasse.dev" target="_blank" rel="noopener">vibration.ilyasse.dev</a>.
         Если там щёлкает, а здесь нет — ошибка у нас.</p>
     </section>
@@ -107,6 +116,34 @@
     say('vbRedrawOut', `вызов ${++n}: ${V ? V.haptic('light') : 'нет'}`);
     redraws += 1;
     redraw();
+  });
+  // Серия: на каждом нажатии -- было ли под пальцем «реле» библиотеки
+  // (невидимый переключатель, без него iPhone не щёлкнет), не прокрутилась
+  // ли страница во время касания и сколько прошло с прошлого нажатия
+  let series = [];
+  let scrolled = 0;
+  let downAt = 0;
+  let lastAt = 0;
+  const seriesBtn = document.getElementById('vbSeries');
+  addEventListener('scroll', () => { scrolled += 1; }, { capture: true, passive: true });
+  seriesBtn.addEventListener('pointerdown', () => { scrolled = 0; downAt = performance.now(); });
+  seriesBtn.addEventListener('click', (e) => {
+    if (series.length >= 10) return;
+    const relay = document.querySelector('vibration-relay');
+    const ok = V ? V.haptic('medium') : false;
+    const now = performance.now();
+    const iosRelay = V && V.engine === 'ios-relay';
+    series.push(`${series.length + 1}:${!iosRelay ? 'мотор' : relay && relay.isConnected ? 'реле' : 'БЕЗ реле'}`
+      + `${ok ? '' : ',отказ'}${scrolled ? ',прокрутка' : ''},${Math.round(now - downAt)}мс`
+      + `${lastAt ? ',через ' + Math.round(now - lastAt) + 'мс' : ''}`);
+    lastAt = now;
+    seriesBtn.textContent = series.length >= 10 ? 'Готово' : `Нажатие ${series.length + 1} из 10`;
+    say('vbSeriesOut', `${V ? V.engine : '—'} | ${series.join(' · ')}`);
+  });
+  document.getElementById('vbSeriesReset').addEventListener('click', () => {
+    series = []; lastAt = 0;
+    seriesBtn.textContent = 'Нажатие 1 из 10';
+    say('vbSeriesOut', '');
   });
   const slider = document.getElementById('vbSlider');
   slider.addEventListener('input', () => {
