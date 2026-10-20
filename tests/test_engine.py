@@ -399,6 +399,24 @@ def test_chord_list_from_user_is_parsed():
     assert _pick_names(names, "хрень") is None
 
 
+def test_chord_list_is_case_sensitive_about_major_vs_minor():
+    """
+    "AM" и "Am" -- разные аккорды (ля мажор и ля минор): докстринг
+    `_pick_names` обещает регистрозависимое сравнение именно ради этой
+    разницы. Раньше таблица имён и поиск по ней оба сворачивались в
+    .lower(), и "AM" тихо превращался в "Am" -- человек печатает мажор
+    заглавной буквой, а разбор на всю песню молча подсовывает минор.
+    """
+    pytest.importorskip("numpy")
+
+    from midi2tab.audiochords import _pick_names, _templates
+
+    names = _templates()[0]
+    assert [names[i] for i in _pick_names(names, "Am")] == ["Am"]
+    assert [names[i] for i in _pick_names(names, "A")] == ["A"]
+    assert _pick_names(names, "AM") is None
+
+
 def test_power_chord_costs_more_than_a_triad():
     """
     Квинт-аккорд обязан быть дороже трезвучия, а не дешевле.

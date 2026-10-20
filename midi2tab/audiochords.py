@@ -881,7 +881,11 @@ def _pick_names(names, allowed) -> list[int] | None:
 
     flats = {"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#", "Cb": "B",
              "Fb": "E", "E#": "F", "B#": "C"}
-    table = {name.lower(): i for i, name in enumerate(names)}
+    # Регистр качества -- не мелочь: "AM" и "Am" -- разные аккорды (ля мажор
+    # и ля минор), а сравнение по .lower() стирало эту разницу и подсовывало
+    # минор человеку, который явно написал мажор заглавной буквой. Докстринг
+    # выше уже обещал регистрозависимое сравнение -- код ему не соответствовал.
+    table = {name: i for i, name in enumerate(names)}
     picked: list[int] = []
     for part in parts:
         text = part[0].upper() + part[1:]
@@ -889,7 +893,7 @@ def _pick_names(names, allowed) -> list[int] | None:
             if text.startswith(flat):
                 text = sharp + text[len(flat):]
                 break
-        index = table.get(text.lower())
+        index = table.get(text)
         if index is not None and index not in picked:
             picked.append(index)
     return sorted(picked) or None
