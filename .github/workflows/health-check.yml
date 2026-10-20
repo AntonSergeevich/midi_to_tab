@@ -78,6 +78,7 @@ jobs:
           fi
 
           echo "::notice title=Диск::$(echo "$body" | jq -c '.["диск"]')"
+          echo "::notice title=GPU за 30 дней::$(echo "$body" | jq -c '.["gpu_за_30_дней"] // "нет данных"')"
           echo "::notice title=Шумодав голоса::$(echo "$body" | jq -r '.["шумодав_голоса"] // "нет данных"')"
 
           total="$(echo "$body" | jq -r '.["уведомлений_за_последние"]')"

@@ -1,0 +1,28 @@
+name: Себестоимость RunPod
+
+# Только чтение: какие видеокарты у эндпоинтов и сколько они стоили по
+# счёту RunPod за последние 30 дней. Ответы API -- в аннотации целиком
+# (лог прогона из облачной сессии не скачать), ключ -- только из секретов.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  cost:
+    runs-on: ubuntu-latest
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+    steps:
+      - name: Эндпоинты и счёт
+        run: |
+          set -uo pipefail
+          api() { curl -sS -H "Authorization: Bearer $RUNPOD_API_KEY" "https://rest.runpod.io/v1$1"; }
+          api /endpoints | jq -c '[.[] | {name, id, gpuTypeIds, gpuCount, workersMin, workersMax, idleTimeout, flashboot}]' > endpoints.json || true
+          echo "::notice title=Эндпоинты::$(cat endpoints.json)"
+          start="$(date -u -d '30 days ago' +%Y-%m-%dT00:00:00Z)"
+          end="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          for id in $(jq -r '.[].id' endpoints.json); do
+            name="$(jq -r --arg id "$id" '.[] | select(.id == $id) | .name' endpoints.json)"
+            bill="$(api "/billing/endpoints?endpointId=$id&bucketSize=month&startTime=$start&endTime=$end" | head -c 3000)"
+            echo "::notice title=Счёт $name::$bill"
+          done
+          echo "::notice title=Счёт всех эндпоинтов::$(api "/billing/endpoints?bucketSize=month&startTime=$start&endTime=$end&grouping=endpointId" | head -c 3000)"

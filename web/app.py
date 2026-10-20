@@ -415,7 +415,30 @@ def api_health(request: Request):
         "версия": deployed_commit(),
         "зависания": _hangs(),
         "диск": _disk(),
+        "gpu_за_30_дней": _gpu_usage(),
     }
+
+
+def _gpu_usage() -> dict:
+    """Себестоимость на GPU: секунды работы воркера по модели и режиму за 30
+    дней (медиана и 90-й процентиль) -- для цены песни и переговоров о
+    лицензии. Только числа, без пользователей и названий."""
+    groups: dict[str, list[dict]] = {}
+    for row in storage.gpu_usage(time.time() - 30 * 86400):
+        groups.setdefault(f"{row['engine'] or 'worker'}/{row['mode'] or '?'}", []).append(row)
+
+    def pct(values: list[float], q: float) -> float:
+        values = sorted(values)
+        return round(values[min(len(values) - 1, int(q * len(values)))], 1)
+
+    out = {}
+    for key, rows in sorted(groups.items()):
+        gpu = [float(r["gpu"]) for r in rows]
+        wait = [float(r["wait"] or 0) for r in rows]
+        out[key] = {"задач": len(rows), "сек_медиана": pct(gpu, 0.5), "сек_p90": pct(gpu, 0.9),
+                    "сек_всего": round(sum(gpu)), "ожидание_медиана": pct(wait, 0.5),
+                    "вариантов": sorted({r["variants"] for r in rows if r["variants"] is not None})}
+    return out
 
 
 def _disk() -> dict:

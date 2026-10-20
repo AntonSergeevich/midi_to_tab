@@ -1201,6 +1201,20 @@ class Storage:
             return bool(conn.execute("DELETE FROM voices WHERE id = ? AND user_id = ?",
                                      (voice_id, user_id)).rowcount)
 
+    def gpu_usage(self, since: float) -> list[dict]:
+        """Готовые задачи Студии с секундами GPU (себестоимость): модель,
+        режим, сколько считал воркер и сколько ждал в очереди."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT json_extract(settings, '$.engine') AS engine, json_extract(settings, '$.mode') AS mode,"
+                " json_extract(settings, '$.input.variants') AS variants,"
+                " json_extract(result, '$.gpuSeconds') AS gpu, json_extract(result, '$.waitSeconds') AS wait"
+                " FROM jobs WHERE json_extract(settings, '$.kind') = 'studio' AND status = 'done'"
+                " AND created_at >= ? AND json_extract(result, '$.gpuSeconds') > 0",
+                (since,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def studio_jobs(self, user_id: str, limit: int = 400) -> list[Job]:
         """Задачи Студии: переделки, дописанные партии, разделения на GPU."""
         with self._connect() as conn:
