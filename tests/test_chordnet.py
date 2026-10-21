@@ -97,6 +97,57 @@ def test_tuning_follows_detuned_recording():
     assert heard == [name for name, _ in seq]
 
 
+def test_unparseable_chord_hint_does_not_disable_the_neural_net(tmp_path, monkeypatch):
+    """
+    `detect_from_audio(allowed=...)` решает, слушать ли запись нейросетью,
+    по тому, нашлось ли в подсказке хоть одно настоящее имя аккорда -- а не
+    по тому, было ли поле просто не пустым.
+
+    Раньше условие было `if allowed is None`: любая непустая строка --
+    даже опечатка или бессмыслица, которую `_pick_names()` не разбирает ни
+    во что -- выключала нейросеть насовсем и откатывала разбор на шаблоны
+    (втрое менее точные, по докстрингу `detect_from_audio`). Человек,
+    который пытался ПОМОЧЬ разбору списком аккордов, но ошибся в написании,
+    получал худший результат на всей песне, а не только там, где опечатался.
+    """
+    librosa = pytest.importorskip("librosa")
+    import soundfile
+
+    from midi2tab import audiochords
+
+    sr = 22050
+    t = np.arange(int(sr * 3)) / sr
+    y = (sum(np.sin(2 * np.pi * f * t) for f in (130.81, 164.81, 196.0))
+         * 0.2).astype(np.float32)  # до-мажорное трезвучие, 3 секунды
+    path = tmp_path / "c.wav"
+    soundfile.write(str(path), y, sr)
+
+    calls: list[object] = []
+
+    def fake_net_analysis(*args, **kwargs):
+        calls.append(True)
+        return audiochords.ChordAnalysis(
+            chords=[audiochords.AudioChord("C", 0.0, 3.0, 1.0)],
+            tempo=120.0, beats=[0.0], downbeats=[0.0], key="C",
+        )
+
+    monkeypatch.setattr(audiochords, "_net_analysis", fake_net_analysis)
+    monkeypatch.setattr(chordnet, "available", lambda: True)
+
+    # "Хрень" не разбирается ни в один аккорд (как и в test_chord_list_from_user_is_parsed) --
+    # но это не повод откатываться на шаблоны вместо нейросети.
+    result = audiochords.detect_from_audio(str(path), allowed="хрень")
+
+    assert calls, "нейросеть должна была быть вызвана, несмотря на нераспознанную подсказку"
+    assert [c.name for c in result.chords] == ["C"]
+
+    # А настоящая подсказка так и выключает нейросеть, как и задумано --
+    # это поведение не меняется.
+    calls.clear()
+    audiochords.detect_from_audio(str(path), allowed="C")
+    assert not calls, "настоящая подсказка должна отключать нейросеть и идти по шаблонам"
+
+
 def test_net_analysis_estimates_and_forwards_tuning():
     """
     `audiochords._net_analysis()` (боевой путь -- `detect_from_audio()`,

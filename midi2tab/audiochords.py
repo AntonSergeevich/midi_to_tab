@@ -511,10 +511,22 @@ def detect_from_audio(
         step = max(1, int(0.5 * sr / 512))
         beats = np.arange(0, chroma.shape[1], step)
 
+    names, vectors, penalties, roots, qualities = _templates()
+    # Разбираем подсказку заранее: решение "включать ли нейросеть" должно
+    # зависеть от того, разобралась ли она хоть во что-то, а не от того,
+    # было ли поле вообще не пустым. Если человек опечатался ("Эм" вместо
+    # "Em") и ни один аккорд не узнан, подсказка бесполезна -- но раньше
+    # одно её наличие (allowed is not None) выключало нейросеть насовсем,
+    # откатывая разбор на шаблоны, хотя докстринг ниже прямо говорит, что
+    # нейросеть слышит аккорды втрое точнее. Опечатка в подсказке молча
+    # портила качество всей песни, а не только тех тактов, что человек
+    # пытался назвать.
+    picked = _pick_names(names, allowed)
+
     # Нейросеть (midi2tab/chordnet.py) слышит аккорды втрое точнее шаблонов.
-    # Шаблоны остаются, когда круг аккордов задан заранее (allowed) и как
-    # запасной путь, если модели нет или она выключена.
-    if allowed is None:
+    # Шаблоны остаются, когда круг аккордов задан заранее и разобрался
+    # (picked) и как запасной путь, если модели нет или она выключена.
+    if picked is None:
         from . import chordnet
 
         if chordnet.available():
@@ -529,7 +541,6 @@ def detect_from_audio(
                     return net
 
     times = _edges(librosa.frames_to_time(beats, sr=sr), librosa.get_duration(y=y, sr=sr))
-    names, vectors, penalties, roots, qualities = _templates()
 
     if progress:
         progress("Выбираю последовательность аккордов...")
@@ -562,7 +573,6 @@ def detect_from_audio(
     if progress:
         progress(f"Тональность: {key_name(key)}")
 
-    picked = _pick_names(names, allowed)
     if picked is None:
         picked = _vocabulary(
             np, names, vectors, penalties, roots, qualities, bar_chroma,
