@@ -1008,6 +1008,27 @@ def api_admin_answer(
     return {"ok": True, "emailed": sent, "problem": problem}
 
 
+# User-Agent'ы, которыми чат-приложения сами стучатся по ссылке, чтобы
+# собрать превью (картинку, заголовок) до того, как человек её откроет --
+# это НЕ тот человек, которому ссылку прислали. `/i/{code}` ниже списывает
+# использование и выдаёт безлимит прямо на GET без какого-либо подтверждения
+# -- без этой проверки сама отправка ссылки в Telegram/WhatsApp/Slack/
+# Discord/iMessage/VK (все разворачивают ссылки в чате превью-запросом)
+# съедала единственное использование приглашения и отдавала безлимит
+# выброшенному анонимному аккаунту, которым никто не воспользуется --
+# раньше, чем настоящий получатель успевал кликнуть по ссылке сам.
+_LINK_PREVIEW_BOTS = (
+    "telegrambot", "whatsapp", "slackbot", "discordbot", "facebookexternalhit",
+    "twitterbot", "vkshare", "skypeuripreview", "linkedinbot", "viber",
+    "applebot", "googlebot", "bingbot", "yandexbot",
+)
+
+
+def _is_link_preview_bot(user_agent: str) -> bool:
+    ua = user_agent.lower()
+    return any(token in ua for token in _LINK_PREVIEW_BOTS)
+
+
 @app.get("/i/{code}")
 def invite_page(code: str, request: Request):
     """
@@ -1016,7 +1037,12 @@ def invite_page(code: str, request: Request):
     Регистрироваться заранее не нужно: доступ выдаётся тому, кто открыл
     ссылку, и остаётся при нём, даже если он заведёт учётную запись
     позже -- разобранные треки при этом не теряются.
+
+    Превью-боты мессенджеров (см. _is_link_preview_bot выше) инвайт не
+    трогают вовсе -- см. комментарий там же.
     """
+    if _is_link_preview_bot(request.headers.get("user-agent", "")):
+        return RedirectResponse("/", status_code=303)
     user = current_user(request)
     if user.unlimited:
         response = RedirectResponse("/?приглашение=уже", status_code=303)

@@ -260,6 +260,34 @@ def test_uid_cookie_is_secure_over_https_not_over_plain_http(client):
     assert "secure" not in response.headers["set-cookie"].lower()
 
 
+def test_invite_link_preview_bot_does_not_spend_the_invite(client):
+    """`GET /i/{code}` списывает использование и выдаёт безлимит прямо на
+    GET, без подтверждения -- а мессенджеры (Telegram, WhatsApp, Slack,
+    Discord, iMessage, VK) сами стучатся по ссылке таким же GET-ом, чтобы
+    собрать превью, ДО того как человек успевает её открыть. Без этой
+    проверки сама отправка ссылки в чат съедала единственное использование
+    и отдавала безлимит брошенному анонимному аккаунту раньше настоящего
+    получателя -- тот при клике видел «приглашение=нет»."""
+    import web.app as app_module
+
+    code = app_module.storage.create_invite("owner", uses=1)
+
+    client.cookies.clear()
+    bot = client.get(f"/i/{code}", headers={"User-Agent": "TelegramBot (like TwitterBot)"},
+                      follow_redirects=False)
+    assert bot.status_code == 303
+    assert bot.headers["location"] == "/"
+    assert "set-cookie" not in bot.headers      # ни анонимного аккаунта, ни куки боту
+    assert app_module.storage.invites("owner")[0]["uses_left"] == 1
+
+    # Настоящий получатель (обычный браузер) после этого всё ещё может воспользоваться ссылкой.
+    client.cookies.clear()
+    human = client.get(f"/i/{code}", follow_redirects=False)
+    assert human.status_code == 303
+    assert "принято" in __import__("urllib.parse").parse.unquote(human.headers["location"])
+    assert app_module.storage.invites("owner")[0]["uses_left"] == 0
+
+
 # ------------------------------------------------------- восстановление
 
 
