@@ -556,6 +556,15 @@ def detect_from_audio(
     offset = _bar_offset(chroma, beats, beats_per_bar)
     groups = _bar_groups(beats, offset, beats_per_bar)
     bar_chroma = _smooth_by_repeats(librosa, np, _sync(librosa, chroma, groups, np))
+    # ЭКСПЕРИМЕНТ (findings-chord-quality.md): HPSS (margin=3.0 выше) на
+    # резкой атаке иногда гасит энергию мажорной терции почти вдвое --
+    # сырая хромаграмма (без HPSS) в тех же тактах её не теряет. Считается
+    # отдельно и используется ТОЛЬКО как добавка уверенности в _pick_quality
+    # (max с результатом HPSS, никогда не отнимает) -- не заменяет bar_chroma
+    # нигде, кроме выбора мажор/минор. Не включено в прод без замера на
+    # GuitarSet -- см. docs/findings-chord-quality.md.
+    raw_chroma = librosa.feature.chroma_cqt(y=y, sr=sr, bins_per_octave=36)
+    bar_chroma_raw = _smooth_by_repeats(librosa, np, _sync(librosa, raw_chroma, groups, np))
     bar_bass = _sync(librosa, low, groups, np)
     bar_times = _edges(librosa.frames_to_time(groups, sr=sr), duration)
 
@@ -576,7 +585,7 @@ def detect_from_audio(
     if picked is None:
         picked = _vocabulary(
             np, names, vectors, penalties, roots, qualities, bar_chroma,
-            vocabulary, key, root_path,
+            vocabulary, key, root_path, raw_bars=bar_chroma_raw,
         )
     if not picked:
         chords = rough
@@ -771,7 +780,7 @@ def _root_pass(np, vectors, roots, qualities, bars):
 
 
 def _vocabulary(np, names, vectors, penalties, roots, qualities, bars, limit,
-                key, root_pass=None):
+                key, root_pass=None, raw_bars=None):
     """
     Собрать круг аккордов песни: сначала основные тоны, потом качества.
 
@@ -811,15 +820,20 @@ def _vocabulary(np, names, vectors, penalties, roots, qualities, bars, limit,
             continue
         profile = bars[:, mask].mean(axis=1)
         norm = np.linalg.norm(profile) or 1.0
+        raw_profile = None
+        if raw_bars is not None:
+            raw_profile = raw_bars[:, mask].mean(axis=1)
+            raw_norm = np.linalg.norm(raw_profile) or 1.0
+            raw_profile = raw_profile / raw_norm
         picked.append(
             _pick_quality(np, names, vectors, penalties, roots, qualities,
-                          int(roots[template]), profile / norm, key)
+                          int(roots[template]), profile / norm, key, raw_profile)
         )
     return sorted(set(picked))
 
 
 def _pick_quality(np, names, vectors, penalties, roots, qualities,
-                  root: int, profile, key) -> int:
+                  root: int, profile, key, raw_profile=None) -> int:
     """
     Мажор или минор -- решается ладом там, где терцию не слышно.
 
@@ -849,6 +863,11 @@ def _pick_quality(np, names, vectors, penalties, roots, qualities,
     # большой дало 26 верных качеств из 28 -- вопрос надо задавать записи.
     minor_third = float(profile[(root + 3) % 12])
     major_third = float(profile[(root + 4) % 12])
+    if raw_profile is not None:
+        # Сырая (без HPSS) хромаграмма только ДОБАВЛЯЕТ уверенности -- никогда
+        # не отнимает её у случаев, где HPSS и так права (findings-chord-quality.md).
+        minor_third = max(minor_third, float(raw_profile[(root + 3) % 12]))
+        major_third = max(major_third, float(raw_profile[(root + 4) % 12]))
     louder = max(minor_third, major_third)
     quieter = min(minor_third, major_third)
     if louder > 0 and quieter <= louder * THIRD_MARGIN:
