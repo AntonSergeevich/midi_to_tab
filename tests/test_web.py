@@ -2098,6 +2098,80 @@ def test_uploaded_midi_gets_chords_and_key_not_just_a_paid_empty_result(tmp_path
     assert result["shapes"]["C"]
 
 
+def test_upload_chord_hint_reaches_detect_from_audio_through_the_whole_pipeline(tmp_path, monkeypatch):
+    """Сквозная проверка поля «известные аккорды» через настоящий /api/upload,
+    а не только через detect_from_audio() напрямую (так уже покрыто в
+    tests/test_chordnet.py) -- весь путь web/app.py -> job.settings["allowed"]
+    -> web/jobs.py -> audiochords.detect_from_audio(allowed=...).
+
+    Опечатка/бессмыслица в подсказке не должна откатывать прод-разбор на
+    шаблоны вместо нейросети (findings-2026-10-21) -- здесь это проверяется
+    от самой формы загрузки до итогового результата задания."""
+    import sys
+
+    numpy = pytest.importorskip("numpy")
+    soundfile = pytest.importorskip("soundfile")
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+    from midi2tab import audiochords, chordnet
+
+    sr = 22050
+    t = numpy.arange(int(sr * 3)) / sr
+    y = (sum(numpy.sin(2 * numpy.pi * f * t) for f in (130.81, 164.81, 196.0))
+         * 0.2).astype(numpy.float32)  # до-мажорное трезвучие, 3 секунды
+    wav_path = tmp_path / "song.wav"
+    soundfile.write(str(wav_path), y, sr)
+    wav_bytes = wav_path.read_bytes()
+
+    calls: list[object] = []
+
+    def fake_net_analysis(*args, **kwargs):
+        calls.append(True)
+        return audiochords.ChordAnalysis(
+            chords=[audiochords.AudioChord("C", 0.0, 3.0, 1.0)],
+            tempo=120.0, beats=[0.0], downbeats=[0.0], key="C",
+        )
+
+    monkeypatch.setattr(audiochords, "_net_analysis", fake_net_analysis)
+    monkeypatch.setattr(chordnet, "available", lambda: True)
+
+    # Фоновую постановку в пул перехватываем, чтобы прогнать _analyze
+    # синхронно и проверить результат -- как в test_chords_are_free_parts...
+    started: list[tuple[str, str]] = []
+    monkeypatch.setattr(app_module.runner, "submit_analysis",
+                         lambda jid, path: started.append((jid, path)))
+
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+
+        resp = client.post("/api/upload", data={"chords": "хрень"},
+                            files={"file": ("song.wav", wav_bytes, "audio/wav")})
+        assert resp.status_code == 200
+        job_id, path = started[-1]
+        app_module.runner._analyze(job_id, path)
+
+        result = app_module.storage.job(job_id).result
+        assert calls, ("нейросеть должна была быть вызвана через весь путь "
+                        "/api/upload -- несмотря на нераспознанную подсказку в форме")
+        assert [c["name"] for c in result["chords"]] == ["C"]
+
+        # А настоящая подсказка так и выключает нейросеть по всему пути -- идёт шаблонный разбор.
+        calls.clear()
+        resp2 = client.post("/api/upload", data={"chords": "C"},
+                             files={"file": ("song2.wav", wav_bytes, "audio/wav")})
+        assert resp2.status_code == 200
+        job_id2, path2 = started[-1]
+        app_module.runner._analyze(job_id2, path2)
+        assert not calls, "настоящая подсказка должна отключать нейросеть по всему пути /api/upload"
+
+
 def test_a_failed_paid_analysis_refunds_what_it_charged(tmp_path, monkeypatch):
     """Разбор списывается ДО запуска (api_upload) -- если фоновая обработка
     потом падает (битый файл, Demucs, нехватка памяти), списанное должно
