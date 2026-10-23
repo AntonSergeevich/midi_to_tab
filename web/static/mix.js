@@ -1313,7 +1313,13 @@ let lastDrag = 0;           // только что тянули -- щелчок 
 
 document.addEventListener('pointerdown', (e) => {
   const grab = e.target.closest('[data-grab]');
-  if (!grab || e.button > 0 || e.target.closest('.mx-rename')) return;
+  // Переименовать, спрятать/показать пульт, M, S -- кнопки внутри шапки
+  // (.mx-name), у которой тоже [data-grab]: без этой проверки мышь или
+  // тачпад захватывали указатель на перетаскивание, и клик по кнопке
+  // вместо своего действия просто выбирал дорожку (нашлось вживую в
+  // браузере на мобильной раскладке -- палец не задевает баг из-за
+  // задержки в holdToPick(), а мышь/трекпад стартуют перетаскивание сразу)
+  if (!grab || e.button > 0 || e.target.closest('button')) return;
   // Нажали на название и отпустили, не двигая, -- переименовать (dropTrack)
   const label = e.target.closest('b[data-label]');
   if (tracks.length < 2) return;        // одна дорожка: щелчок по названию -- обычный click
