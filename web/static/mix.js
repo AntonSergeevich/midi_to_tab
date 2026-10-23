@@ -323,9 +323,12 @@ function undo() {
 }
 
 // ------------------------------------------------- верхняя панель на телефоне
-// Панель управления прилипает к верху, а на телефоне она в шесть строк и
-// закрывала полэкрана. Как только страницу прокрутили к дорожкам, остаётся
-// одна строка: играть, в начало, время, запись и «ещё» -- раскрыть остальное.
+// На телефоне панель управления в шесть строк. Пока она видна -- стоит в
+// странице как есть; прокрутили ниже -- сверху закрепляется одна строка:
+// играть, в начало, время, запись и «ещё» (раскрыть остальное поверх).
+// Место панели в странице при этом не меняется (его держит заглушка той же
+// высоты): иначе страница укорачивалась, браузер отскакивал назад, панель
+// раскрывалась -- и прокрутка «отталкивалась» от верха.
 (() => {
   const bar = document.querySelector('.mx-transport');
   const more = $('toolsMore');
@@ -333,11 +336,35 @@ function undo() {
   const mark = document.createElement('div');
   mark.className = 'mx-transport-mark';
   bar.before(mark);
+  const hold = document.createElement('div');
+  hold.className = 'mx-transport-hold';
+  let compact = false;
+  const place = () => {
+    const box = hold.getBoundingClientRect();
+    bar.style.left = `${box.left}px`;
+    bar.style.width = `${box.width}px`;
+  };
+  const set = (on) => {
+    if (on === compact) return;
+    compact = on;
+    if (on) {
+      hold.style.height = `${bar.offsetHeight}px`;
+      hold.style.marginBottom = getComputedStyle(bar).marginBottom;
+      bar.before(hold);
+      place();
+    } else {
+      hold.remove();
+      bar.style.left = '';
+      bar.style.width = '';
+      bar.classList.remove('mx-open');
+      more.setAttribute('aria-expanded', 'false');
+    }
+    bar.classList.toggle('mx-compact', on);
+  };
   new IntersectionObserver(([entry]) => {
-    const compact = !entry.isIntersecting && entry.boundingClientRect.top < 0;
-    bar.classList.toggle('mx-compact', compact);
-    if (!compact) { bar.classList.remove('mx-open'); more.setAttribute('aria-expanded', 'false'); }
+    set(narrow() && !entry.isIntersecting && entry.boundingClientRect.top < 0);
   }).observe(mark);
+  addEventListener('resize', () => { if (compact) { if (narrow()) place(); else set(false); } });
   more.addEventListener('click', () => {
     const open = !bar.classList.contains('mx-open');
     bar.classList.toggle('mx-open', open);
