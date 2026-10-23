@@ -21,6 +21,7 @@ const ICON = {
   play: '<svg viewBox="0 0 24 24"><path d="M8.5 5.6v12.8a1 1 0 0 0 1.5.86l10.2-6.4a1 1 0 0 0 0-1.72L10 4.74a1 1 0 0 0-1.5.86z"/></svg>',
   pause: '<svg viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1.4"/><rect x="13.5" y="5" width="4" height="14" rx="1.4"/></svg>',
   pencil: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4"/></svg>',
+  sliders: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 4v16M12 4v16M18 4v16"/><path d="M3.5 14h5M9.5 8h5M15.5 16h5"/></svg>',
 };
 // Цвет волны по инструменту: дорожки различаются с первого взгляда
 const COLORS = [
@@ -1183,15 +1184,20 @@ async function waitSplit(splitting) {
 
 function render() {
   $('tracks').innerHTML = tracks.map((t, i) => `
-    <div class="mx-row${i === selected ? ' picked' : ''}" data-i="${i}">
+    <div class="mx-row${i === selected ? ' picked' : ''}${t.ctlOpen ? ' ctl-open' : ''}" data-i="${i}">
       <div class="mx-ctrl">
         <div class="mx-name" data-grab="${i}" title="Перетащите выше или ниже, чтобы поменять порядок">
           <span class="mx-grip" data-grip="${i}" aria-hidden="true">⠿</span><i style="background:${t.color}"></i><b data-noi18n data-label="${i}" title="${esc(t.name)} — нажмите, чтобы переименовать">${esc(t.name)}</b>${t.clips.length > 1 ? `<small class="mx-part" title="Кусков на дорожке">${t.clips.length}</small>` : ''}
           <button type="button" class="mx-rename" data-label="${i}" title="Название дорожки" aria-label="Название дорожки">${ICON.pencil}</button>
           ${rec && rec.lane === t ? '<em class="mx-recmark">● запись</em>'
     : t.uploading ? '<em title="Сохраняем при треке…">загрузка…</em>'
-    : t.extra ? '<em title="Ваша дорожка — хранится при этом треке">своя</em>' : ''}</div>
+    : t.extra ? '<em title="Ваша дорожка — хранится при этом треке">своя</em>' : ''}
+          <span class="mx-state" data-state="${i}"></span>
+          <button type="button" class="mx-ms mx-reveal" data-reveal="${i}" title="Громкость, M, S, FX"
+            aria-label="Показать регуляторы дорожки" aria-expanded="${Boolean(t.ctlOpen)}">${ICON.sliders}</button></div>
         <div class="mx-btns">
+          <button type="button" class="mx-ms mx-hide" data-reveal="${i}" title="Спрятать регуляторы"
+            aria-label="Спрятать регуляторы">‹</button>
           <button type="button" class="mx-ms" data-mute="${i}" aria-pressed="${t.mute}" title="Заглушить">M</button>
           <button type="button" class="mx-ms solo" data-solo="${i}" aria-pressed="${t.solo}" title="Только эта (соло)">S</button>
           <input type="range" class="mx-vol" data-vol="${i}" min="0" max="150" value="${t.vol}"
@@ -1333,7 +1339,51 @@ function applyGains() {
   document.querySelectorAll('.mx-row[data-i]').forEach((row) => {
     row.classList.toggle('silent', !audible(tracks[row.dataset.i]));
   });
+  paintState();
 }
+
+// На телефоне регуляторы дорожки спрятаны (иначе не видно названия), а
+// рядом с названием -- коротко, что на ней включено: M, S, FX, громкость
+function paintState() {
+  document.querySelectorAll('[data-state]').forEach((el) => {
+    const t = tracks[el.dataset.state];
+    if (!t) return;
+    el.innerHTML = (t.mute ? '<b class="m">M</b>' : '') + (t.solo ? '<b class="s">S</b>' : '')
+      + (t.fx ? '<b>FX</b>' : '') + (t.vol !== 100 ? `<b>${t.vol}%</b>` : '');
+  });
+}
+
+// Пульт дорожки на телефоне: выезжает слева свайпом вправо по шапке
+// дорожки (или кнопкой с ползунками), уезжает свайпом влево или «‹»
+const narrow = () => matchMedia('(max-width: 720px)').matches;
+function showCtl(i, open) {
+  const t = tracks[i];
+  if (!t || Boolean(t.ctlOpen) === open) return;
+  t.ctlOpen = open;
+  const row = document.querySelector(`.mx-row[data-i="${i}"]`);
+  if (row) row.classList.toggle('ctl-open', open);
+  const reveal = row && row.querySelector('.mx-reveal');
+  if (reveal) reveal.setAttribute('aria-expanded', String(open));
+  haptic('light');
+}
+(() => {
+  let g = null;
+  document.addEventListener('touchstart', (e) => {
+    const head = e.target.closest('.mx-row[data-i] .mx-ctrl');
+    if (!head || !narrow() || e.touches.length !== 1 || e.target.closest('input, [data-grip], .hv-wrap')) { g = null; return; }
+    g = { i: Number(head.closest('.mx-row').dataset.i), x: e.touches[0].clientX, y: e.touches[0].clientY, done: false };
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (!g || g.done || drag) return;
+    const dx = e.touches[0].clientX - g.x;
+    const dy = e.touches[0].clientY - g.y;
+    if (Math.abs(dy) > 24 && Math.abs(dy) > Math.abs(dx)) { g = null; return; }   // листают страницу
+    if (Math.abs(dx) < 36 || Math.abs(dx) < 1.5 * Math.abs(dy)) return;
+    g.done = true;
+    showCtl(g.i, dx > 0);
+  }, { passive: true });
+  document.addEventListener('touchend', () => { g = null; }, { passive: true });
+})();
 
 function drawTrack(t, i) {
   const c = document.querySelector(`[data-wave="${i}"]`);
@@ -2034,6 +2084,8 @@ document.addEventListener('click', (e) => {
   }
   const label = e.target.closest('.mx-rename[data-label]') || (tracks.length < 2 && e.target.closest('b[data-label]'));
   if (label && Date.now() - lastDrag > 400) { openLabel(Number(label.dataset.label)); return; }
+  const reveal = e.target.closest('[data-reveal]');
+  if (reveal) { const i = Number(reveal.dataset.reveal); showCtl(i, !tracks[i].ctlOpen); return; }
   const mute = e.target.closest('[data-mute]');
   const solo = e.target.closest('[data-solo]');
   const remove = e.target.closest('[data-remove]');

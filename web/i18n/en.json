@@ -1547,5 +1547,8 @@
  "🥁 Метроном": "🥁 Metronome",
  "🥁 Метроном вкл": "🥁 Metronome on",
  "🧪 YuE2 — проба (видно только вам)": "🧪 YuE2 — trial (visible only to you)",
- "🧪 Ноты, аккорды и MIDI (проба)": "🧪 Notes, chords and MIDI (trial)"
+ "🧪 Ноты, аккорды и MIDI (проба)": "🧪 Notes, chords and MIDI (trial)",
+ "Громкость, M, S, FX": "Volume, M, S, FX",
+ "Показать регуляторы дорожки": "Show track controls",
+ "Спрятать регуляторы": "Hide controls"
 }

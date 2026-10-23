@@ -1144,6 +1144,16 @@ header.top > nav.topnav {
 .mx-overview-row .mx-lane canvas { height: 26px; min-height: 26px; cursor: pointer; touch-action: none; }
 .mx-ruler-row .mx-lane canvas { height: 60px; min-height: 60px; cursor: crosshair; touch-action: none; }
 .mx-row.silent .mx-name b { color: var(--muted); text-decoration: line-through; }
+.mx-state, .mx-reveal, .mx-hide { display: none; }
+.mx-state { flex: none; gap: 3px; margin-left: auto; }
+.mx-state b { font-size: 10.5px; font-weight: 700; line-height: 1; padding: 3px 5px; border-radius: 5px;
+  background: var(--panel-hi); color: var(--muted); border: 1px solid var(--border); }
+.mx-state b.m { background: #c0563f; border-color: #c0563f; color: #fff; }
+.mx-state b.s { background: var(--accent); border-color: var(--accent); color: #15161c; }
+.mx-reveal { place-items: center; justify-content: center; align-items: center; }
+.mx-reveal svg { width: 16px; height: 16px; }
+.mx-state:empty + .mx-reveal { margin-left: auto; }
+.mx-hide { font-size: 18px; font-weight: 400; }
 /* Курсор -- тонкая линия, но ухватить его можно в полосе 14 px */
 .mx-playhead { position: absolute; top: 0; bottom: 0; left: -6px; width: 14px; cursor: ew-resize; touch-action: none;
   z-index: 3; background: linear-gradient(90deg, transparent 6px, rgba(255,255,255,.9) 6px, rgba(255,255,255,.9) 8px, transparent 8px); }
@@ -1165,9 +1175,15 @@ header.top > nav.topnav {
   .mx-row { grid-template-columns: 1fr; }
   .mx-ctrl { border-right: 0; border-bottom: 1px solid var(--border); flex-direction: row; align-items: center; }
   .mx-ctrl { min-width: 0; }
-  .mx-ctrl .mx-name { flex: 0 0 auto; max-width: 40%; }
-  .mx-ctrl .mx-btns { flex: 1 1 0; min-width: 0; }
+  /* регуляторы -- выдвижной пульт поверх шапки: название видно целиком */
+  .mx-row[data-i] .mx-ctrl { position: relative; overflow: hidden; min-height: 52px; }
+  .mx-ctrl .mx-name { flex: 1 1 auto; max-width: none; }
+  .mx-row[data-i] .mx-btns { position: absolute; inset: 0; padding: 0 12px 0 8px; background: var(--bg); z-index: 2;
+    transform: translateX(-101%); transition: transform .22s cubic-bezier(.2,.8,.2,1); visibility: hidden; }
+  .mx-row.ctl-open .mx-btns { transform: none; visibility: visible; }
   .mx-ctrl .mx-vol { min-width: 64px; }
+  .mx-state, .mx-reveal { display: inline-flex; }
+  .mx-hide { display: inline-grid; }
   .mx-ruler-label { display: none; }
   .mx-transport .icon-btn span { display: none; }
   .mx-mini { display: none; }
