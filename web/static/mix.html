@@ -47,11 +47,13 @@
     <button type="button" class="play-btn mx-play" id="play" aria-label="Играть (пробел)"></button>
     <button type="button" class="icon-btn mx-round" id="toStart" title="В начало" aria-label="В начало"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5v14M18 6.2v11.6a.8.8 0 0 1-1.25.66L9 13.1a1.3 1.3 0 0 1 0-2.2l7.75-5.36A.8.8 0 0 1 18 6.2z"/></svg></button>
     <span class="mx-time"><b id="now">0:00</b> / <span id="total">0:00</span></span>
-    <span class="mx-recgroup">
+    <span class="mx-recgroup mx-recmain">
       <button type="button" class="mx-rec" id="recBtn" aria-pressed="false" title="Записать голос под трек с курсора (R). Наденьте наушники"><i aria-hidden="true"></i><span>Запись</span></button>
       <b class="mx-rectime" id="recTime" hidden>0:00</b>
       <button type="button" class="mx-tool" id="recSet" data-tip="Микрофон и настройки записи" aria-label="Микрофон и настройки записи"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg></button>
     </span>
+    <button type="button" class="icon-btn mx-round mx-more" id="toolsMore" aria-expanded="false"
+            title="Все инструменты" aria-label="Все инструменты"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
     <span class="mx-sep"></span>
     <span class="mx-zoom" title="Масштаб: Ctrl + колесо мыши; Shift + колесо -- прокрутка">
       <button type="button" class="icon-btn" id="zoomOut" aria-label="Мельче">−</button>

@@ -322,6 +322,30 @@ function undo() {
   if (playing) startAt(position());
 }
 
+// ------------------------------------------------- верхняя панель на телефоне
+// Панель управления прилипает к верху, а на телефоне она в шесть строк и
+// закрывала полэкрана. Как только страницу прокрутили к дорожкам, остаётся
+// одна строка: играть, в начало, время, запись и «ещё» -- раскрыть остальное.
+(() => {
+  const bar = document.querySelector('.mx-transport');
+  const more = $('toolsMore');
+  if (!bar || !more || !('IntersectionObserver' in window)) return;
+  const mark = document.createElement('div');
+  mark.className = 'mx-transport-mark';
+  bar.before(mark);
+  new IntersectionObserver(([entry]) => {
+    const compact = !entry.isIntersecting && entry.boundingClientRect.top < 0;
+    bar.classList.toggle('mx-compact', compact);
+    if (!compact) { bar.classList.remove('mx-open'); more.setAttribute('aria-expanded', 'false'); }
+  }).observe(mark);
+  more.addEventListener('click', () => {
+    const open = !bar.classList.contains('mx-open');
+    bar.classList.toggle('mx-open', open);
+    more.setAttribute('aria-expanded', String(open));
+    haptic('light');
+  });
+})();
+
 // ---------------------------------------------------------------- загрузка
 
 async function init() {
@@ -1184,17 +1208,19 @@ async function waitSplit(splitting) {
 
 function render() {
   $('tracks').innerHTML = tracks.map((t, i) => `
-    <div class="mx-row${i === selected ? ' picked' : ''}${t.ctlOpen ? ' ctl-open' : ''}" data-i="${i}">
+    <div class="mx-row${i === selected ? ' picked' : ''}${mixerOpen ? ' ctl-open' : ''}" data-i="${i}">
       <div class="mx-ctrl">
         <div class="mx-name" data-grab="${i}" title="Перетащите выше или ниже, чтобы поменять порядок">
           <span class="mx-grip" data-grip="${i}" aria-hidden="true">⠿</span><i style="background:${t.color}"></i><b data-noi18n data-label="${i}" title="${esc(t.name)} — нажмите, чтобы переименовать">${esc(t.name)}</b>${t.clips.length > 1 ? `<small class="mx-part" title="Кусков на дорожке">${t.clips.length}</small>` : ''}
           <button type="button" class="mx-rename" data-label="${i}" title="Название дорожки" aria-label="Название дорожки">${ICON.pencil}</button>
           ${rec && rec.lane === t ? '<em class="mx-recmark">● запись</em>'
     : t.uploading ? '<em title="Сохраняем при треке…">загрузка…</em>'
-    : t.extra ? '<em title="Ваша дорожка — хранится при этом треке">своя</em>' : ''}
+    : t.extra ? '<em class="mx-own" title="Ваша дорожка — хранится при этом треке">своя</em>' : ''}
           <span class="mx-state" data-state="${i}"></span>
           <button type="button" class="mx-ms mx-reveal" data-reveal="${i}" title="Громкость, M, S, FX"
-            aria-label="Показать регуляторы дорожки" aria-expanded="${Boolean(t.ctlOpen)}">${ICON.sliders}</button></div>
+            aria-label="Показать регуляторы дорожек" aria-expanded="${mixerOpen}">${ICON.sliders}</button>
+          <button type="button" class="mx-ms mx-headms" data-mute="${i}" aria-pressed="${t.mute}" title="Заглушить">M</button>
+          <button type="button" class="mx-ms solo mx-headms" data-solo="${i}" aria-pressed="${t.solo}" title="Только эта (соло)">S</button></div>
         <div class="mx-btns">
           <button type="button" class="mx-ms mx-hide" data-reveal="${i}" title="Спрятать регуляторы"
             aria-label="Спрятать регуляторы">‹</button>
@@ -1348,22 +1374,24 @@ function paintState() {
   document.querySelectorAll('[data-state]').forEach((el) => {
     const t = tracks[el.dataset.state];
     if (!t) return;
-    el.innerHTML = (t.mute ? '<b class="m">M</b>' : '') + (t.solo ? '<b class="s">S</b>' : '')
-      + (t.fx ? '<b>FX</b>' : '') + (t.vol !== 100 ? `<b>${t.vol}%</b>` : '');
+    el.innerHTML = (t.fx ? '<b>FX</b>' : '') + (t.vol !== 100 ? `<b>${t.vol}%</b>` : '');
   });
+  // у дорожки две пары M/S (в шапке -- для телефона, в пульте -- для
+  // компьютера): нажатие одной -- видно на обеих
+  document.querySelectorAll('[data-mute]').forEach((b) => b.setAttribute('aria-pressed', String(Boolean((tracks[b.dataset.mute] || {}).mute))));
+  document.querySelectorAll('[data-solo]').forEach((b) => b.setAttribute('aria-pressed', String(Boolean((tracks[b.dataset.solo] || {}).solo))));
 }
 
-// Пульт дорожки на телефоне: выезжает слева свайпом вправо по шапке
-// дорожки (или кнопкой с ползунками), уезжает свайпом влево или «‹»
+// Пульт дорожек на телефоне: громкость, FX, «⋯» -- выезжают слева сразу у
+// всех дорожек свайпом вправо по любой шапке (или кнопкой с ползунками),
+// уезжают свайпом влево или «‹». M и S всегда видны в шапке.
 const narrow = () => matchMedia('(max-width: 720px)').matches;
+let mixerOpen = false;
 function showCtl(i, open) {
-  const t = tracks[i];
-  if (!t || Boolean(t.ctlOpen) === open) return;
-  t.ctlOpen = open;
-  const row = document.querySelector(`.mx-row[data-i="${i}"]`);
-  if (row) row.classList.toggle('ctl-open', open);
-  const reveal = row && row.querySelector('.mx-reveal');
-  if (reveal) reveal.setAttribute('aria-expanded', String(open));
+  if (mixerOpen === open) return;
+  mixerOpen = open;
+  document.querySelectorAll('.mx-row[data-i]').forEach((row) => row.classList.toggle('ctl-open', open));
+  document.querySelectorAll('.mx-reveal').forEach((b) => b.setAttribute('aria-expanded', String(open)));
   haptic('light');
 }
 (() => {
@@ -2085,12 +2113,12 @@ document.addEventListener('click', (e) => {
   const label = e.target.closest('.mx-rename[data-label]') || (tracks.length < 2 && e.target.closest('b[data-label]'));
   if (label && Date.now() - lastDrag > 400) { openLabel(Number(label.dataset.label)); return; }
   const reveal = e.target.closest('[data-reveal]');
-  if (reveal) { const i = Number(reveal.dataset.reveal); showCtl(i, !tracks[i].ctlOpen); return; }
+  if (reveal) { showCtl(Number(reveal.dataset.reveal), !mixerOpen); return; }
   const mute = e.target.closest('[data-mute]');
   const solo = e.target.closest('[data-solo]');
   const remove = e.target.closest('[data-remove]');
-  if (mute) { const t = tracks[mute.dataset.mute]; t.mute = !t.mute; mute.setAttribute('aria-pressed', t.mute); haptic('tick'); }
-  if (solo) { const t = tracks[solo.dataset.solo]; t.solo = !t.solo; solo.setAttribute('aria-pressed', t.solo); haptic('tick'); }
+  if (mute) { const t = tracks[mute.dataset.mute]; t.mute = !t.mute; haptic('tick'); }
+  if (solo) { const t = tracks[solo.dataset.solo]; t.solo = !t.solo; haptic('tick'); }
   const loadFile = e.target.closest('[data-loadfile]');
   if (loadFile) {
     choose(Number(loadFile.dataset.loadfile), null);
