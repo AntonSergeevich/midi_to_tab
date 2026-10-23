@@ -825,6 +825,8 @@ window.NASLUX_EN = {
 "Поставьте курсор внутрь выбранной дорожки — там, где резать": "Put the cursor inside the selected track — where to cut",
 "Поставьте курсор на кусок выбранной дорожки — там, где резать": "Put the cursor on a piece of the selected track — where to cut",
 "Поставьте курсор на строку (или выделите несколько) — пометим, кто её поёт": "Put the cursor on a line (or select several) — we'll mark who sings it",
+"Потяните вправо — громкость, FX": "Pull right for volume and FX",
+"Потяните шапку дорожки вправо — громкость, FX и «⋯». Влево — спрятать": "Pull a track header to the right for volume, FX and “⋯”. Pull left to hide",
 "Похожая песня: стиль и слова из трека": "Similar song: style and lyrics from the track",
 "Похоже, эталон записан в другом строе: совпадение лучше со сдвигом на": "Looks like the reference is in a different tuning: it matches better shifted by",
 "Похоже, это песня исполнителя «": "Looks like a song by “",

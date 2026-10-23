@@ -1210,6 +1210,7 @@ function render() {
   $('tracks').innerHTML = tracks.map((t, i) => `
     <div class="mx-row${i === selected ? ' picked' : ''}${mixerOpen ? ' ctl-open' : ''}" data-i="${i}">
       <div class="mx-ctrl">
+        <span class="mx-pull" aria-hidden="true" title="Потяните вправо — громкость, FX"></span>
         <div class="mx-name" data-grab="${i}" title="Перетащите выше или ниже, чтобы поменять порядок">
           <span class="mx-grip" data-grip="${i}" aria-hidden="true">⠿</span><i style="background:${t.color}"></i><b data-noi18n data-label="${i}" title="${esc(t.name)} — нажмите, чтобы переименовать">${esc(t.name)}</b>${t.clips.length > 1 ? `<small class="mx-part" title="Кусков на дорожке">${t.clips.length}</small>` : ''}
           <button type="button" class="mx-rename" data-label="${i}" title="Название дорожки" aria-label="Название дорожки">${ICON.pencil}</button>
@@ -1241,6 +1242,31 @@ function render() {
   applyGains();
   sizeCanvases();
   markSelected();
+  pullSurfaces();
+  pullHint();
+}
+
+// На iPhone вибрация во время свайпа возможна, только если палец ведёт по
+// «поверхности» библиотеки отклика (vibration.js) -- ею становится язычок
+// слева у шапки: потянул за него -- пульт щёлкнул, встав на место
+function pullSurfaces() {
+  const V = window.NasluxVibration;
+  if (!V || !narrow() || (V.engine !== 'ios-relay' && V.engine !== 'ios-switch')) return;
+  document.querySelectorAll('.mx-pull').forEach((el) => V.hapticDrag(el));
+}
+
+// Первый раз на телефоне пульт сам выглядывает из-за края -- видно, что
+// его можно вытянуть
+function pullHint() {
+  if (!narrow() || !tracks.length) return;
+  try { if (localStorage.getItem('naslux.mixPullHint')) return; localStorage.setItem('naslux.mixPullHint', '1'); } catch (error) { return; }
+  const row = document.querySelector('.mx-row[data-i]');
+  if (!row) return;
+  setTimeout(() => {
+    row.classList.add('mx-peek');
+    toast('Потяните шапку дорожки вправо — громкость, FX и «⋯». Влево — спрятать', 5000);
+    setTimeout(() => row.classList.remove('mx-peek'), 2400);
+  }, 900);
 }
 
 function sizeCanvases() {
@@ -1395,22 +1421,57 @@ function showCtl(i, open) {
   haptic('light');
 }
 (() => {
+  // Пульт едет за пальцем у всех дорожек; на пороге (60 px) -- щелчок,
+  // отпустил за порогом -- пульт встаёт на место, раньше -- уезжает обратно
+  const SNAP = 60;
   let g = null;
+  const board = () => $('tracks');
+  const follow = (dx) => {
+    const el = board();
+    if (!el) return;
+    el.classList.add(mixerOpen ? 'pulling-close' : 'pulling-open');
+    el.style.setProperty('--mx-dx', `${mixerOpen ? Math.min(0, dx) : Math.max(0, dx)}px`);
+  };
+  const release = () => {
+    const el = board();
+    if (!el) return;
+    el.classList.remove('pulling-open', 'pulling-close');
+    el.style.removeProperty('--mx-dx');
+  };
   document.addEventListener('touchstart', (e) => {
     const head = e.target.closest('.mx-row[data-i] .mx-ctrl');
     if (!head || !narrow() || e.touches.length !== 1 || e.target.closest('input, [data-grip], .hv-wrap')) { g = null; return; }
-    g = { i: Number(head.closest('.mx-row').dataset.i), x: e.touches[0].clientX, y: e.touches[0].clientY, done: false };
+    g = { i: Number(head.closest('.mx-row').dataset.i), x: e.touches[0].clientX, y: e.touches[0].clientY, mode: '', past: false, dx: 0 };
   }, { passive: true });
   document.addEventListener('touchmove', (e) => {
-    if (!g || g.done || drag) return;
+    if (!g || drag) return;
     const dx = e.touches[0].clientX - g.x;
     const dy = e.touches[0].clientY - g.y;
-    if (Math.abs(dy) > 24 && Math.abs(dy) > Math.abs(dx)) { g = null; return; }   // листают страницу
-    if (Math.abs(dx) < 36 || Math.abs(dx) < 1.5 * Math.abs(dy)) return;
-    g.done = true;
-    showCtl(g.i, dx > 0);
+    if (!g.mode) {
+      if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { g = null; return; }   // листают страницу
+      if (Math.abs(dx) < 10) return;
+      // открыть -- только вправо, закрыть -- только влево
+      if ((dx > 0) === mixerOpen) { g = null; return; }
+      g.mode = 'pull';
+    }
+    g.dx = dx;
+    follow(dx);
+    const past = Math.abs(dx) >= SNAP;
+    if (past !== g.past) { g.past = past; if (past) haptic('tick'); }
   }, { passive: true });
-  document.addEventListener('touchend', () => { g = null; }, { passive: true });
+  const end = () => {
+    if (!g) return;
+    const { mode, past } = g;
+    g = null;
+    release();
+    if (mode === 'pull' && past) {
+      mixerOpen = !mixerOpen;
+      document.querySelectorAll('.mx-row[data-i]').forEach((row) => row.classList.toggle('ctl-open', mixerOpen));
+      document.querySelectorAll('.mx-reveal').forEach((b) => b.setAttribute('aria-expanded', String(mixerOpen)));
+    }
+  };
+  document.addEventListener('touchend', end, { passive: true });
+  document.addEventListener('touchcancel', end, { passive: true });
 })();
 
 function drawTrack(t, i) {

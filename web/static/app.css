@@ -1144,7 +1144,8 @@ header.top > nav.topnav {
 .mx-overview-row .mx-lane canvas { height: 26px; min-height: 26px; cursor: pointer; touch-action: none; }
 .mx-ruler-row .mx-lane canvas { height: 60px; min-height: 60px; cursor: crosshair; touch-action: none; }
 .mx-row.silent .mx-name b { color: var(--muted); text-decoration: line-through; }
-.mx-state, .mx-reveal, .mx-hide, .mx-headms, .mx-more { display: none; }
+.mx-state, .mx-reveal, .mx-hide, .mx-headms, .mx-more, .mx-pull { display: none; }
+@keyframes mx-peek { 0%, 100% { transform: translateX(-101%); } 30%, 60% { transform: translateX(-62%); } }
 .mx-more svg { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform .2s; }
 .mx-state { flex: none; gap: 3px; margin-left: auto; }
 .mx-state b { font-size: 10.5px; font-weight: 700; line-height: 1; padding: 3px 5px; border-radius: 5px;
@@ -1183,6 +1184,20 @@ header.top > nav.topnav {
   .mx-row[data-i] .mx-btns { position: absolute; inset: 0; padding: 0 12px 0 8px; background: var(--bg); z-index: 2;
     transform: translateX(-101%); transition: transform .22s cubic-bezier(.2,.8,.2,1); visibility: hidden; }
   .mx-row.ctl-open .mx-btns { transform: none; visibility: visible; }
+  /* пульт за пальцем: открытие -- выезжает слева, закрытие -- уезжает влево */
+  #tracks.pulling-open .mx-row[data-i] .mx-btns { transition: none; visibility: visible;
+    transform: translateX(min(0px, calc(-101% + var(--mx-dx, 0px)))); }
+  #tracks.pulling-close .mx-row[data-i] .mx-btns { transition: none; transform: translateX(var(--mx-dx, 0px)); }
+  /* подсказка в первый раз: пульт выглядывает из-за края */
+  .mx-row.mx-peek .mx-btns { visibility: visible; animation: mx-peek 2.2s ease-in-out; }
+  /* язычок: за него видно, что шапку можно тянуть вправо */
+  .mx-pull { display: block; position: absolute; left: 0; top: 0; bottom: 0; width: 22px; z-index: 1; }
+  .mx-pull::before { content: ""; position: absolute; left: 4px; top: 50%; width: 4px; height: 26px; margin-top: -13px;
+    border-radius: 999px; background: var(--accent); opacity: .7; }
+  .mx-pull::after { content: ""; position: absolute; left: 11px; top: 50%; width: 6px; height: 6px; margin-top: -4px;
+    border-right: 2px solid var(--accent); border-top: 2px solid var(--accent); transform: rotate(45deg); opacity: .85; }
+  .mx-row.ctl-open .mx-pull { display: none; }
+  .mx-row[data-i] .mx-ctrl { padding-left: 26px; }
   /* пульт не закрывает M и S справа: их видно всегда */
   .mx-row[data-i] .mx-btns { right: 88px; padding-right: 4px; }
   .mx-ctrl .mx-vol { min-width: 64px; }

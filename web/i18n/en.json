@@ -1552,5 +1552,7 @@
  "Показать регуляторы дорожки": "Show track controls",
  "Спрятать регуляторы": "Hide controls",
  "Показать регуляторы дорожек": "Show track controls",
- "Все инструменты": "All tools"
+ "Все инструменты": "All tools",
+ "Потяните вправо — громкость, FX": "Pull right for volume and FX",
+ "Потяните шапку дорожки вправо — громкость, FX и «⋯». Влево — спрятать": "Pull a track header to the right for volume, FX and “⋯”. Pull left to hide"
 }
