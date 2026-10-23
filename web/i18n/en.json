@@ -1554,5 +1554,15 @@
  "Показать регуляторы дорожек": "Show track controls",
  "Все инструменты": "All tools",
  "Потяните вправо — громкость, FX": "Pull right for volume and FX",
- "Потяните шапку дорожки вправо — громкость, FX и «⋯». Влево — спрятать": "Pull a track header to the right for volume, FX and “⋯”. Pull left to hide"
+ "Потяните шапку дорожки вправо — громкость, FX и «⋯». Влево — спрятать": "Pull a track header to the right for volume, FX and “⋯”. Pull left to hide",
+ "Пульт дорожки — свайпом": "Track controls — by swipe",
+ "Мультитрек на телефоне стал быстрее: громкость и FX — свайпом по шапке дорожки, M и S — сразу на виду у каждой.": "Multitrack on a phone got faster: volume and FX — by swiping a track header, M and S — in plain sight on every track.",
+ "Что нового: пульт дорожки — свайпом": "What's new: track controls — by swipe",
+ "Проведите пальцем по шапке дорожки вправо — выезжают громкость, FX и «⋯» сразу у всех дорожек; влево или «‹» — убираются.": "Swipe a track header to the right — volume, FX and “⋯” slide out for every track at once; swipe left or tap «‹» to hide them.",
+ "Мультитрек на телефоне → шапка дорожки": "Multitrack on a phone → track header",
+ "M и S — в шапке каждой дорожки": "M and S — in every track's header",
+ "Приглушить дорожку или оставить только её — без открытого пульта, одним касанием в шапке.": "Mute a track or solo it — no need to open the controls, one tap in the header.",
+ "Верхняя панель не мешает прокрутке": "The top bar no longer fights scrolling",
+ "Прокрутили к дорожкам — сверху остаётся одна строка: играть, в начало, запись и «ещё». Страница больше не укорачивается и не отскакивает от верха.": "Scroll down to the tracks and one row stays pinned at the top: play, rewind, record and “more”. The page no longer shrinks and bounces back to the top.",
+ "Мультитрек на телефоне → верхняя панель": "Multitrack on a phone → top bar"
 }
