@@ -2941,7 +2941,8 @@ def listen_page(token: str, request: Request) -> HTMLResponse:
 @app.get("/api/listen/{token}/audio")
 def listen_audio(token: str, request: Request, download: int = 0):
     found, job, path = _shared(token)
-    if not download and request.headers.get("range", "bytes=0-").startswith("bytes=0-"):
+    is_bot = _is_link_preview_bot(request.headers.get("user-agent", ""))
+    if not download and not is_bot and request.headers.get("range", "bytes=0-").startswith("bytes=0-"):
         storage.count_play(token)          # начали слушать с начала -- одно прослушивание
     _touch_used(studio_runner.folder(job.id))
     name = download_name(job.filename, "", ".mp3") if download else None

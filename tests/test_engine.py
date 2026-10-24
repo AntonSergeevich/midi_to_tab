@@ -681,6 +681,29 @@ def test_chord_shapes_match_the_ones_guitarists_play():
     assert best("A") == "x02220"
 
 
+def test_slash_chord_still_gets_a_shape():
+    """
+    C/G, Am/E и прочие аккорды с басом через дробь раньше оставались без
+    аппликатуры вовсе: `shapes.parse()` искал в таблице целую строку
+    "/G" (всё, что шло после основного тона и трезвучия) и не находил
+    ничего -- на сайте такой аккорд показывался в списке, но без
+    картинки грифа. `chords.name_of()` подписывает именно так (`C/G`)
+    для аккордов из MIDI-загрузок, где бас отличается от тона.
+    """
+    from midi2tab.shapes import shapes_for
+    from midi2tab.tuning import DEFAULT_TUNING, TUNINGS, Fretboard
+
+    board = Fretboard(TUNINGS[DEFAULT_TUNING])
+
+    def best(name):
+        shape = shapes_for(name, board, 1)[0]
+        return "".join("x" if f is None else str(f) for f in shape.frets)
+
+    assert shapes_for("C/G", board, 1)
+    assert best("C/G") == best("C")
+    assert best("Am/E") == best("Am")
+
+
 def test_shapes_never_need_more_than_four_fingers():
     """
     Рука ставит не больше четырёх пальцев -- с баррэ или без.

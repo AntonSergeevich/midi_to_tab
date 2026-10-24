@@ -45,7 +45,10 @@
             <span class="ls-time"><b id="lsNow">0:00</b> / <span id="lsTotal">0:00</span></span>
           </div>
         </div>
-        <audio id="lsAudio" preload="metadata" src="{{AUDIO_PATH}}"></audio>
+        <!-- preload="metadata" гоняло бы Range-запрос сразу при открытии
+             страницы -- сервер считал бы это прослушиванием, даже если
+             никто не нажал play. -->
+        <audio id="lsAudio" preload="none" src="{{AUDIO_PATH}}"></audio>
         <div class="ls-actions">
           <a class="ls-btn" href="{{AUDIO_PATH}}?download=1" download>Скачать mp3</a>
           <button type="button" class="ls-btn" id="lsCopy">Скопировать ссылку</button>

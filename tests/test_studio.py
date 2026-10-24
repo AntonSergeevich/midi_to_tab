@@ -2332,6 +2332,15 @@ def test_share_link_plays_without_login(studio_app):
     assert "attachment" in guest.get(f"/api/listen/{link['token']}/audio?download=1").headers["content-disposition"]
     assert app_module.storage.share(link["token"])["plays"] == 1
 
+    # превью-бот мессенджера (разворачивает og:audio в чате) не должен
+    # считаться прослушиванием -- иначе счётчик, который видит автор
+    # трека, завышен самой отправкой ссылки, а не тем, что её кто-то
+    # слушал (тот же класс бага, что и у /i/{code}, см. _is_link_preview_bot)
+    bot = guest.get(f"/api/listen/{link['token']}/audio",
+                     headers={"user-agent": "TelegramBot (like TwitterBot)"})
+    assert bot.status_code == 200
+    assert app_module.storage.share(link["token"])["plays"] == 1
+
     assert client.post(f"/api/studio/{job.id}/share", data={"file": "нет.mp3"}).status_code == 404
     assert guest.post(f"/api/studio/{job.id}/share", data={"file": "track.mp3"}).status_code == 404
     assert guest.delete(f"/api/share/{link['token']}").status_code == 404
