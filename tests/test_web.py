@@ -166,6 +166,31 @@ def test_renewal_adds_days_instead_of_resetting(store):
     assert second - first == pytest.approx(30 * 86400, abs=5)
 
 
+def test_concurrent_grants_both_count_instead_of_one_overwriting_the_other(store):
+    """Админский грант и пришедший в то же мгновение платёж не должны
+    видеть один и тот же старый остаток и затирать друг друга тем же
+    числом -- оба продления обязаны сложиться."""
+    import threading
+
+    from web import billing
+
+    user = store.ensure_user(None)
+    barrier = threading.Barrier(2)
+
+    def grant():
+        barrier.wait()
+        billing.grant_subscription(store, user.id, days=30)
+
+    threads = [threading.Thread(target=grant) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    paid_until = store.user(user.id).paid_until
+    assert paid_until - time.time() == pytest.approx(60 * 86400, abs=10)
+
+
 def test_expired_subscription_is_not_active(store):
     user = store.ensure_user(None)
     store.extend_subscription(user.id, time.time() - 10)

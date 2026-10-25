@@ -1,7 +1,8 @@
 """Обработчик задач GPU-воркера NASLUX на RunPod Serverless.
 
 Режимы (поле input.mode):
-  restyle  -- переделать трек в другой стиль (ACE-Step cover, модель turbo);
+  restyle  -- переделать трек в другой стиль (ACE-Step cover, модель SFT;
+              engine=base -- модель base вместо SFT, см. SFT/FULL ниже);
               strength: 0..1, чем меньше -- тем дальше от оригинала;
   enrich   -- дописать партию поверх трека (ACE-Step lego, модель base),
               track: drums / bass / guitar / keyboard / strings / ...;
@@ -238,13 +239,20 @@ def restyle(job_input, source):
     мелодии не было вовсе. variants -- сколько версий сделать (1..4):
     авторы советуют выбирать из нескольких, а не ждать одной удачной.
     """
+    engine = job_input.get("engine") or ""
+    if engine not in ("", "base"):
+        # turbo лежит в образе, но не грузится в видеопамять (см. SFT/FULL
+        # выше) -- без этой проверки неизвестный engine тихо попадал бы на
+        # SFT, и тест/замер решил бы, что сравнивает модели, хотя на самом
+        # деле оба прогона считались на одной и той же SFT.
+        raise ValueError(f"restyle: engine={engine!r} не поддерживается -- только '' (SFT) или 'base'")
     audio = knob(job_input, "audio_influence", knob(job_input, "strength", 0.5))
     style = knob(job_input, "style_influence", 0.5)
     weird = knob(job_input, "weirdness", 0.3)
     bpm, key, source_chroma, source_key = tempo_and_key(source)
     variants = max(1, min(4, int(job_input.get("variants") or 2)))
     body = {**common(job_input, source), "task_type": "cover",
-            "model": FULL if job_input.get("engine") == "base" else SFT,
+            "model": FULL if engine == "base" else SFT,
             "audio_cover_strength": round(0.1 + 0.9 * audio, 3),
             "cover_noise_strength": round(0.1 + 0.15 * audio, 3),
             "guidance_scale": round(5 + 4 * style, 2), "shift": round(2.5 + 1.5 * weird, 2),

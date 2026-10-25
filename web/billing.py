@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import os
-import time
 from dataclasses import dataclass
 
 from .storage import Storage, User
@@ -219,16 +218,15 @@ def grant_subscription(storage: Storage, user_id: str, days: int = PERIOD_DAYS,
     а не обнуляет его -- иначе оплата раньше срока съедала бы оплаченные дни.
     Тариф -- старший из двух: «Музыкант», купленный поверх идущей «Студии»,
     не отнимает у неё мультитрек.
+
+    Остаток читается и прибавляется одним атомарным UPDATE
+    (storage.grant_subscription_days), не читается тут в Python заранее --
+    админский грант и платёж, случившиеся в одно мгновение (разные потоки
+    или процессы на одной и той же записи пользователя), иначе видели бы
+    один и тот же старый остаток и второй из них тёр бы первый тем же
+    числом вместо того, чтобы прибавить к нему свои дни.
     """
-    user = storage.user(user_id)
-    base = time.time()
-    if user and user.paid_until and user.paid_until > base:
-        base = user.paid_until
-        if user.tier == "studio_month":
-            tier = "studio_month"
-    until = base + days * 86400
-    storage.extend_subscription(user_id, until, tier)
-    return until
+    return storage.grant_subscription_days(user_id, days, tier)
 
 
 class PaymentError(RuntimeError):

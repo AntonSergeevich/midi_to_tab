@@ -986,6 +986,28 @@ class Storage:
             else:
                 conn.execute("UPDATE users SET paid_until = ?, tier = ? WHERE id = ?", (until, tier, user_id))
 
+    def grant_subscription_days(self, user_id: str, days: int, tier: str) -> float:
+        """
+        Продлить подписку на days от большего из (сейчас, остаток) -- в
+        одном UPDATE, а не читая paid_until в Python и потом записывая
+        отдельным запросом: между чтением и записью админский грант и
+        пришедший в то же мгновение платёж (отдельный процесс или поток)
+        читали бы один и тот же старый остаток и оба писали бы одно и то
+        же "до", второй грант пропадал бы без следа вместо того, чтобы
+        сложиться с первым.
+        """
+        now = time.time()
+        with self._connect() as conn:
+            row = conn.execute(
+                "UPDATE users SET"
+                " paid_until = MAX(COALESCE(paid_until, 0), ?) + ?,"
+                " tier = CASE WHEN tier = 'studio_month' AND paid_until > ? THEN 'studio_month' ELSE ? END"
+                " WHERE id = ?"
+                " RETURNING paid_until",
+                (now, days * 86400, now, tier, user_id),
+            ).fetchone()
+        return row["paid_until"] if row else now + days * 86400
+
     # ----------------------------------------------------------------- задания
 
     def create_job(self, user_id: str, filename: str, settings: dict) -> Job:

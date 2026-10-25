@@ -13,7 +13,7 @@ on:
         description: Сила сохранения оригинала для restyle (0..1, меньше -- дальше от оригинала)
         default: "0.3"
       knobs:
-        description: "restyle: влияние песни,влияние стиля,странность[,turbo] -- напр. 0.35,0.6,0.3 (пусто -- по strength на turbo)"
+        description: "restyle: влияние песни,влияние стиля,странность -- напр. 0.35,0.6,0.3 (пусто -- по strength, модель SFT)"
         default: ""
       extra:
         description: 'JSON поверх задания воркеру, напр. {"variants": 2, "raw": {"shift": 3}}'

@@ -59,7 +59,7 @@ def main() -> None:
     parser.add_argument("--seconds", type=int, default=60)
     parser.add_argument("--strength", type=float, default=0.3)
     parser.add_argument("--knobs", default="",
-                        help="влияние песни,влияние стиля,странность[,turbo] -- например 0.35,0.6,0.3")
+                        help="влияние песни,влияние стиля,странность -- например 0.35,0.6,0.3")
     parser.add_argument("--track", default="drums")
     parser.add_argument("--prompt", default="nu metal, heavy downtuned 7-string guitars, "
                         "aggressive drums, distorted bass, powerful male vocals")
@@ -90,8 +90,6 @@ def main() -> None:
         parts = args.knobs.split(",")
         job_input.update(audio_influence=float(parts[0]), style_influence=float(parts[1]),
                          weirdness=float(parts[2]))
-        if len(parts) > 3 and parts[3].strip() == "turbo":
-            job_input["engine"] = "turbo"
     if args.extra:
         job_input.update(json.loads(args.extra))
     if args.steps:
