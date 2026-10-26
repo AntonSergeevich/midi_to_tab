@@ -47,22 +47,24 @@ class Shape:
         return {"frets": list(self.frets), "base": self.base, "barre": self.barre}
 
 
-def parse(name: str) -> tuple[int, tuple[int, ...]] | None:
-    """Разобрать подпись аккорда в (основной тон, интервалы).
+def parse(name: str) -> tuple[int, tuple[int, ...], int | None] | None:
+    """Разобрать подпись аккорда в (основной тон, интервалы, бас).
 
-    Бас после дробной черты (C/G, Am/E) не меняет аппликатуру -- он
-    только подсказывает, какая нота должна звучать внизу, а форма руки
-    определяется основным трезвучием. Без этого "/G" попадало в quality
-    и не находилось ни в одном шаблоне -- аккорд оставался без картинки.
+    Бас после дробной черты (C/G, Am/E) не меняет трезвучие -- форма
+    руки всё равно определяется им, -- но подсказывает, какая нота
+    должна звучать на самой низкой играемой струне: гитарист ставит
+    C/G иначе, чем просто C, если ему важен именно такой бас.
     """
-    name = name.partition("/")[0]
-    head = name[:2] if len(name) > 1 and name[1] == "#" else name[:1]
+    head_name, _, bass_name = name.partition("/")
+    head = head_name[:2] if len(head_name) > 1 and head_name[1] == "#" else head_name[:1]
     if head not in PITCH_CLASSES:
         return None
-    quality = name[len(head):]
+    quality = head_name[len(head):]
+    bass_head = bass_name[:2] if len(bass_name) > 1 and bass_name[1] == "#" else bass_name[:1]
+    bass = PITCH_CLASSES.index(bass_head) if bass_head in PITCH_CLASSES else None
     for label, intervals in TEMPLATES:
         if label == quality:
-            return PITCH_CLASSES.index(head), intervals
+            return PITCH_CLASSES.index(head), intervals, bass
     return None
 
 
@@ -78,14 +80,19 @@ def shapes_for(name: str, board: Fretboard, limit: int = 3) -> list[Shape]:
     parsed = parse(name)
     if not parsed:
         return []
-    root, intervals = parsed
+    root, intervals, bass = parsed
     wanted = {(root + i) % 12 for i in intervals}
+    # Бас через дробь идёт в самую низкую играемую струну только если он
+    # и так входит в трезвучие -- добавочная нота в басу (C/F#, не часть
+    # аккорда) это другая, более редкая задача, не аппликатура этого
+    # аккорда, и на неё приходится откатываться на основной тон.
+    bass_pc = bass if bass is not None and bass in wanted else root
 
     found: list[tuple[float, Shape]] = []
     for position in range(0, MAX_FRET + 1):
-        shape = _best_in_position(board, root, wanted, position)
+        shape = _best_in_position(board, bass_pc, wanted, position)
         if shape:
-            found.append((_cost(shape, board, root, position), shape))
+            found.append((_cost(shape, board, bass_pc, position), shape))
 
     found.sort(key=lambda pair: pair[0])
     picked: list[Shape] = []
@@ -97,7 +104,7 @@ def shapes_for(name: str, board: Fretboard, limit: int = 3) -> list[Shape]:
     return picked
 
 
-def _best_in_position(board: Fretboard, root: int, wanted: set[int], position: int):
+def _best_in_position(board: Fretboard, bass_pc: int, wanted: set[int], position: int):
     """Лучшее положение руки на конкретной позиции грифа."""
     low = position
     high = position + MAX_SPAN
@@ -118,7 +125,8 @@ def _best_in_position(board: Fretboard, root: int, wanted: set[int], position: i
     if not any(f is not None for f in frets):
         return None
 
-    # Заглушаем нижние струны, пока в басу не окажется основной тон.
+    # Заглушаем нижние струны, пока в басу не окажется нужная нота
+    # (основной тон, либо бас через дробь, если он входит в аккорд).
     # У укулеле так делать нельзя: его первая струна звучит ВЫШЕ второй,
     # и понятия "нижняя струна" там попросту нет -- требование баса
     # загнало бы простое до-мажорное 0003 на пятый лад.
@@ -129,7 +137,7 @@ def _best_in_position(board: Fretboard, root: int, wanted: set[int], position: i
     if ascending:
         for index in range(board.string_count):
             fret = frets[index]
-            if fret is not None and (board.open_pitch(index) + fret) % 12 == root:
+            if fret is not None and (board.open_pitch(index) + fret) % 12 == bass_pc:
                 for lower in range(index):
                     frets[lower] = None
                 break

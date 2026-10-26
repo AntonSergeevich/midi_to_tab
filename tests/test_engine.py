@@ -681,7 +681,7 @@ def test_chord_shapes_match_the_ones_guitarists_play():
     assert best("A") == "x02220"
 
 
-def test_slash_chord_still_gets_a_shape():
+def test_slash_chord_gets_a_shape_with_the_bass_note_actually_in_the_bass():
     """
     C/G, Am/E и прочие аккорды с басом через дробь раньше оставались без
     аппликатуры вовсе: `shapes.parse()` искал в таблице целую строку
@@ -689,19 +689,38 @@ def test_slash_chord_still_gets_a_shape():
     ничего -- на сайте такой аккорд показывался в списке, но без
     картинки грифа. `chords.name_of()` подписывает именно так (`C/G`)
     для аккордов из MIDI-загрузок, где бас отличается от тона.
+
+    Отрезать бас при разборе хватило, чтобы аппликатура появилась, но
+    сама она ничем не отличалась от аккорда без дроби -- C/G показывался
+    как обычный C, то есть с до, а не с соль, в басу, хотя весь смысл
+    подписи "/G" в том, что внизу звучит именно соль. Гитарист берёт
+    C/G иначе, чем C. Теперь бас через дробь ставится в самую низкую
+    играемую струну, если он входит в трезвучие -- так же, как эти
+    аккорды даются в самоучителях (C/G = xxx010, Am/E = 002210,
+    D/F# = 200232, G/B = x20003, F/A = x03211).
     """
+    from midi2tab.chords import PITCH_CLASSES
     from midi2tab.shapes import shapes_for
     from midi2tab.tuning import DEFAULT_TUNING, TUNINGS, Fretboard
 
     board = Fretboard(TUNINGS[DEFAULT_TUNING])
 
     def best(name):
-        shape = shapes_for(name, board, 1)[0]
-        return "".join("x" if f is None else str(f) for f in shape.frets)
+        return shapes_for(name, board, 1)[0]
 
-    assert shapes_for("C/G", board, 1)
-    assert best("C/G") == best("C")
-    assert best("Am/E") == best("Am")
+    def bass_note(shape) -> str:
+        index = next(i for i, f in enumerate(shape.frets) if f is not None)
+        return PITCH_CLASSES[(board.open_pitch(index) + shape.frets[index]) % 12]
+
+    for slash, bass in (("C/G", "G"), ("Am/E", "E"), ("D/F#", "F#"),
+                        ("G/B", "B"), ("F/A", "A")):
+        shape = best(slash)
+        assert bass_note(shape) == bass, (slash, shape)
+
+    # Бас, которого нет в самом трезвучии (фа-диез не входит в до мажор),
+    # на гитаре нечем показать без добавления отдельной ноты сверх
+    # трезвучия -- аппликатура в этом случае откатывается на основной тон.
+    assert best("C/F#").frets == best("C").frets
 
 
 def test_shapes_never_need_more_than_four_fingers():
