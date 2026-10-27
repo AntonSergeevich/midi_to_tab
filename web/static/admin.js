@@ -12,6 +12,7 @@ async function boot() {
     $('login').style.display = 'none';
     await loadUsers();
     await loadFinance();
+    await loadBenchmark();
     await loadPayment();
     await loadNotices();
   }
@@ -28,6 +29,7 @@ $('enter').onclick = async () => {
   $('login').style.display = 'none';
   await loadUsers();
   await loadFinance();
+  await loadBenchmark();
   await loadPayment();
   await loadNotices();
 };
@@ -251,6 +253,36 @@ async function loadPayment() {
     </p>`);
 }
 
+
+// --------------------------------------------- сверка моделей аккордов
+
+// Те же подписи моделей, что в Студии (web/static/studio.js) -- владелец
+// видит их и там, названия должны совпадать.
+const BENCH_MODEL_NAME = { main: 'На сайте', ext15: 'Прошлая (500 песен)', r2: 'Без sus/dim (61 класс)',
+  v2: 'Самая первая', ens: 'Ансамбль (сайт + 500)', nokey: 'На сайте без подсказки тональности',
+  tuned: 'На сайте с подстройкой строя' };
+const benchPct = (x) => `${Math.round((x || 0) * 100)}%`;
+
+async function loadBenchmark() {
+  const box = $('benchmark');
+  if (!box) return;
+  const response = await fetch('/api/admin/benchmark');
+  if (!response.ok) return;
+  const data = await response.json();
+  if (!data.rows.length) {
+    box.innerHTML = '<p class="muted">Эталонов пока никто не вставил.</p>';
+    return;
+  }
+  const models = Object.keys(data.average).sort((a, b) => data.average[b] - data.average[a]);
+  const people = new Set(data.rows.map((r) => r.who)).size;
+  box.innerHTML = `<p>Эталонов: ${data.rows.length}, от ${people} ${people === 1 ? 'человека' : 'человек'}.
+    В среднем — ${models.map((m) =>
+      `${escapeHtml(BENCH_MODEL_NAME[m] || m)}: <b>${benchPct(data.average[m])}</b>`).join(' · ')}</p>
+    <div class="st-ref-scroll"><table class="st-ref-table st-ref-all"><thead><tr><th>Песня</th><th>Кто</th>
+      ${models.map((m) => `<th>${escapeHtml(BENCH_MODEL_NAME[m] || m)}</th>`).join('')}</tr></thead>
+    <tbody>${data.rows.map((r) => `<tr><td>${escapeHtml(r.name)}</td><td class="muted">${escapeHtml(r.who || '')}</td>${models.map((m) =>
+      `<td>${r.pending ? '…' : r.scores[m] ? benchPct(r.scores[m].score) : '—'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
 
 // ------------------------------- уведомления от платёжного сервиса
 

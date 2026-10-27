@@ -71,3 +71,29 @@ def test_reference_endpoints(tmp_path, monkeypatch):
         assert client.post("/api/studio/benchmark/rerun").json()["queued"] == 1
         again = client.get(f"/api/studio/{job.id}/reference").json()
         assert not again["pending"] and again["chords"] == 8 and "main" in again["scores"]
+
+        # Второй человек с собственным эталоном -- свой свод (не админский)
+        # видит только свою строку, а не чужую.
+        other = app_module.storage.ensure_user(None)
+        client.cookies.set("uid", app_module.signer.dumps(other.id))
+        other_job = app_module.storage.create_job(other.id, "Чужая.mp3", {"kind": "studio", "mode": "upload"})
+        other_folder = app_module.studio_runner.folder(other_job.id)
+        os.makedirs(other_folder, exist_ok=True)
+        open(os.path.join(other_folder, "track.mp3"), "wb").close()
+        app_module.storage.update_job(other_job.id, status="done", result={"files": [{"name": "track.mp3"}]})
+        client.post(f"/api/studio/{other_job.id}/reference", data={"sheet": SHEET})
+
+        mine_only = client.get("/api/studio/benchmark").json()
+        assert len(mine_only["rows"]) == 1 and mine_only["rows"][0]["name"] == "Чужая.mp3"
+
+        # Без прав админа свод по всем недоступен.
+        assert client.get("/api/admin/benchmark").status_code == 403
+
+        # С правами -- виден свод по обоим людям, с подписью (почты нет --
+        # оба анонимные, подпись честно говорит об этом, а не выдумывает).
+        app_module.storage.set_flags(other.id, is_admin=True)
+        everyone = client.get("/api/admin/benchmark").json()
+        names = {row["name"] for row in everyone["rows"]}
+        assert names == {"Мальчик.mp3", "Чужая.mp3"}
+        whos = {row["name"]: row["who"] for row in everyone["rows"]}
+        assert whos["Чужая.mp3"] == "без почты" and whos["Мальчик.mp3"] == "без почты"

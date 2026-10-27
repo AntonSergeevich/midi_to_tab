@@ -2335,17 +2335,32 @@ def api_studio_benchmark_rerun(request: Request):
 @app.get("/api/studio/benchmark")
 def api_studio_benchmark(request: Request):
     """Все эталоны человека: итог каждой модели по песням и в среднем."""
+    from . import benchmark as bench
+
     user = current_user(request)
-    rows, totals = [], {}
-    for job in storage.user_jobs(user.id, limit=500):
-        for file, entry in ((job.result or {}).get("reference") or {}).items():
-            scores = entry.get("scores") or {}
-            rows.append({"id": job.id, "name": job.filename, "file": file, "pending": entry.get("pending"),
-                         "error": entry.get("error"), "scores": scores})
-            for model, score in scores.items():
-                totals.setdefault(model, []).append(score["score"])
-    average = {m: round(sum(v) / len(v), 3) for m, v in totals.items()}
-    return {"rows": rows, "average": average}
+    return bench.aggregate(storage.user_jobs(user.id, limit=500))
+
+
+@app.get("/api/admin/benchmark")
+def api_admin_benchmark(request: Request):
+    """
+    Свод эталонов аккордов по ВСЕМ пользователям, не только своих.
+
+    `/api/studio/benchmark` отвечает на вопрос «как модель справилась с
+    моими песнями»; этот -- на вопрос, который по мандату важнее: какая
+    модель (main/tuned/nokey/ens) впереди на реальных треках людей, а не
+    только на калибровочном наборе из семи песен. `who` -- почта: без неё
+    не отличить широкий перевес от перевеса, который тянет один активный
+    человек, вставивший много эталонов для одних и тех же песен.
+    """
+    from . import benchmark as bench
+
+    require_admin(request)
+    jobs, who = [], []
+    for job, email in storage.reference_jobs():
+        jobs.append(job)
+        who.append(email or "без почты")
+    return bench.aggregate(jobs, who)
 
 
 DESCRIBE_PER_DAY = 30

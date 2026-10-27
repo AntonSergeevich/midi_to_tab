@@ -1256,6 +1256,25 @@ class Storage:
             ).fetchall()
         return [j for j in (self.job(r["id"]) for r in rows) if j]
 
+    def reference_jobs(self, limit: int = 2000) -> list[tuple[Job, str]]:
+        """Все работы с хотя бы одним вставленным эталоном аккордов -- по
+        ВСЕМ пользователям, а не только по одному (в отличие от user_jobs).
+
+        Для админского свода (web/app.py::api_admin_benchmark): владельцу
+        нужно видеть, какая модель впереди на реальных треках людей, а не
+        только на его собственном калибровочном наборе. Почта идёт тут же
+        join'ом, чтобы в своде было видно, не тянет ли итог один активный
+        человек -- без неё строки было бы не отличить."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT jobs.id AS id, users.email AS email FROM jobs"
+                " JOIN users ON users.id = jobs.user_id"
+                " WHERE json_extract(jobs.result, '$.reference') IS NOT NULL"
+                " ORDER BY jobs.created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [(job, row["email"]) for row in rows if (job := self.job(row["id"]))]
+
     # ---------------------------------------------------------------- платежи
 
     def create_payment(

@@ -113,6 +113,32 @@ def compare_shift(ref, ours, shift: int) -> float:
     return (coverage + vocab_recall + transitions) / 3
 
 
+def aggregate(jobs, labels: list[str] | None = None) -> dict:
+    """Своды эталонов нескольких работ в одну таблицу: итог каждой модели
+    по песням и в среднем. Общая основа и для «моих эталонов» (своя
+    страница пользователя), и для админского свода по всем пользователям
+    (web/app.py) -- отличаются только тем, какие задания в них попадают.
+
+    `labels`, если дан, идёт рядом с `jobs` (та же длина) и добавляет
+    поле `who` к каждой строке -- админский свод так подписывает строки
+    почтой, страница пользователя эту подсказку не передаёт вовсе, и поле
+    не появляется, как и раньше."""
+    rows: list[dict] = []
+    totals: dict[str, list[float]] = {}
+    for job, who in zip(jobs, labels or [None] * len(jobs)):
+        for file, entry in ((job.result or {}).get("reference") or {}).items():
+            scores = entry.get("scores") or {}
+            row = {"id": job.id, "name": job.filename, "file": file,
+                   "pending": entry.get("pending"), "error": entry.get("error"), "scores": scores}
+            if who is not None:
+                row["who"] = who
+            rows.append(row)
+            for model, score in scores.items():
+                totals.setdefault(model, []).append(score["score"])
+    average = {m: round(sum(v) / len(v), 3) for m, v in totals.items()}
+    return {"rows": rows, "average": average}
+
+
 def run_models(path: str) -> dict[str, list[tuple[float, float, str]]]:
     """Разбор трека каждой моделью, что есть на сервере, -- тем же путём,
     что на сайте: тональность по хромаграмме и подсказка мажор/минор."""
