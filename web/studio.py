@@ -1733,13 +1733,16 @@ class StudioRunner:
         charged = float((job.settings or {}).get("charged") or 0)
         by_pack = int((job.settings or {}).get("charged_credit") or 0)
         note = ""
-        if job.counted and by_pack:
-            self.storage.add_studio_credits(job.user_id, by_pack)
-            self.storage.update_job(job_id, counted=False)
-            note = " Генерацию вернули в пакет."
-        elif job.counted and charged:
-            self.storage.add_balance(job.user_id, charged)
-            self.storage.update_job(job_id, counted=False)
-            note = f" Списанные {charged:.0f} ₽ вернули на баланс."
+        # claim_studio_refund снимает отметку "списано" одним атомарным
+        # запросом и говорит, снял ли её именно этот вызов -- см. его
+        # докстринг про узкое окно при падении процесса между возвратом и
+        # отметкой, которое иначе возвращало бы деньги или генерацию дважды.
+        if self.storage.claim_studio_refund(job_id):
+            if by_pack:
+                self.storage.add_studio_credits(job.user_id, by_pack)
+                note = " Генерацию вернули в пакет."
+            elif charged:
+                self.storage.add_balance(job.user_id, charged)
+                note = f" Списанные {charged:.0f} ₽ вернули на баланс."
         self.storage.update_job(job_id, status="error", stage="", error=(
             f"Не получилось: {reason[:300]}.{note}"))

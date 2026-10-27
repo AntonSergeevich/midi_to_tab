@@ -176,6 +176,47 @@ def test_runner_refunds_failed_job(studio_app, monkeypatch):
     assert app_module.storage.user(user.id).balance == pytest.approx(100)
 
 
+def test_concurrent_fail_refunds_once_not_twice(studio_app, monkeypatch):
+    """
+    Два почти одновременных сбоя одной и той же задачи -- deploy/update.sh
+    перезапускает службу на каждый пуш, и если процесс упадёт между
+    возвратом денег и записью отметки "уже вернули" (окно, которое
+    claim_studio_refund закрывает), resume() после перезапуска может
+    достучаться до того же сбоя второй раз. Деньги должны вернуться
+    только один раз, а не дважды за одно списание.
+
+    Оба вызова `_fail` синхронизируются сразу после своего первого же
+    чтения задачи (`storage.job`) -- иначе один поток почти всегда
+    успевает целиком отработать раньше, чем второй вообще начнётся, и
+    гонка просто не проявится в тесте ни с старым кодом, ни с новым.
+    """
+    import threading
+
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_balance(user.id, 100)
+    job_id = _start(client).json()["jobId"]
+    assert app_module.storage.user(user.id).balance == pytest.approx(1)
+    runner = app_module.studio.StudioRunner(app_module.storage, app_module.DATA_DIR)
+
+    barrier = threading.Barrier(2)
+    original_job = app_module.storage.job
+
+    def synced_job(job_id_):
+        found = original_job(job_id_)
+        barrier.wait()
+        return found
+
+    monkeypatch.setattr(app_module.storage, "job", synced_job)
+
+    threads = [threading.Thread(target=runner._fail, args=(job_id, "видеокарта упала")) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert app_module.storage.user(user.id).balance == pytest.approx(100)
+
+
 def test_a_crash_right_after_the_gpu_answer_does_not_resubmit_the_job(studio_app, monkeypatch):
     """
     Между тем, как видеокарта приняла задачу (call POST .../run вернул id --
