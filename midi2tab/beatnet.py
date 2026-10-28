@@ -103,13 +103,20 @@ def _peaks(values):
                             & (values > 0))
     merged: list[float] = []
     count = 0
+    last_frame = None
     for frame in frames:
-        if merged and frame - merged[-1] <= 1:
+        # Сравнение -- с последним кадром плато, не со скользящей
+        # серединой (merged[-1]): середина при росте группы отстаёт от
+        # кадров, и плато из 3+ подряд идущих кадров (частое дело на
+        # int8-модели, см. докстринг файла) рвалось на две доли вместо
+        # одной, хотя последний кадр всё ещё соседствует с предыдущим.
+        if merged and frame - last_frame <= 1:
             count += 1
             merged[-1] += (frame - merged[-1]) / count
         else:
             merged.append(float(frame))
             count = 1
+        last_frame = frame
     return np.array(merged) / FPS
 
 

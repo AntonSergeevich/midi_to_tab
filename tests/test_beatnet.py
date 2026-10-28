@@ -41,6 +41,25 @@ def numbered(frames):
     return spect
 
 
+@pytest.mark.parametrize("width", [2, 3, 4, 6])
+def test_peaks_merges_a_tied_plateau_of_any_width_into_one_beat(width):
+    """maximum_filter1d оставляет плато из нескольких кадров с одинаковым
+    максимумом (частое дело на int8-модели) -- это одна доля, не несколько.
+    Было: сравнение шло со скользящей серединой уже слитой группы
+    (merged[-1]), а не с последним кадром плато -- середина при росте
+    группы отстаёт, и плато шире двух кадров рвалось на две доли."""
+    values = np.full(30, -1000.0, dtype=np.float32)
+    values[10:10 + width] = 5.0
+    assert len(beatnet._peaks(values)) == 1
+
+
+def test_peaks_still_separates_genuinely_different_beats():
+    values = np.full(30, -1000.0, dtype=np.float32)
+    values[10:13] = 5.0
+    values[20:22] = 5.0
+    assert len(beatnet._peaks(values)) == 2
+
+
 def test_without_model_file_nothing_changes(monkeypatch, tmp_path):
     monkeypatch.setattr(beatnet, "MODEL", tmp_path / "нет.onnx")
     beatnet._session.cache_clear()
