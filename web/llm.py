@@ -6,6 +6,8 @@
     BEGET_AI_API_KEY=...            ключ из панели Beget (ИИ-шлюз -> API-ключи)
     NASLUX_LLM_BASE=...             адрес шлюза (по умолчанию https://api-llm.beget.com/v1)
     NASLUX_LLM_MODEL=...            модель (по умолчанию claude-opus-5.5)
+    NASLUX_LLM_EFFORT=...           рассуждения модели (по умолчанию low -- без них,
+                                    втрое дешевле; пусто -- как решит шлюз)
     NASLUX_LLM=0                    выключить, тексты снова сочиняет Mureka
 
 Сейчас здесь -- сочинение и продление текстов песен (web/app.py,
@@ -40,13 +42,19 @@ def model() -> str:
     return os.environ.get("NASLUX_LLM_MODEL", DEFAULT_MODEL)
 
 
-def chat(messages: list[dict], max_tokens: int = 1500, temperature: float = 0.9, timeout: int = 90) -> str:
+def chat(messages: list[dict], max_tokens: int = 3000, temperature: float = 0.9, timeout: int = 90) -> str:
     """Один ответ модели. Ошибки -- RuntimeError с коротким текстом (без ключа)."""
     base = os.environ.get("NASLUX_LLM_BASE", DEFAULT_BASE).rstrip("/")
+    effort = os.environ.get("NASLUX_LLM_EFFORT", "low")
     request = urllib.request.Request(
         f"{base}/chat/completions", method="POST",
+        # Claude через шлюз по умолчанию сперва «думает»: замер 28.10 -- 2 200
+        # токенов рассуждений на один текст, 36 с и 6,8 ₽ вместо 14 с и 2 ₽,
+        # а при малом max_tokens рассуждения съедали весь ответ (пустой текст).
+        # Для песни рассуждения не нужны: reasoning_effort=low их отключает
         data=json.dumps({"model": model(), "messages": messages, "max_tokens": max_tokens,
-                         "temperature": temperature}).encode(),
+                         "temperature": temperature,
+                         **({"reasoning_effort": effort} if effort else {})}).encode(),
         headers={"Authorization": f"Bearer {key()}", "Content-Type": "application/json",
                  "User-Agent": "naslux/1.0"},
     )
@@ -61,9 +69,17 @@ def chat(messages: list[dict], max_tokens: int = 1500, temperature: float = 0.9,
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         raise RuntimeError(f"шлюз не ответил: {type(error).__name__}") from error
     try:
-        return json.loads(body)["choices"][0]["message"]["content"] or ""
+        data = json.loads(body)
+        choice = data["choices"][0]
+        text = choice["message"].get("content") or ""
     except (ValueError, KeyError, IndexError, TypeError) as error:
         raise RuntimeError("шлюз прислал непонятный ответ") from error
+    usage = data.get("usage") or {}
+    print(f"ИИ-шлюз: {model()}, {usage.get('completion_tokens')} ток., {usage.get('cost_rub')} ₽, "
+          f"{choice.get('finish_reason')}", flush=True)
+    if not text.strip() and choice.get("finish_reason") == "length":
+        raise RuntimeError("ответ не уместился в лимит токенов")
+    return text
 
 
 # ------------------------------------------------------------------ тексты

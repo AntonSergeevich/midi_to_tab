@@ -23,33 +23,6 @@ jobs:
       PROMPT: ${{ inputs.prompt }}
     steps:
       - uses: actions/checkout@v4
-      - name: Рассуждения модели -- сколько стоят (без ключа и без текста)
-        run: |
-          [ -n "$BEGET_AI_API_KEY" ] || { echo "::error::Секрет BEGET_AI_API_KEY не задан"; exit 1; }
-          python3 - <<'PY'
-          import json, os, time, urllib.request, urllib.error
-          from web import llm
-          ask = [{"role": "system", "content": llm.RULES},
-                 {"role": "user", "content": "Напиши песню. О чём и какая она:\n" + os.environ["PROMPT"]
-                  + '\n\nОтветь одним JSON без пояснений: {"title": "название", "lyrics": "текст с пометками"}'}]
-          tries = {"обычно": {}, "effort=low": {"reasoning_effort": "low"}, "effort=none": {"reasoning_effort": "none"},
-                   "thinking=off": {"thinking": {"type": "disabled"}}}
-          for name, extra in tries.items():
-              body = {"model": os.environ["NASLUX_LLM_MODEL"], "max_tokens": 6000, "messages": ask, **extra}
-              req = urllib.request.Request("https://api-llm.beget.com/v1/chat/completions", method="POST",
-                  data=json.dumps(body).encode(), headers={"Authorization": "Bearer " + os.environ["BEGET_AI_API_KEY"],
-                  "Content-Type": "application/json", "User-Agent": "naslux/1.0"})
-              t = time.time()
-              try:
-                  d = json.loads(urllib.request.urlopen(req, timeout=180).read().decode())
-              except urllib.error.HTTPError as e:
-                  print(f"::notice title={name}::HTTP {e.code} {e.read().decode()[:300]}"); continue
-              c = d["choices"][0]; u = d.get("usage") or {}
-              print(f"::notice title={name}::{time.time() - t:.1f} с, finish={c.get('finish_reason')}, "
-                    f"ответ {len(c['message'].get('content') or '')} симв., токенов вых. {u.get('completion_tokens')}, "
-                    f"из них рассуждения {(u.get('completion_tokens_details') or {}).get('reasoning_tokens')}, "
-                    f"цена {u.get('cost_rub')} ₽")
-          PY
       - name: Сочинить и продлить
         run: |
           [ -n "$BEGET_AI_API_KEY" ] || { echo "::error::Секрет BEGET_AI_API_KEY не задан"; exit 1; }
