@@ -1,0 +1,30 @@
+name: Проба «Дописать с ИИ» на naslux.ru
+
+# Как посетитель: заходит в Студию (получает куку), жмёт «Дописать с ИИ»
+# на боевом сайте и показывает ответ целиком -- код, время, тело. Плюс сбои
+# ИИ-шлюза из /api/health. Тратит одну подсказку (~1 ₽ с баланса Beget).
+on:
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      NASLUX_HEALTH_TOKEN: ${{ secrets.NASLUX_HEALTH_TOKEN }}
+    steps:
+      - name: Нажать «Дописать с ИИ»
+        run: |
+          set -u
+          jar=$(mktemp)
+          curl -sS -c "$jar" -b "$jar" -o /dev/null https://naslux.ru/studio
+          ai=$(curl -sS -c "$jar" -b "$jar" https://naslux.ru/api/studio | jq -c '{styleAi, ready}')
+          echo "::notice title=Студия::$ai"
+          out=$(curl -sS -c "$jar" -b "$jar" -w '\n%{http_code} за %{time_total}с' --max-time 120 \
+            -F 'style=гаражный рок, мрачно' -F 'lyrics=' https://naslux.ru/api/studio/style 2>&1 || true)
+          echo "::notice title=Ответ /api/studio/style::$(echo "$out" | tail -n1) | $(echo "$out" | sed '$d' | head -c 600 | tr '\n' ' ')"
+      - name: Сбои ИИ-шлюза
+        run: |
+          curl -sS -H "Authorization: Bearer ${NASLUX_HEALTH_TOKEN}" https://naslux.ru/api/health \
+            | jq -c '.["ии_шлюз_сбои"] // "нет поля (старая версия сайта)"' \
+            | head -c 3000 | sed 's/^/::notice title=Сбои ИИ-шлюза::/'
