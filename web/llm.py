@@ -16,14 +16,25 @@
 """
 from __future__ import annotations
 
+import collections
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 
 DEFAULT_BASE = "https://api-llm.beget.com/v1"
 DEFAULT_MODEL = "claude-opus-5.5"
+
+
+# Последние сбои шлюза -- для проверки сайта (/api/health): журналов сервера
+# из облака не видно, а причину («не тот ответ», «нет денег», таймаут) надо знать
+errors: collections.deque = collections.deque(maxlen=10)
+
+
+def note_error(where: str, error: str) -> None:
+    errors.append({"когда": time.strftime("%Y-%m-%d %H:%M:%S"), "где": where, "что": str(error)[:300]})
 
 
 class LlmNoMoney(RuntimeError):
@@ -63,10 +74,12 @@ def chat(messages: list[dict], max_tokens: int = 3000, temperature: float = 0.9,
             body = response.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as error:
         text = error.read().decode("utf-8", "replace")[:200]
+        note_error("шлюз", f"HTTP {error.code}: {text}")
         if error.code in (402, 403) or (error.code == 429 and "balance" in text.lower()):
             raise LlmNoMoney(f"шлюз ответил {error.code}: {text}") from error
         raise RuntimeError(f"шлюз ответил {error.code}: {text}") from error
     except (urllib.error.URLError, TimeoutError, OSError) as error:
+        note_error("шлюз", f"не ответил: {type(error).__name__}: {error}")
         raise RuntimeError(f"шлюз не ответил: {type(error).__name__}") from error
     try:
         data = json.loads(body)
@@ -181,19 +194,34 @@ STYLE_RULES = """Ты -- музыкальный продюсер. Человек
   до 300 символов."""
 
 
+def _field(answer: str, name: str) -> str:
+    """Поле из ответа модели: JSON; не разобрался (кавычки внутри текста) --
+    вытащить значение по имени поля."""
+    data = _json_answer(answer)
+    if data.get(name):
+        return str(data[name])
+    found = re.search(r'"%s"\s*:\s*"(.*?)"\s*(?:,\s*"[a-z]+"\s*:|\}\s*$)' % name, answer or "", re.S)
+    return found.group(1) if found else ""
+
+
 def write_style(style: str, lyrics: str = "") -> dict:
     """Стиль человека -> {"style": по-русски для поля, "tags": по-английски для YuE2}."""
     hint = f"\n\nТекст песни (для настроения, не пересказывай):\n{lyrics.strip()[:1200]}" if lyrics.strip() else ""
-    answer = chat([
+    ask = [
         {"role": "system", "content": STYLE_RULES},
         {"role": "user", "content": "Стиль от человека:\n" + style.strip()[:500] + hint
-         + '\n\nОтветь одним JSON без пояснений: {"style": "...", "tags": "..."}'},
-    ], max_tokens=800, temperature=0.7)
-    data = _json_answer(answer)
-    out = re.sub(r"\s+", " ", str(data.get("style") or "")).strip(" \"«»")[:500]
-    tags = re.sub(r"\s+", " ", str(data.get("tags") or "")).strip(" \"")[:500]
-    if not out:
-        raise RuntimeError("модель не прислала стиль")
-    if re.search(r"[А-Яа-яЁё]", tags):
-        tags = ""                  # теги -- только латиница, иначе YuE2 их не поймёт
-    return {"style": out, "tags": tags}
+         + '\n\nОтветь одним JSON без пояснений, без кавычек внутри значений: {"style": "...", "tags": "..."}'},
+    ]
+    answer = ""
+    for attempt in range(2):                 # непонятный ответ -- ещё одна попытка
+        answer = chat(ask, max_tokens=1200, temperature=0.7)
+        out = re.sub(r"\s+", " ", _field(answer, "style")).strip(" \"«»")[:500]
+        if not out and answer.strip() and not answer.strip().startswith("{"):
+            out = re.sub(r"\s+", " ", answer).strip(" \"«»")[:500]     # ответил просто текстом
+        if out:
+            tags = re.sub(r"\s+", " ", _field(answer, "tags")).strip(" \"")[:500]
+            if re.search(r"[А-Яа-яЁё]", tags):
+                tags = ""              # теги -- только латиница, иначе YuE2 их не поймёт
+            return {"style": out, "tags": tags}
+        note_error("стиль", f"непонятный ответ (попытка {attempt + 1}): {answer[:200]}")
+    raise RuntimeError("модель не прислала стиль")

@@ -990,7 +990,7 @@ $('styleAi').addEventListener('click', async () => {
   btn.classList.remove('busy');
   btn.querySelector('span:last-child').textContent = 'Дописать с ИИ';
   if (!response || !response.ok || !data.style) {
-    toast(data.detail || 'Не получилось дописать стиль — попробуйте ещё раз');
+    toast(data.detail || `Не получилось дописать стиль (${response ? `ответ ${response.status}` : 'нет связи'}) — попробуйте ещё раз`);
     styleAiState();
     return;
   }

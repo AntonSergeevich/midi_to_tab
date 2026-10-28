@@ -81,6 +81,7 @@ jobs:
           echo "::notice title=GPU за 30 дней::$(echo "$body" | jq -c '.["gpu_за_30_дней"] // "нет данных"')"
           echo "::notice title=Шумодав голоса::$(echo "$body" | jq -r '.["шумодав_голоса"] // "нет данных"')"
           echo "::notice title=Тексты песен::$(echo "$body" | jq -r '.["тексты_песен"] // "нет данных"')"
+          echo "::notice title=Сбои ИИ-шлюза::$(echo "$body" | jq -c '.["ии_шлюз_сбои"] // []')"
 
           total="$(echo "$body" | jq -r '.["уведомлений_за_последние"]')"
           rejected="$(echo "$body" | jq -r '.["из_них_отклонено"]')"

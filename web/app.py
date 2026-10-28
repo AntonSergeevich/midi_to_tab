@@ -431,6 +431,7 @@ def api_health(request: Request):
     return {
         "оплата": gateway.diagnose(),
         "шумодав_голоса": "deepfilternet" if voicefx_ready() else "ffmpeg (deep-filter не установлен)",
+        "ии_шлюз_сбои": list(llm.errors),
         "тексты_песен": f"ИИ-шлюз Beget ({llm.model()})" if llm.ready() else (
             "Mureka" if studio.mureka_key() else "выключено"),
         "уведомлений_за_последние": len(recent),
@@ -2643,6 +2644,7 @@ def api_studio_style(request: Request, style: str = Form(...), lyrics: str = For
         answer = llm.write_style(style, lyrics)
     except RuntimeError as error:
         print(f"ИИ-шлюз: стиль не дописан ({error})", flush=True)
+        llm.note_error("стиль", error)
         raise HTTPException(503 if isinstance(error, llm.LlmNoMoney) else 502,
                             "Не получилось дописать стиль — попробуйте ещё раз") from error
     studio.remember_style_tags(answer["style"], answer["tags"])
