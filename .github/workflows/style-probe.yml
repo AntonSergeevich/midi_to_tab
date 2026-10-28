@@ -18,7 +18,7 @@ jobs:
           set -u
           jar=$(mktemp)
           curl -sS -c "$jar" -b "$jar" -o /dev/null https://naslux.ru/studio
-          ai=$(curl -sS -c "$jar" -b "$jar" https://naslux.ru/api/studio | jq -c '{styleAi, ready}')
+          ai=$(curl -sS -c "$jar" -b "$jar" https://naslux.ru/api/studio | jq -c '{styleAi, ready}' 2>&1 || true)
           echo "::notice title=Студия::$ai"
           out=$(curl -sS -c "$jar" -b "$jar" -w '\n%{http_code} за %{time_total}с' --max-time 120 \
             -F 'style=гаражный рок, мрачно' -F 'lyrics=' https://naslux.ru/api/studio/style 2>&1 || true)
