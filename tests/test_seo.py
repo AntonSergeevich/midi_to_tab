@@ -28,18 +28,20 @@ def client(tmp_path, monkeypatch):
         yield test_client
 
 
-def test_home_is_upload_first_and_studio_has_its_page(client):
+def test_home_sells_the_studio_and_keeps_free_chords_below(client):
+    """Главная -- витрина Студии (28.10, решение владельца: главное -- Студия
+    и мультитрек): первая кнопка ведёт в Студию, разбор аккордов -- ниже,
+    своим разделом, с прежней загрузкой; цены -- с сервера."""
     home = client.get("/").text
-    assert 'id="drop"' in home and 'href="/studio" class="studio-card"' in home
-    # загрузка -- сразу под заголовком, раньше схемы и Студии
-    assert home.index("<h1>") < home.index('id="drop"') < home.index('class="flow"') \
-        < home.index('class="studio-card"')
+    assert home.index("<h1>") < home.index('href="/studio" class="lp-btn"') < home.index('id="chords"') \
+        < home.index('id="drop"') < home.index('class="flow"')
+    assert "799 ₽" in home and "40 песен" in home and "{{" not in home
     assert '<link rel="canonical" href="https://naslux.ru/">' in home
-    assert "{{" not in home and 'href="/podbor-akkordov"' in home
+    assert 'href="/podbor-akkordov"' in home
     studio = client.get("/studio").text
     assert 'id="modes"' in studio and 'href="https://naslux.ru/studio"' in studio and "{{" not in studio
     moved = client.get("/chords", follow_redirects=False)
-    assert moved.status_code == 301 and moved.headers["location"] == "/"
+    assert moved.status_code == 301 and moved.headers["location"] == "/#chords"
 
 
 def test_landings_have_meta_faq_and_cta(client):

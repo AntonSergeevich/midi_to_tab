@@ -908,7 +908,7 @@ header.top > nav.topnav {
   content: ""; width: 16px; height: 16px; flex: none; background: currentColor;
   -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat;
 }
-.topnav > a[href="/"] {
+.topnav > a[href="/"], .topnav > a[href="#chords"], .topnav > a[href="/#chords"] {
   --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12h2l2-6 3 12 3-9 2 5 2-2h4'/%3E%3C/svg%3E");
 }
 .topnav > a[href="/studio"] {
@@ -1648,3 +1648,159 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
 .st-styleai { border-color: rgba(217,154,78,.55); color: var(--accent); }
 .st-styleai:disabled { opacity: .45; cursor: not-allowed; border-color: var(--border); color: var(--muted); }
 .st-styleai.busy { opacity: .8; cursor: progress; }
+
+/* ================= Главная: витрина Студии (lp-*) =================
+   Первый экран продаёт Студию: обещание «нейросеть пишет -- поёте вы»,
+   две кнопки и живая картинка мультитрека (ваш голос вместо голоса
+   нейросети). Разбор аккордов -- ниже, отдельным разделом #chords. */
+.topnav .nav-studio { color: var(--accent); border-color: rgba(217,154,78,.55); }
+.lp-hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 48px; align-items: center;
+  padding: 34px 0 40px; }
+.lp-kicker { margin: 0 0 12px; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--accent); }
+.lp-hero h1 { margin: 0 0 18px; font-size: 58px; line-height: 1.02; letter-spacing: -1.6px; font-weight: 800; }
+.lp-hero h1 span { background: linear-gradient(92deg, #f6c584 0%, #d99a4e 45%, #e2734a 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lp-lead { margin: 0 0 26px; font-size: 18px; line-height: 1.55; color: #b9bdcb; max-width: 560px; }
+.lp-cta { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 22px; }
+.lp-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 52px; padding: 0 26px;
+  border-radius: 999px; font-weight: 700; font-size: 16px; text-decoration: none; color: #1a1206;
+  background: linear-gradient(180deg, #f0b66c, #d99a4e); box-shadow: 0 10px 30px rgba(217,154,78,.35);
+  transition: transform .15s ease, box-shadow .15s ease; }
+.lp-btn:hover { transform: translateY(-1px); box-shadow: 0 14px 36px rgba(217,154,78,.45); }
+.lp-btn.ghost { background: transparent; color: var(--text); box-shadow: none; border: 1px solid var(--border); }
+.lp-btn.ghost:hover { border-color: var(--accent); color: var(--accent); }
+.lp-trust { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13.5px;
+  color: var(--muted); }
+.lp-trust li::before { content: "✓"; color: var(--green); margin-right: 6px; font-weight: 700; }
+.lp-trust b { color: var(--text); font-weight: 600; }
+
+/* живое окно мультитрека */
+.lp-stage { position: relative; }
+.lp-stage::before { content: ""; position: absolute; inset: -40px -20px; z-index: 0; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(217,154,78,.22), transparent 70%); filter: blur(10px); }
+.lp-window { position: relative; z-index: 1; border-radius: 18px; overflow: hidden; border: 1px solid #3a3f4e;
+  background: linear-gradient(180deg, #20232d, #191b23); box-shadow: 0 30px 80px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05);
+  transform: perspective(1400px) rotateY(-6deg) rotateX(3deg); transform-origin: left center; }
+.lp-wbar { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #2c303c;
+  font-size: 13px; color: var(--muted); }
+.lp-play { width: 34px; height: 34px; border-radius: 50%; flex: none; position: relative;
+  background: linear-gradient(180deg, #f0b66c, #d99a4e); box-shadow: 0 0 0 4px rgba(217,154,78,.18); }
+.lp-play::before, .lp-play::after { content: ""; position: absolute; top: 11px; width: 4px; height: 12px; border-radius: 2px;
+  background: #1a1206; }
+.lp-play::before { left: 12px; } .lp-play::after { left: 18px; }
+.lp-time { color: var(--text); font-variant-numeric: tabular-nums; }
+.lp-chip { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid #3a3f4e; background: #252833; color: var(--text); font-size: 12px; white-space: nowrap; }
+.lp-chip + .lp-chip { margin-left: 0; }
+.lp-chip.rec i { width: 8px; height: 8px; border-radius: 50%; background: var(--red); animation: lp-blink 1.2s ease-in-out infinite; }
+.lp-chip.mix { color: var(--green); border-color: rgba(76,175,125,.45); }
+.lp-lanes { position: relative; padding: 6px 0; }
+.lp-lane { display: grid; grid-template-columns: 128px 52px minmax(0, 1fr); align-items: center; gap: 8px;
+  height: 46px; padding: 0 12px; border-bottom: 1px solid #262a35; --c: #8b90a3; }
+.lp-lane:last-of-type { border-bottom: 0; }
+.lp-name { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; white-space: nowrap;
+  overflow: hidden; }
+.lp-name i { width: 8px; height: 8px; border-radius: 2px; background: var(--c); flex: none; }
+.lp-name em { font-style: normal; font-size: 10px; color: var(--red); font-weight: 700; animation: lp-blink 1.2s ease-in-out infinite; }
+.lp-ms { display: flex; gap: 4px; }
+.lp-ms b { width: 22px; height: 20px; border-radius: 5px; display: grid; place-items: center; font-size: 10px;
+  border: 1px solid #343846; color: var(--muted); background: #252833; }
+.lp-ms b.on { background: #c0563f; border-color: #c0563f; color: #fff; }
+.lp-wave { display: flex; align-items: center; gap: 2px; height: 30px; min-width: 0; overflow: hidden; }
+.lp-wave i { flex: 1 1 0; min-width: 1px; border-radius: 2px; background: var(--c); opacity: .85; }
+.lp-lane.you { --c: #e8ad63; background: linear-gradient(90deg, rgba(217,154,78,.10), transparent 60%); }
+.lp-lane.you .lp-wave i { box-shadow: 0 0 10px rgba(232,173,99,.35); }
+.lp-lane.ai { --c: #6b7080; }
+.lp-lane.ai .lp-name { color: var(--muted); text-decoration: line-through; }
+.lp-lane.ai .lp-wave { opacity: .35; }
+.lp-lane.gtr { --c: #e2734a; } .lp-lane.bass { --c: #8b7cf6; } .lp-lane.drm { --c: #3cc0a5; }
+.lp-head { position: absolute; top: 0; bottom: 0; left: calc(12px + 128px + 8px + 52px + 8px); width: 2px;
+  background: #fff; box-shadow: 0 0 12px rgba(255,255,255,.7); animation: lp-head 7s linear infinite; }
+.lp-head::before { content: ""; position: absolute; top: 0; left: -5px; width: 12px; height: 10px; border-radius: 0 0 6px 6px; background: #fff; }
+.lp-float { position: absolute; z-index: 2; padding: 8px 12px; border-radius: 12px; font-size: 13px; font-weight: 600;
+  background: rgba(37,40,51,.92); border: 1px solid #3a3f4e; box-shadow: 0 12px 30px rgba(0,0,0,.45);
+  backdrop-filter: blur(6px); animation: lp-float 5s ease-in-out infinite; white-space: nowrap; }
+.lp-float.f1 { top: -18px; right: 8%; color: var(--accent); }
+.lp-float.f2 { bottom: -18px; left: 6%; animation-delay: -1.6s; }
+.lp-float.f3 { bottom: -18px; right: 6%; color: var(--green); animation-delay: -3.2s; }
+@keyframes lp-head { from { transform: translateX(0); } to { transform: translateX(calc(var(--lp-w, 300px))); } }
+@keyframes lp-blink { 50% { opacity: .35; } }
+@keyframes lp-float { 50% { transform: translateY(-6px); } }
+
+/* разделы */
+.lp-sec { margin: 56px 0 0; }
+.lp-sec > h2 { font-size: 32px; letter-spacing: -.6px; line-height: 1.15; margin: 0 0 22px; text-align: center; }
+.lp-sub { text-align: center; max-width: 620px; margin: -10px auto 22px; }
+.lp-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.lp-steps li { position: relative; padding: 20px 18px; border-radius: 16px; background: var(--panel); border: 1px solid var(--border); }
+.lp-steps li span { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; margin-bottom: 12px;
+  background: rgba(217,154,78,.16); color: var(--accent); font-weight: 800; }
+.lp-steps b, .lp-card b { display: block; font-size: 16.5px; margin-bottom: 6px; }
+.lp-steps small, .lp-card small { display: block; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.lp-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.lp-card { padding: 20px 18px; border-radius: 16px; background: var(--panel); border: 1px solid var(--border);
+  transition: border-color .15s ease, transform .15s ease; }
+.lp-card:hover { border-color: #4a4f60; transform: translateY(-2px); }
+.lp-card.hot { border-color: rgba(217,154,78,.55); background: radial-gradient(300px 140px at 0 0, rgba(217,154,78,.14), transparent 70%), var(--panel); }
+
+/* примеры песен (если владелец выбрал их в настройках) */
+.lp-demos { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.lp-demo { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 16px; background: var(--panel); border: 1px solid var(--border); }
+.lp-demo b { font-size: 15px; }
+.lp-demo audio { width: 100%; height: 40px; }
+.lp-demo small { color: var(--muted); }
+
+/* тарифы коротко */
+.lp-price { display: flex; flex-direction: column; align-items: center; }
+.lp-price-main { width: 100%; max-width: 560px; padding: 28px; border-radius: 22px; text-align: center;
+  border: 1px solid rgba(217,154,78,.55);
+  background: radial-gradient(420px 200px at 50% 0, rgba(217,154,78,.18), transparent 70%), var(--panel); }
+.lp-price-num { display: block; font-size: 48px; font-weight: 800; letter-spacing: -1px; margin: 4px 0 14px; }
+.lp-price-num small { font-size: 16px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+.lp-price-main ul { list-style: none; margin: 0 0 22px; padding: 0; display: grid; gap: 8px; color: #c3c7d4; }
+.lp-price-main li::before { content: "✓"; color: var(--green); margin-right: 8px; font-weight: 700; }
+.lp-price-note { max-width: 560px; text-align: center; margin: 14px auto 0; font-size: 13.5px; }
+
+/* вопросы */
+.lp-faq { max-width: 760px; margin-left: auto; margin-right: auto; }
+.lp-faq details { border-bottom: 1px solid var(--border); padding: 4px 0; }
+.lp-faq summary { cursor: pointer; padding: 14px 0; font-weight: 600; font-size: 16px; list-style: none; position: relative; padding-right: 28px; }
+.lp-faq summary::-webkit-details-marker { display: none; }
+.lp-faq summary::after { content: "+"; position: absolute; right: 4px; top: 10px; font-size: 22px; color: var(--accent); transition: transform .2s; }
+.lp-faq details[open] summary::after { transform: rotate(45deg); }
+.lp-faq p { margin: 0 0 14px; color: #b9bdcb; }
+#chords .drop-hero { margin-top: 0; }
+
+@media (max-width: 960px) {
+  .lp-hero { grid-template-columns: 1fr; gap: 34px; padding-top: 18px; text-align: center; }
+  .lp-lead { margin-left: auto; margin-right: auto; }
+  .lp-cta, .lp-trust { justify-content: center; }
+  .lp-window { transform: none; }
+  .lp-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .lp-hero h1 { font-size: 38px; letter-spacing: -1px; }
+  .lp-lead { font-size: 16px; }
+  .lp-btn { width: 100%; }
+  .lp-cta { flex-direction: column; }
+  .lp-trust { flex-direction: column; align-items: center; gap: 6px; }
+  .lp-lane { grid-template-columns: 96px 46px minmax(0, 1fr); padding: 0 8px; height: 40px; gap: 6px; }
+  .lp-name { font-size: 11.5px; }
+  .lp-name em { display: none; }
+  .lp-wave i:nth-child(n+41) { display: none; }       /* узкий экран: волна короче */
+  .lp-stage { overflow-x: clip; padding: 22px 0; margin: 0 0 -22px; }
+  .lp-head { left: calc(8px + 96px + 6px + 46px + 6px); }
+  .lp-chip.mix { display: none; }
+  .lp-float { font-size: 12px; padding: 6px 10px; }
+  .lp-float.f2 { left: 2%; }
+  .lp-float.f3 { right: 2%; }
+  .lp-sec { margin-top: 44px; }
+  .lp-sec > h2 { font-size: 25px; }
+  .lp-steps, .lp-grid { grid-template-columns: 1fr; }
+  .lp-price-num { font-size: 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp-head, .lp-float, .lp-chip.rec i, .lp-name em { animation: none; }
+}

@@ -18,8 +18,8 @@
   <header class="top">
     <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
     <nav class="topnav" aria-label="Разделы">
-      <a href="/" aria-current="page">Разобрать трек</a>
-      <a href="/studio">Студия</a>
+      <a href="/studio" class="nav-studio">Студия</a>
+      <a href="#chords">Аккорды</a>
       <a href="/pricing">Тарифы</a>
       <a href="/account" id="account" class="who">Вход</a>
       <a href="/pricing" id="access" class="badge" hidden></a>
@@ -27,16 +27,103 @@
   </header>
   <script src="/static/nav.js"></script>
 
-  <!-- Первый экран: обещание -> загрузка (главное действие) -> как это работает -> Студия -->
-  <section class="hero" id="hero">
-    <h1>Разберите любую песню&nbsp;—<br>или создайте свою</h1>
-    <p class="lead">
-      Аккорды, табы, MIDI и отдельные дорожки из любого трека. А если трека ещё нет —
-      нейросеть напишет песню по вашему тексту или сделает кавер. Всё в одном окне.
-    </p>
+  <!-- Первый экран: обещание Студии -- создать песню и спеть её самому -->
+  <section class="lp-hero" id="hero">
+    <div class="lp-hero-text">
+      <p class="lp-kicker">Студия песен на нейросети · по-русски</p>
+      <h1>Нейросеть пишет музыку.<br><span>Поёте — вы.</span></h1>
+      <p class="lp-lead">Опишите идею — NASLUX сочинит текст и споёт песню в любом стиле.
+        Разложите её на дорожки, уберите голос нейросети, запишите свой прямо в браузере
+        и сведите готовый трек одной кнопкой.</p>
+      <div class="lp-cta">
+        <a href="/studio" class="lp-btn">Создать песню бесплатно</a>
+        <a href="#how" class="lp-btn ghost">Как это работает</a>
+      </div>
+      <ul class="lp-trust">
+        <li><b>{{WELCOME_WHAT}}</b> — бесплатно после регистрации</li>
+        <li>Оплата картой РФ, в рублях</li>
+        <li>Без VPN — на телефоне и компьютере</li>
+      </ul>
+    </div>
+
+    <!-- Живая картинка Студии: дорожки, курсор, ваш голос вместо голоса нейросети -->
+    <div class="lp-stage" aria-hidden="true">
+      <div class="lp-window">
+        <div class="lp-wbar">
+          <span class="lp-play"></span><b class="lp-time">0:42</b><span class="lp-total">/ 3:18</span>
+          <span class="lp-chip rec"><i></i>Запись</span>
+          <span class="lp-chip mix">Свести ✓</span>
+        </div>
+        <div class="lp-lanes">
+          <div class="lp-lane you"><span class="lp-name"><i></i>Ваш голос<em>● запись</em></span><span class="lp-ms"><b>M</b><b>S</b></span><span class="lp-wave" data-seed="7"></span></div>
+          <div class="lp-lane ai off"><span class="lp-name"><i></i>Голос ИИ</span><span class="lp-ms"><b class="on">M</b><b>S</b></span><span class="lp-wave" data-seed="3"></span></div>
+          <div class="lp-lane gtr"><span class="lp-name"><i></i>Гитара</span><span class="lp-ms"><b>M</b><b>S</b></span><span class="lp-wave" data-seed="11"></span></div>
+          <div class="lp-lane bass"><span class="lp-name"><i></i>Бас</span><span class="lp-ms"><b>M</b><b>S</b></span><span class="lp-wave" data-seed="5"></span></div>
+          <div class="lp-lane drm"><span class="lp-name"><i></i>Барабаны</span><span class="lp-ms"><b>M</b><b>S</b></span><span class="lp-wave" data-seed="9"></span></div>
+          <span class="lp-head"></span>
+        </div>
+      </div>
+      <span class="lp-float f1">✦ Стиль дописан ИИ</span>
+      <span class="lp-float f2">2 версии готовы</span>
+      <span class="lp-float f3">Громкость для публикации ✓</span>
+    </div>
   </section>
 
-  <!-- Главное действие страницы: крупно, сразу под заголовком -->
+  <!-- Как это работает: путь от идеи до трека -->
+  <section class="lp-sec" id="how">
+    <h2>От идеи до готового трека — за вечер</h2>
+    <ol class="lp-steps">
+      <li><span>1</span><b>Опишите песню</b><small>Пару слов о стиле — ИИ допишет жанр, темп, голос и звук.
+        Нет текста — «Сочинить» напишет его с рифмой и припевом.</small></li>
+      <li><span>2</span><b>Нейросеть споёт</b><small>Две версии на выбор. Или кавер: ваша песня в другом жанре.</small></li>
+      <li><span>3</span><b>Спойте сами</b><small>Мультитрек разложит песню на дорожки: уберите голос нейросети
+        и запишите свой в наушниках — ровно в такт.</small></li>
+      <li><span>4</span><b>Сведите и поделитесь</b><small>Голос в миксе одной кнопкой, шумодав и подтяжка нот.
+        Ссылка «послушать» — друзьям и группе.</small></li>
+    </ol>
+  </section>
+
+  {{DEMOS}}
+
+  <!-- Что умеет Студия -->
+  <section class="lp-sec">
+    <h2>Всё, что нужно музыканту, — в одном окне</h2>
+    <div class="lp-grid">
+      <div class="lp-card hot"><b>🎛 Мультитрек в браузере</b><small>Дорожки, M и S, громкость, FX, метроном по долям
+        самой песни, резка и монтаж кусков. Работает и на телефоне.</small></div>
+      <div class="lp-card"><b>🎙 Запись голоса</b><small>Под трек с курсора, с отсчётом. Нейросеть уберёт шум
+        комнаты и подтянет ноты к тональности.</small></div>
+      <div class="lp-card"><b>✦ Тексты и стиль с ИИ</b><small>Сочинит песню по описанию, допишет куплет, превратит
+        «мрачно, как зимой в подвале» в точное описание звука.</small></div>
+      <div class="lp-card"><b>🎸 Каверы</b><small>Ваша песня — в другом жанре: из баллады в рок, из рока в джаз.</small></div>
+      <div class="lp-card"><b>🎚 Минус в один клик</b><small>Голос отдельно, музыка отдельно — из любой записи.
+        Или все партии: гитара, бас, барабаны, клавиши.</small></div>
+      <div class="lp-card"><b>🎼 Аккорды, табы, MIDI</b><small>Любой песни — аккорды бесплатно, табы для Guitar Pro
+        и MIDI по инструментам.</small></div>
+    </div>
+  </section>
+
+  <!-- Тарифы коротко -- цены с сервера, как на странице тарифов -->
+  <section class="lp-sec lp-price">
+    <div class="lp-price-main">
+      <p class="lp-kicker">«Студия» — всё включено</p>
+      <b class="lp-price-num">{{STUDIO_PRICE}} ₽ <small>за 30 дней</small></b>
+      <ul>
+        <li><b>{{STUDIO_WHAT}}</b></li>
+        <li>Мультитрек: запись голоса, сведение, монтаж</li>
+        <li>Разборы аккордов, партий, табов и MIDI без лимита</li>
+      </ul>
+      <a href="/pricing" class="lp-btn">Выбрать тариф</a>
+    </div>
+    <p class="muted lp-price-note">Подписка не продлевается сама. Попробовать — бесплатно: {{WELCOME_WHAT}} после
+      регистрации. Кредиты без подписки — от {{PACK_PRICE}} ₽.</p>
+  </section>
+
+  <!-- Разбор любой песни: прежнее главное действие -- теперь отдельным разделом -->
+  <section class="lp-sec" id="chords">
+    <h2>Разбор любой песни — аккорды бесплатно</h2>
+    <p class="muted lp-sub">Загрузите запись — аккорды всей песни за полминуты, без регистрации.
+      Партии, табы и MIDI — по тарифу.</p>
   <div class="drop drop-hero" id="drop" role="button" tabindex="0"
        aria-label="Загрузить песню: перетащите файл или нажмите, чтобы выбрать">
     <span class="drop-icon" aria-hidden="true"></span>
@@ -47,22 +134,12 @@
            accept=".mp3,.wav,.flac,.ogg,.m4a,.aiff,.aif,.mid,.midi">
   </div>
 
-  <!-- Как это работает: схема процесса, а не кнопки -- ни рамок, ни наведения -->
-  <ol class="flow" aria-label="Как это работает">
+  <ol class="flow" aria-label="Как работает разбор">
     <li><span class="flow-n">1</span><b>Аккорды</b><small>всей песни за секунды</small></li>
     <li><span class="flow-n">2</span><b>Партии</b><small>гитара, бас, вокал отдельно</small></li>
     <li><span class="flow-n">3</span><b>Табы и MIDI</b><small>для нужной партии, в Guitar Pro</small></li>
   </ol>
-
-  <!-- Второе направление -- Студия: спокойная карточка под загрузкой -->
-  <a href="/studio" class="studio-card">
-    <span class="studio-card-tag">Студия · нейросеть</span>
-    <b>Нет трека? Создайте песню с нуля</b>
-    <span class="muted">Напишите текст или нажмите «Сочинить» — нейросеть споёт его в любом стиле.
-      Кавер своей песни в другом жанре, глубокое разделение на 12 дорожек, смена темпа и тональности.</span>
-    <span class="studio-card-go">Открыть Студию →</span>
-  </a>
-  <p class="muted pay-note">Оплата российской картой, в рублях — без VPN, App Store и посредников.</p>
+  </section>
 
   <!-- Шаг 2: появляется только после выбора файла -->
   <section class="reveal" id="chosen">
@@ -145,6 +222,21 @@
   </section>
 
 
+  <section class="lp-sec lp-faq">
+    <h2>Частые вопросы</h2>
+    <details><summary>Сколько это стоит?</summary><p>Аккорды — бесплатно, без регистрации. После регистрации —
+      {{WELCOME}} кредитов: {{WELCOME_WHAT}}. Дальше — «Студия» за {{STUDIO_PRICE}} ₽ на 30 дней
+      ({{STUDIO_WHAT}}, мультитрек и запись голоса) или кредиты без подписки. Не получилась
+      генерация — кредиты вернутся сами.</p></details>
+    <details><summary>Нужны VPN или зарубежная карта?</summary><p>Нет. NASLUX работает в России,
+      оплата — российской картой в рублях.</p></details>
+    <details><summary>Можно спеть самому?</summary><p>Да, в мультитреке «Студии»: наденьте наушники и нажмите
+      «Запись» — дубль ляжет на свою дорожку ровно в такт. Шумодав и подтяжка нот — нейросетью,
+      голос в миксе — одной кнопкой.</p></details>
+    <details><summary>Работает на телефоне?</summary><p>Да — в браузере, без приложения из App Store.
+      Можно добавить на экран, как приложение; открытые треки работают и без интернета.</p></details>
+  </section>
+
   <p class="muted" style="margin-top:18px;font-size:12px">Разбор чужих песен — для личного обучения и
     репетиций. Публикация и коммерческое использование — только с разрешения правообладателей
     (<a href="/offer#rights">п. 6 оферты</a>).</p>
@@ -157,6 +249,29 @@
     <span>© NASLUX</span>
   </footer>
 </div>
+<script>
+// Картинка Студии на первом экране: волны дорожек -- одинаковые при каждом
+// заходе (свой генератор с зерном), курсор едет сам (CSS)
+document.querySelectorAll('.lp-wave[data-seed]').forEach((el) => {
+  let x = Number(el.dataset.seed) * 9301 + 49297;
+  const rnd = () => { x = (x * 9301 + 49297) % 233280; return x / 233280; };
+  const bars = [];
+  for (let i = 0; i < 64; i += 1) {
+    const phrase = Math.sin(i / 5 + Number(el.dataset.seed)) * 0.35 + 0.55;
+    const h = Math.max(8, Math.round((0.35 + rnd() * 0.65) * phrase * 100));
+    bars.push(`<i style="height:${h}%"></i>`);
+  }
+  el.innerHTML = bars.join('');
+});
+// курсор едет по ширине волны (а она зависит от экрана)
+const lpHead = document.querySelector('.lp-head');
+const lpWave = document.querySelector('.lp-wave');
+const lpFit = () => {
+  if (lpHead && lpWave) lpHead.style.setProperty('--lp-w', `${Math.max(40, lpWave.getBoundingClientRect().width - 2)}px`);
+};
+lpFit();
+addEventListener('resize', lpFit);
+</script>
 <script src="/static/upload.js"></script>
 <script src="/static/consent.js"></script>
 </body>

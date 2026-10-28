@@ -243,26 +243,64 @@ def attach_cookie(response: Response, user_id: str, request: Request) -> None:
 
 # ------------------------------------------------------------------ страницы
 
-HOME_TITLE = "NASLUX — аккорды, табы и MIDI по песне и создание музыки нейросетью"
-HOME_DESCRIPTION = ("Разберите любую песню на аккорды (бесплатно), дорожки, табы и MIDI — или "
-                    "создайте свою: нейросеть напишет песню по тексту и сделает кавер.")
+HOME_TITLE = "NASLUX — студия песен на нейросети: создать песню, спеть самому, аккорды и табы"
+HOME_DESCRIPTION = ("Нейросеть напишет и споёт песню по вашему тексту, мультитрек разложит её на дорожки — "
+                    "запишите свой голос и сведите трек. Аккорды, табы и MIDI любой песни — бесплатно. "
+                    "На русском, оплата картой РФ.")
 STUDIO_TITLE = "Студия NASLUX — создать песню нейросетью, кавер, дорожки и MIDI"
 STUDIO_DESCRIPTION = ("Создайте песню нейросетью по тексту, сделайте кавер своей песни, разделите "
                       "трек на дорожки с MIDI, смените темп и тональность. На русском, оплата картой РФ.")
 
 
+def _credits_what(credits: int) -> str:
+    """«4 кавера или 6 песен» -- сколько этого хватает на кредиты."""
+    cover, song = studio.credit_cost("restyle"), studio.credit_cost("create")
+    parts = [_plural(credits // cover, "кавер", "кавера", "каверов"),
+             _plural(credits // song, "песня", "песни", "песен")]
+    return " или ".join(p for p in parts if not p.startswith("0 "))
+
+
+def _home_demos() -> str:
+    """Примеры на главной: ссылки «послушать», которые выбрал владелец
+    (NASLUX_HOME_DEMOS=токен1,токен2 -- из ссылок naslux.ru/listen/<токен>).
+    Права на песню -- у владельца; трек удалён по сроку -- пример пропадает."""
+    cards = []
+    for token in [t.strip() for t in os.environ.get("NASLUX_HOME_DEMOS", "").split(",") if t.strip()][:6]:
+        try:
+            found, job, _ = _shared(token)
+        except HTTPException:
+            continue
+        title = html.escape(Path(job.filename).stem[:80] or "Песня")
+        cards.append(f'<div class="lp-demo"><b data-noi18n>{title}</b>'
+                     f'<audio controls preload="none" src="/api/listen/{html.escape(token)}/audio"></audio>'
+                     f'<small>Сделано в NASLUX</small></div>')
+    if not cards:
+        return ""
+    return ('<section class="lp-sec" id="listen"><h2>Послушайте, что получается</h2>'
+            f'<div class="lp-demos">{"".join(cards)}</div></section>')
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
-    # Главная -- разбор трека (загрузка -- главное действие) и вход в Студию
+    # Главная -- витрина Студии (создать песню, спеть самому, свести);
+    # разбор аккордов -- ниже, отдельным разделом #chords
+    plans = billing.PLANS
     return page("index.html", {"HEAD": seo.head_tags("/", HOME_TITLE, HOME_DESCRIPTION)
                                + "\n" + seo.app_ld(), "FEATURES": seo.features_nav(),
-                               "TITLE": HOME_TITLE, "DESCRIPTION": HOME_DESCRIPTION})
+                               "TITLE": HOME_TITLE, "DESCRIPTION": HOME_DESCRIPTION,
+                               "WELCOME": str(billing.WELCOME_CREDITS),
+                               "WELCOME_WHAT": _credits_what(billing.WELCOME_CREDITS),
+                               "STUDIO_PRICE": f"{plans['studio_month']['price']:.0f}",
+                               "STUDIO_WHAT": _credits_what(plans["studio_month"]["studio_credits"]),
+                               "PACK_PRICE": f"{plans['studio10']['price']:.0f}",
+                               "DEMOS": _home_demos()})
 
 
 @app.get("/chords")
 def chords_page() -> RedirectResponse:
-    # Недолго здесь жил разбор, пока главной была Студия -- ссылки не теряем
-    return RedirectResponse("/", status_code=301)
+    # Недолго здесь жил разбор, пока главной была Студия -- ссылки не теряем:
+    # разбор теперь -- раздел главной под витриной Студии
+    return RedirectResponse("/#chords", status_code=301)
 
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
@@ -1097,14 +1135,7 @@ def pricing_page() -> HTMLResponse:
     страницы: иначе человек секунду видит пустоту на месте главного,
     за чем он сюда и пришёл.
     """
-    cover, song = studio.credit_cost("restyle"), studio.credit_cost("create")
-
-    def what(credits: int) -> str:
-        """«4 кавера или 6 песен» -- сколько этого хватает на кредиты."""
-        parts = [_plural(credits // cover, "кавер", "кавера", "каверов"),
-                 _plural(credits // song, "песня", "песни", "песен")]
-        return " или ".join(p for p in parts if not p.startswith("0 "))
-
+    what = _credits_what
     plans = billing.PLANS
     return page("pricing.html", {
         "welcomeWhat": what(billing.WELCOME_CREDITS),
