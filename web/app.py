@@ -36,7 +36,7 @@ from midi2tab import audiochords, audioin, lyrics as lyrics_mod, separate
 from midi2tab.timing import GRIDS
 from midi2tab.tuning import TUNINGS
 
-from . import auth, billing, mailer, oauth, releases, seo, studio, support
+from . import auth, billing, llm, mailer, oauth, releases, seo, studio, support
 from . import jobs as jobs_module
 from .jobs import JobRunner
 from .storage import Storage
@@ -393,6 +393,8 @@ def api_health(request: Request):
     return {
         "оплата": gateway.diagnose(),
         "шумодав_голоса": "deepfilternet" if voicefx_ready() else "ffmpeg (deep-filter не установлен)",
+        "тексты_песен": f"ИИ-шлюз Beget ({llm.model()})" if llm.ready() else (
+            "Mureka" if studio.mureka_key() else "выключено"),
         "уведомлений_за_последние": len(recent),
         "из_них_отклонено": failed_recent,
         # Только время и причина, без тела: в теле бывают почта и номера
@@ -2557,7 +2559,8 @@ _lyrics_calls: dict[str, list[float]] = {}
 
 @app.post("/api/studio/lyrics")
 def api_studio_lyrics(request: Request, prompt: str = Form(...)):
-    """Сочинить текст песни по описанию (Mureka lyrics/generate). Бесплатно:
+    """Сочинить текст песни по описанию (Claude через ИИ-шлюз Beget, запасной
+    -- Mureka lyrics/generate). Бесплатно:
     стоит нам доли цента, -- но не больше LYRICS_PER_DAY раз в сутки."""
     user = current_user(request)
     if not studio.lyrics_open():
@@ -2569,6 +2572,17 @@ def api_studio_lyrics(request: Request, prompt: str = Form(...)):
     if len(recent) >= studio.LYRICS_PER_DAY and not user.unlimited:
         raise HTTPException(429, "На сегодня текстов достаточно — попробуйте завтра")
     _lyrics_calls[user.id] = [*recent, now]
+    # Сначала -- Claude через ИИ-шлюз Beget (лучше держит русский размер и
+    # рифму, платится в рублях); не вышло и есть Mureka -- она
+    if llm.ready():
+        try:
+            answer = llm.write_lyrics(prompt)
+            return {"title": answer["title"], "lyrics": studio.english_tags(answer["lyrics"])}
+        except RuntimeError as error:
+            print(f"ИИ-шлюз: текст не сочинён ({error})", flush=True)
+            if not studio.mureka_key():
+                raise HTTPException(503 if isinstance(error, llm.LlmNoMoney) else 502,
+                                    "Сочинение текста временно недоступно") from error
     try:
         answer = studio.mureka_call("POST", "/v1/lyrics/generate", {"prompt": prompt.strip()[:500]})
     except studio.MurekaNoMoney as error:
@@ -2589,6 +2603,14 @@ def api_studio_lyrics_extend(request: Request, lyrics: str = Form(...)):
     if len(recent) >= studio.LYRICS_PER_DAY and not user.unlimited:
         raise HTTPException(429, "На сегодня текстов достаточно — попробуйте завтра")
     _lyrics_calls[user.id] = [*recent, now]
+    if llm.ready():
+        try:
+            return {"lyrics": studio.english_tags(llm.extend_lyrics(lyrics)["lyrics"])}
+        except RuntimeError as error:
+            print(f"ИИ-шлюз: продолжение не сочинено ({error})", flush=True)
+            if not studio.mureka_key():
+                raise HTTPException(503 if isinstance(error, llm.LlmNoMoney) else 502,
+                                    "Сочинение текста временно недоступно") from error
     try:
         answer = studio.mureka_call("POST", "/v1/lyrics/extend", {"lyrics": lyrics.strip()[:3000]})
     except studio.MurekaNoMoney as error:

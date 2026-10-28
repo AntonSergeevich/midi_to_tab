@@ -374,7 +374,8 @@ def lyrics_open() -> bool:
     """Сочинение текста (Mureka lyrics/generate, доли цента) -- отдельно от
     выключателя песен: 12.10 песни Mureka выключены до пополнения, а тексты
     на остатке баланса (33 цента) сочиняются -- проверено живым запросом."""
-    return bool(mureka_key()) and os.environ.get("NASLUX_LYRICS", "1") == "1"
+    from . import llm      # ИИ-шлюз Beget: тексты пишет Claude, Mureka -- запасной
+    return (llm.ready() or bool(mureka_key())) and os.environ.get("NASLUX_LYRICS", "1") == "1"
 
 
 def create_open() -> bool:

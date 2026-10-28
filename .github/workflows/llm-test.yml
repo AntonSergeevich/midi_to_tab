@@ -1,0 +1,40 @@
+name: Тексты песен через ИИ-шлюз Beget
+
+# Проба качества: сочинить текст по описанию и дописать продолжение тем же
+# кодом, что у сайта (web/llm.py). Описание -- своё, без чужих песен; итог --
+# в аннотации (лог прогона из облачной сессии не скачать). Нужен секрет
+# BEGET_AI_API_KEY; деньги -- с баланса Beget, доли рубля за прогон.
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "О чём песня"
+        default: "Песня про группу, которая репетирует в гараже зимой и мечтает о первом концерте, поп-рок, бодро"
+      model:
+        description: "Модель шлюза"
+        default: "claude-opus-5.5"
+
+jobs:
+  lyrics:
+    runs-on: ubuntu-latest
+    env:
+      BEGET_AI_API_KEY: ${{ secrets.BEGET_AI_API_KEY }}
+      NASLUX_LLM_MODEL: ${{ inputs.model }}
+      PROMPT: ${{ inputs.prompt }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Сочинить и продлить
+        run: |
+          [ -n "$BEGET_AI_API_KEY" ] || { echo "::error::Секрет BEGET_AI_API_KEY не задан"; exit 1; }
+          python3 - <<'PY'
+          import os, time
+          from web import llm
+          t = time.time()
+          song = llm.write_lyrics(os.environ["PROMPT"])
+          first = time.time() - t
+          more = llm.extend_lyrics(song["lyrics"])
+          one = lambda text: text.replace("\n", " | ")
+          print(f"::notice title=Название ({llm.model()}, {first:.1f} с)::{song['title']}")
+          print(f"::notice title=Текст::{one(song['lyrics'])}")
+          print(f"::notice title=Продолжение::{one(more['lyrics'])}")
+          PY

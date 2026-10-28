@@ -2436,3 +2436,66 @@ def test_minus_without_vocals_in_one_click(studio_app):
     assert app_module.storage.user(user.id).balance == pytest.approx(150 - 99 - 19)
     assert app_module.storage.job(child).settings["title"] == "Минус без голоса"
     assert app_module.studio.label_of("stems", "instrumental.mp3") == "Минус"
+
+
+def test_lyrics_are_written_by_claude_through_beget_gateway(studio_app, monkeypatch):
+    """Есть ключ ИИ-шлюза Beget -- текст пишет модель (в JSON), Mureka не нужна;
+    русские пометки частей -> английские; продолжение -- только новая часть."""
+    app_module, client, user, submitted = studio_app
+    studio, llm = app_module.studio, app_module.llm
+    monkeypatch.setenv("BEGET_AI_API_KEY", "bk-test")
+    monkeypatch.delenv("MUREKA_API_KEY", raising=False)
+    asked = []
+
+    def chat(messages, **kwargs):
+        asked.append(messages)
+        if "ПРОДОЛЖЕНИЕ" in messages[-1]["content"]:
+            return '{"lyrics": "[Куплет 3]\nИ снова вечер"}'
+        return 'Вот: {"title": "Репетиция", "lyrics": "[Verse]\nМы снова в гараже\n\n\n\n[Припев]\nИграй"}'
+
+    monkeypatch.setattr(llm, "chat", chat)
+    assert studio.lyrics_open()
+    answer = client.post("/api/studio/lyrics", data={"prompt": "песня про репетицию, как у Цоя"})
+    assert answer.status_code == 200, answer.text
+    assert answer.json() == {"title": "Репетиция", "lyrics": "[Verse]\nМы снова в гараже\n\n[Chorus]\nИграй"}
+    assert "Никогда не воспроизводи" in asked[0][0]["content"]       # чужие тексты -- нельзя
+    assert "как у Цоя" in asked[0][1]["content"]
+    more = client.post("/api/studio/lyrics/extend", data={"lyrics": "[Verse]\nМы снова в гараже"})
+    assert more.status_code == 200 and more.json() == {"lyrics": "[Verse 3]\nИ снова вечер"}
+
+    def broke(messages, **kwargs):
+        raise llm.LlmNoMoney("шлюз ответил 402")
+
+    monkeypatch.setattr(llm, "chat", broke)
+    response = client.post("/api/studio/lyrics", data={"prompt": "ещё"})
+    assert response.status_code == 503 and "временно недоступно" in response.json()["detail"]
+
+
+def test_lyrics_fall_back_to_mureka_when_gateway_fails(studio_app, monkeypatch):
+    app_module, client, user, submitted = studio_app
+    studio, llm = app_module.studio, app_module.llm
+    monkeypatch.setenv("BEGET_AI_API_KEY", "bk-test")
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+
+    def down(messages, **kwargs):
+        raise RuntimeError("шлюз не ответил: TimeoutError")
+
+    monkeypatch.setattr(llm, "chat", down)
+    monkeypatch.setattr(studio, "mureka_call", lambda method, path, body=None, timeout=60: (
+        {"title": "Запасной", "lyrics": "[Verse]\nЭй"}))
+    answer = client.post("/api/studio/lyrics", data={"prompt": "песня"})
+    assert answer.status_code == 200 and answer.json()["title"] == "Запасной"
+
+
+def test_gateway_text_without_json_still_becomes_lyrics():
+    from web import llm
+    import pytest as _pytest
+    real = llm.chat
+    try:
+        llm.chat = lambda messages, **kwargs: "Ночной трамвай\n[Verse]\nЕду в никуда"
+        assert llm.write_lyrics("про трамвай") == {"title": "Ночной трамвай", "lyrics": "[Verse]\nЕду в никуда"}
+        llm.chat = lambda messages, **kwargs: ""
+        with _pytest.raises(RuntimeError):
+            llm.write_lyrics("пусто")
+    finally:
+        llm.chat = real
