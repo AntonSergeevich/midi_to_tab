@@ -432,6 +432,7 @@ def api_health(request: Request):
         "оплата": gateway.diagnose(),
         "шумодав_голоса": "deepfilternet" if voicefx_ready() else "ffmpeg (deep-filter не установлен)",
         "ии_шлюз_сбои": list(llm.errors),
+        "ии_шлюз_ключ": llm.key_shape() if llm.key() else "нет",
         "тексты_песен": f"ИИ-шлюз Beget ({llm.model()})" if llm.ready() else (
             "Mureka" if studio.mureka_key() else "выключено"),
         "уведомлений_за_последние": len(recent),

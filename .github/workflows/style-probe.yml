@@ -33,5 +33,5 @@ jobs:
       - name: Сбои ИИ-шлюза
         run: |
           curl -sS -H "Authorization: Bearer ${NASLUX_HEALTH_TOKEN}" https://naslux.ru/api/health \
-            | jq -c '.["ии_шлюз_сбои"] // "нет поля (старая версия сайта)"' \
+            | jq -c '{ключ: .["ии_шлюз_ключ"], сбои: .["ии_шлюз_сбои"]}' \
             | head -c 3000 | sed 's/^/::notice title=Сбои ИИ-шлюза::/'

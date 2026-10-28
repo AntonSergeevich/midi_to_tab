@@ -45,6 +45,22 @@ def key() -> str:
     return os.environ.get("BEGET_AI_API_KEY", "")
 
 
+def clean_key() -> str:
+    """Ключ для запроса: без пробелов, переводов строки и кавычек по краям."""
+    return key().strip().strip("\"'").strip()
+
+
+def key_shape() -> str:
+    """Каков ключ -- без самого ключа: длина, пробелы и кавычки по краям
+    (частая беда при вставке в файл настроек), невидимые символы."""
+    raw = key()
+    bad = [name for name, hit in (("пробел/перевод строки по краям", raw != raw.strip()),
+                                  ("кавычки", raw[:1] in "\"'" or raw[-1:] in "\"'"),
+                                  ("не ASCII", not raw.isascii()),
+                                  ("пробел внутри", " " in raw.strip())) if hit]
+    return f"{len(raw)} симв., {', '.join(bad) or 'без лишних символов'}"
+
+
 def ready() -> bool:
     return bool(key()) and os.environ.get("NASLUX_LLM", "1") == "1"
 
@@ -66,7 +82,7 @@ def chat(messages: list[dict], max_tokens: int = 3000, temperature: float = 0.9,
         data=json.dumps({"model": model(), "messages": messages, "max_tokens": max_tokens,
                          "temperature": temperature,
                          **({"reasoning_effort": effort} if effort else {})}).encode(),
-        headers={"Authorization": f"Bearer {key()}", "Content-Type": "application/json",
+        headers={"Authorization": f"Bearer {clean_key()}", "Content-Type": "application/json",
                  "User-Agent": "naslux/1.0"},
     )
     try:
@@ -74,7 +90,8 @@ def chat(messages: list[dict], max_tokens: int = 3000, temperature: float = 0.9,
             body = response.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as error:
         text = error.read().decode("utf-8", "replace")[:200]
-        note_error("шлюз", f"HTTP {error.code}: {text}")
+        note_error("шлюз", f"HTTP {error.code}: {text} | сервер {error.headers.get('Server', '?')}, "
+                           f"{error.headers.get('Content-Type', '?')} | ключ: {key_shape()}")
         if error.code in (402, 403) or (error.code == 429 and "balance" in text.lower()):
             raise LlmNoMoney(f"шлюз ответил {error.code}: {text}") from error
         raise RuntimeError(f"шлюз ответил {error.code}: {text}") from error
