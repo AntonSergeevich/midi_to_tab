@@ -1564,5 +1564,14 @@
  "Приглушить дорожку или оставить только её — без открытого пульта, одним касанием в шапке.": "Mute a track or solo it — no need to open the controls, one tap in the header.",
  "Верхняя панель не мешает прокрутке": "The top bar no longer fights scrolling",
  "Прокрутили к дорожкам — сверху остаётся одна строка: играть, в начало, запись и «ещё». Страница больше не укорачивается и не отскакивает от верха.": "Scroll down to the tracks and one row stays pinned at the top: play, rewind, record and “more”. The page no longer shrinks and bounces back to the top.",
- "Мультитрек на телефоне → верхняя панель": "Multitrack on a phone → top bar"
+ "Мультитрек на телефоне → верхняя панель": "Multitrack on a phone → top bar",
+ "Дописать с ИИ": "Finish with AI",
+ "Дописываю…": "Writing…",
+ "Сначала опишите стиль своими словами — ИИ сделает из этого подробное описание": "Describe the style in your own words first — AI will turn it into a detailed description",
+ "ИИ допишет жанр, темп, голос, инструменты и звук — по вашему описанию": "AI will add genre, tempo, vocals, instruments and sound based on your description",
+ "Вернуть мой вариант стиля": "Restore my style",
+ "Не получилось дописать стиль — попробуйте ещё раз": "Couldn’t finish the style — please try again",
+ "Помощник стиля временно недоступен": "Style assistant is temporarily unavailable",
+ "Сначала опишите стиль своими словами": "Describe the style in your own words first",
+ "На сегодня подсказок достаточно — попробуйте завтра": "That’s enough suggestions for today — try again tomorrow"
 }

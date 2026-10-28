@@ -2499,3 +2499,29 @@ def test_gateway_text_without_json_still_becomes_lyrics():
             llm.write_lyrics("пусто")
     finally:
         llm.chat = real
+
+
+def test_style_is_finished_by_ai_and_its_tags_go_to_yue2(studio_app, monkeypatch, tmp_path):
+    """«Дописать с ИИ»: пустой стиль -- 400; иначе русский стиль в поле, а
+    английские теги запоминаются и потом уходят в YuE2 вместо словаря."""
+    app_module, client, user, submitted = studio_app
+    studio, llm = app_module.studio, app_module.llm
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path))
+    monkeypatch.setattr(studio, "_style_tags", None)
+    monkeypatch.delenv("BEGET_AI_API_KEY", raising=False)
+    assert client.get("/api/studio").json()["styleAi"] is False
+    assert client.post("/api/studio/style", data={"style": "рок"}).status_code == 503
+    monkeypatch.setenv("BEGET_AI_API_KEY", "bk-test")
+    assert client.get("/api/studio").json()["styleAi"] is True
+    assert client.post("/api/studio/style", data={"style": "  "}).status_code == 400
+    monkeypatch.setattr(llm, "chat", lambda messages, **kw: (
+        '{"style": "мрачный гаражный рок, 140 BPM, хриплый мужской вокал", '
+        '"tags": "dark garage rock, raspy male vocals, 140 bpm"}'))
+    answer = client.post("/api/studio/style", data={"style": "гаражный рок, мрачно"})
+    assert answer.status_code == 200
+    assert answer.json() == {"style": "мрачный гаражный рок, 140 BPM, хриплый мужской вокал"}
+    assert studio.english_style("Мрачный гаражный рок, 140 BPM,  хриплый мужской вокал") == \
+        "dark garage rock, raspy male vocals, 140 bpm"
+    monkeypatch.setattr(studio, "_style_tags", None)               # после перезапуска -- из файла
+    assert studio.english_style("мрачный гаражный рок, 140 BPM, хриплый мужской вокал").startswith("dark garage")
+    assert studio.english_style("грустный рок") == "sad rock"        # без ИИ -- словарь, как раньше

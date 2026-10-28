@@ -174,13 +174,69 @@ STYLE_RU = [
 ]
 
 
+# Стиль, дописанный ИИ (кнопка «С ИИ» в Студии): к русскому описанию для
+# человека модель сразу даёт английские теги для YuE2 -- они точнее словаря
+# выше. Запоминаем по тексту стиля (файл в папке данных: переживает перезапуск).
+_style_tags: dict[str, str] | None = None
+_style_lock = threading.Lock()
+
+
+def _style_tags_path() -> str:
+    return os.path.join(os.environ.get("MIDI2TAB_DATA", "data"), "style_tags.json")
+
+
+def _style_key(style: str) -> str:
+    return re.sub(r"\s+", " ", (style or "").strip().lower())
+
+
+def remember_style_tags(style: str, tags: str) -> None:
+    global _style_tags
+    if not style.strip() or not tags.strip():
+        return
+    with _style_lock:
+        if _style_tags is None:
+            _style_tags = _load_style_tags()
+        _style_tags[_style_key(style)] = tags.strip()[:500]
+        while len(_style_tags) > 3000:              # самые старые -- прочь
+            _style_tags.pop(next(iter(_style_tags)))
+        try:
+            os.makedirs(os.path.dirname(_style_tags_path()) or ".", exist_ok=True)
+            tmp = _style_tags_path() + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(_style_tags, f, ensure_ascii=False)
+            os.replace(tmp, _style_tags_path())
+        except OSError:
+            pass                                    # не записали -- останется в памяти
+
+
+def _load_style_tags() -> dict[str, str]:
+    try:
+        with open(_style_tags_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def remembered_style_tags(style: str) -> str:
+    global _style_tags
+    with _style_lock:
+        if _style_tags is None:
+            _style_tags = _load_style_tags()
+        return _style_tags.get(_style_key(style), "")
+
+
 def english_style(style: str) -> str:
-    """Описание стиля -> английские теги для YuE2: известные русские
-    музыкальные слова переводятся, латиница остаётся, прочая кириллица
-    отбрасывается (её модель всё равно не поймёт)."""
+    """Описание стиля -> английские теги для YuE2: стиль, дописанный ИИ, --
+    его тегами; иначе известные русские музыкальные слова переводятся,
+    латиница остаётся, прочая кириллица отбрасывается (её модель всё равно
+    не поймёт)."""
     text = (style or "").strip()
     if not re.search(r"[А-Яа-яЁё]", text):
         return text
+    remembered = remembered_style_tags(text)
+    if remembered:
+        return remembered
     tags = []
     for chunk in re.split(r"[,;.\n]+", text.lower()):
         chunk = chunk.strip()

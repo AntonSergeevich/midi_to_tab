@@ -154,6 +154,7 @@ function sendMode() {
 
 function updateStart() {
   if (!info) return;
+  styleAiState();
   const send = sendMode();
   const service = mode === 'stems' && $('stemsPro').checked ? info.services.stems_pro : info.services[send.mode];
   const packCost = (send.keep ? service.packKeep : service.pack) || 0;
@@ -959,6 +960,58 @@ $('refToggle').addEventListener('click', () => {
   if (!useReference && mode === 'create') clearSource();
   showMode();
 });
+// «Дописать с ИИ»: из слов человека -- подробный стиль (ИИ-шлюз Beget).
+// Пустое поле -- кнопка неактивна: дописывать нечего.
+let styleBefore = null;
+function styleAiState() {
+  const btn = $('styleAi');
+  btn.hidden = !(info && info.styleAi);
+  btn.disabled = !$('prompt').value.trim() || $('prompt').disabled || btn.classList.contains('busy');
+  btn.title = btn.disabled && !btn.classList.contains('busy')
+    ? 'Сначала опишите стиль своими словами — ИИ сделает из этого подробное описание'
+    : 'ИИ допишет жанр, темп, голос, инструменты и звук — по вашему описанию';
+}
+$('prompt').addEventListener('input', () => {
+  styleAiState();
+  if (styleBefore !== null) { styleBefore = null; $('styleUndo').hidden = true; }
+});
+$('styleAi').addEventListener('click', async () => {
+  const style = $('prompt').value.trim();
+  if (!style) return;
+  const btn = $('styleAi');
+  btn.classList.add('busy');
+  btn.disabled = true;
+  btn.querySelector('span:last-child').textContent = 'Дописываю…';
+  const form = new FormData();
+  form.append('style', style);
+  form.append('lyrics', $('lyrics').value || '');
+  const response = await fetch('/api/studio/style', { method: 'POST', body: form }).catch(() => null);
+  const data = response ? await response.json().catch(() => ({})) : {};
+  btn.classList.remove('busy');
+  btn.querySelector('span:last-child').textContent = 'Дописать с ИИ';
+  if (!response || !response.ok || !data.style) {
+    toast(data.detail || 'Не получилось дописать стиль — попробуйте ещё раз');
+    styleAiState();
+    return;
+  }
+  styleBefore = $('prompt').value;
+  $('prompt').value = data.style.slice(0, Number($('prompt').maxLength) || 500);
+  $('styleUndo').hidden = false;
+  if (window.haptic) window.haptic('success');
+  styleAiState();
+  saveDraft();
+  updateStart();
+});
+$('styleUndo').addEventListener('click', () => {
+  if (styleBefore === null) return;
+  $('prompt').value = styleBefore;
+  styleBefore = null;
+  $('styleUndo').hidden = true;
+  styleAiState();
+  saveDraft();
+  updateStart();
+});
+
 $('styleIdea').addEventListener('click', () => {
   const current = $('prompt').value;
   let idea = current;

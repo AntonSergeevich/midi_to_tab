@@ -1848,6 +1848,7 @@ def api_studio(request: Request):
         # Мультитрек -- в «Студии» (и у безлимита)
         "mixOpen": user.studio_plan,
         "createOpen": studio.create_open(),
+        "styleAi": llm.ready(),                  # «С ИИ» у поля стиля
         "presets": {k: v[0] for k, v in studio.PRESETS.items()},
         "tracks": studio.TRACKS,
         "voices": {k: v[0] for k, v in studio.VOICES.items()},
@@ -2590,6 +2591,31 @@ def api_studio_lyrics(request: Request, prompt: str = Form(...)):
     except RuntimeError as error:
         raise HTTPException(502, f"Не получилось сочинить текст: {error}") from error
     return {"title": answer.get("title", ""), "lyrics": answer.get("lyrics", "")}
+
+
+@app.post("/api/studio/style")
+def api_studio_style(request: Request, style: str = Form(...), lyrics: str = Form("")):
+    """Дописать стиль с ИИ: из слов человека -- подробное описание (по-русски,
+    в поле) и теги для YuE2 (запоминаются к этому описанию). Лимит -- общий с
+    сочинением текста."""
+    user = current_user(request)
+    if not llm.ready():
+        raise HTTPException(503, "Помощник стиля временно недоступен")
+    if not style.strip():
+        raise HTTPException(400, "Сначала опишите стиль своими словами")
+    now = time.time()
+    recent = [t for t in _lyrics_calls.get(user.id, []) if now - t < 86400]
+    if len(recent) >= studio.LYRICS_PER_DAY and not user.unlimited:
+        raise HTTPException(429, "На сегодня подсказок достаточно — попробуйте завтра")
+    _lyrics_calls[user.id] = [*recent, now]
+    try:
+        answer = llm.write_style(style, lyrics)
+    except RuntimeError as error:
+        print(f"ИИ-шлюз: стиль не дописан ({error})", flush=True)
+        raise HTTPException(503 if isinstance(error, llm.LlmNoMoney) else 502,
+                            "Не получилось дописать стиль — попробуйте ещё раз") from error
+    studio.remember_style_tags(answer["style"], answer["tags"])
+    return {"style": answer["style"]}
 
 
 @app.post("/api/studio/lyrics/extend")

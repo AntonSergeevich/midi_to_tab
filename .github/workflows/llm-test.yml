@@ -37,4 +37,7 @@ jobs:
           print(f"::notice title=Название ({llm.model()}, {first:.1f} с)::{song['title']}")
           print(f"::notice title=Текст::{one(song['lyrics'])}")
           print(f"::notice title=Продолжение::{one(more['lyrics'])}")
+          style = llm.write_style("гаражный рок, мрачно, как будто зимой в подвале", song["lyrics"])
+          print(f"::notice title=Стиль::{style['style']}")
+          print(f"::notice title=Теги для YuE2::{style['tags']}")
           PY

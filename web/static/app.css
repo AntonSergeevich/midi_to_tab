@@ -1643,3 +1643,8 @@ body.has-player .st-go { bottom: var(--player-h, 72px); }
    подкладывается в элемент под пальцем, а в SVG и картинку его не вложить
    (static/vibration.js) -- касание должно приходиться на саму кнопку */
 button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-events: none; }
+
+/* «Дописать с ИИ» у поля стиля: неактивна, пока поле пустое */
+.st-styleai { border-color: rgba(217,154,78,.55); color: var(--accent); }
+.st-styleai:disabled { opacity: .45; cursor: not-allowed; border-color: var(--border); color: var(--muted); }
+.st-styleai.busy { opacity: .8; cursor: progress; }
