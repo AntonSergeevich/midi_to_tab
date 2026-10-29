@@ -1,0 +1,31 @@
+{
+ "id": 56839653,
+ "organization_id": 756697,
+ "network": "suno",
+ "status": "success",
+ "response_type": "audio",
+ "cost": 17,
+ "progress": 100,
+ "runtime": 64.57,
+ "result": [
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268777_6ae31c299be33.wav"
+ ],
+ "full_response": [
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268777_6ae31c299be33.wav"
+  }
+ ],
+ "parameters": {
+  "mv": "chirp-hawk",
+  "task": "wav",
+  "model": "v6",
+  "task_id": "0489196fdb9f861557765b9a12dbb58c",
+  "audio_id": "710fceba-86d2-4e48-b1e3-b57a5ef5f69d",
+  "custom_mode": true,
+  "audio_weight": 0.5,
+  "style_weight": 0.5,
+  "translate_input": false,
+  "weirdness_constraint": 0.5
+ },
+ "timestamp": 1793268713
+}
