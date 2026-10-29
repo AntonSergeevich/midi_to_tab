@@ -393,9 +393,9 @@ def test_cover_costs_less_while_yue2_sings(studio_app, monkeypatch):
     assert studio.yue2_public()
     assert studio.credit_cost("restyle") == 15 and studio.service("restyle").price == 49
     services = client.get("/api/studio").json()["services"]
-    assert services["restyle"]["pack"] == 15 and services["create"]["pack"] == 10
+    assert services["restyle"]["pack"] == 15 and services["create"]["pack"] == 15
     page = client.get("/pricing").text
-    assert "{{" not in page and "26 каверов или 40 песен" in page and "2 кавера или 3 песни" in page
+    assert "{{" not in page and "26 каверов или 26 песен" in page and "2 кавера или 2 песни" in page
 
 
 def test_admin_sets_credits_and_grants_studio(studio_app):
@@ -2785,3 +2785,37 @@ def test_genapi_key_sync_endpoint(studio_app, monkeypatch):
                     json={"key": "sk-" + "a" * 40})
     assert r.status_code == 200, r.text
     assert app_module.genapi.key() == "sk-" + "a" * 40
+
+
+def test_suno_for_everyone_own_songs_suno_others_yue2(studio_app, monkeypatch):
+    """Suno для всех: песня с нуля и кавер своей записи -- Suno; кавер чужой
+    песни -- YuE2; Suno не взял задачу (денег GenAPI нет) -- та же задача на YuE2."""
+    app_module, client, user, submitted = studio_app
+    studio, runner, genapi = app_module.studio, app_module.studio_runner, app_module.genapi
+    monkeypatch.setenv("GENAPI_API_KEY", "ga-" + "x" * 30)
+    monkeypatch.setenv("MUREKA_API_KEY", "mk-test")
+    monkeypatch.setenv("NASLUX_MUREKA_OFF", "1")
+    monkeypatch.setenv("RUNPOD_API_KEY", "rp-test")
+    assert studio.suno_public() and studio.yue2_public()
+    app_module.storage.add_balance(user.id, 500)
+    own = _start(client, prompt="рок", rights="own").json()["jobId"]
+    other = _start(client, prompt="рок", rights="cover").json()["jobId"]
+    song = client.post("/api/studio", data={"mode": "create", "prompt": "поп", "lyrics": "[Verse]\nРаз"}).json()["jobId"]
+    engines = {j: app_module.storage.job(j).settings["engine"] for j in (own, other, song)}
+    assert engines == {own: "suno", other: "yue2", song: "suno"}
+    assert studio.credit_cost("create") == 15
+
+    job = app_module.storage.job(song)
+    app_module.storage.update_job(song, settings={**job.settings, "input": submitted[-1][1]})
+
+    def broke(*a, **k):
+        raise genapi.GenApiNoMoney("GenAPI: недостаточно средств")
+
+    monkeypatch.setattr(genapi, "call", broke)
+    moved = []
+    real_run = runner._run
+    monkeypatch.setattr(runner, "_run", lambda jid: moved.append(app_module.storage.job(jid).settings["engine"])
+                        if app_module.storage.job(jid).settings["engine"] == "yue2" else real_run(jid))
+    runner._run(song)
+    after = app_module.storage.job(song).settings
+    assert moved == ["yue2"] and after["fellBack"] == "suno" and "remote" not in after

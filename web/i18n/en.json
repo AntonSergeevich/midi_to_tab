@@ -1781,5 +1781,16 @@
  "NASLUX: как сделать песню и спеть её самому": "NASLUX: how to make a song and sing it yourself",
  "Видеоинструкция — и на английском": "Video guide — now in English too",
  "Своя английская версия ролика с английским интерфейсом и главами; фоном в обеих — гимн NASLUX, сделанный в нашей студии. В мультитреке по-английски — и названия дорожек.": "A separate English version with the English interface and chapters; both play the NASLUX anthem made in our own studio. Track names in the multitrack are in English too.",
- "naslux.ru/guide": "naslux.ru/guide"
+ "naslux.ru/guide": "naslux.ru/guide",
+ "Аккорды любой песни — без оплаты. За регистрацию — 30 кредитов Студии: 2 кавера или 2 песни на пробу.": "Chords of any song — free. For signing up — 30 Studio credits: 2 covers or 2 songs to try.",
+ "Новая нейросеть для песен": "A new AI for songs",
+ "Песни с нуля и каверы ваших записей теперь делает самая сильная музыкальная нейросеть: живой голос, мощный звук, чёткий русский текст.": "Songs from scratch and covers of your own recordings are now made by the strongest music AI: a live-sounding voice, powerful sound, clear lyrics.",
+ "Песни с нуля — новый уровень звука": "Songs from scratch — a new level of sound",
+ "Две версии примерно за минуту: напор, живой голос, разборчивые слова, рэп и дуэты. Песня с нуля — 15 кредитов.": "Two versions in about a minute: drive, a live-sounding voice, clear words, rap and duets. A song from scratch is 15 credits.",
+ "Кавер своей записи": "A cover of your own recording",
+ "Наиграли песню на гитаре — загрузите и вставьте текст: нейросеть споёт его на новую аранжировку в выбранном стиле. Ползунок силы исходника — насколько держаться оригинала.": "Played a song on guitar? Upload it and paste the lyrics: the AI sings them over a new arrangement in the style you choose. The source-strength slider sets how close to stay to the original.",
+ "Студия → Создать": "Studio → Create",
+ "Студия → Переделать": "Studio → Remake",
+ "— у своей записи Suno споёт этот текст, без текста выйдет инструментал; у чужой песни слова распознаем сами": "— for your own recording Suno sings these lyrics, without them you get an instrumental; for someone else's song we recognize the words ourselves",
+ "Что нового: новая нейросеть для песен": "What's new: a new AI for songs"
 }

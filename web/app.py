@@ -1953,6 +1953,7 @@ def api_studio(request: Request):
         "restyleEngine": studio.restyle_engine(),
         "yue2Open": studio.yue2_open(user),
         "sunoOpen": studio.suno_open(user),
+        "sunoPublic": studio.suno_public(),
         "yue2Public": studio.yue2_public(),
         "email": user.email, "maxMb": MAX_UPLOAD_MB, "maxSeconds": studio.MAX_SECONDS,
         "jobs": [_studio_job_payload(j) for j in storage.studio_jobs(user.id)],
@@ -2002,8 +2003,9 @@ async def api_studio_start(
     engine = studio.restyle_engine() if mode in ("restyle", "create") or pro else "runpod"
     if asked == "yue2" and mode in ("restyle", "create") and studio.yue2_open(user):
         engine = "yue2"            # проба владельца, см. studio.YUE2_NAME
-    if asked == "suno" and mode in ("restyle", "create") and studio.suno_open(user):
-        engine = "suno"            # Suno через GenAPI (web/genapi.py), см. studio.suno_open
+    if ((asked == "suno" and studio.suno_open(user)) or studio.suno_public()) \
+            and studio.suno_engine(mode, rights, voice, reference):
+        engine = "suno"            # Suno через GenAPI (web/genapi.py): свои песни и каверы своих записей
     if mode in ("restyle", "create") and engine not in ("mureka", "suno") and studio.yue2_public():
         engine = "yue2"            # Mureka без денег -- YuE2 для всех (studio.yue2_public)
     if pro and engine != "mureka":

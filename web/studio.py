@@ -86,7 +86,7 @@ MUREKA_STATES = {"preparing": "Готовим трек", "queued": "В очер�
 # списывает три. Разделение дешёвое и идёт только с баланса.
 # Цена в кредитах Студии (billing.PLANS): от себестоимости действия.
 # Живые замеры (28.09): продление -- $0.03, песня «как в образце» -- $0.09 за две.
-CREDIT_COST = {"create": 10, "restyle": 40, "keep": 20, "enrich": 5, "stems": 3, "extend": 5,
+CREDIT_COST = {"create": 15, "restyle": 40, "keep": 20, "enrich": 5, "stems": 3, "extend": 5,
                "voice": 10, "stems_pro": 60}  # глубокое разделение Mureka -- $0.70
 # «Сохранить мой голос» (track/generate без вокала + сведение) дешевле обычной
 # переделки (remix с двумя версиями) ровно вдвое -- вдвое же дешевле и с
@@ -909,8 +909,18 @@ def suno_open(user) -> bool:
 
 
 def suno_public() -> bool:
+    """Suno для всех (решение владельца 29.10: «Suno справился идеально»):
+    песни с нуля и каверы своих записей. Чужие песни -- на YuE2 (Suno их и
+    не возьмёт: сверяет загрузку с каталогом). NASLUX_SUNO_PUBLIC=0 -- выключить."""
     from . import genapi
-    return genapi.ready() and os.environ.get("NASLUX_SUNO_PUBLIC", "0") == "1"
+    return genapi.ready() and os.environ.get("NASLUX_SUNO_PUBLIC", "1") == "1"
+
+
+def suno_engine(mode: str, rights: str, voice: str, reference: bool) -> bool:
+    """Пойдёт ли задача на Suno: песня с нуля или кавер своей записи, без
+    «как в образце» и без своего голоса (их Suno через GenAPI не умеет)."""
+    return mode in ("create", "restyle") and not (mode == "restyle" and rights != "own") \
+        and not reference and not voice.startswith("my:")
 
 
 def mp3_link(url: str) -> str:
@@ -1721,9 +1731,13 @@ class StudioRunner:
                     upload_url=upload)
                 try:
                     rid = genapi.start(genapi.SUNO, params)
-                except genapi.GenApiNoMoney:
-                    raise RuntimeError("генерация временно недоступна — пополняем счёт нейросети, "
-                                       "попробуйте позже") from None
+                except RuntimeError as error:   # в том числе GenApiNoMoney
+                    if self._from_suno(job_id, mode, str(error)):
+                        return
+                    if isinstance(error, genapi.GenApiNoMoney):
+                        raise RuntimeError("генерация временно недоступна — пополняем счёт нейросети, "
+                                           "попробуйте позже") from None
+                    raise
                 remote = {"engine": "suno", "id": rid, "model": params["model"]}
                 settings["remote"] = remote
                 self.storage.update_job(job_id, settings=settings)
@@ -1759,6 +1773,26 @@ class StudioRunner:
                 self._start_cover(job_id)
         except Exception as error:  # noqa: BLE001 -- любая ошибка -> деньги назад
             self._fail(job_id, str(error))
+
+    def _from_suno(self, job_id: str, mode: str, why: str) -> bool:
+        """Suno не принял задачу (кончились деньги GenAPI, сбой у них): та же
+        задача -- на YuE2, за ту же цену, без повторной загрузки."""
+        print(f"Suno не взял задачу {job_id}: {why} -- переходим на YuE2", file=sys.stderr, flush=True)
+        job = self.storage.job(job_id)
+        settings = dict(job.settings or {})
+        task_input = dict(settings.get("input") or {})
+        if not yue2_public() or (mode == "create" and not task_input.get("lyrics", "").strip()):
+            return False
+        voice = VOICES.get(task_input.get("voice", ""), ("", ""))[1]
+        task_input["prompt"] = ", ".join(p for p in (english_style(task_input.get("prompt", "")), voice)
+                                         if p)[:1024]
+        task_input.update(closeness="melody", cfg_scale=1.0, creativity=0.5)
+        settings.update(engine="yue2", input=task_input, fellBack="suno")
+        settings.pop("remote", None)
+        self.storage.update_job(job_id, settings=settings, status="running", progress=3,
+                                stage="Делаем на своём движке")
+        self._run(job_id)
+        return True
 
     def _to_ace(self, job_id: str, mode: str) -> bool:
         """У Mureka кончились деньги: та же задача уходит на ACE-Step, за ту

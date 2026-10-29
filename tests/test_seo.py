@@ -35,7 +35,7 @@ def test_home_sells_the_studio_and_keeps_free_chords_below(client):
     home = client.get("/").text
     assert home.index("<h1>") < home.index('href="/studio" class="lp-btn"') < home.index('id="chords"') \
         < home.index('id="drop"') < home.index('class="flow"')
-    assert "799 ₽" in home and "40 песен" in home and "{{" not in home
+    assert "799 ₽" in home and "26 песен" in home and "{{" not in home
     assert '<link rel="canonical" href="https://naslux.ru/">' in home
     assert 'href="/podbor-akkordov"' in home
     studio = client.get("/studio").text
