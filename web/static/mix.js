@@ -2532,7 +2532,8 @@ window.addEventListener('resize', () => { clearTimeout(sizeCanvases.t); sizeCanv
 
 // ---------------------------------------------------------------- своя дорожка и микс
 
-// «＋ Дорожка» -- пустая дорожка: в неё загружают файл с компьютера (кнопкой
+// «Добавить дорожку» (псевдодорожка под последней) -- пустая дорожка: в неё
+// загружают файл с компьютера (кнопкой
 // или перетащив файл), перетаскивают кусок с другой дорожки, вставляют
 // скопированное.
 const addLane = () => {
@@ -2551,7 +2552,9 @@ const addLane = () => {
   toast('Пустая дорожка добавлена: загрузите в неё файл или перетащите кусок с другой дорожки');
 };
 $('addTrack').addEventListener('click', addLane);
-$('addTrack2').addEventListener('click', addLane);
+$('addTrack').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addLane(); }
+});
 
 $('addFile').addEventListener('change', async (e) => {
   const chosen = e.target.files[0];

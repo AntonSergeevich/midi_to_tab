@@ -1467,8 +1467,21 @@ header.top > nav.topnav {
 .mx-addlane { flex: none; height: 30px; padding: 0 12px; border-radius: 999px; border: 1px dashed rgba(217,154,78,.6);
   background: rgba(217,154,78,.08); color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer; min-height: 0; }
 .mx-addlane:hover { background: rgba(217,154,78,.16); border-style: solid; }
-.mx-addlane-row { display: none; width: 100%; height: 44px; border-radius: 0 0 14px 14px; border-width: 1px 0 0; }
-@media (max-width: 720px) { .mx-addlane-row { display: block; } }
+/* «Добавить дорожку» -- псевдодорожка под последней дорожкой */
+.mx-addrow { cursor: pointer; border-bottom: 0; color: var(--accent, #d99a4e); transition: background .15s; }
+.mx-addrow > div { min-height: 58px; display: flex; align-items: center; gap: 10px; padding: 0 14px;
+  border: 1px dashed rgba(217,154,78,.45); border-right-width: 0; background: rgba(217,154,78,.04); }
+.mx-addrow .mx-lane { border-left-width: 0; border-right-width: 1px; color: var(--muted); font-size: 13px; }
+.mx-addrow:hover > div, .mx-addrow:focus-visible > div, .mx-addrow.dropping > div {
+  background: rgba(217,154,78,.12); border-style: solid; }
+.mx-addrow:focus-visible { outline: none; }
+.mx-addrow > .mx-ctrl { flex-direction: row; justify-content: flex-start; }
+.mx-addrow-plus { width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center;
+  border: 1px dashed currentColor; font-size: 16px; line-height: 1; flex: none; }
+@media (max-width: 720px) {
+  .mx-addrow .mx-lane { display: none; }
+  .mx-addrow > .mx-ctrl { border-right-width: 1px; justify-content: center; }
+}
 
 /* Курсор не перехватывает щелчки по кускам: тянется за ручку сверху (и по линейке) */
 .mx-playhead { pointer-events: none; }
