@@ -16,14 +16,14 @@ jobs:
         run: |
           set -uo pipefail
           api() { curl -sS -H "Authorization: Bearer $RUNPOD_API_KEY" "https://rest.runpod.io/v1$1"; }
-          api /endpoints | jq -c '[.[] | {name, id, gpuTypeIds, gpuCount, workersMin, workersMax, idleTimeout, flashboot}]' > endpoints.json || true
+          api /endpoints | jq -c '[.[] | {name, id, gpuTypeIds, gpuCount, workersMin, workersMax, idleTimeout, flashboot, allowedCudaVersions, networkVolumeId, dataCenterIds, templateId}]' > endpoints.json || true
           echo "::notice title=Эндпоинты::$(cat endpoints.json)"
           start="$(date -u -d '30 days ago' +%Y-%m-%dT00:00:00Z)"
           end="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           for id in $(jq -r '.[].id' endpoints.json); do
             name="$(jq -r --arg id "$id" '.[] | select(.id == $id) | .name' endpoints.json)"
             # очередь и видеокарты прямо сейчас: idle/running/throttled -- нет ли нехватки
-            echo "$name $(jq -c --arg id "$id" '.[] | select(.id == $id) | {gpuTypeIds, workersMax}' endpoints.json) $(curl -sS -H "Authorization: Bearer $RUNPOD_API_KEY" "https://api.runpod.ai/v2/$id/health" | head -c 400)" >> health.txt
+            echo "$name $(jq -c --arg id "$id" '.[] | select(.id == $id) | {gpuTypeIds, workersMax, allowedCudaVersions, networkVolumeId, dataCenterIds, templateId}' endpoints.json) $(curl -sS -H "Authorization: Bearer $RUNPOD_API_KEY" "https://api.runpod.ai/v2/$id/health" | head -c 400)" >> health.txt
             bill="$(api "/billing/endpoints?endpointId=$id&bucketSize=month&startTime=$start&endTime=$end" | head -c 3000)"
             echo "::notice title=Счёт $name::$bill"
           done
