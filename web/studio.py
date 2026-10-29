@@ -1893,7 +1893,10 @@ class StudioRunner:
         if mode == "stems":
             files = []
             minus = task_input.get("parts") == "minus"
-            for track in found:
+            for number, track in enumerate(found, 1):
+                # ход видно и здесь: 12 файлов качаются с хранилища GenAPI
+                self.storage.update_job(job.id, stage=f"Забираем дорожки: {number} из {len(found)}",
+                                        progress=min(99, 92 + number * 7 / max(1, len(found))))
                 stem = HIT_STEMS.get(track.get("label", ""))
                 if not stem or (stem == "instrumental" and not minus):   # минус -- только в «минус и голос»
                     continue

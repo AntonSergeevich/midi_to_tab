@@ -443,6 +443,10 @@ def api_health(request: Request):
         "ии_шлюз_ключ": llm.key_shape() if llm.key() else "нет",
         "suno_genapi": {"ключ": f"{len(genapi.key())} симв." if genapi.key() else "нет",
                         "для_всех": studio.suno_public(),
+                        # что идёт сейчас: номер запроса GenAPI -- чтобы проверить его пробой
+                        "идут": [{"режим": (j.settings or {}).get("mode"), "запрос": ((j.settings or {}).get("remote") or {}).get("id"),
+                                  "этап": j.stage, "минут": round((time.time() - j.created_at) / 60, 1)}
+                                 for j in storage.unfinished_studio_jobs() if (j.settings or {}).get("engine") == "suno"][:10],
                         **storage.suno_usage(time.time() - 30 * 86400)},
         "тексты_песен": f"ИИ-шлюз Beget ({llm.model()})" if llm.ready() else (
             "Mureka" if studio.mureka_key() else "выключено"),
