@@ -28,4 +28,16 @@ jobs:
             echo "::notice title=Счёт $name::$bill"
           done
           echo "::notice title=Очередь и видеокарты сейчас::$(tr '\n' '|' < health.txt)"
+          # образы шаблонов: есть ли такой тег в реестре (нет -- воркер не поднимется)
+          api /templates | jq -r '.[] | select(.isServerless) | "\(.name) \(.imageName)"' > templates.txt || true
+          while read -r name image; do
+            repo="${image%%:*}"; tag="${image##*:}"; [ "$repo" = "$image" ] && tag=latest
+            path="${repo#ghcr.io/}"
+            token=$(curl -s "https://ghcr.io/token?scope=repository:$path:pull" | jq -r .token)
+            code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $token" \
+              -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+              "https://ghcr.io/v2/$path/manifests/$tag")
+            echo "$name $image -> $code" >> images.txt
+          done < templates.txt
+          echo "::notice title=Образы шаблонов::$(tr '\n' '|' < images.txt)"
           echo "::notice title=Счёт всех эндпоинтов::$(api "/billing/endpoints?bucketSize=month&startTime=$start&endTime=$end&grouping=endpointId" | head -c 3000)"
