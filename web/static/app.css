@@ -1834,3 +1834,25 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
   font-size: 16px; }
 .tk-msg { color: var(--red); min-height: 1.2em; margin: 10px 0 0; }
 .tk-note { text-align: center; font-size: 13px; margin-top: 14px; }
+
+/* «О треке» на экране трека: справа от версий, на узком -- под ними */
+.st-dgrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+@media (min-width: 1100px) { .st-dgrid { grid-template-columns: minmax(0, 1fr) 300px; align-items: start; } }
+.st-info { border: 1px solid var(--border); border-radius: 14px; padding: 14px; background: var(--bg);
+  display: flex; flex-direction: column; gap: 12px; position: sticky; top: 12px; }
+.st-info-cover, .st-info .st-cover.big { width: 100%; aspect-ratio: 1; height: auto; border-radius: 12px; object-fit: cover; display: block; }
+.st-info-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.st-info-head b { flex: 1 1 auto; min-width: 0; }
+.st-info-title { font-size: 17px; overflow-wrap: anywhere; }
+.st-info-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13.5px; }
+.st-info-facts dt { color: var(--muted); }
+.st-info-facts dd { margin: 0; }
+.st-info-block { border-top: 1px solid var(--border); padding-top: 10px; }
+.st-info-text { margin: 6px 0 0; font-size: 13.5px; line-height: 1.5; color: #c6cad6; white-space: pre-wrap;
+  max-height: 260px; overflow: auto; font-family: inherit; }
+.st-info-again { min-height: 40px; border-radius: 10px; border: 1px solid rgba(217,154,78,.55); background: rgba(217,154,78,.08);
+  color: var(--accent); font-weight: 600; cursor: pointer; }
+#detailView .st-version.st-picked { box-shadow: inset 3px 0 0 var(--accent); background: rgba(217,154,78,.05); }
+@media (max-width: 1099px) { .st-info { position: static; } .st-info-cover, .st-info .st-cover.big { max-width: 260px; } }
+.st-info-head { gap: 6px 8px; }
+.st-info-head .st-linkbtn { white-space: nowrap; font-size: 12.5px; }

@@ -665,8 +665,6 @@ function renderDetail(jobs) {
   const made = ((info && info.analyses) || []).filter((a) => a.studio === j.id);
   const analyses = made.length ? `<div class="st-sub"><div class="st-label">Аккорды и табы</div>
     ${made.map((a) => tabsRow(a, label(a.studioFile))).join('')}</div>` : '';
-  const lyrics = j.lyrics ? `<details class="st-lyrics" data-lyrics="${j.id}" ${lyricsOpen.has(j.id) ? 'open' : ''}><summary>Текст песни</summary>
-    <pre>${esc(j.lyrics)}</pre></details>` : '';
   $('detailView').innerHTML = `
     <div class="st-dhead">
       <button type="button" class="icon-btn" id="back" title="Назад">${ICON.back}</button>
@@ -675,9 +673,96 @@ function renderDetail(jobs) {
       ${favButton(j)}${['done', 'error'].includes(j.status)
     ? `<button type="button" class="icon-btn" data-menu="${j.id}" data-track="1" data-upload="${j.mode === 'upload' ? 1 : ''}" data-done="${j.status === 'done' && j.files.length && j.mode !== 'stems' ? 1 : ''}" title="Что сделать">${ICON.more}</button>` : ''}
     </div>
+    <div class="st-dgrid"><div class="st-dmain">
     <div class="st-label">${j.mode === 'stems' ? 'Партии' : 'Версии'}</div>
-    ${versions}${sheetBlock(j)}${j.mode === 'stems' ? midiList(j) : ''}${midi}${parts}${analyses}${lyrics}`;
+    ${versions}${sheetBlock(j)}${j.mode === 'stems' ? midiList(j) : ''}${midi}${parts}${analyses}</div>
+    ${trackInfo(j)}</div>`;
+  markInfoVersion();
 }
+
+// «О треке» -- справа от версий (на телефоне -- под ними): обложка,
+// название, стиль и текст с «Копировать» и «В форму», голос, темп и
+// тональность выбранной версии. Понравился стиль -- не писать заново.
+let infoFile = '';
+function trackInfo(j) {
+  const files = j.files || [];
+  if (!files.some((f) => f.name === infoFile)) infoFile = files.length ? files[0].name : '';
+  const f = files.find((x) => x.name === infoFile) || {};
+  const k = (j.keys || {})[infoFile] || {};
+  const voice = j.voice && info.voices ? info.voices[j.voice] : '';
+  const facts = [
+    ['Что это', MODE[j.mode] ? MODE[j.mode].title : j.title],
+    ['Версия', f.label], ['Длина', time(f.seconds)],
+    ['Тональность', k.key || j.key], ['Темп', (k.bpm || j.bpm) ? `${k.bpm || j.bpm} BPM` : ''],
+    ['Голос', voice], ['Создан', j.at ? new Date(j.at * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : ''],
+  ].filter(([, v]) => v);
+  const copyBox = (kind, title, text) => (text ? `<div class="st-info-block">
+      <div class="st-info-head"><b>${title}</b>
+        <button type="button" class="st-linkbtn" data-copy="${kind}">Копировать</button>
+        <button type="button" class="st-linkbtn" data-useinfo="${kind}">В форму</button></div>
+      <${kind === 'lyrics' ? 'pre' : 'p'} class="st-info-text" data-noi18n>${esc(text)}</${kind === 'lyrics' ? 'pre' : 'p'}></div>` : '');
+  return `<aside class="st-info" data-info="${j.id}" aria-label="О треке">
+    ${j.cover ? `<img class="st-info-cover" src="${j.cover}" alt="Обложка">` : cover(j, true)}
+    <div class="st-info-head"><b class="st-info-title" data-noi18n>${esc(j.name)}</b>
+      <button type="button" class="st-linkbtn" data-copy="title">Копировать</button></div>
+    <dl class="st-info-facts">${facts.map(([t, v]) => `<dt>${t}</dt><dd>${esc(String(v))}</dd>`).join('')}</dl>
+    ${copyBox('style', 'Стиль', j.style)}${copyBox('lyrics', 'Текст песни', j.lyrics)}
+    ${j.cover ? `<a class="st-linkbtn" href="${j.cover}" download="${esc(j.name)}.jpg">Скачать обложку</a>` : ''}
+    ${['done', 'error'].includes(j.status) && j.mode !== 'stems' ? `<button type="button" class="st-info-again" data-act="again" data-job="${j.id}">↻ Повторить с этими настройками</button>` : ''}
+  </aside>`;
+}
+function markInfoVersion() {
+  document.querySelectorAll('#detailView .st-version').forEach((row) => {
+    const menu = row.querySelector('[data-menu][data-file]');
+    row.classList.toggle('st-picked', Boolean(menu && menu.dataset.file === infoFile && openJob === menu.dataset.menu));
+  });
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (error) { /* старый браузер -- ниже */ }
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.style.cssText = 'position:fixed;opacity:0';
+  document.body.appendChild(area);
+  area.select();
+  const ok = document.execCommand('copy');
+  area.remove();
+  return ok;
+}
+document.addEventListener('click', async (e) => {
+  const j = info && info.jobs && info.jobs.find((x) => x.id === openJob);
+  if (!j || !e.target.closest('#detailView')) return;
+  const copy = e.target.closest('[data-copy]');
+  const use = e.target.closest('[data-useinfo]');
+  if (copy) {
+    const text = { title: j.name, style: j.style, lyrics: j.lyrics }[copy.dataset.copy] || '';
+    const what = { title: 'Название', style: 'Стиль', lyrics: 'Текст' }[copy.dataset.copy];
+    toast(await copyText(text) ? `${what} скопирован${copy.dataset.copy === 'title' ? 'о' : ''}` : 'Не получилось скопировать');
+    if (window.haptic) window.haptic('light');
+    return;
+  }
+  if (use) {
+    // в левую панель «Создать»: поле стиля или текста, остальное -- как было
+    const kind = use.dataset.useinfo;
+    if (mode !== 'create' && mode !== 'restyle') document.querySelector('[data-mode="create"]').click();
+    const field = kind === 'style' ? $('prompt') : $('lyrics');
+    field.value = (kind === 'style' ? j.style : j.lyrics).slice(0, Number(field.maxLength) > 0 ? Number(field.maxLength) : 5000);
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    saveDraft();
+    updateStart();
+    toast(kind === 'style' ? 'Стиль — в поле «Стиль»' : 'Текст — в поле «Текст песни»');
+    field.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    return;
+  }
+  // Нажали на версию -- в «О треке» её темп, тональность и длина
+  const row = e.target.closest('#detailView .st-version');
+  const menu = row && row.querySelector('[data-menu][data-file]');
+  if (menu && !e.target.closest('button, a, input') && menu.dataset.menu === j.id) {
+    infoFile = menu.dataset.file;
+    const aside = document.querySelector('#detailView .st-info');
+    if (aside) aside.outerHTML = trackInfo(j);
+    markInfoVersion();
+  }
+});
 
 // MIDI партий работы: табы нашим плеером и скачивание
 function midiRows(j) {
