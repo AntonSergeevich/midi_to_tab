@@ -17,6 +17,7 @@ jobs:
       - name: Отправить ключ
         run: |
           [ -n "$KEY" ] || { echo "::error::Секрет BEGET_AI_API_KEY не задан"; exit 1; }
+          body=$(jq -n --arg key "$KEY" '{key: ($key | gsub("^\\s+|\\s+$"; ""))}')
           out=$(curl -sS -w '\n%{http_code}' -H "Authorization: Bearer ${NASLUX_HEALTH_TOKEN}" \
-            -F "key=${KEY}" https://naslux.ru/api/health/llm-key)
+            -H "Content-Type: application/json" --data-binary "$body" https://naslux.ru/api/health/llm-key)
           echo "::notice title=Ответ сайта::$(echo "$out" | tail -n1) $(echo "$out" | sed '$d' | head -c 300)"

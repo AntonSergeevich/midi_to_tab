@@ -2639,7 +2639,10 @@ def test_gateway_key_arrives_from_github_secret(tmp_path, monkeypatch):
     with TestClient(app_module.app) as client:
         assert client.post("/api/health/llm-key", data={"key": "sk-" + "a" * 40}).status_code == 403
         assert client.post("/api/health/llm-key", data={"key": "коротко"}, headers=auth).status_code == 400
-        answer = client.post("/api/health/llm-key", data={"key": "sk-" + "a" * 40}, headers=auth)
+        assert client.post("/api/health/llm-key", json={"key": "abc"}, headers=auth).status_code == 400
+        empty = client.post("/api/health/llm-key", content=b"", headers=auth)
+        assert empty.status_code == 400 and "ключа в запросе нет" in empty.json()["detail"]
+        answer = client.post("/api/health/llm-key", json={"key": "sk-" + "a" * 40}, headers=auth)
         assert answer.status_code == 200 and answer.json()["ключ"].startswith("43 симв.")
         assert "a" * 40 not in answer.text                                  # сам ключ не отдаём
         assert app_module.llm.clean_key() == "sk-" + "a" * 40

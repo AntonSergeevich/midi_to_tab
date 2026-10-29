@@ -33,7 +33,7 @@ jobs:
       - name: Доходит ли поле формы до /api/health/llm-key (негодный ключ -- не сохранится)
         run: |
           out=$(curl -sS -w ' %{http_code}' -H "Authorization: Bearer ${NASLUX_HEALTH_TOKEN}" \
-            -F "key=abc" https://naslux.ru/api/health/llm-key 2>&1 || true)
+            -H "Content-Type: application/json" --data-binary '{"key":"abc"}' https://naslux.ru/api/health/llm-key 2>&1 || true)
           echo "::notice title=Проба поля key::$out"
       - name: Сбои ИИ-шлюза
         run: |

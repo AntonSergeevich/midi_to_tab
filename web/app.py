@@ -485,13 +485,27 @@ def _gpu_usage() -> dict:
 
 
 @app.post("/api/health/llm-key", include_in_schema=False)
-def api_health_llm_key(request: Request, key: str = Form(...)):
+async def api_health_llm_key(request: Request):
     """Ключ ИИ-шлюза -- из секрета GitHub (проверка сайта), без ручной вставки
     в консоли сервера: там он дважды обрезался до 3 символов (29.10). Пишется
     в файл в папке данных (права 600); в ответе -- только его признаки."""
     require_health_token(request)
+    # Тело разбираем сами (JSON или форма): через Form(...) боевой сайт
+    # отвечал 422 «нет поля key» даже на пробное поле, хотя локально -- 200
+    raw = await request.body()
+    kind = request.headers.get("content-type", "")
+    key = ""
     try:
-        llm.save_key(key)
+        if "json" in kind:
+            key = str((json.loads(raw or b"{}") or {}).get("key") or "")
+        else:
+            key = str((await request.form()).get("key") or "")
+    except (ValueError, AttributeError):
+        key = ""
+    if not key:
+        raise HTTPException(400, f"ключа в запросе нет: {kind or 'без типа'}, {len(raw)} байт")
+    try:
+        await asyncio.to_thread(llm.save_key, key)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
     return {"ключ": llm.key_shape(), "шлюз": llm.ready()}
