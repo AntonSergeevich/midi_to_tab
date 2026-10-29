@@ -3082,6 +3082,23 @@ def _giftable(job) -> None:
                                  "так требует авторское право. Музыкант может загрузить запись сам")
 
 
+@app.post("/api/studio/{job_id}/cover")
+def api_studio_cover(job_id: str, request: Request):
+    """Нарисовать обложку треку без неё (бесплатно, до трёх раз на трек)."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id or job.status != "done":
+        raise HTTPException(404, "Трек не найден")
+    if os.path.isfile(os.path.join(studio_runner.folder(job_id), "cover.jpg")):
+        return {"ok": True, "ready": True}
+    if not studio.api_key() or os.environ.get("NASLUX_COVERS", "1") == "0":
+        raise HTTPException(503, "Обложки сейчас не рисуются — попробуйте позже")
+    base = str(request.base_url).rstrip("/")
+    if not studio_runner.draw_cover(job_id, studio.link(base, SECRET, job_id, "upload")):
+        raise HTTPException(429, "Обложка этому треку уже рисовалась трижды")
+    return {"ok": True, "ready": False}
+
+
 @app.post("/api/studio/{job_id}/gift")
 def api_studio_gift(job_id: str, request: Request, layout: str = Form("{}")):
     """Ссылка «передать музыканту» на трек со всеми дорожками."""

@@ -2654,3 +2654,47 @@ def test_gateway_key_arrives_from_github_secret(tmp_path, monkeypatch):
         assert "a" * 40 not in answer.text                                  # сам ключ не отдаём
         assert app_module.llm.clean_key() == "sk-" + "a" * 40
         assert client.get("/api/health", headers=auth).json()["ии_шлюз_ключ"].startswith("43 симв.")
+
+
+def test_cover_on_gpu_path_and_by_button(studio_app, monkeypatch):
+    """Песня на нашей видеокарте (YuE2) тоже получает обложку; треку без неё
+    обложку можно нарисовать кнопкой -- бесплатно, не больше трёх раз."""
+    app_module, client, user, submitted = studio_app
+    studio, runner = app_module.studio, app_module.studio_runner
+    monkeypatch.setenv("RUNPOD_API_KEY", "rp-test")
+    monkeypatch.setenv("NASLUX_COVERS", "1")
+    app_module.storage.add_balance(user.id, 300)
+    job_id = _start(client, lyrics="Строка", preset="rock").json()["jobId"]
+
+    started = []
+    monkeypatch.setattr(runner, "_start_cover", lambda jid: started.append(jid))
+    monkeypatch.setattr(runner, "_finish", lambda *a: None)
+    monkeypatch.setattr(studio, "endpoint_id", lambda *a: "ep1")
+    monkeypatch.setattr(studio, "call", lambda method, url, body=None, timeout=60: (
+        {"id": "r1"} if url.endswith("/run") else {"status": "COMPLETED", "output": {"ok": True}}))
+    settings = dict(app_module.storage.job(job_id).settings)
+    settings.pop("remote", None)
+    app_module.storage.update_job(job_id, settings={**settings, "engine": "yue2", "input": {
+        **submitted[-1][1], "upload_url": "https://site/up"}})
+    runner._run(job_id)
+    assert started == [job_id]
+
+    drawn = []
+
+    class Now:  # поток -- сразу, чтобы проверить, с чем рисуется
+        def __init__(self, target, args, daemon=None):
+            self.target, self.args = target, args
+
+        def start(self):
+            self.target(*self.args)
+
+    monkeypatch.setattr(studio.threading, "Thread", Now)
+    monkeypatch.setattr(studio, "make_cover", lambda *a: drawn.append(a) or True)
+    app_module.storage.update_job(job_id, status="done")
+    for _ in range(3):
+        assert client.post(f"/api/studio/{job_id}/cover").json() == {"ok": True, "ready": False}
+    assert drawn[0][0]["upload_url"].startswith("http") and "/api/studio/upload/" in drawn[0][0]["upload_url"]
+    assert drawn[0][2] == "Строка" and drawn[0][4] != drawn[1][4]       # другое зерно -- другая картинка
+    assert client.post(f"/api/studio/{job_id}/cover").status_code == 429
+    open(f"{runner.folder(job_id)}/cover.jpg", "wb").write(b"\xff\xd8")
+    assert client.post(f"/api/studio/{job_id}/cover").json()["ready"] is True

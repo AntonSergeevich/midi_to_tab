@@ -707,7 +707,8 @@ function trackInfo(j) {
       <button type="button" class="st-linkbtn" data-copy="title">Копировать</button></div>
     <dl class="st-info-facts">${facts.map(([t, v]) => `<dt>${t}</dt><dd>${esc(String(v))}</dd>`).join('')}</dl>
     ${copyBox('style', 'Стиль', j.style)}${copyBox('lyrics', 'Текст песни', j.lyrics)}
-    ${j.cover ? `<a class="st-linkbtn" href="${j.cover}" download="${esc(j.name)}.jpg">Скачать обложку</a>` : ''}
+    ${j.cover ? `<a class="st-linkbtn" href="${j.cover}" download="${esc(j.name)}.jpg">Скачать обложку</a>`
+    : j.status === 'done' && j.mode !== 'stems' ? `<button type="button" class="st-linkbtn" data-act="drawcover" data-job="${j.id}"${coverWait[j.id] > Date.now() ? ' disabled>Рисуем обложку…' : '>🎨 Нарисовать обложку'}</button>` : ''}
     ${['done', 'error'].includes(j.status) && j.mode !== 'stems' ? `<button type="button" class="st-info-again" data-act="again" data-job="${j.id}">↻ Повторить с этими настройками</button>` : ''}
   </aside>`;
 }
@@ -889,7 +890,7 @@ async function loadOnce() {
   }
   if (analyzing) return 6000;            // тональность и темп вот-вот будут
   if (info.jobs.some((j) => j.status === 'done' && !j.cover
-      && ['create', 'restyle'].includes(j.mode) && Date.now() / 1000 - j.at < 900)) {
+      && (coverWait[j.id] > Date.now() || (['create', 'restyle'].includes(j.mode) && Date.now() / 1000 - j.at < 900)))) {
     return 15000;                        // обложка ещё рисуется
   }
   return null;
@@ -898,6 +899,7 @@ async function loadOnce() {
 // Тональность и темп: разбор на сервере по запросу, не больше двух треков
 // за раз (открытый трек -- первым). true -- что-то ещё считается.
 const keyAsked = {};
+const coverWait = {};
 async function ensureKeys() {
   const wanted = [];
   const open = info.jobs.find((j) => j.id === openJob);
@@ -1559,10 +1561,23 @@ function coverOf(jobId, fileName) {
   fillFromTrack(j.id, version.name, { style: false, lyrics: !j.lyrics });
 }
 
+// Обложка по кнопке: рисуется минуту-две, пока ждём (coverWait) -- опрос и «Рисуем…»
+async function drawCover(jobId) {
+  if (window.haptic) window.haptic('light');
+  const r = await fetch(`/api/studio/${jobId}/cover`, { method: 'POST' });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(data.detail || 'Не получилось нарисовать обложку'); return; }
+  if (!data.ready) {
+    coverWait[jobId] = Date.now() + 4 * 60 * 1000;
+    toast('Рисуем обложку по смыслу песни — появится через минуту-две');
+  }
+  load();
+}
 async function act(what, jobId, fileName) {
   $('menu').hidden = true;
   if (what === 'again') { repeat(jobId); return; }
   if (what === 'cover') { coverOf(jobId, fileName); return; }
+  if (what === 'drawcover') { drawCover(jobId); return; }
   if (what === 'like') { likeOf(jobId, fileName); return; }
   if (what === 'reference') { openReference(jobId, fileName); return; }
   if (what === 'deltabs') {

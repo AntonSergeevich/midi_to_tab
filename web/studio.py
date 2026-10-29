@@ -472,6 +472,7 @@ def relay_endpoint_id() -> str:
 
 
 COVER_NAME = "naslux-cover"
+COVER_TRIES = 3  # обложек по кнопке на один трек
 _cover_cache: dict[str, str] = {}
 
 
@@ -1057,6 +1058,11 @@ class StudioRunner:
             return
         try:
             job = self.storage.job(job_id)
+            # песня на нашей видеокарте (YuE2, ACE-Step) -- обложка тоже,
+            # как у Mureka: до этого её рисовали только там
+            if (job.settings or {}).get("mode") in ("create", "restyle"):
+                self._start_cover(job_id)
+                job = self.storage.job(job_id)
             settings = dict(job.settings or {})
             remote = settings.get("remote")
             if remote and "id" not in remote:
@@ -1355,6 +1361,23 @@ class StudioRunner:
         threading.Thread(target=make_cover, daemon=True, args=(
             task_input, job.filename, task_input.get("lyrics", ""), task_input.get("prompt", ""),
             int(job_id[:8], 16))).start()
+
+    def draw_cover(self, job_id: str, upload_url: str) -> bool:
+        """Обложка по кнопке -- треку, у которого её нет (не вышла, песня
+        сделана до обложек, загруженный трек). Не больше COVER_TRIES раз."""
+        job = self.storage.job(job_id)
+        settings = dict(job.settings or {})
+        tries = int(settings.get("coverTries") or 0)
+        if tries >= COVER_TRIES:
+            return False
+        self.storage.update_job(job_id, settings={**settings, "coverAsked": True, "coverTries": tries + 1})
+        task_input = {**(settings.get("input") or {}), "upload_url": upload_url}
+        result = job.result or {}
+        threading.Thread(target=make_cover, daemon=True, args=(
+            task_input, job.filename, task_input.get("lyrics") or result.get("lyrics") or "",
+            task_input.get("prompt") or settings.get("prompt") or "",
+            int(job_id[:8], 16) + tries + 1)).start()
+        return True
 
     def _separate_vocals(self, job_id: str, settings: dict) -> str:
         """Вокал исходника -- Demucs на нашем воркере (режим stems): партии

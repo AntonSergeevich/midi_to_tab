@@ -1751,5 +1751,13 @@
  "3 минуты: как создать песню, работать с мультитреком, записать голос и свести трек. Удобно отправить музыкантам — кнопка «Отправить музыканту» на странице.": "3 minutes: how to create a song, use the multitrack, record your voice and mix the track. Easy to send to musicians — “Send to a musician” on the page.",
  "naslux.ru/guide · ссылки на главной и в Студии": "naslux.ru/guide · links on the home page and in the Studio",
  "▶ Видео: как это работает": "▶ Video: how it works",
- "▶ Видеоинструкция: как сделать песню и спеть её самому (3 мин)": "▶ Video guide: how to make a song and sing it yourself (3 min)"
+ "▶ Видеоинструкция: как сделать песню и спеть её самому (3 мин)": "▶ Video guide: how to make a song and sing it yourself (3 min)",
+ "Обложки — и у песен на нашей видеокарте": "Covers for songs made on our GPU too",
+ "Песни, сделанные на нашей видеокарте, оставались без обложки. Теперь она рисуется сама, а треку без неё — кнопка «Нарисовать обложку», бесплатно.": "Songs made on our GPU were left without a cover. Now it is drawn automatically, and a track without one gets a free “Draw cover” button.",
+ "🎨 Нарисовать обложку": "🎨 Draw cover",
+ "Рисуем обложку…": "Drawing cover…",
+ "Рисуем обложку по смыслу песни — появится через минуту-две": "Drawing a cover from the song’s meaning — it will appear in a minute or two",
+ "Не получилось нарисовать обложку": "Couldn’t draw the cover",
+ "Обложки сейчас не рисуются — попробуйте позже": "Covers are unavailable right now — try again later",
+ "Обложка этому треку уже рисовалась трижды": "This track’s cover has already been drawn three times"
 }
