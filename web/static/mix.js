@@ -449,7 +449,7 @@ async function init() {
     : 'Одна дорожка — разделите трек, чтобы глушить отдельные инструменты';
   hasStems = Boolean(stems);
   showSplit(splitting);
-  if (stems) $('splitBox').hidden = true;      // покажется, когда появится монтаж (refreshSplit)
+  if (stems && !splitting) $('splitBox').hidden = true;      // покажется, когда появится монтаж (refreshSplit)
 
   // Аккорды и тональность: по партиям без голоса и барабанов, если трек
   // разделён (голос тянет ноты мимо аккорда), иначе -- по самой версии
@@ -1132,8 +1132,9 @@ function edited() {
 }
 
 let hasStems = false;
+let splitBusy = false;       // идёт разделение -- блок показывает его ход, не трогаем
 function refreshSplit() {
-  if (!info || !info.services) return;
+  if (!info || !info.services || splitBusy) return;
   const glued = tracks.length && edited();
   $('splitBox').hidden = hasStems && !glued;
   if ($('splitBox').hidden) return;
@@ -1230,23 +1231,49 @@ async function splitGlued(pro) {
   }
 }
 
+// Ход разделения -- прямо в блоке с кнопкой (на телефоне он внизу, а
+// сообщение вверху страницы оставалось за экраном: «не вижу процесса», 29.10)
+function splitProgress(stage, pct) {
+  $('splitBox').hidden = false;
+  $('splitTitle').textContent = 'Раскладываем на дорожки…';
+  $('splitText').textContent = `${stage || 'В очереди'}${pct ? ` · ${pct}%` : ''} — дорожки появятся сами, страницу можно не трогать.`;
+  $('splitBar').hidden = false;
+  $('splitFill').style.width = `${Math.max(4, Math.min(100, pct || 0))}%`;
+  $('splitGo').textContent = pct ? `Раскладываем… ${pct}%` : 'Раскладываем…';
+}
+
 async function waitSplit(splitting) {
+  splitBusy = true;
   $('splitGo').disabled = true;
   $('splitPro').disabled = true;
+  splitProgress(splitting.stage, Math.round(splitting.progress || 0));
   note(`Раскладываем на дорожки: ${esc(splitting.stage || 'в очереди')}… Страница обновится сама.`);
   for (;;) {
-    await new Promise((r) => setTimeout(r, 5000));
+    await new Promise((r) => setTimeout(r, 4000));
     const fresh = await (await fetch('/api/studio')).json();
     const j = fresh.jobs.find((x) => x.id === splitting.id);
     if (!j) return;
-    if (j.status === 'done') { location.reload(); return; }
+    if (j.status === 'done') {
+      splitProgress('Готово', 100);
+      if (window.haptic) window.haptic('success');
+      location.reload();
+      return;
+    }
     if (j.status === 'error') {
-      note(`Не получилось разделить: ${esc(j.error || '')}. Деньги вернулись на баланс.`);
+      const text = `Не получилось разделить: ${j.error || ''}. Деньги вернулись на баланс.`;
+      note(esc(text));
+      $('splitTitle').textContent = 'Не получилось разделить';
+      $('splitText').textContent = text;
+      $('splitBar').hidden = true;
+      $('splitGo').textContent = 'Попробовать ещё раз';
+      splitBusy = false;
       $('splitGo').disabled = false;
       $('splitPro').disabled = false;
       return;
     }
-    note(`Раскладываем на дорожки: ${esc(j.stage || 'в очереди')} · ${Math.round(j.progress || 0)}%… Страница обновится сама.`);
+    const pct = Math.round(j.progress || 0);
+    splitProgress(j.stage, pct);
+    note(`Раскладываем на дорожки: ${esc(j.stage || 'в очереди')} · ${pct}%… Страница обновится сама.`);
   }
 }
 

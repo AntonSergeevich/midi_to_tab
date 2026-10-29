@@ -671,7 +671,7 @@ body.working .flow, body.working .studio-card, body.working .pay-note { display:
 .studio-promo-go { color: var(--accent); font-weight: 600; font-size: 14px; }
 .studio-file .split { grid-column: 1 / -1; justify-self: start; font-size: 13px; padding: 6px 10px; }
 
-/* ---------------- студия в духе Suno: панель слева, треки справа ---------------- */
+/* ---------------- студия: панель слева, треки справа ---------------- */
 
 .wrap.wide { max-width: 1320px; }
 .studio-page .wrap { padding-bottom: 110px; }
@@ -1169,6 +1169,10 @@ header.top > nav.topnav {
 .mx-split { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 14px; padding: 16px;
   border-radius: 14px; border: 1px dashed rgba(217,154,78,.6); background: rgba(217,154,78,.06); }
 .mx-split > div { flex: 1; min-width: 220px; }
+.mx-split-bar[hidden] { display: none; }
+.mx-split-bar { height: 6px; margin-top: 10px; border-radius: 3px; background: var(--line, rgba(255,255,255,.1)); overflow: hidden; }
+.mx-split-bar i { display: block; height: 100%; width: 4%; border-radius: 3px; background: var(--accent, #f0b66c);
+  transition: width .6s ease; }
 .mx-split p { margin: 4px 0 0; }
 .mx-help { font-size: 12.5px; margin-top: 14px; }
 @media (max-width: 720px) {

@@ -1796,5 +1796,10 @@
  "Отправляем в нейросеть": "Sending to the AI",
  "Нейросеть для музыки в России с оплатой картой РФ | NASLUX": "An AI for music in Russia, paid with a Russian card | NASLUX",
  "Чем отличается от других генераторов музыки?": "How is it different from other music generators?",
- "Кроме песен с нуля: подбор аккордов, табы, MIDI, разделение на партии, мультитрек, запись своего голоса и каверы своих песен — в одном месте и на русском.": "Besides songs from scratch: chord detection, tabs, MIDI, stem splitting, multitrack, recording your own voice and covers of your own songs — in one place."
+ "Кроме песен с нуля: подбор аккордов, табы, MIDI, разделение на партии, мультитрек, запись своего голоса и каверы своих песен — в одном месте и на русском.": "Besides songs from scratch: chord detection, tabs, MIDI, stem splitting, multitrack, recording your own voice and covers of your own songs — in one place.",
+ "Раскладываем на дорожки…": "Splitting into tracks…",
+ "Раскладываем…": "Splitting…",
+ "— дорожки появятся сами, страницу можно не трогать.": "— the tracks will appear by themselves, no need to touch the page.",
+ "Не получилось разделить": "Couldn't split",
+ "Попробовать ещё раз": "Try again"
 }
