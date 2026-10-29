@@ -1,0 +1,22 @@
+name: RunPod -- больше машин эндпоинту
+
+# Задачи стоят в очереди без воркеров («Ждём свободную видеокарту», 29.10:
+# разделение на партии висело на 90%) -- эндпоинту больше типов видеокарт и
+# версий CUDA. Ключ -- только из секретов.
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: Эндпоинт
+        default: naslux-worker
+
+jobs:
+  tune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      TUNE_NAME: ${{ inputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q requests && python scripts/runpod_tune.py
