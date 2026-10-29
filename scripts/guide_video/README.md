@@ -15,4 +15,9 @@
 4. Съёмка (Playwright, его версия — под браузер в контейнере):
    `python3 record.py <папка>` — компьютер 1280×720 и телефон 390×844.
 5. Сборка в `web/media/naslux-guide.mp4`: заставка, компьютер, телефон,
-   концовка, фоном — демо-песня (команды ffmpeg — в истории коммита).
+   концовка. Фоном — инструментал NASLUX, сделанный в нашей же студии
+   (YuE2, `scripts/yue2_job_naslux_instrumental.json`, зерно 42), громкость
+   выровнена loudnorm до −15 LUFS, плавные вход и выход:
+   `ffmpeg -i video.mp4 -i music.mp3 -filter_complex
+   "[1:a]atrim=0:DUR,loudnorm=I=-15:TP=-1.5:LRA=11,afade=t=in:st=0:d=1.5,afade=t=out:st=DUR-4:d=4[a]"
+   -map 0:v -map "[a]" -c:v copy -c:a aac -b:a 160k -shortest -movflags +faststart naslux-guide.mp4`
