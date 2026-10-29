@@ -10,6 +10,9 @@ on:
         description: Файл задания
         default: scripts/suno_job_naslux_drive.json
 
+permissions:
+  contents: write
+
 jobs:
   probe:
     runs-on: ubuntu-latest
