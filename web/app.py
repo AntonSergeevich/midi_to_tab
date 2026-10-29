@@ -492,18 +492,20 @@ async def api_health_llm_key(request: Request):
     require_health_token(request)
     # Тело разбираем сами (JSON или форма): через Form(...) боевой сайт
     # отвечал 422 «нет поля key» даже на пробное поле, хотя локально -- 200
+    # По дороге на боевой сайт терялся заголовок Content-Type (29.10: «без
+    # типа, 67 байт») -- читаем тело по виду: JSON, форма, multipart
     raw = await request.body()
     kind = request.headers.get("content-type", "")
+    text = raw.decode("utf-8", "replace")
     key = ""
     try:
-        if "json" in kind:
-            key = str((json.loads(raw or b"{}") or {}).get("key") or "")
-        else:
-            key = str((await request.form()).get("key") or "")
+        key = str((json.loads(text) or {}).get("key") or "")
     except (ValueError, AttributeError):
-        key = ""
-    if not key:
-        raise HTTPException(400, f"ключа в запросе нет: {kind or 'без типа'}, {len(raw)} байт")
+        part = re.search(r'name="key"\r?\n(?:[^\r\n]*\r?\n)*?\r?\n(.*?)\r?\n--', text, re.S)
+        key = part.group(1) if part else (urllib.parse.parse_qs(text).get("key") or [""])[0]
+    if not key.strip():
+        raise HTTPException(400, f"ключа в запросе нет: {kind or 'без типа'}, {len(raw)} байт, "
+                                 f"начало {text[:1]!r}, слово key {'есть' if 'key' in text else 'нет'}")
     try:
         await asyncio.to_thread(llm.save_key, key)
     except ValueError as error:

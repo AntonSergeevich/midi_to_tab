@@ -2640,6 +2640,10 @@ def test_gateway_key_arrives_from_github_secret(tmp_path, monkeypatch):
         assert client.post("/api/health/llm-key", data={"key": "sk-" + "a" * 40}).status_code == 403
         assert client.post("/api/health/llm-key", data={"key": "коротко"}, headers=auth).status_code == 400
         assert client.post("/api/health/llm-key", json={"key": "abc"}, headers=auth).status_code == 400
+        bare = client.post("/api/health/llm-key", content=b'{"key": "abc"}', headers=auth)       # без Content-Type
+        assert bare.status_code == 400 and "не похож" in bare.json()["detail"]
+        multi = client.post("/api/health/llm-key", files={"key": (None, "abc")}, headers=auth)
+        assert multi.status_code == 400 and "не похож" in multi.json()["detail"]
         empty = client.post("/api/health/llm-key", content=b"", headers=auth)
         assert empty.status_code == 400 and "ключа в запросе нет" in empty.json()["detail"]
         answer = client.post("/api/health/llm-key", json={"key": "sk-" + "a" * 40}, headers=auth)
