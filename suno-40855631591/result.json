@@ -1,0 +1,63 @@
+{
+ "id": 56839673,
+ "organization_id": 756697,
+ "network": "suno",
+ "status": "success",
+ "response_type": "audio",
+ "cost": 17,
+ "progress": 100,
+ "runtime": 133.46,
+ "result": [
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268847_6ae31c6f35878.mp3",
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268858_6ae31c7adc8b6.mp3",
+  {
+   "audio_url": "https://gen-api.storage.yandexcloud.net/input_files/1793268847_6ae31c6f35878.mp3",
+   "image": "https://gen-api.storage.yandexcloud.net/input_files/1793268858_6ae31c7a25465.jpeg",
+   "audio_id": "4cd08471-c286-4661-8333-ddc8bb1c67f9",
+   "task_id": "9f388cde697f5df48107088a09f0ebe8"
+  },
+  {
+   "audio_url": "https://gen-api.storage.yandexcloud.net/input_files/1793268858_6ae31c7adc8b6.mp3",
+   "image": "https://gen-api.storage.yandexcloud.net/input_files/1793268859_6ae31c7b6ce84.jpeg",
+   "audio_id": "9c7194e0-3fcf-4883-8324-476c5ed3752e",
+   "task_id": "9f388cde697f5df48107088a09f0ebe8"
+  }
+ ],
+ "full_response": [
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268847_6ae31c6f35878.mp3"
+  },
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268858_6ae31c7adc8b6.mp3"
+  },
+  {
+   "audio_url": "https://gen-api.storage.yandexcloud.net/input_files/1793268847_6ae31c6f35878.mp3",
+   "image": "https://gen-api.storage.yandexcloud.net/input_files/1793268858_6ae31c7a25465.jpeg",
+   "audio_id": "4cd08471-c286-4661-8333-ddc8bb1c67f9",
+   "task_id": "9f388cde697f5df48107088a09f0ebe8"
+  },
+  {
+   "audio_url": "https://gen-api.storage.yandexcloud.net/input_files/1793268858_6ae31c7adc8b6.mp3",
+   "image": "https://gen-api.storage.yandexcloud.net/input_files/1793268859_6ae31c7b6ce84.jpeg",
+   "audio_id": "9c7194e0-3fcf-4883-8324-476c5ed3752e",
+   "task_id": "9f388cde697f5df48107088a09f0ebe8"
+  }
+ ],
+ "parameters": {
+  "mv": "chirp-hawk",
+  "tags": "aggressive rap rock, male and female vocals, 808",
+  "task": "upload_extend",
+  "model": "v6",
+  "title": "Продолжение",
+  "prompt": "[Chorus]\nНаслукс! Это наш звук!\nМы продолжаем, и мир вокруг!",
+  "upload_url": "https://gen-api.storage.yandexcloud.net/input_files/1793268725_6ae31bf5806d9.mp3",
+  "continue_at": 60,
+  "custom_mode": true,
+  "audio_weight": 0.5,
+  "style_weight": 0.5,
+  "translate_input": false,
+  "default_param_flag": true,
+  "weirdness_constraint": 0.5
+ },
+ "timestamp": 1793268725
+}
