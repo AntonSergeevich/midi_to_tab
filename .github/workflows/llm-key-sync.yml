@@ -18,5 +18,5 @@ jobs:
         run: |
           [ -n "$KEY" ] || { echo "::error::Секрет BEGET_AI_API_KEY не задан"; exit 1; }
           out=$(curl -sS -w '\n%{http_code}' -H "Authorization: Bearer ${NASLUX_HEALTH_TOKEN}" \
-            --data-urlencode "key=${KEY}" https://naslux.ru/api/health/llm-key)
+            -F "key=${KEY}" https://naslux.ru/api/health/llm-key)
           echo "::notice title=Ответ сайта::$(echo "$out" | tail -n1) $(echo "$out" | sed '$d' | head -c 300)"
