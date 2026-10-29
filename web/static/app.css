@@ -1863,6 +1863,7 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
 .gd-video { width: 100%; aspect-ratio: 16 / 9; border-radius: 16px; background: #000; border: 1px solid var(--border);
   box-shadow: 0 24px 60px rgba(0,0,0,.45); display: block; }
 .gd-actions { display: flex; gap: 12px; flex-wrap: wrap; margin: 16px 0 28px; }
+.gd-steps[hidden] { display: none; }
 .gd-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .gd-steps li { border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; background: var(--panel); }
 .gd-steps button { display: flex; align-items: center; gap: 10px; background: none; border: 0; padding: 0; color: var(--text);
