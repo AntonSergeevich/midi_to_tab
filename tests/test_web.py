@@ -2010,6 +2010,97 @@ def test_two_stem_tabs_clicked_at_once_charge_only_once(tmp_path, monkeypatch):
     assert app_module.storage.job(job.id).counted
 
 
+def test_tabs_clicked_twice_for_the_same_stem_reuses_the_job(tmp_path, monkeypatch):
+    """
+    Регрессия: `/api/job/{id}/tabs/{stem}` всегда создавало НОВОЕ дочернее
+    задание и запускало Basic Pitch заново, даже если для этой же партии
+    уже есть задание в очереди, в работе или уже готовое. Кнопка
+    блокируется только в той вкладке, что её нажала (`web/static/player.js`)
+    -- перезагрузка страницы, вторая вкладка или повтор запроса из-за
+    таймаута сети снова видят чистую кнопку и запускают вторую
+    транскрипцию той же партии. Сервис -- один процесс с MemoryMax=3G
+    (deploy/README.md): лишний параллельный разбор отбирает память и время
+    у чужих заданий. Повторный запрос должен вернуть уже существующее
+    задание, а не плодить новое.
+    """
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    started = []
+    monkeypatch.setattr(
+        app_module.runner, "submit_tabs",
+        lambda jid, parent_id, stem: started.append((jid, parent_id, stem)),
+    )
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        for _ in range(app_module.billing.FREE_SONGS):          # пробы кончились
+            app_module.billing.consume(app_module.storage, app_module.storage.user(user.id))
+        app_module.storage.add_balance(user.id, 100)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+        job = app_module.storage.create_job(user.id, "song.mp3", {})
+        app_module.storage.update_job(job.id, status="done", result={
+            "isMidi": False, "chords": [],
+            "paths": {"parts": {"full": "song.mp3", "guitar": "guitar.wav"}},
+        })
+
+        first = client.post(f"/api/job/{job.id}/tabs/guitar")
+        second = client.post(f"/api/job/{job.id}/tabs/guitar")
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json()["jobId"] == second.json()["jobId"]
+        assert started == [(first.json()["jobId"], job.id, "guitar")]
+        assert app_module.storage.user(user.id).balance == 100 - app_module.billing.PRICE_SINGLE_RUB
+        assert len(app_module.storage.child_jobs(job.id)) == 1
+
+
+def test_tabs_retried_after_a_failure_starts_a_fresh_job(tmp_path, monkeypatch):
+    """Дополнение к тесту выше: если предыдущая попытка для этой партии
+    упала (`status="error"`), повторный запрос -- это "попробовать снова",
+    а не дубликат, и должен запустить новое задание."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "s")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    started = []
+    monkeypatch.setattr(
+        app_module.runner, "submit_tabs",
+        lambda jid, parent_id, stem: started.append((jid, parent_id, stem)),
+    )
+    with TestClient(app_module.app) as client:
+        user = app_module.storage.ensure_user(None)
+        app_module.storage.add_balance(user.id, 100)
+        client.cookies.set("uid", app_module.signer.dumps(user.id))
+        job = app_module.storage.create_job(user.id, "song.mp3", {})
+        app_module.storage.update_job(job.id, status="done", result={
+            "isMidi": False, "chords": [],
+            "paths": {"parts": {"full": "song.mp3", "guitar": "guitar.wav"}},
+        })
+
+        first = client.post(f"/api/job/{job.id}/tabs/guitar")
+        app_module.storage.update_job(first.json()["jobId"], status="error", error="сбой")
+
+        second = client.post(f"/api/job/{job.id}/tabs/guitar")
+
+        assert second.status_code == 200
+        assert second.json()["jobId"] != first.json()["jobId"]
+        assert len(started) == 2
+        assert len(app_module.storage.child_jobs(job.id)) == 2
+
+
 def test_charge_song_once_survives_a_true_concurrent_race(tmp_path, monkeypatch):
     """
     Регрессия под настоящую гонку потоков (findings-2026-10-04-security-
