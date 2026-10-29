@@ -3038,3 +3038,16 @@ def test_cancel_running_job_refunds_and_stops_waiting(studio_app, monkeypatch):
     assert any(u.endswith("/cancel/r1") for u in calls)
     runner._run(job_id)                                   # поток ожидания видит отметку и выходит
     assert st.job(job_id).status == "error" and st.user(user.id).studio_credits == 10
+
+
+def test_failed_job_shows_briefly_then_disappears(studio_app, monkeypatch):
+    """«Не получилось» видно ERROR_SHOWN секунд, потом пропадает из списка."""
+    app_module, client, user, submitted = studio_app
+    st, runner = app_module.storage, app_module.studio_runner
+    st.add_studio_credits(user.id, 10)
+    job_id = _start(client, mode="stems").json()["jobId"]
+    runner._fail(job_id, "сбой")
+    assert [j["id"] for j in client.get("/api/studio").json()["jobs"]] == [job_id]
+    settings = st.job(job_id).settings
+    st.update_job(job_id, settings={**settings, "failedAt": settings["failedAt"] - app_module.ERROR_SHOWN - 1})
+    assert client.get("/api/studio").json()["jobs"] == []

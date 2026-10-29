@@ -1949,6 +1949,16 @@ def _studio_job_payload(job) -> dict:
 
 
 HIDDEN_MODES = ("wav", "karaoke")   # служебные задачи: результат -- у версии трека-родителя
+ERROR_SHOWN = 120                    # сколько секунд видно «не получилось» -- потом исчезает
+
+
+def _error_gone(job) -> bool:
+    """Неудача показалась и ушла (владелец, 29.10: «появилось и пусть
+    исчезнет»): деньги к этому времени уже вернулись."""
+    if job.status != "error":
+        return False
+    failed = (job.settings or {}).get("failedAt")
+    return not failed or time.time() - failed > ERROR_SHOWN
 
 
 @app.get("/api/studio")
@@ -1980,7 +1990,8 @@ def api_studio(request: Request):
         "hitPublic": studio.suno_public(),
         "yue2Public": studio.yue2_public(),
         "email": user.email, "maxMb": MAX_UPLOAD_MB, "maxSeconds": studio.MAX_SECONDS,
-        "jobs": [_studio_job_payload(j) for j in jobs if (j.settings or {}).get("mode") not in HIDDEN_MODES],
+        "jobs": [_studio_job_payload(j) for j in jobs if (j.settings or {}).get("mode") not in HIDDEN_MODES
+                 and not _error_gone(j)],
         # WAV и суфлёр, которые сейчас готовятся (служебные задачи -- не треки)
         "hitBusy": [{"of": (j.settings or {}).get("from"), "file": (j.settings or {}).get("sourceFile"),
                      "kind": (j.settings or {}).get("mode"), "status": j.status, "error": j.error,

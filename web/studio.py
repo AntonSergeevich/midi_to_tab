@@ -1843,7 +1843,8 @@ class StudioRunner:
             def progress(stage: str, seconds: float) -> None:
                 if self._cancelled(job_id):
                     raise JobCancelled()
-                self.storage.update_job(job_id, status="running", stage=STAGES_HIT.get(mode, stage),
+                label = "Отделяем голос от музыки" if task_input.get("parts") == "minus" else STAGES_HIT.get(mode, stage)
+                self.storage.update_job(job_id, status="running", stage=label,
                                         progress=min(92, 5 + seconds * speed))
 
             limit = HIT_TIMEOUT.get(mode, HIT_TIMEOUT_SONG)
@@ -2244,5 +2245,7 @@ class StudioRunner:
             elif charged:
                 self.storage.add_balance(job.user_id, charged)
                 note = f" Списанные {charged:.0f} ₽ вернули на баланс."
+        # когда не получилось: сообщение видно ERROR_SHOWN секунд, потом пропадает (владелец, 29.10)
+        fresh = self.storage.job(job_id)
         self.storage.update_job(job_id, status="error", stage="", error=(
-            f"Не получилось: {reason[:300]}.{note}"))
+            f"Не получилось: {reason[:300]}.{note}"), settings={**(fresh.settings or {}), "failedAt": time.time()})

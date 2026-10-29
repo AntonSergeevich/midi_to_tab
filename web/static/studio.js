@@ -912,6 +912,7 @@ async function loadOnce() {
       && (coverWait[j.id] > Date.now() || (['create', 'restyle', 'continue'].includes(j.mode) && Date.now() / 1000 - j.at < 900)))) {
     return 15000;                        // обложка ещё рисуется
   }
+  if (info.jobs.some((j) => j.status === 'error')) return 30000;   // «не получилось» само исчезнет
   return null;
 }
 

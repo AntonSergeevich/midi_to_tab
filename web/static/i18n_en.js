@@ -831,6 +831,7 @@ window.NASLUX_EN = {
 "Остановить эту работу? Деньги или генерация вернутся.": "Stop this job? The money or credits will be returned.",
 "Остановлено.": "Stopped.",
 "От идеи до готового трека — за вечер": "From idea to finished track — in one evening",
+"Отделяем голос от музыки": "Separating the vocals from the music",
 "Отделяю гармонию от ударных...": "Separating harmony from percussion...",
 "Отклик пальцу": "Haptic feedback",
 "Откройте трек один раз при интернете — дальше он откроется и сыграет без сети, с метрономом и аккордами.": "Open a track once while online — after that it opens and plays without a connection, with the metronome and chords.",
