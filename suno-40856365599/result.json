@@ -1,0 +1,38 @@
+{
+ "id": 56839643,
+ "organization_id": 756697,
+ "network": "suno",
+ "status": "success",
+ "response_type": "audio",
+ "cost": 17,
+ "progress": 100,
+ "runtime": 96.6,
+ "result": [
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268802_6ae31c427c46c.mp3",
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268803_6ae31c43cca80.mp3"
+ ],
+ "full_response": [
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268802_6ae31c427c46c.mp3",
+   "label": "instrumentalUrl"
+  },
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268803_6ae31c43cca80.mp3",
+   "label": "vocalUrl"
+  }
+ ],
+ "parameters": {
+  "mv": "chirp-hawk",
+  "task": "vocal_removal",
+  "model": "v6",
+  "task_id": "0489196fdb9f861557765b9a12dbb58c",
+  "audio_id": "710fceba-86d2-4e48-b1e3-b57a5ef5f69d",
+  "custom_mode": true,
+  "audio_weight": 0.5,
+  "style_weight": 0.5,
+  "separation_type": "separate_vocal",
+  "translate_input": false,
+  "weirdness_constraint": 0.5
+ },
+ "timestamp": 1793268707
+}
