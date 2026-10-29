@@ -1764,5 +1764,22 @@
  "Песня с нуля или кавер своей записи на Suno через GenAPI, около 17 ₽ за две версии. Для кавера вставьте текст — Suno споёт его на новую аранжировку; без текста выйдет инструментал.": "A song from scratch or a cover of your own recording on Suno via GenAPI, about 17 ₽ for two versions. For a cover, paste the lyrics — Suno will sing them over a new arrangement; without lyrics you get an instrumental.",
  "— без текста выйдет инструментал": "— without lyrics you get an instrumental",
  "прервано перед самой отправкой в Suno — попробуйте ещё раз": "interrupted right before sending to Suno — please try again",
- "Suno закончил, но версии до сайта не дошли": "Suno finished, but the versions did not reach the site"
+ "Suno закончил, но версии до сайта не дошли": "Suno finished, but the versions did not reach the site",
+ "дБ": "dB",
+ "Гц": "Hz",
+ "кГц": "kHz",
+ "мс": "ms",
+ "центр": "center",
+ "лево": "left",
+ "право": "right",
+ "Свой трек": "Own track",
+ "Видеоинструкция — как сделать песню и спеть её самому | NASLUX": "Video guide — how to make a song and sing it yourself | NASLUX",
+ "3 минуты: как создать песню нейросетью, дописать стиль и текст с ИИ, разложить на дорожки, записать свой голос, добавить эффекты и свести трек в мультитреке NASLUX.": "3 minutes: how to create a song with AI, finish the style and lyrics with AI, split it into stems, record your voice, add effects and mix the track in the NASLUX multitrack.",
+ "Видеоинструкция · 3 минуты": "Video guide · 3 minutes",
+ "Как сделать песню и спеть её самому": "How to make a song and sing it yourself",
+ "Отправить музыканту": "Send to a musician",
+ "NASLUX: как сделать песню и спеть её самому": "NASLUX: how to make a song and sing it yourself",
+ "Видеоинструкция — и на английском": "Video guide — now in English too",
+ "Своя английская версия ролика с английским интерфейсом и главами; фоном в обеих — гимн NASLUX, сделанный в нашей студии. В мультитреке по-английски — и названия дорожек.": "A separate English version with the English interface and chapters; both play the NASLUX anthem made in our own studio. Track names in the multitrack are in English too.",
+ "naslux.ru/guide": "naslux.ru/guide"
 }

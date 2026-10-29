@@ -37,6 +37,7 @@ def job(name, settings, files, extra_files=(), **result):
                                     for _, dst in files], **result})
     return j
 
+EN = os.environ.get("GUIDE_LANG", "ru") == "en"
 lyrics = """[Verse]
 За окном метель и минус двадцать пять,
 В гараже обогреватель тянет ток опять,
@@ -47,17 +48,29 @@ lyrics = """[Verse]
 Эй, зажигай, пусть сугробы до плеча,
 Мы горим, как в морозе свеча!"""
 style = "Гаражный рок, мрачный и холодный звук, перегруженные гитары, живые барабаны, мужской хрипловатый вокал, 120 BPM"
-song = job("Гаражный рок", {"kind": "studio", "mode": "create", "title": "Песня с нуля", "voice": "male",
+if EN:
+    lyrics = """[Verse]
+Snow is piling up outside, it's twenty-five below,
+The heater in the garage is humming soft and slow,
+Fingers sticking to the strings, our breath is turning white,
+But the roof is shaking with the noise we make tonight.
+
+[Chorus]
+Hey, light it up, let the snow pile to the sky,
+We are burning like a candle in the cold of the night!"""
+    style = "Garage rock, dark cold sound, overdriven guitars, live drums, raspy male vocals, 120 BPM"
+NAME, MINE, REH = ("Garage Rock", "My voice", "Rehearsal 24.10") if EN else ("Гаражный рок", "Мой голос", "Репетиция 24.10")
+song = job(NAME, {"kind": "studio", "mode": "create", "title": "Песня с нуля", "voice": "male",
                             "input": {"prompt": style, "lyrics": lyrics}},
            [("create_1.mp3", "create_1.mp3"), ("create_2.mp3", "create_2.mp3")],
            [("extra_mine01.mp3", "extra_mine01.mp3")],
-           lyrics=lyrics, extras=[{"name": "extra_mine01.mp3", "label": "Мой голос", "for": "create_1.mp3"}])
+           lyrics=lyrics, extras=[{"name": "extra_mine01.mp3", "label": MINE, "for": "create_1.mp3"}])
 cover(os.path.join(M.studio_runner.folder(song.id), "cover.jpg"), (1, 1))
-stems = job("Гаражный рок", {"kind": "studio", "mode": "stems", "title": "Партии", "from": song.id,
+stems = job(NAME, {"kind": "studio", "mode": "stems", "title": "Партии", "from": song.id,
                              "sourceFile": "create_1.mp3"},
             [(n + ".mp3", n + ".mp3") for n in ("vocals", "drums", "bass", "guitar", "other")])
 time.sleep(0.01)
-up = job("Репетиция 24.10", {"kind": "studio", "mode": "upload", "title": "Свой трек", "rights": {"kind": "own"}},
+up = job(REH, {"kind": "studio", "mode": "upload", "title": "Свой трек", "rights": {"kind": "own"}},
          [("create_2.mp3", "track.mp3")])
 cover(os.path.join(M.studio_runner.folder(up.id), "cover.jpg"), (0.6, 0.3))
 json.dump({"cookie": M.signer.dumps(u.id), "song": song.id, "stems": stems.id}, open(os.path.join(D, "demo.json"), "w"))

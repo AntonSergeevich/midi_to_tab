@@ -22,6 +22,7 @@
     location.reload();
   };
   window.__t = (text) => text;
+  window.__tExact = (text) => text;
   if (lang !== 'en') return;
 
   document.documentElement.lang = 'en';
@@ -62,6 +63,12 @@
     });
   }
   window.__t = tr;
+  // Только фраза целиком: названия дорожек, которые человек мог переименовать
+  // сам, -- переводятся, лишь если это стандартное название («Вокал», «Бас»)
+  window.__tExact = (text) => {
+    if (!dict) prepare();
+    return dict[text] !== undefined ? dict[text] : text;
+  };
 
   const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'PRE', 'CODE', 'NOSCRIPT']);
   const ATTRS = ['placeholder', 'title', 'aria-label', 'alt', 'data-tip'];
@@ -94,7 +101,7 @@
 
   // Юридические тексты (оферта, политика) и SEO-страницы -- только по-русски:
   // переводим шапку, а над текстом -- пометка
-  const RU_ONLY = /^\/(offer|privacy|guide)$/.test(location.pathname) || location.pathname.startsWith('/admin');
+  const RU_ONLY = /^\/(offer|privacy)$/.test(location.pathname) || location.pathname.startsWith('/admin');
 
   function markRussianOnly() {
     const main = document.querySelector('main.landing, .doc, main, article');

@@ -39,13 +39,34 @@
     <p class="lp-kicker">Видеоинструкция · 3 минуты</p>
     <h1>Как сделать песню и спеть её самому</h1>
     <video class="gd-video" id="video" controls playsinline preload="metadata" poster="/media/naslux-guide.jpg">
-      <source src="/media/naslux-guide.mp4?v=2" type="video/mp4">
+      <source src="/media/naslux-guide.mp4?v=3" type="video/mp4">
     </video>
     <div class="gd-actions">
       <button type="button" class="lp-btn ghost" id="share">Отправить музыканту</button>
       <a class="lp-btn" href="/studio">Открыть Студию</a>
     </div>
 
+    <ol class="gd-steps" id="chaptersEn" data-noi18n lang="en" hidden>
+      <li><button type="button" data-at="14"><span>0:14</span><b>Create a song</b></button>
+        <p>Studio → “Create”. Describe the style in your own words and press <b>“Finish with AI”</b> — AI adds the
+          genre, tempo, voice and sound. No lyrics? <b>“Compose”</b>: say what the song is about. Pick a voice and press
+          <b>“Create”</b> — in a few minutes you get two versions.</p></li>
+      <li><button type="button" data-at="48"><span>0:48</span><b>My tracks</b></button>
+        <p>Tap a track: versions, stems and, on the right, <b>“About the track”</b> — style and lyrics with “Copy” and
+          “To the form”. In the <b>“⋯”</b> menu: backing track without vocals, split into stems, tabs & MIDI, a listen
+          link and <b>“Hand to a musician”</b> — the track with all its stems appears in their account.</p></li>
+      <li><button type="button" data-at="71"><span>1:11</span><b>Multitrack</b></button>
+        <p>Every part is its own track. <b>M</b> — mute (for example, the AI vocal), <b>S</b> — solo it, the slider sets
+          the volume. <b>FX → “＋ Add effect”</b>: EQ, compressor, reverb, delay, chorus, saturation. The metronome
+          follows the song’s own beats.</p></li>
+      <li><button type="button" data-at="126"><span>2:06</span><b>Record your voice and mix</b></button>
+        <p>Put on headphones and press <b>“Record”</b> — the take lands on its own track, right in time. In the FX of
+          the recorded track AI removes noise and tunes the notes. <b>“Mix”</b> blends your voice into the music,
+          <b>“Download mix”</b> gives the finished track as one file.</p></li>
+      <li><button type="button" data-at="163"><span>2:43</span><b>On your phone</b></button>
+        <p>Everything works the same in your phone’s browser. M and S are in the track header; volume and effects —
+          swipe the header to the right.</p></li>
+    </ol>
     <ol class="gd-steps" id="chapters">
       <li><button type="button" data-at="16"><span>0:16</span><b>Создать песню</b></button>
         <p>Студия → «Создать». Опишите стиль своими словами и нажмите <b>«Дописать с ИИ»</b> — нейросеть добавит
@@ -78,7 +99,15 @@
 <script>
 (function () {
   const video = document.getElementById('video');
-  document.getElementById('chapters').addEventListener('click', (e) => {
+  // Английская версия ролика -- свой файл и свои главы
+  if (window.NASLUX_LANG === 'en') {
+    video.poster = '/media/naslux-guide-en.jpg';
+    video.querySelector('source').src = '/media/naslux-guide-en.mp4?v=1';
+    video.load();
+    document.getElementById('chapters').hidden = true;
+    document.getElementById('chaptersEn').hidden = false;
+  }
+  document.querySelector('.gd').addEventListener('click', (e) => {
     const b = e.target.closest('[data-at]');
     if (!b) return;
     video.currentTime = Number(b.dataset.at);
@@ -89,8 +118,8 @@
     const url = `${location.origin}/guide`;
     try {
       if (navigator.share && matchMedia('(pointer: coarse)').matches) {
-        await navigator.share({ title: 'NASLUX: как сделать песню и спеть её самому', url });
-      } else { await navigator.clipboard.writeText(url); e.target.textContent = 'Ссылка скопирована'; }
+        await navigator.share({ title: window.__t('NASLUX: как сделать песню и спеть её самому'), url });
+      } else { await navigator.clipboard.writeText(url); e.target.textContent = window.__t('Ссылка скопирована'); }
     } catch (error) { /* закрыли окно -- ничего */ }
   });
 }());

@@ -444,7 +444,8 @@ async function init() {
     });
   }
   $('sub').textContent = stems
-    ? `${list.length} ${plural(list.length, 'дорожка', 'дорожки', 'дорожек')}${job.mode === 'stems' ? '' : ` · ${version.label}`}`
+    ? `${list.length} ${window.NASLUX_LANG === 'en' ? (list.length === 1 ? 'track' : 'tracks')
+      : plural(list.length, 'дорожка', 'дорожки', 'дорожек')}${job.mode === 'stems' ? '' : ` · ${version.label}`}`
     : 'Одна дорожка — разделите трек, чтобы глушить отдельные инструменты';
   hasStems = Boolean(stems);
   showSplit(splitting);
@@ -1257,7 +1258,7 @@ function render() {
       <div class="mx-ctrl">
         <span class="mx-pull" aria-hidden="true" title="Потяните вправо — громкость, FX"></span>
         <div class="mx-name" data-grab="${i}" title="Перетащите выше или ниже, чтобы поменять порядок">
-          <span class="mx-grip" data-grip="${i}" aria-hidden="true">⠿</span><i style="background:${t.color}"></i><b data-noi18n data-label="${i}" title="${esc(t.name)} — нажмите, чтобы переименовать">${esc(t.name)}</b>${t.clips.length > 1 ? `<small class="mx-part" title="Кусков на дорожке">${t.clips.length}</small>` : ''}
+          <span class="mx-grip" data-grip="${i}" aria-hidden="true">⠿</span><i style="background:${t.color}"></i><b data-noi18n data-label="${i}" title="${esc(t.name)} — нажмите, чтобы переименовать">${esc((window.__tExact || String)(t.name))}</b>${t.clips.length > 1 ? `<small class="mx-part" title="Кусков на дорожке">${t.clips.length}</small>` : ''}
           <button type="button" class="mx-rename" data-label="${i}" title="Название дорожки" aria-label="Название дорожки">${ICON.pencil}</button>
           ${rec && rec.lane === t ? '<em class="mx-recmark">● запись</em>'
     : t.uploading ? '<em title="Сохраняем при треке…">загрузка…</em>'
@@ -2861,7 +2862,7 @@ let fxLane = -1;
 function openFx(i) {
   fxLane = i;
   const t = tracks[i];
-  $('fxTitle').textContent = `Обработка: ${t.name}`;
+  $('fxTitle').textContent = `${window.__t('Обработка')}: ${(window.__tExact || String)(t.name)}`;
   $('fxList').innerHTML = Object.entries(FX).map(([id, f]) => `
     <button type="button" class="mx-fxpick" data-fxpick="${id}" aria-pressed="${(t.fx || '') === id}">
       <b>${esc(f.title)}</b><small>${esc(f.text)}</small></button>`).join('');
@@ -3159,7 +3160,7 @@ function mixRoles() {
   $('mixRoles').innerHTML = tracks.map((t, i) => {
     const voice = roleOf(t) === 'voice';
     return `<button type="button" class="mx-role${voice ? ' voice' : ''}" data-role="${i}" aria-pressed="${voice}"
-      title="Нажмите, чтобы поменять: голос или музыка"><i style="background:${t.color}"></i><b data-noi18n>${esc(t.name)}</b>
+      title="Нажмите, чтобы поменять: голос или музыка"><i style="background:${t.color}"></i><b data-noi18n>${esc((window.__tExact || String)(t.name))}</b>
       <small>${voice ? '🎤 голос' : '🎸 музыка'}</small></button>`;
   }).join('');
   const ai = aiVoices().filter((t) => audible(t));
