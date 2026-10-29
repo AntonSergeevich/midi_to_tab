@@ -130,29 +130,26 @@ def error_text(state: dict) -> str:
 
 
 def tracks(state: dict) -> list[dict]:
-    """Готовые треки: ссылка на звук, длина, id у Suno (для продления и
-    дорожек), название и стиль. Ссылки ищем и в result, и в full_response
-    -- ответ провайдеров бывает разной формы."""
+    """Готовые треки: ссылка на звук, id у Suno (для продления и дорожек),
+    задача Suno и картинка-обложка. В result GenAPI кладёт и голые ссылки,
+    и словари {audio_url, image, audio_id, task_id} (29.10) -- словари
+    главнее, голые ссылки -- если словарей нет."""
     found: list[dict] = []
     seen: set[str] = set()
-
-    def add(url: str, extra: dict | None = None) -> None:
-        if isinstance(url, str) and url.startswith("http") and url not in seen:
-            seen.add(url)
-            extra = extra or {}
-            found.append({"url": url, "id": str(extra.get("id") or extra.get("audio_id") or ""),
-                          "seconds": extra.get("duration") or 0, "title": extra.get("title") or "",
-                          "tags": extra.get("tags") or "", "image": extra.get("image_url") or ""})
-
-    for item in state.get("full_response") or []:
-        if not isinstance(item, dict):
+    items = list(state.get("result") or []) + list(state.get("full_response") or [])
+    for item in sorted(items, key=lambda x: not isinstance(x, dict)):
+        if isinstance(item, dict):
+            url, extra = item.get("audio_url") or item.get("url") or "", item
+        else:
+            url, extra = item, {}
+        if not isinstance(url, str) or not url.startswith("http") or url in seen \
+                or url.lower().split("?")[0].endswith((".jpg", ".jpeg", ".png", ".webp")):
             continue
-        for sub in item.get("data") if isinstance(item.get("data"), list) else [item]:
-            if isinstance(sub, dict):
-                add(sub.get("audio_url") or sub.get("stream_audio_url") or sub.get("url") or "", sub)
-    for url in state.get("result") or []:
-        if isinstance(url, str) and not url.lower().split("?")[0].endswith((".jpg", ".jpeg", ".png", ".webp")):
-            add(url)
+        seen.add(url)
+        found.append({"url": url, "id": str(extra.get("audio_id") or extra.get("id") or ""),
+                      "task": str(extra.get("task_id") or ""),
+                      "seconds": extra.get("duration") or 0, "title": extra.get("title") or "",
+                      "image": extra.get("image") or extra.get("image_url") or ""})
     return found
 
 

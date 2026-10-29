@@ -1330,6 +1330,15 @@ class Storage:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def suno_usage(self, since: float) -> dict:
+        """Песни Suno (GenAPI) за срок: сколько и почём -- рубли GenAPI."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n, COALESCE(SUM(json_extract(result, '$.genapiCost')), 0) AS rub FROM jobs"
+                " WHERE json_extract(settings, '$.kind') = 'studio' AND json_extract(settings, '$.engine') = 'suno'"
+                " AND status = 'done' AND created_at >= ?", (since,)).fetchone()
+        return {"песен_за_30_дней": row["n"], "рублей_за_30_дней": row["rub"]}
+
     def studio_jobs(self, user_id: str, limit: int = 400) -> list[Job]:
         """Задачи Студии: переделки, дописанные партии, разделения на GPU."""
         with self._connect() as conn:

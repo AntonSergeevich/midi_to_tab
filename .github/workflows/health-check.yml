@@ -82,6 +82,7 @@ jobs:
           echo "::notice title=Шумодав голоса::$(echo "$body" | jq -r '.["шумодав_голоса"] // "нет данных"')"
           echo "::notice title=Тексты песен::$(echo "$body" | jq -r '.["тексты_песен"] // "нет данных"')"
           echo "::notice title=Сбои ИИ-шлюза::$(echo "$body" | jq -c '.["ии_шлюз_сбои"] // []')"
+          echo "::notice title=Suno (GenAPI)::$(echo "$body" | jq -c '.["suno_genapi"] // "нет"')"
 
           total="$(echo "$body" | jq -r '.["уведомлений_за_последние"]')"
           rejected="$(echo "$body" | jq -r '.["из_них_отклонено"]')"

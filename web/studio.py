@@ -900,6 +900,27 @@ def yue2_open(user) -> bool:
         and os.environ.get("NASLUX_YUE2", "1") == "1"
 
 
+def suno_open(user) -> bool:
+    """Suno через GenAPI (web/genapi.py): проба владельца -- галочка в Студии.
+    Для всех -- NASLUX_SUNO_PUBLIC=1 (suno_public)."""
+    from . import genapi
+    return genapi.ready() and (bool(getattr(user, "unlimited", False)) or suno_public())
+
+
+def suno_public() -> bool:
+    from . import genapi
+    return genapi.ready() and os.environ.get("NASLUX_SUNO_PUBLIC", "0") == "1"
+
+
+def suno_style(style: str, voice: str) -> str:
+    """Стиль для Suno: теги, которые дописал ИИ (английские), иначе как
+    написал человек -- Suno понимает и русское описание; голос -- словами."""
+    text = remembered_style_tags(style.strip()) or style.strip()
+    if voice == "duet":
+        text = ", ".join(p for p in (text, "male and female vocals, duet") if p)
+    return text[:1000]
+
+
 def yue2_public() -> bool:
     """YuE2 вместо Mureka для всех, пока у Mureka нет денег (решение
     владельца 08.10: «сервис недоступен» хуже). Веса YuE2 -- CC BY-NC,
@@ -1055,6 +1076,9 @@ class StudioRunner:
             return
         if job and (job.settings or {}).get("engine") == "local":
             self._run_local(job_id)
+            return
+        if job and (job.settings or {}).get("engine") == "suno":
+            self._run_suno(job_id)
             return
         try:
             job = self.storage.job(job_id)
@@ -1645,6 +1669,82 @@ class StudioRunner:
                 "files": files, "engine": "mureka", "model": status.get("model"),
                 "lyrics": task_input.get("lyrics", ""),
                 "seconds": (status.get("finished_at") or 0) - (status.get("created_at") or 0)})
+        except Exception as error:  # noqa: BLE001 -- любая ошибка -> деньги назад
+            self._fail(job_id, str(error))
+
+    def _run_suno(self, job_id: str) -> None:
+        """Suno через GenAPI: песня с нуля (generate) или кавер своей записи
+        (cover: GenAPI сам забирает ужатый трек по подписанной ссылке). Номер
+        запроса хранится в задаче -- после рестарта опрос продолжается, а не
+        заказывается новый. Треки -- сразу к себе (ссылки GenAPI живут сутки),
+        обложка -- картинка самого Suno, а нет её -- наша."""
+        from . import genapi
+        try:
+            job = self.storage.job(job_id)
+            settings = dict(job.settings or {})
+            task_input = settings.get("input") or {}
+            mode = settings.get("mode", "create")
+            folder = self.folder(job_id)
+            remote = settings.get("remote")
+            if remote and "id" not in remote:
+                raise RuntimeError("прервано перед самой отправкой в Suno — попробуйте ещё раз")
+            if not remote:
+                settings["remote"] = {"engine": "suno", "pending": True}
+                self.storage.update_job(job_id, status="running", settings=settings,
+                                        stage="Отправляем в Suno", progress=3)
+                upload = ""
+                if mode == "restyle":
+                    source = next(os.path.join(folder, f) for f in sorted(os.listdir(folder))
+                                  if f.startswith("source."))
+                    mureka_source(source, folder)          # mp3 до 350 с -- его и заберёт GenAPI
+                    upload = task_input.get("mureka_url", "")
+                voice = task_input.get("voice", "")
+                lyrics = without_voice_marks(task_input.get("lyrics", "")).strip()
+                params = genapi.suno_params(
+                    "cover" if mode == "restyle" else "generate", title=job.filename,
+                    style=suno_style(task_input.get("prompt", ""), voice), lyrics=lyrics,
+                    instrumental=not lyrics, gender={"male": "m", "female": "f"}.get(voice, ""),
+                    style_weight=task_input.get("style_influence"), weirdness=task_input.get("weirdness"),
+                    audio_weight=task_input.get("audio_influence") if mode == "restyle" else None,
+                    upload_url=upload)
+                try:
+                    rid = genapi.start(genapi.SUNO, params)
+                except genapi.GenApiNoMoney:
+                    raise RuntimeError("генерация временно недоступна — пополняем счёт нейросети, "
+                                       "попробуйте позже") from None
+                remote = {"engine": "suno", "id": rid, "model": params["model"]}
+                settings["remote"] = remote
+                self.storage.update_job(job_id, settings=settings)
+            started = time.time()
+
+            def progress(stage: str, seconds: float) -> None:
+                self.storage.update_job(job_id, status="running", stage=stage,
+                                        progress=min(90, 5 + seconds * 1.2))
+
+            state = genapi.wait(remote["id"], timeout=JOB_TIMEOUT, every=POLL_SECONDS, progress=progress)
+            prefix = "create" if mode == "create" else "restyle"
+            files, image = [], ""
+            for number, track in enumerate(genapi.tracks(state), 1):
+                name = f"{prefix}_{number}.mp3"
+                path = os.path.join(folder, name)
+                genapi.download(track["url"], path)
+                files.append({"name": name, "label": label_of(prefix, name), "seconds": audio_seconds(path),
+                              **({"sunoId": track["id"]} if track["id"] else {}),
+                              **({"sunoTask": track["task"]} if track.get("task") else {})})
+                image = image or track.get("image", "")
+            if not files:
+                raise RuntimeError("Suno закончил, но версии до сайта не дошли")
+            if image and not os.path.isfile(os.path.join(folder, "cover.jpg")):
+                try:
+                    genapi.download(image, os.path.join(folder, "cover.jpg"))
+                except Exception as error:  # noqa: BLE001 -- обложка -- украшение
+                    print(f"обложка Suno не скачалась: {error}", file=sys.stderr, flush=True)
+            self.storage.update_job(job_id, status="done", stage="Готово", progress=100, result={
+                "files": files, "engine": "suno", "model": remote.get("model", ""),
+                "lyrics": task_input.get("lyrics", ""), "genapiCost": state.get("cost") or 0,
+                "seconds": round(state.get("runtime") or time.time() - started, 1)})
+            if not os.path.isfile(os.path.join(folder, "cover.jpg")):
+                self._start_cover(job_id)
         except Exception as error:  # noqa: BLE001 -- любая ошибка -> деньги назад
             self._fail(job_id, str(error))
 

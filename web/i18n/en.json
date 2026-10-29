@@ -1759,5 +1759,10 @@
  "Рисуем обложку по смыслу песни — появится через минуту-две": "Drawing a cover from the song’s meaning — it will appear in a minute or two",
  "Не получилось нарисовать обложку": "Couldn’t draw the cover",
  "Обложки сейчас не рисуются — попробуйте позже": "Covers are unavailable right now — try again later",
- "Обложка этому треку уже рисовалась трижды": "This track’s cover has already been drawn three times"
+ "Обложка этому треку уже рисовалась трижды": "This track’s cover has already been drawn three times",
+ "🧪 Suno v6 — проба (видно только вам)": "🧪 Suno v6 — trial (visible only to you)",
+ "Песня с нуля или кавер своей записи на Suno через GenAPI, около 17 ₽ за две версии. Для кавера вставьте текст — Suno споёт его на новую аранжировку; без текста выйдет инструментал.": "A song from scratch or a cover of your own recording on Suno via GenAPI, about 17 ₽ for two versions. For a cover, paste the lyrics — Suno will sing them over a new arrangement; without lyrics you get an instrumental.",
+ "— без текста выйдет инструментал": "— without lyrics you get an instrumental",
+ "прервано перед самой отправкой в Suno — попробуйте ещё раз": "interrupted right before sending to Suno — please try again",
+ "Suno закончил, но версии до сайта не дошли": "Suno finished, but the versions did not reach the site"
 }

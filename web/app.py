@@ -37,7 +37,7 @@ from midi2tab import audiochords, audioin, lyrics as lyrics_mod, separate
 from midi2tab.timing import GRIDS
 from midi2tab.tuning import TUNINGS
 
-from . import auth, billing, llm, mailer, oauth, releases, seo, studio, support
+from . import auth, billing, genapi, llm, mailer, oauth, releases, seo, studio, support
 from . import jobs as jobs_module
 from .jobs import JobRunner
 from .storage import Storage
@@ -434,6 +434,9 @@ def api_health(request: Request):
         "шумодав_голоса": "deepfilternet" if voicefx_ready() else "ffmpeg (deep-filter не установлен)",
         "ии_шлюз_сбои": list(llm.errors),
         "ии_шлюз_ключ": llm.key_shape() if llm.key() else "нет",
+        "suno_genapi": {"ключ": f"{len(genapi.key())} симв." if genapi.key() else "нет",
+                        "для_всех": studio.suno_public(),
+                        **storage.suno_usage(time.time() - 30 * 86400)},
         "тексты_песен": f"ИИ-шлюз Beget ({llm.model()})" if llm.ready() else (
             "Mureka" if studio.mureka_key() else "выключено"),
         "уведомлений_за_последние": len(recent),
@@ -484,16 +487,12 @@ def _gpu_usage() -> dict:
     return out
 
 
-@app.post("/api/health/llm-key", include_in_schema=False)
-async def api_health_llm_key(request: Request):
-    """Ключ ИИ-шлюза -- из секрета GitHub (проверка сайта), без ручной вставки
-    в консоли сервера: там он дважды обрезался до 3 символов (29.10). Пишется
-    в файл в папке данных (права 600); в ответе -- только его признаки."""
+async def _posted_key(request: Request) -> str:
+    """Ключ из тела запроса проверки сайта (JSON, форма или multipart).
+    Тело разбираем сами: через Form(...) боевой сайт отвечал 422 «нет поля
+    key» даже на пробное поле, хотя локально -- 200; по дороге терялся и
+    заголовок Content-Type (29.10: «без типа, 67 байт»)."""
     require_health_token(request)
-    # Тело разбираем сами (JSON или форма): через Form(...) боевой сайт
-    # отвечал 422 «нет поля key» даже на пробное поле, хотя локально -- 200
-    # По дороге на боевой сайт терялся заголовок Content-Type (29.10: «без
-    # типа, 67 байт») -- читаем тело по виду: JSON, форма, multipart
     raw = await request.body()
     kind = request.headers.get("content-type", "")
     text = raw.decode("utf-8", "replace")
@@ -510,11 +509,31 @@ async def api_health_llm_key(request: Request):
     if not key.strip():
         raise HTTPException(400, f"ключа в запросе нет: {kind or 'без типа'}, {len(raw)} байт, "
                                  f"начало {text[:1]!r}, слово key {'есть' if 'key' in text else 'нет'}")
+    return key
+
+
+@app.post("/api/health/llm-key", include_in_schema=False)
+async def api_health_llm_key(request: Request):
+    """Ключ ИИ-шлюза -- из секрета GitHub (проверка сайта), без ручной вставки
+    в консоли сервера: там он дважды обрезался до 3 символов (29.10). Пишется
+    в файл в папке данных (права 600); в ответе -- только его признаки."""
+    key = await _posted_key(request)
     try:
         await asyncio.to_thread(llm.save_key, key)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
     return {"ключ": llm.key_shape(), "шлюз": llm.ready()}
+
+
+@app.post("/api/health/genapi-key", include_in_schema=False)
+async def api_health_genapi_key(request: Request):
+    """Ключ GenAPI (Suno) -- так же, из секрета GITHUB GENAPI_API_KEY."""
+    key = await _posted_key(request)
+    try:
+        await asyncio.to_thread(genapi.save_key, key)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return {"ключ": f"{len(genapi.key())} симв.", "genapi": genapi.ready()}
 
 
 def _disk() -> dict:
@@ -1933,6 +1952,7 @@ def api_studio(request: Request):
         "restyleOpen": studio.restyle_open() or user.unlimited,
         "restyleEngine": studio.restyle_engine(),
         "yue2Open": studio.yue2_open(user),
+        "sunoOpen": studio.suno_open(user),
         "yue2Public": studio.yue2_public(),
         "email": user.email, "maxMb": MAX_UPLOAD_MB, "maxSeconds": studio.MAX_SECONDS,
         "jobs": [_studio_job_payload(j) for j in storage.studio_jobs(user.id)],
@@ -1982,17 +2002,19 @@ async def api_studio_start(
     engine = studio.restyle_engine() if mode in ("restyle", "create") or pro else "runpod"
     if asked == "yue2" and mode in ("restyle", "create") and studio.yue2_open(user):
         engine = "yue2"            # проба владельца, см. studio.YUE2_NAME
-    if mode in ("restyle", "create") and engine != "mureka" and studio.yue2_public():
+    if asked == "suno" and mode in ("restyle", "create") and studio.suno_open(user):
+        engine = "suno"            # Suno через GenAPI (web/genapi.py), см. studio.suno_open
+    if mode in ("restyle", "create") and engine not in ("mureka", "suno") and studio.yue2_public():
         engine = "yue2"            # Mureka без денег -- YuE2 для всех (studio.yue2_public)
     if pro and engine != "mureka":
         raise HTTPException(503, "Глубокое разделение пока не подключено")
     if pro:
         service = studio.SERVICES["stems_pro"]
-    if mode == "create" and engine not in ("mureka", "yue2") and not studio.ace_create_open():
+    if mode == "create" and engine not in ("mureka", "yue2", "suno") and not studio.ace_create_open():
         raise HTTPException(503, "Песни с нуля пишет Mureka, а она на сервере не подключена")
     if reference and mode == "create" and engine != "mureka":
         raise HTTPException(503, "Песня «как в образце» временно недоступна — опишите стиль словами")
-    if engine == "yue2" and voice.startswith("my:"):
+    if engine in ("yue2", "suno") and voice.startswith("my:"):
         raise HTTPException(503, "Свой голос сейчас недоступен — выберите мужской, женский или дуэт")
     if engine == "yue2" and mode == "create" and not lyrics.strip():
         raise HTTPException(400, "Сейчас песни с нуля пишутся только со словами — добавьте текст "

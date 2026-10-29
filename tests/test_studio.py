@@ -2698,3 +2698,84 @@ def test_cover_on_gpu_path_and_by_button(studio_app, monkeypatch):
     assert client.post(f"/api/studio/{job_id}/cover").status_code == 429
     open(f"{runner.folder(job_id)}/cover.jpg", "wb").write(b"\xff\xd8")
     assert client.post(f"/api/studio/{job_id}/cover").json()["ready"] is True
+
+
+def test_suno_engine_for_owner_creates_and_covers(studio_app, monkeypatch):
+    """Suno через GenAPI: галочка владельца -> engine suno; песня с нуля --
+    generate с русским текстом без перевода, треки и обложка Suno -- в папку."""
+    app_module, client, user, submitted = studio_app
+    studio, runner, genapi = app_module.studio, app_module.studio_runner, app_module.genapi
+    monkeypatch.setenv("GENAPI_API_KEY", "ga-" + "x" * 30)
+    monkeypatch.setattr(studio, "suno_open", lambda u: True)
+    app_module.storage.add_balance(user.id, 300)
+    response = client.post("/api/studio", data={"mode": "create", "title": "Гимн", "prompt": "рэп-рок, 808",
+                                                "lyrics": "[Verse]\n(Male) Бит качает", "voice": "duet",
+                                                "engine": "suno"})
+    assert response.status_code == 200, response.text
+    job_id = response.json()["jobId"]
+    job = app_module.storage.job(job_id)
+    assert job.settings["engine"] == "suno"
+    app_module.storage.update_job(job_id, settings={**job.settings, "input": submitted[-1][1]})
+
+    sent = []
+
+    def fake_call(method, path, body=None, timeout=60):
+        sent.append((method, path, body))
+        if method == "POST":
+            return {"request_id": 777, "status": "processing"}
+        return {"status": "success", "cost": 17, "runtime": 47.2, "result": [
+            "https://s/a.mp3", {"audio_url": "https://s/a.mp3", "image": "https://s/a.jpeg",
+                                "audio_id": "aid-1", "task_id": "t1"},
+            {"audio_url": "https://s/b.mp3", "image": "https://s/b.jpeg", "audio_id": "aid-2", "task_id": "t1"}]}
+
+    def fake_download(url, path, timeout=180):
+        open(path, "wb").write(b"ID3" if url.endswith(".mp3") else b"\xff\xd8")
+        return 3
+
+    monkeypatch.setattr(genapi, "call", fake_call)
+    monkeypatch.setattr(genapi, "download", fake_download)
+    monkeypatch.setattr(studio, "audio_seconds", lambda p: 136)
+    runner._run(job_id)
+    body = sent[0][2]
+    assert sent[0][1] == "/networks/suno" and body["task"] == "generate" and body["translate_input"] is False
+    assert body["prompt"] == "[Verse]\nБит качает" and "duet" in body["tags"] and "vocal_gender" not in body
+    done = app_module.storage.job(job_id)
+    assert done.status == "done", done.error
+    assert [f["sunoId"] for f in done.result["files"]] == ["aid-1", "aid-2"]
+    assert done.result["genapiCost"] == 17
+    import os
+    assert os.path.isfile(os.path.join(runner.folder(job_id), "cover.jpg"))
+    assert app_module.storage.suno_usage(0) == {"песен_за_30_дней": 1, "рублей_за_30_дней": 17}
+
+
+def test_suno_restyle_sends_our_mp3_link(studio_app, monkeypatch):
+    """Кавер своей записи: task cover, upload_url -- подписанная ссылка на
+    ужатый mp3, сила исходника -- audio_weight; без текста -- инструментал."""
+    app_module, client, user, submitted = studio_app
+    studio, runner, genapi = app_module.studio, app_module.studio_runner, app_module.genapi
+    monkeypatch.setenv("GENAPI_API_KEY", "ga-" + "x" * 30)
+    monkeypatch.setattr(studio, "suno_open", lambda u: True)
+    app_module.storage.add_balance(user.id, 300)
+    job_id = _start(client, prompt="рок", engine="suno", audio_influence="0.7").json()["jobId"]
+    job = app_module.storage.job(job_id)
+    assert job.settings["engine"] == "suno"
+    app_module.storage.update_job(job_id, settings={**job.settings, "input": submitted[-1][1]})
+    monkeypatch.setattr(studio, "mureka_source", lambda src, folder: src)
+    sent = []
+    monkeypatch.setattr(genapi, "call", lambda m, p, b=None, timeout=60: sent.append(b) or (
+        {"request_id": 1} if m == "POST" else {"status": "error", "error": "upstream failed"}))
+    runner._run(job_id)
+    assert sent[0]["task"] == "cover" and "/api/studio/mureka/" in sent[0]["upload_url"]
+    assert sent[0]["audio_weight"] == 0.7 and sent[0]["instrumental"] is True and "prompt" not in sent[0]
+    failed = app_module.storage.job(job_id)
+    assert failed.status == "error" and "upstream failed" in failed.error
+
+
+def test_genapi_key_sync_endpoint(studio_app, monkeypatch):
+    app_module, client, user, submitted = studio_app
+    monkeypatch.setattr(app_module, "HEALTH_TOKEN", "tok")
+    monkeypatch.delenv("GENAPI_API_KEY", raising=False)
+    r = client.post("/api/health/genapi-key", headers={"Authorization": "Bearer tok"},
+                    json={"key": "sk-" + "a" * 40})
+    assert r.status_code == 200, r.text
+    assert app_module.genapi.key() == "sk-" + "a" * 40
