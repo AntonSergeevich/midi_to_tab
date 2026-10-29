@@ -1,0 +1,40 @@
+name: Проба Suno через GenAPI
+
+# Задание (стиль, текст) -> Suno на GenAPI -> треки и сырые ответы в ветку
+# test-results/suno-<номер прогона>. Нужен секрет GENAPI_API_KEY; деньги --
+# с баланса GenAPI (около 17 ₽ за запрос).
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Файл задания
+        default: scripts/suno_job_naslux_drive.json
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GENAPI_API_KEY: ${{ secrets.GENAPI_API_KEY }}
+      JOB: ${{ inputs.job }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Генерация
+        run: |
+          [ -n "$GENAPI_API_KEY" ] || { echo "::error::Секрет GENAPI_API_KEY не задан"; exit 1; }
+          export GENAPI_API_KEY="$(printf %s "$GENAPI_API_KEY" | tr -d '\r\n ')"
+          python -u scripts/genapi_probe.py "$JOB" --out results
+      - name: В ветку test-results
+        if: always()
+        run: |
+          [ -n "$(ls -A results 2>/dev/null)" ] || exit 0
+          dir="suno-${{ github.run_id }}"
+          git clone -q --depth 1 --branch test-results \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" out
+          mkdir -p "out/$dir" && cp results/* "out/$dir/"
+          cd out
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit -q -m "Suno: прогон ${{ github.run_id }}"
+          git push -q origin HEAD:test-results
+          echo "::notice title=Файлы::test-results/$dir"
