@@ -43,5 +43,9 @@ jobs:
           git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com add -A
           git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
             commit -q -m "Suno: прогон ${{ github.run_id }}"
-          git push -q origin HEAD:test-results
+          # несколько проб сразу -- пишут в одну ветку: догнать и повторить
+          for try in 1 2 3 4 5; do
+            git push -q origin HEAD:test-results && break
+            git pull -q --rebase origin test-results; sleep $((try * 3))
+          done
           echo "::notice title=Файлы::test-results/$dir"
