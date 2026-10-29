@@ -1877,3 +1877,23 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
 .gd-steps button b { font-size: 17px; }
 .gd-steps p { margin: 8px 0 0; color: #b9bdcb; }
 @media (max-width: 600px) { .gd h1 { font-size: 28px; } .gd-actions .lp-btn { flex: 1; } }
+
+/* ---------------- суфлёр: текст в такт (karaoke.js) ---------------- */
+.kk { position: relative; overflow-y: auto; }
+.kk .kk-line { display: block; padding: 4px 0; color: var(--muted, #8b90a3); transition: color .2s, transform .2s; }
+.kk .kk-line.on { color: var(--text, #e9eaf0); }
+.kk .kk-w { transition: color .12s; }
+.kk .kk-w.past { color: var(--text, #e9eaf0); }
+.kk .kk-w.on { color: var(--accent, #f0b66c); }
+.st-full-lyrics.kk { max-height: 38vh; font-size: 20px; line-height: 1.5; text-align: center; white-space: normal; }
+.st-full-lyrics.kk .kk-line.on { transform: scale(1.04); }
+.mx-karaoke[hidden] { display: none; }
+.mx-karaoke { margin: 10px 0 0; padding: 8px 14px; max-height: 4.6em; font-size: 20px; line-height: 1.5;
+  text-align: center; border-radius: 12px; background: rgba(255,255,255,.04); scrollbar-width: none; }
+.mx-karaoke::-webkit-scrollbar { display: none; }
+.st-hitopts[hidden] { display: none; }
+.st-hitopts { display: grid; gap: 10px; margin: 6px 0 4px; }
+.st-hitopts .st-field { display: grid; gap: 6px; font-weight: 600; }
+.st-hitopts .st-field input { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line, rgba(255,255,255,.12));
+  background: var(--panel, rgba(255,255,255,.04)); color: inherit; font: inherit; font-weight: 400; }
+.st-full.kk-on .st-full-cover { width: min(42vw, 190px); max-width: 190px; height: auto; aspect-ratio: 1; align-self: center; }

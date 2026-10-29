@@ -1293,12 +1293,12 @@ def test_voice_clone_then_song_with_my_voice(studio_app, monkeypatch):
     studio = app_module.studio
     _mureka_env(monkeypatch)
     monkeypatch.setenv("NASLUX_VOICE_CLONE", "1")
-    app_module.storage.add_studio_credits(user.id, 30)
+    app_module.storage.add_studio_credits(user.id, 40)
     voice = lambda consent: client.post("/api/studio/voice", data={"name": "Антон", "consent": consent},  # noqa: E731
                                         files={"file": ("me.mp3", b"ID3voice", "audio/mpeg")})
     assert voice("false").status_code == 400
     job_id = voice("true").json()["jobId"]
-    assert app_module.storage.user(user.id).studio_credits == 20
+    assert app_module.storage.user(user.id).studio_credits == 30
     app_module.storage.update_job(job_id, settings={**app_module.storage.job(job_id).settings,
                                                     "input": submitted[-1][1]})
     folder = app_module.studio_runner.folder(job_id)
@@ -2819,3 +2819,135 @@ def test_suno_for_everyone_own_songs_suno_others_yue2(studio_app, monkeypatch):
     runner._run(song)
     after = app_module.storage.job(song).settings
     assert moved == ["yue2"] and after["fellBack"] == "suno" and "remote" not in after
+
+
+def _tone(path, seconds=3, silent=False):
+    import subprocess
+    src = "anullsrc=r=44100:cl=stereo" if silent else "sine=frequency=440:sample_rate=44100"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", src, "-t", str(seconds),
+                    "-ac", "2", "-b:a", "128k", str(path)], check=True)
+
+
+def _hit_song(app_module, user, folder_files=("create_1.mp3",)):
+    """Готовая песня новой нейросети (с id у провайдера) -- для её функций."""
+    import os
+    st = app_module.storage
+    job = st.create_job(user.id, "Гимн", {"kind": "studio", "mode": "create", "engine": "suno",
+                                          "input": {"prompt": "рок", "lyrics": "[Verse]\nРаз"}})
+    folder = app_module.studio_runner.folder(job.id)
+    os.makedirs(folder, exist_ok=True)
+    for name in folder_files:
+        _tone(os.path.join(folder, name), 4)
+    st.update_job(job.id, status="done", result={"files": [
+        {"name": n, "label": "Вариант 1", "seconds": 4, "sunoId": "aid-1", "sunoTask": "tid-1"} for n in folder_files]})
+    return job.id
+
+
+def test_hit_functions_wav_karaoke_stems_extend(studio_app, monkeypatch, tmp_path):
+    """Функции новой нейросети у её песни: WAV и суфлёр -- к версии трека
+    (служебные задачи в «Моих треках» не видны), 12 дорожек без тишины,
+    продление -- со склейкой начала; у каждой -- своя цена в кредитах."""
+    import os
+    app_module, client, user, submitted = studio_app
+    studio, runner, genapi, st = app_module.studio, app_module.studio_runner, app_module.genapi, app_module.storage
+    monkeypatch.setenv("GENAPI_API_KEY", "ga-" + "x" * 30)
+    st.add_studio_credits(user.id, 100)
+    song = _hit_song(app_module, user)
+    listed = client.get("/api/studio").json()
+    f = listed["jobs"][0]["files"][0]
+    assert f["hit"] is True and "sunoId" not in f and "sunoTask" not in f
+
+    sent, answers = [], {}
+
+    def fake_call(method, path, body=None, timeout=60):
+        if method == "POST":
+            sent.append(body)
+            return {"request_id": len(sent)}
+        return answers[path.rsplit("/", 1)[1]]
+
+    def fake_download(url, path, timeout=180):
+        _tone(path, 2, silent=url.endswith("silent.mp3")) if not path.endswith((".wav", ".jpg")) \
+            else open(path, "wb").write(b"RIFF")
+        return 1
+
+    monkeypatch.setattr(genapi, "call", fake_call)
+    monkeypatch.setattr(genapi, "download", fake_download)
+
+    def run(kind, answer, data=None):
+        r = client.post(f"/api/studio/{song}/hit/{kind}", data={"file": "create_1.mp3", **(data or {})})
+        assert r.status_code == 200, r.text
+        child = r.json()["jobId"]
+        st.update_job(child, settings={**st.job(child).settings, "input": submitted[-1][1]})
+        answers[str(len(sent) + 1)] = {"status": "success", "cost": 17, **answer}
+        runner._run(child)
+        assert st.job(child).status == "done", st.job(child).error
+        return child
+
+    run("wav", {"result": ["https://s/x.wav"]})
+    assert sent[-1]["task"] == "wav" and sent[-1]["audio_id"] == "aid-1" and sent[-1]["task_id"] == "tid-1"
+    run("karaoke", {"result": [{"alignedWords": [
+        {"word": "[Verse]\nРаз ", "startS": 1.0, "endS": 1.4}, {"word": "два\n", "startS": 1.5, "endS": 2.0},
+        {"word": "три ", "startS": 2.5, "endS": 3.0}]}]})
+    assert sent[-1]["task"] == "timestamped_lyrics"
+    words = client.get(f"/api/studio/{song}/karaoke", params={"file": "create_1.mp3"}).json()["words"]
+    assert [w["w"] for w in words] == ["Раз", "два", "три"] and words[0].get("nl") and words[2].get("nl")
+    listed = client.get("/api/studio").json()
+    assert {j["mode"] for j in listed["jobs"]} == {"create"}                 # служебных задач не видно
+    f = listed["jobs"][0]["files"][0]
+    assert f["karaoke"] is True and f["wav"].endswith("/create_1.wav")
+    assert client.get(f["wav"]).headers["content-type"] == "audio/wav"
+    assert client.post(f"/api/studio/{song}/hit/wav", data={"file": "create_1.mp3"}).json() == {"ready": True}
+
+    stems = run("stems12", {"result": [], "full_response": [
+        {"url": "https://s/v.mp3", "label": "vocalUrl"}, {"url": "https://s/silent.mp3", "label": "brassUrl"},
+        {"url": "https://s/d.mp3", "label": "drumsUrl"}, {"url": "https://s/i.mp3", "label": "instrumentalUrl"}]})
+    assert sent[-1]["separation_type"] == "split_stem"
+    assert [x["name"] for x in st.job(stems).result["files"]] == ["vocal.mp3", "drums.mp3"]   # тишина и минус -- нет
+    assert st.job(stems).settings["mode"] == "stems"
+
+    r = client.post(f"/api/studio/{song}/extend", data={"file": "create_1.mp3", "lyrics": "[Chorus]\nДальше"})
+    child = r.json()["jobId"]
+    st.update_job(child, settings={**st.job(child).settings, "input": submitted[-1][1]})
+    answers[str(len(sent) + 1)] = {"status": "success", "cost": 17, "result": [
+        {"audio_url": "https://s/e.mp3", "audio_id": "aid-2", "task_id": "tid-2"}]}
+    runner._run(child)
+    done = st.job(child)
+    assert done.status == "done", done.error
+    assert sent[-1]["task"] == "extend" and sent[-1]["audio_id"] == "aid-1" and sent[-1]["continue_at"] == 3.0
+    out = os.path.join(runner.folder(child), "extend_1.mp3")
+    assert 4.5 < studio.audio_length(out) < 5.5          # 3 с начала + 2 с продолжения
+    # 100 - WAV 10 - суфлёр 10 - 12 дорожек 15 - продление 10
+    assert st.user(user.id).studio_credits == 55
+
+
+def test_continue_own_recording(studio_app, monkeypatch):
+    """«Продолжить мою запись»: только своя музыка, upload_extend с конца
+    записи по ссылке .mp3; результат -- запись + продолжение."""
+    import os
+    app_module, client, user, submitted = studio_app
+    studio, runner, genapi, st = app_module.studio, app_module.studio_runner, app_module.genapi, app_module.storage
+    monkeypatch.setenv("GENAPI_API_KEY", "ga-" + "x" * 30)
+    st.add_studio_credits(user.id, 100)
+    assert _start(client, mode="continue", prompt="рок", rights="cover").status_code == 400
+    job_id = _start(client, mode="continue", prompt="рок", lyrics="[Chorus]\nДальше", negative="без скрима",
+                    wild="true").json()["jobId"]
+    job = st.job(job_id)
+    assert job.settings["engine"] == "suno"
+    folder = runner.folder(job_id)
+    _tone(os.path.join(folder, "source.mp3"), 6)
+    st.update_job(job_id, settings={**job.settings, "input": submitted[-1][1]})
+    sent = []
+    monkeypatch.setattr(genapi, "call", lambda m, p, b=None, timeout=60: sent.append(b) or (
+        {"request_id": 9} if m == "POST" else {"status": "success", "cost": 17, "result": [
+            {"audio_url": "https://s/c.mp3", "audio_id": "a", "task_id": "t"}]}))
+    monkeypatch.setattr(genapi, "download", lambda url, path, timeout=180: _tone(path, 2))
+    runner._run(job_id)
+    done = st.job(job_id)
+    assert done.status == "done", done.error
+    body = sent[0]
+    assert body["task"] == "upload_extend" and body["upload_url"].endswith("/source.mp3")
+    assert 5.0 <= body["continue_at"] <= 5.6 and body["negative_tags"] == "без скрима" and body["model"] == "v6-wild"
+    out = os.path.join(folder, "continue_1.mp3")
+    assert 7.0 < studio.audio_length(out) < 8.2
+    assert done.result["files"][0]["label"] == "Продолжение 1"
+    assert st.user(user.id).studio_credits == 85

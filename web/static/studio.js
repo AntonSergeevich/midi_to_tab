@@ -108,6 +108,8 @@ function showMode() {
   // Проба новой нейросети (GenAPI) -- у владельца; включена -- главнее YuE2
   $('hitBox').hidden = !(info && info.hitOpen && !info.hitPublic && ['create', 'restyle'].includes(mode));
   const hit = hitOn();
+  $('hitOpts').hidden = !hit;
+  $('contBox').hidden = !(hit && mode === 'restyle');
   const pub = Boolean(info && info.yue2Public) && ['create', 'restyle'].includes(mode) && !hit;
   const yue2Here = Boolean(info && info.yue2Open) && ['create', 'restyle'].includes(mode) && !hit;
   $('yue2Box').hidden = !yue2Here || pub;
@@ -138,7 +140,9 @@ function showMode() {
   saveDraft();
   // «Инструментал» есть только у песни с нуля: в «Переделать» поле слов не гасим
   $('lyrics').disabled = mode === 'create' && $('instrumental').checked && !yue2;
-  $('lyricsNote').textContent = mode === 'restyle' && hit
+  $('lyricsNote').textContent = mode === 'restyle' && hit && $('contRec').checked
+    ? '— текст продолжения: следующий куплет или припев; пусто — инструментальное продолжение'
+    : mode === 'restyle' && hit
     ? '— у своей записи нейросеть споёт этот текст, без текста выйдет инструментал; у чужой песни слова распознаем сами'
     : mode === 'restyle' && yue2 ? '— необязательно: распознаем сами'
     : mode === 'restyle' && mureka ? '— необязательно' : '';
@@ -159,6 +163,7 @@ function yue2On() {
 
 function sendMode() {
   if (mode === 'enrich' && $('track').value === 'all') return { mode: 'restyle', keep: true, all: true };
+  if (mode === 'restyle' && hitOn() && $('contRec').checked) return { mode: 'continue', keep: false, all: false };
   return { mode, keep: mode === 'restyle' && $('keepVocals').checked && !yue2On(), all: false };
 }
 
@@ -657,7 +662,8 @@ function renderDetail(jobs) {
       <a class="icon-btn st-mixbtn" href="/studio/mix/${j.id}?file=${encodeURIComponent(f.name)}"
         title="Открыть в мультитреке: дорожки, метроном, заглушить лишнее">${ICON.mix}<span>Мультитрек</span></a>
       <button type="button" class="icon-btn" data-menu="${j.id}" data-file="${esc(f.name)}"
-        data-url="${f.url}" data-split-ok="${j.mode !== 'stems' ? 1 : ''}" data-extend="${f.mid ? 1 : ''}"
+        data-url="${f.url}" data-split-ok="${j.mode !== 'stems' ? 1 : ''}" data-extend="${f.mid || f.hit ? 1 : ''}"
+        data-hit="${f.hit ? 1 : ''}" data-wav="${f.wav || ''}" data-karaoke="${f.karaoke ? 1 : ''}"
         ${j.mode === 'stems' ? stemData(j, f) : ''}
         title="Что сделать">${ICON.more}</button>
     </div>`).join('') : `<div class="st-version"><div class="st-row-main">${statusLine(j)}</div></div>`;
@@ -894,13 +900,15 @@ async function loadOnce() {
   updateStart();
   const analyzing = await ensureKeys().catch(() => false);
   const working = (s) => s === 'queued' || s === 'running';
+  hitDone();
+  if (((info && info.hitBusy) || []).some((b) => working(b.status))) return 4000;
   if (info.jobs.some((j) => working(j.status) || (j.midiBusy || []).length)
       || (info.analyses || []).some((a) => working(a.status) || a.made.some((m) => working(m.status)))) {
     return 5000;
   }
   if (analyzing) return 6000;            // тональность и темп вот-вот будут
   if (info.jobs.some((j) => j.status === 'done' && !j.cover
-      && (coverWait[j.id] > Date.now() || (['create', 'restyle'].includes(j.mode) && Date.now() / 1000 - j.at < 900)))) {
+      && (coverWait[j.id] > Date.now() || (['create', 'restyle', 'continue'].includes(j.mode) && Date.now() / 1000 - j.at < 900)))) {
     return 15000;                        // обложка ещё рисуется
   }
   return null;
@@ -957,6 +965,7 @@ function queueFor(url) {
       index,
       items: j.files.map((f) => ({
         url: f.url, title: owner.name, sub: f.label, art: coverStyle(owner), lyrics: owner.lyrics || '',
+        kar: f.karaoke ? { job: j.id, file: f.name } : null,
       })),
     };
   }
@@ -991,7 +1000,18 @@ function startTrack() {
   $('fBg').style.backgroundImage = item.art;
   $('fDownload').href = item.url;
   $('fLyrics').textContent = item.lyrics;
-  $('fLyricsBtn').hidden = !item.lyrics;
+  $('fLyrics').classList.remove('kk');
+  $('fLyrics')._kk = null;
+  if (!item.kar) $('full').classList.remove('kk-on');
+  $('fLyricsBtn').hidden = !item.lyrics && !item.kar;
+  $('fLyricsBtn').textContent = item.kar ? 'Суфлёр' : 'Текст песни';
+  if (item.kar) {
+    window.Karaoke.load(item.kar.job, item.kar.file).then((words) => {
+      if (queue[qi] !== item || !words.length) return;
+      window.Karaoke.render($('fLyrics'), words);
+      window.Karaoke.update($('fLyrics'), $('audio').currentTime);
+    });
+  }
   const many = queue.length > 1;
   ['pPrev', 'pNext', 'fPrev', 'fNext'].forEach((id) => { $(id).disabled = !many; });
   $('player').hidden = false;
@@ -1148,6 +1168,7 @@ $('lyrics').addEventListener('input', () => { lyricsCount(); saveDraft(); update
 $('keepVocals').addEventListener('change', showMode);
 $('useYue2').addEventListener('change', showMode);
 $('useHit').addEventListener('change', showMode);
+$('contRec').addEventListener('change', () => { showMode(); updateStart(); });
 // Заливка полосы до бегунка (--fill в app.css)
 const knobFill = (el) => el.style.setProperty('--fill', `${((el.value - el.min) / (el.max - el.min)) * 100}%`);
 $('yCfg').addEventListener('input', () => { $('yCfgVal').textContent = Number($('yCfg').value).toFixed(1); knobFill($('yCfg')); });
@@ -1263,6 +1284,10 @@ $('start').addEventListener('click', async () => {
   form.append('keep_vocals', send.keep);
   form.append('pro', mode === 'stems' && $('stemsPro').checked);
   form.append('engine', hitOn() ? 'hit' : yue2On() ? 'yue2' : '');
+  if (hitOn()) {
+    form.append('negative', $('negative').value.trim());
+    form.append('wild', $('wild').checked);
+  }
   form.append('closeness', $('yClose').value);
   form.append('cfg_scale', $('yCfg').value);
   form.append('creativity', $('yCreative').value / 100);
@@ -1360,8 +1385,9 @@ function openMenu(button) {
       + item('tabs', ICON.tabs, 'Табы, аккорды и MIDI')
       + (button.dataset.splitOk ? item('minus', ICON.split, 'Минус без голоса') : '')
       + (button.dataset.splitOk ? item('split', ICON.split, 'Разделить на партии') : '')
-      + (button.dataset.splitOk && info.restyleEngine === 'mureka'
+      + (button.dataset.splitOk && info.restyleEngine === 'mureka' && !button.dataset.hit
         ? item('splitpro', ICON.split, 'Глубокое разделение + MIDI') : '')
+      + (button.dataset.hit ? hitItems(item, job, f, button.dataset) : '')
       + (button.dataset.stem ? (button.dataset.midi
         ? `<a href="${button.dataset.midi}" download>${ICON.download}<span>Скачать MIDI партии</span></a>`
         : item('midi', ICON.tabs, button.dataset.busy ? 'MIDI уже считается…' : 'MIDI этой дорожки',
@@ -1572,6 +1598,74 @@ function coverOf(jobId, fileName) {
   fillFromTrack(j.id, version.name, { style: false, lyrics: !j.lyrics });
 }
 
+// Версия новой нейросети: 12 дорожек, WAV для релиза, суфлёр (текст в такт)
+function hitPrice(kind) {
+  const s = info && info.services && info.services[kind];
+  return !s || info.unlimited ? '' : ` · ${s.pack} кр.`;
+}
+function hitBusyFor(job, file, kind) {
+  return ((info && info.hitBusy) || []).find((b) => b.of === job && b.file === file && b.kind === kind
+    && ['queued', 'running'].includes(b.status));
+}
+function hitItems(item, job, f, data) {
+  const wavBusy = hitBusyFor(job, f, 'wav');
+  const kBusy = hitBusyFor(job, f, 'karaoke');
+  return item('stems12', ICON.split, `12 дорожек студийного качества${hitPrice('stems12')}`)
+    + (data.wav ? `<a href="${data.wav}" download>${ICON.download}<span>Скачать WAV для релиза</span></a>`
+      : item('wav', ICON.download, wavBusy ? `Готовим WAV… ${Math.round(wavBusy.progress || 0)}%` : `WAV для релиза${hitPrice('wav')}`,
+        wavBusy ? 'disabled' : ''))
+    + (data.karaoke ? item('karaokeplay', ICON.tabs, 'Суфлёр: текст в такт')
+      : item('karaoke', ICON.tabs, kBusy ? 'Суфлёр готовится…' : `Суфлёр: текст в такт${hitPrice('karaoke')}`,
+        kBusy ? 'disabled' : ''));
+}
+async function hitAction(kind, jobId, fileName) {
+  const form = new FormData();
+  form.append('file', fileName || '');
+  const response = await fetch(`/api/studio/${jobId}/hit/${kind}`, { method: 'POST', body: form });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    toast(response.status === 402 ? `${esc(data.detail || '')} <a href="/pricing?next=/studio">Пополнить</a>`
+      : `${pick(OOPS, Date.now())} ${esc(data.detail || '')}`, 9000);
+    return;
+  }
+  if (window.haptic) window.haptic('light');
+  if (data.ready && kind === 'karaoke') { karaokePlay(jobId, fileName); return; }
+  toast({ stems12: 'Раскладываем на 12 дорожек — появятся под треком через 3–4 минуты 🎛',
+    wav: 'Готовим WAV — через минуту он появится в меню «⋯» этой версии 💿',
+    karaoke: 'Расставляем слова по времени — через несколько секунд суфлёр будет готов 🎤' }[kind]);
+  load();
+}
+// Суфлёр: играть версию и открыть плеер с текстом, который идёт в такт
+function karaokePlay(jobId, fileName) {
+  const j = info.jobs.find((x) => x.id === jobId);
+  const f = j && j.files.find((x) => x.name === fileName);
+  if (!f) return;
+  if (playing !== f.url) play(f.url, j.name, f.label);
+  fullPlayer(true);
+  $('fLyrics').hidden = false;
+  $('full').classList.add('kk-on');      // обложка поменьше -- текст на виду
+}
+const hitSeen = new Set();
+function hitDone() {
+  // служебная задача закончилась -- сказать, где результат
+  const now = new Set(((info && info.hitBusy) || []).filter((b) => ['queued', 'running'].includes(b.status))
+    .map((b) => `${b.of}/${b.file}/${b.kind}`));
+  hitSeen.forEach((key) => {
+    if (now.has(key)) return;
+    hitSeen.delete(key);
+    const [job, file, kind] = key.split('/');
+    const failed = ((info && info.hitBusy) || []).find((b) => `${b.of}/${b.file}/${b.kind}` === key && b.status === 'error');
+    if (failed) toast(`Не получилось: ${esc(failed.error || '')}. Деньги вернулись.`, 9000);
+    else if (kind === 'wav') toast('WAV для релиза готов — «⋯» у версии → «Скачать WAV» 💿', 9000);
+    else if (kind === 'karaoke') toast(`Суфлёр готов — <button type="button" class="st-linkbtn" data-kplay="${esc(job)}" data-kfile="${esc(file)}">открыть</button> 🎤`, 12000);
+  });
+  now.forEach((key) => hitSeen.add(key));
+}
+document.addEventListener('click', (e) => {
+  const k = e.target.closest('[data-kplay]');
+  if (k) karaokePlay(k.dataset.kplay, k.dataset.kfile);
+});
+
 // Обложка по кнопке: рисуется минуту-две, пока ждём (coverWait) -- опрос и «Рисуем…»
 async function drawCover(jobId) {
   if (window.haptic) window.haptic('light');
@@ -1589,6 +1683,8 @@ async function act(what, jobId, fileName) {
   if (what === 'again') { repeat(jobId); return; }
   if (what === 'cover') { coverOf(jobId, fileName); return; }
   if (what === 'drawcover') { drawCover(jobId); return; }
+  if (['stems12', 'wav', 'karaoke'].includes(what)) { hitAction(what, jobId, fileName); return; }
+  if (what === 'karaokeplay') { karaokePlay(jobId, fileName); return; }
   if (what === 'like') { likeOf(jobId, fileName); return; }
   if (what === 'reference') { openReference(jobId, fileName); return; }
   if (what === 'deltabs') {
@@ -2103,7 +2199,10 @@ $('fPrev').addEventListener('click', () => step(-1));
 $('fNext').addEventListener('click', () => step(1));
 ['pOpen', 'pExpand'].forEach((id) => $(id).addEventListener('click', () => fullPlayer(true)));
 $('fClose').addEventListener('click', () => fullPlayer(false));
-$('fLyricsBtn').addEventListener('click', () => { $('fLyrics').hidden = !$('fLyrics').hidden; });
+$('fLyricsBtn').addEventListener('click', () => {
+  $('fLyrics').hidden = !$('fLyrics').hidden;
+  $('full').classList.toggle('kk-on', !$('fLyrics').hidden && Boolean($('fLyrics')._kk));
+});
 
 // Громкость. На iPhone громкость <audio> из скрипта не меняется, поэтому
 // там звук идёт через Web Audio. Но Web Audio на iPhone молчит при
@@ -2228,3 +2327,9 @@ window.addEventListener('hashchange', () => {
   if (openJob) closeDetail(true);
   $('listView').scrollIntoView({ block: 'start' });
 });
+
+// Суфлёр в плеере: слово подсвечивается в такт (каждый кадр, пока открыт плеер)
+(function karaokeFrame() {
+  requestAnimationFrame(karaokeFrame);
+  if ($('fLyrics')._kk && !$('full').hidden && !$('fLyrics').hidden) window.Karaoke.update($('fLyrics'), $('audio').currentTime);
+}());

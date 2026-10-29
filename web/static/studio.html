@@ -73,6 +73,22 @@
                   placeholder="Жанр, настроение, инструменты, темп. Например: мощный ню-метал, рваный рифф, скретчи, агрессивный рэп-куплет и мелодичный припев"></textarea>
       </div>
 
+      <div class="st-hitopts" id="hitOpts" hidden>
+        <label class="check st-keep" id="contBox" hidden>
+          <input type="checkbox" id="contRec">
+          <span><b>Продолжить мою запись</b>
+            <small>Не переделывать, а дописать дальше: нейросеть продолжит вашу запись — припев, следующий
+              куплет — в том же темпе и звуке. Вставьте текст продолжения или оставьте пустым — выйдет
+              инструментальное продолжение.</small></span>
+        </label>
+        <label class="st-field">Без чего <small class="muted">— необязательно</small>
+          <input type="text" id="negative" maxlength="200" placeholder="Например: без автотюна, без электроники, без скрима"></label>
+        <label class="check st-keep">
+          <input type="checkbox" id="wild">
+          <span><b>Смелый режим</b>
+            <small>Неожиданные сочетания жанров и аранжировки — для экспериментов.</small></span>
+        </label>
+      </div>
       <label class="check st-keep" id="hitBox" hidden>
         <input type="checkbox" id="useHit" checked>
         <span><b>🧪 Новая нейросеть — проба (видно только вам)</b>
@@ -369,6 +385,7 @@
 </div>
 
 <script src="/static/lyricstags.js"></script>
+<script src="/static/karaoke.js"></script>
 <script src="/static/studio.js"></script>
 <script src="/static/consent.js"></script>
 </body>

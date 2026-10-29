@@ -160,7 +160,8 @@ def tracks(state: dict) -> list[dict]:
         found.append({"url": url, "id": str(extra.get("audio_id") or extra.get("id") or ""),
                       "task": str(extra.get("task_id") or ""),
                       "seconds": extra.get("duration") or 0, "title": extra.get("title") or "",
-                      "image": extra.get("image") or extra.get("image_url") or ""})
+                      "image": extra.get("image") or extra.get("image_url") or "",
+                      "label": str(extra.get("label") or "")})
     return found
 
 

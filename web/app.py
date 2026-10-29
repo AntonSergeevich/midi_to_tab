@@ -1215,6 +1215,8 @@ def pricing_page() -> HTMLResponse:
         "studio10": f"{billing.PLANS['studio10']['price']:.0f}",
         "studioSingle": f"{studio.service('restyle').price:.0f}",
         "coverCredits": str(studio.credit_cost("restyle")),
+        **{f"{k}Credits": str(studio.credit_cost(k)) for k in
+           ("create", "extend", "stems", "continue", "stems12", "wav", "karaoke")},
         "studioCreate": f"{studio.SERVICES['create'].price:.0f}",
         "studioMonth": f"{billing.PLANS['studio_month']['price']:.0f}",
         "welcome": str(billing.WELCOME_CREDITS),
@@ -1889,7 +1891,13 @@ def _studio_job_payload(job) -> dict:
     folder = studio_runner.folder(job.id)
     # Названия дорожек, которые дал сам человек (мультитрек: «Бас», «2-я гитара»)
     labels = result.get("labels") or {}
+    wavs, karaoke = result.get("wav") or {}, result.get("karaoke") or {}
     files = [{**{k: v for k, v in f.items() if k not in ("sunoId", "sunoTask")},
+              # версия новой нейросети: 12 дорожек, WAV, суфлёр, продление
+              **({"hit": True} if f.get("sunoId") and f.get("sunoTask") else {}),
+              **({"wav": f"/api/studio/file/{job.id}/{wavs[f['name']]}"} if f["name"] in wavs
+                 and os.path.isfile(os.path.join(folder, wavs[f["name"]])) else {}),
+              **({"karaoke": True} if f["name"] in karaoke else {}),
               "url": f"/api/studio/file/{job.id}/{f['name']}",
               **({"label": labels[f["name"]], "origLabel": f.get("label", "")} if f["name"] in labels else {})}
              for f in result.get("files") or []
@@ -1936,9 +1944,13 @@ def _studio_job_payload(job) -> dict:
     }
 
 
+HIDDEN_MODES = ("wav", "karaoke")   # служебные задачи: результат -- у версии трека-родителя
+
+
 @app.get("/api/studio")
 def api_studio(request: Request):
     user = current_user(request)
+    jobs = storage.studio_jobs(user.id)
     ready, why = studio.available()
     response = JSONResponse({
         "ready": ready, "why": why,
@@ -1964,7 +1976,13 @@ def api_studio(request: Request):
         "hitPublic": studio.suno_public(),
         "yue2Public": studio.yue2_public(),
         "email": user.email, "maxMb": MAX_UPLOAD_MB, "maxSeconds": studio.MAX_SECONDS,
-        "jobs": [_studio_job_payload(j) for j in storage.studio_jobs(user.id)],
+        "jobs": [_studio_job_payload(j) for j in jobs if (j.settings or {}).get("mode") not in HIDDEN_MODES],
+        # WAV и суфлёр, которые сейчас готовятся (служебные задачи -- не треки)
+        "hitBusy": [{"of": (j.settings or {}).get("from"), "file": (j.settings or {}).get("sourceFile"),
+                     "kind": (j.settings or {}).get("mode"), "status": j.status, "error": j.error,
+                     "progress": j.progress}
+                    for j in jobs if (j.settings or {}).get("mode") in HIDDEN_MODES
+                    and (j.status in ("queued", "running") or (j.status == "error" and time.time() - j.created_at < 3600))],
         # Разборы -- в том же списке «Мои треки» (раньше отдельная страница /library)
         "analyses": _library_items(user),
     })
@@ -1998,6 +2016,9 @@ async def api_studio_start(
     closeness: str = Form("melody"),
     cfg_scale: float = Form(1.0),
     creativity: float = Form(0.5),
+    negative: str = Form(""),
+    wild: bool = Form(False),
+    at: float = Form(0.0),
 ):
     user = current_user(request)
     ready, why = studio.available()
@@ -2014,6 +2035,13 @@ async def api_studio_start(
     if ((asked in ("hit", "suno") and studio.suno_open(user)) or studio.suno_public()) \
             and studio.suno_engine(mode, rights, voice, reference):
         engine = "suno"            # Suno через GenAPI (web/genapi.py): свои песни и каверы своих записей
+    if mode == "continue":
+        # «Продолжить свою запись» -- только новая нейросеть и только своя музыка
+        if not (studio.suno_public() or (asked in ("hit", "suno") and studio.suno_open(user))):
+            raise HTTPException(503, "Продолжение записи скоро появится")
+        if rights == "cover":
+            raise HTTPException(400, "Продолжить можно только свою запись — чужие песни нейросеть не продолжает")
+        engine = "suno"
     if mode in ("restyle", "create") and engine not in ("mureka", "suno") and studio.yue2_public():
         engine = "yue2"            # Mureka без денег -- YuE2 для всех (studio.yue2_public)
     if pro and engine != "mureka":
@@ -2074,7 +2102,7 @@ async def api_studio_start(
     if mode == "enrich" and track not in studio.TRACKS:
         raise HTTPException(400, "Выберите партию, которую дописать")
     style = prompt.strip()[:500] or (studio.PRESETS[preset][1] if preset in studio.PRESETS else "")
-    if mode in ("restyle", "enrich") and not style:
+    if mode in ("restyle", "enrich", "continue") and not style:
         raise HTTPException(400, "Опишите стиль: жанр, настроение, инструменты")
     if engine == "yue2":
         style = studio.english_style(style)      # YuE2 понимает стиль по-английски
@@ -2131,6 +2159,9 @@ async def api_studio_start(
         "track": track, "language": language if language in ("ru", "en") else "ru",
         "voice": "" if vocal_id else voice, "keep_vocals": keep_vocals, "cost_key": cost_key,
         **({"vocal_id": vocal_id} if vocal_id else {}), **({"reference": True} if reference else {}),
+        # Новая нейросеть: «без чего», смелый режим, с какой секунды продолжить
+        **({"negative": negative.strip()[:200], "wild": bool(wild), "at": max(0.0, float(at))}
+           if engine == "suno" else {}),
         # Настройки YuE2: близость к оригиналу, сила стиля, смелость
         **({"closeness": closeness if closeness in ("full", "melody", "free") else "melody",
             "cfg_scale": max(0.8, min(1.8, float(cfg_scale))), "creativity": clamp(creativity)}
@@ -2770,6 +2801,8 @@ def api_studio_extend(job_id: str, request: Request, file: str = Form(""), lyric
             or (parent.settings or {}).get("kind") != "studio" or parent.status != "done"):
         raise HTTPException(404, "Готовая работа не найдена")
     chosen = next((f for f in (parent.result or {}).get("files") or [] if f["name"] == file), None)
+    if chosen and chosen.get("sunoId"):
+        return _hit_extend(request, user, parent, chosen, lyrics)
     if not chosen or not chosen.get("mid"):
         raise HTTPException(409, "Продлить можно песню, созданную в Студии за последний месяц")
     if time.time() - parent.created_at > 28 * 86400:
@@ -2791,6 +2824,83 @@ def api_studio_extend(job_id: str, request: Request, file: str = Form(""), lyric
         "mode": "extend", "song_id": chosen["mid"], "extend_at": chosen.get("ms") or 0,
         "lyrics": lyrics.strip()[:3000]})
     return {"jobId": job.id}
+
+
+def _hit_child(request: Request, user, parent, chosen: dict, kind: str, mode: str, task_input: dict,
+               copy_source: bool = False):
+    """Служебная или дочерняя задача новой нейросети по версии трека: цена --
+    из SERVICES[kind], деньги -- как у любой работы Студии (вернутся при сбое)."""
+    service = studio.SERVICES[kind]
+    user = storage.user(user.id)
+    if not studio.suno_open(user):
+        raise HTTPException(503, f"{service.title} сейчас недоступно — попробуйте позже")
+    if not user.unlimited and user.studio_credits < studio.credit_cost(kind) and user.balance < service.price:
+        raise HTTPException(402, f"{service.title} стоит {studio.credit_cost(kind)} кредитов или "
+                                 f"{service.price:.0f} ₽ — пополните баланс на странице тарифов.")
+    job = storage.create_job(user.id, parent.filename, {
+        "kind": "studio", "mode": mode, "title": service.title, "from": parent.id,
+        "variant": chosen.get("label", ""), "sourceFile": chosen["name"], "charged": 0, "engine": "suno",
+        **({"parts": "12"} if kind == "stems12" else {})})
+    folder = studio_runner.folder(job.id)
+    os.makedirs(folder, exist_ok=True)
+    if copy_source:
+        shutil.copyfile(os.path.join(studio_runner.folder(parent.id), chosen["name"]),
+                        os.path.join(folder, "source.mp3"))
+    _studio_charge_and_submit(request, user, job.id, service, folder,
+                              {"mode": mode, "cost_key": kind, "file": chosen["name"],
+                               "audio_id": chosen["sunoId"], "task_id": chosen.get("sunoTask", ""), **task_input})
+    return {"jobId": job.id}
+
+
+def _hit_extend(request: Request, user, parent, chosen: dict, lyrics: str):
+    """Продлить песню новой нейросети с конца версии: приходит только новый
+    кусок, сервер приклеивает к нему песню (studio.stitch)."""
+    settings = parent.settings or {}
+    seconds = chosen.get("seconds") or studio.audio_seconds(
+        os.path.join(studio_runner.folder(parent.id), chosen["name"]))
+    task = {"lyrics": lyrics.strip()[:3000], "prompt": (settings.get("input") or {}).get("prompt", ""),
+            "voice": (settings.get("input") or {}).get("voice", ""), "extend_at": max(1, seconds - 1)}
+    return _hit_child(request, user, parent, chosen, "extend", "extend", task, copy_source=True)
+
+
+HIT_KINDS = {"stems12": "stems", "wav": "wav", "karaoke": "karaoke"}
+
+
+@app.post("/api/studio/{job_id}/hit/{kind}")
+def api_studio_hit(job_id: str, kind: str, request: Request, file: str = Form("")):
+    """12 дорожек, WAV для релиза, суфлёр (текст в такт) -- для версии песни,
+    сделанной новой нейросетью."""
+    user = current_user(request)
+    parent = storage.job(job_id)
+    if kind not in HIT_KINDS or not parent or parent.user_id != user.id or parent.status != "done":
+        raise HTTPException(404, "Готовая работа не найдена")
+    chosen = next((f for f in (parent.result or {}).get("files") or [] if f["name"] == file), None)
+    if not chosen or not chosen.get("sunoId") or not chosen.get("sunoTask"):
+        raise HTTPException(409, "Это доступно для песен, сделанных в Студии новой нейросетью")
+    if not os.path.isfile(os.path.join(studio_runner.folder(job_id), chosen["name"])):
+        raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
+    done = (parent.result or {}).get({"wav": "wav", "karaoke": "karaoke"}.get(kind, ""), {}) or {}
+    if kind in ("wav", "karaoke") and chosen["name"] in done:
+        return {"ready": True}
+    busy = [c for c in storage.studio_jobs(user.id) if (c.settings or {}).get("from") == job_id
+            and c.settings.get("mode") == HIT_KINDS[kind] and c.settings.get("sourceFile") == chosen["name"]
+            and c.status in ("queued", "running")]
+    if busy:
+        return {"jobId": busy[0].id}
+    return _hit_child(request, user, parent, chosen, kind, HIT_KINDS[kind], {})
+
+
+@app.get("/api/studio/{job_id}/karaoke")
+def api_studio_karaoke(job_id: str, request: Request, file: str = ""):
+    """Слова версии с таймкодами -- для суфлёра в плеере и мультитреке."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(404, "Трек не найден")
+    words = ((job.result or {}).get("karaoke") or {}).get(file)
+    if not words:
+        raise HTTPException(404, "Суфлёра для этой версии ещё нет")
+    return {"words": words}
 
 
 @app.post("/api/studio/voice")
@@ -2908,6 +3018,8 @@ def api_studio_file(job_id: str, name: str, request: Request):
                             media_type="audio/midi" if safe.endswith(".mid") else "application/zip")
     extra = next((x for x in (job.result or {}).get("extras") or [] if x["name"] == safe), None)
     label = extra["label"] if extra else studio.label_of((job.settings or {}).get("mode", ""), safe)
+    if safe.endswith(".wav"):
+        return FileResponse(path, media_type="audio/wav", filename=download_name(job.filename, f"{label} WAV", ".wav"))
     return FileResponse(path, filename=download_name(job.filename, label, ".mp3"))
 
 

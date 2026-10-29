@@ -64,6 +64,13 @@ SERVICES = {
     "enrich": Service("Дописать партию", 39.0),
     "stems": Service("Разделение на партии", 19.0),
     "extend": Service("Продлить песню", 29.0),
+    # Новая нейросеть (GenAPI): каждое действие -- 17 ₽ себестоимости (пробы
+    # 29.10). Кредит в пакетах -- ~2 ₽, налог и комиссия ~7,5%: без убытка
+    # от 10 кредитов за действие; песня и продолжение -- по 15
+    "continue": Service("Продолжить свою запись", 49.0),
+    "stems12": Service("12 дорожек студийного качества", 49.0),
+    "wav": Service("WAV для релиза", 29.0),
+    "karaoke": Service("Суфлёр: текст в такт", 29.0),
     "voice": Service("Мой голос для песен", 49.0),
     "stems_pro": Service("Глубокое разделение + MIDI", 149.0),
 }
@@ -86,7 +93,8 @@ MUREKA_STATES = {"preparing": "Готовим трек", "queued": "В очер�
 # списывает три. Разделение дешёвое и идёт только с баланса.
 # Цена в кредитах Студии (billing.PLANS): от себестоимости действия.
 # Живые замеры (28.09): продление -- $0.03, песня «как в образце» -- $0.09 за две.
-CREDIT_COST = {"create": 15, "restyle": 40, "keep": 20, "enrich": 5, "stems": 3, "extend": 5,
+CREDIT_COST = {"create": 15, "restyle": 40, "keep": 20, "enrich": 5, "stems": 3, "extend": 10,
+               "continue": 15, "stems12": 15, "wav": 10, "karaoke": 10,
                "voice": 10, "stems_pro": 60}  # глубокое разделение Mureka -- $0.70
 # «Сохранить мой голос» (track/generate без вокала + сведение) дешевле обычной
 # переделки (remix с двумя версиями) ровно вдвое -- вдвое же дешевле и с
@@ -325,7 +333,14 @@ STEM_LABELS = {
     "vocal": "Вокал", "flute": "Флейта", "fx": "Эффекты", "strings": "Струнные",
     "synth": "Синтезатор", "keyboard": "Клавишные", "brass": "Духовые",
     "woodwinds": "Деревянные духовые", "brass_and_woodwinds": "Духовые", "instrumental": "Минус",
+    # 12 дорожек новой нейросети
+    "backing_vocals": "Бэк-вокал", "percussion": "Перкуссия",
 }
+# Подписи дорожек новой нейросети (GenAPI, label «…Url») -> наши имена файлов
+HIT_STEMS = {"vocalUrl": "vocal", "backingVocalsUrl": "backing_vocals", "drumsUrl": "drums", "bassUrl": "bass",
+             "guitarUrl": "guitar", "keyboardUrl": "keyboard", "percussionUrl": "percussion",
+             "stringsUrl": "strings", "synthUrl": "synth", "fxUrl": "fx", "brassUrl": "brass",
+             "woodwindsUrl": "woodwinds", "instrumentalUrl": "instrumental"}
 
 STATES = {
     "IN_QUEUE": "Ждём свободную видеокарту",
@@ -973,6 +988,60 @@ def check_link(secret: str, job_id: str, purpose: str, expires: int, signature: 
     return hmac.compare_digest(sign(secret, job_id, purpose, expires), signature or "")
 
 
+def audio_length(path: str) -> float:
+    """Длительность записи в секундах с долями (ffprobe; нет его -- 0)."""
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                              "-of", "default=nw=1:nk=1", path], capture_output=True, text=True, timeout=60)
+        return float(out.stdout.strip() or 0)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 0.0
+
+
+def stitch(head: str, at: float, tail: str) -> None:
+    """Начало записи до секунды at + присланное продолжение -> на место tail
+    (нейросеть отдаёт только новый кусок, пробы 29.10)."""
+    out = tail + ".full.mp3"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", head, "-i", tail, "-filter_complex",
+                    f"[0:a]atrim=0:{at:.2f},asetpts=PTS-STARTPTS,aresample=44100,aformat=channel_layouts=stereo[a];"
+                    "[1:a]asetpts=PTS-STARTPTS,aresample=44100,aformat=channel_layouts=stereo[b];"
+                    "[a][b]acrossfade=d=0.08[o]", "-map", "[o]", "-b:a", "192k", out],
+                   check=True, timeout=300)
+    os.replace(out, tail)
+
+
+def silent(path: str, floor_db: float = -50.0) -> bool:
+    """Дорожка тишины: у песни нет этого инструмента (12 дорожек приходят всегда)."""
+    try:
+        out = subprocess.run(["ffmpeg", "-v", "info", "-i", path, "-af", "volumedetect", "-f", "null", "-"],
+                             capture_output=True, text=True, timeout=120).stderr
+        found = re.search(r"max_volume: (-?[0-9.]+) dB", out)
+        return bool(found) and float(found.group(1)) < floor_db
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+
+
+def karaoke_words(state: dict) -> list:
+    """Слова с таймкодами (timestamped_lyrics) -> [{w, s, e, nl}]: без меток
+    частей ([Verse], [Verse 1: male rap]); nl -- слово начинает новую строку."""
+    out = []
+    for item in state.get("result") or []:
+        if not isinstance(item, dict):
+            continue
+        broke = True                      # предыдущее слово закончило строку
+        for word in item.get("alignedWords") or []:
+            raw = str(word.get("word") or "")
+            starts = bool(re.match(r"\s*(\[[^\]]*\]\s*)*\n", raw))
+            clean = " ".join(re.sub(r"\[[^\]]*\]", " ", raw).split())
+            if clean:
+                out.append({"w": clean, "s": round(float(word.get("startS") or 0), 2),
+                            "e": round(float(word.get("endS") or 0), 2), **({"nl": 1} if broke or starts else {})})
+                broke = False
+            if raw.rstrip(" ").endswith("\n") or (not clean and starts):
+                broke = True
+    return out
+
+
 def audio_seconds(path: str) -> int:
     """Длительность записи в секундах (ffprobe; нет его -- 0)."""
     try:
@@ -1026,7 +1095,7 @@ def safe_file_name(name: str) -> str | None:
     """Имя файла от воркера: простое имя mp3/mid/zip (или обложка), без путей."""
     if name == "cover.jpg":
         return name
-    return name if re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,80}\.(mp3|mid|zip)", name or "") else None
+    return name if re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,80}\.(mp3|mid|zip|wav)", name or "") else None
 
 
 def label_of(mode: str, name: str) -> str:
@@ -1036,7 +1105,7 @@ def label_of(mode: str, name: str) -> str:
     if mode == "enrich":
         return "С дописанной партией"
     number = stem.rsplit("_", 1)[-1]  # restyle_2 / create_2 / backing_2
-    if stem.startswith("extend_"):
+    if stem.startswith(("extend_", "continue_")):
         return f"Продолжение {number}"
     if stem.startswith("backing_"):
         return f"Минус {number} — без голоса"
@@ -1053,6 +1122,10 @@ HEAVY = threading.Semaphore(int(os.environ.get("NASLUX_HEAVY_SLOTS", "1")))
 # Сверки -- ещё и в своей очереди: «пересверить все» ставит их пачкой, и
 # разбор трека человека ждёт не больше одной сверки, а не всю пачку.
 BENCH = threading.Semaphore(1)
+
+
+STAGES_HIT = {"stems": "Раскладываем на 12 дорожек", "wav": "Готовим WAV", "karaoke": "Расставляем слова по времени",
+              "extend": "Продлеваем песню", "continue": "Продолжаем запись"}
 
 
 class StudioRunner:
@@ -1695,11 +1768,14 @@ class StudioRunner:
             self._fail(job_id, str(error))
 
     def _run_suno(self, job_id: str) -> None:
-        """Suno через GenAPI: песня с нуля (generate) или кавер своей записи
-        (cover: GenAPI сам забирает ужатый трек по подписанной ссылке). Номер
-        запроса хранится в задаче -- после рестарта опрос продолжается, а не
-        заказывается новый. Треки -- сразу к себе (ссылки GenAPI живут сутки),
-        обложка -- картинка самого Suno, а нет её -- наша."""
+        """Новая нейросеть через GenAPI. Номер запроса хранится в задаче -- после
+        рестарта опрос продолжается, а не заказывается новый. Файлы -- сразу к
+        себе (ссылки GenAPI живут сутки).
+
+        create/restyle -- песня с нуля и кавер своей записи; extend -- продлить
+        её песню; continue -- продолжить свою запись; stems (parts=12) -- 12
+        дорожек её песни; wav и karaoke -- WAV и текст в такт для версии
+        трека-родителя (служебные задачи: в «Моих треках» их не видно)."""
         from . import genapi
         try:
             job = self.storage.job(job_id)
@@ -1714,65 +1790,138 @@ class StudioRunner:
                 settings["remote"] = {"engine": "suno", "pending": True}
                 self.storage.update_job(job_id, status="running", settings=settings,
                                         stage="Отправляем в нейросеть", progress=3)
-                upload = ""
-                if mode == "restyle":
-                    source = next(os.path.join(folder, f) for f in sorted(os.listdir(folder))
-                                  if f.startswith("source."))
-                    mureka_source(source, folder)          # mp3 до 350 с -- его и заберёт GenAPI
-                    upload = mp3_link(task_input.get("mureka_url", ""))
-                voice = task_input.get("voice", "")
-                lyrics = without_voice_marks(task_input.get("lyrics", "")).strip()
-                params = genapi.suno_params(
-                    "cover" if mode == "restyle" else "generate", title=job.filename,
-                    style=suno_style(task_input.get("prompt", ""), voice), lyrics=lyrics,
-                    instrumental=not lyrics, gender={"male": "m", "female": "f"}.get(voice, ""),
-                    style_weight=task_input.get("style_influence"), weirdness=task_input.get("weirdness"),
-                    audio_weight=task_input.get("audio_influence") if mode == "restyle" else None,
-                    upload_url=upload)
+                params = self._hit_params(job, mode, task_input, folder)
                 try:
                     rid = genapi.start(genapi.SUNO, params)
                 except RuntimeError as error:   # в том числе GenApiNoMoney
-                    if self._from_suno(job_id, mode, str(error)):
+                    if mode in ("create", "restyle") and self._from_suno(job_id, mode, str(error)):
                         return
                     if isinstance(error, genapi.GenApiNoMoney):
                         raise RuntimeError("генерация временно недоступна — пополняем счёт нейросети, "
                                            "попробуйте позже") from None
                     raise
-                remote = {"engine": "suno", "id": rid, "model": params["model"]}
+                remote = {"engine": "suno", "id": rid, "model": params["model"], "at": params.get("continue_at")}
                 settings["remote"] = remote
                 self.storage.update_job(job_id, settings=settings)
             started = time.time()
+            # дорожки и WAV считаются дольше песни (пробы: 4 и 1 минута)
+            speed = {"stems": 0.35, "wav": 1.2, "karaoke": 15}.get(mode, 1.2)
 
             def progress(stage: str, seconds: float) -> None:
-                self.storage.update_job(job_id, status="running", stage=stage,
-                                        progress=min(90, 5 + seconds * 1.2))
+                self.storage.update_job(job_id, status="running", stage=STAGES_HIT.get(mode, stage),
+                                        progress=min(92, 5 + seconds * speed))
 
             state = genapi.wait(remote["id"], timeout=JOB_TIMEOUT, every=POLL_SECONDS, progress=progress)
-            prefix = "create" if mode == "create" else "restyle"
-            files, image = [], ""
-            for number, track in enumerate(genapi.tracks(state), 1):
-                name = f"{prefix}_{number}.mp3"
-                path = os.path.join(folder, name)
-                genapi.download(track["url"], path)
-                files.append({"name": name, "label": label_of(prefix, name), "seconds": audio_seconds(path),
-                              **({"sunoId": track["id"]} if track["id"] else {}),
-                              **({"sunoTask": track["task"]} if track.get("task") else {})})
-                image = image or track.get("image", "")
-            if not files:
-                raise RuntimeError("Нейросеть закончила, но версии до сайта не дошли")
-            if image and not os.path.isfile(os.path.join(folder, "cover.jpg")):
-                try:
-                    genapi.download(image, os.path.join(folder, "cover.jpg"))
-                except Exception as error:  # noqa: BLE001 -- обложка -- украшение
-                    print(f"обложка Suno не скачалась: {error}", file=sys.stderr, flush=True)
+            result = self._hit_collect(job, mode, state, folder, task_input, remote)
             self.storage.update_job(job_id, status="done", stage="Готово", progress=100, result={
-                "files": files, "engine": "suno", "model": remote.get("model", ""),
-                "lyrics": task_input.get("lyrics", ""), "genapiCost": state.get("cost") or 0,
+                **result, "engine": "suno", "model": remote.get("model", ""), "genapiCost": state.get("cost") or 0,
                 "seconds": round(state.get("runtime") or time.time() - started, 1)})
-            if not os.path.isfile(os.path.join(folder, "cover.jpg")):
+            if mode in ("create", "restyle", "continue") and not os.path.isfile(os.path.join(folder, "cover.jpg")):
                 self._start_cover(job_id)
         except Exception as error:  # noqa: BLE001 -- любая ошибка -> деньги назад
             self._fail(job_id, str(error))
+
+    def _hit_params(self, job, mode: str, task_input: dict, folder: str) -> dict:
+        from . import genapi
+        voice = task_input.get("voice", "")
+        lyrics = without_voice_marks(task_input.get("lyrics", "")).strip()
+        style = suno_style(task_input.get("prompt", ""), voice)
+        model = "v6-wild" if task_input.get("wild") else ""
+        common = dict(title=job.filename, style=style, lyrics=lyrics, instrumental=not lyrics,
+                      gender={"male": "m", "female": "f"}.get(voice, ""), negative=task_input.get("negative", ""),
+                      style_weight=task_input.get("style_influence"), weirdness=task_input.get("weirdness"),
+                      model=model)
+        if mode in ("restyle", "continue"):
+            source = next(os.path.join(folder, f) for f in sorted(os.listdir(folder)) if f.startswith("source."))
+            prepared = mureka_source(source, folder)          # mp3 до 350 с -- его и заберёт GenAPI
+            upload = mp3_link(task_input.get("mureka_url", ""))
+            if mode == "restyle":
+                return genapi.suno_params("cover", **common, upload_url=upload,
+                                          audio_weight=task_input.get("audio_influence"))
+            # продолжить с конца записи (или с выбранной секунды): GenAPI
+            # просит «больше 0 и меньше длительности»
+            length = audio_length(prepared)
+            at = float(task_input.get("at") or 0) or length - 0.5
+            return genapi.suno_params("upload_extend", **common, upload_url=upload,
+                                      continue_at=max(1.0, min(at, length - 0.5)))
+        if mode == "extend":
+            return genapi.suno_params("extend", **common, audio_id=task_input["audio_id"],
+                                      continue_at=max(1.0, float(task_input.get("extend_at") or 0)))
+        if mode in ("stems", "wav", "karaoke"):
+            task = {"stems": "vocal_removal", "wav": "wav", "karaoke": "timestamped_lyrics"}[mode]
+            return {"model": genapi.SUNO_MODEL, "task": task, "translate_input": False,
+                    "audio_id": task_input["audio_id"], "task_id": task_input["task_id"],
+                    **({"separation_type": "split_stem"} if mode == "stems" else {})}
+        return genapi.suno_params("generate", **common)
+
+    def _hit_collect(self, job, mode: str, state: dict, folder: str, task_input: dict, remote: dict) -> dict:
+        """Ответ GenAPI -> файлы и результат задачи."""
+        from . import genapi
+        found = genapi.tracks(state)
+        if mode == "karaoke":
+            words = karaoke_words(state)
+            if not words:
+                raise RuntimeError("нейросеть не нашла слов в этой версии")
+            self._to_parent(job, "karaoke", task_input["file"], words)
+            return {"files": [], "words": len(words)}
+        if mode == "wav":
+            if not found:
+                raise RuntimeError("WAV не пришёл")
+            parent = self.folder(job.settings["from"])
+            name = task_input["file"].rsplit(".", 1)[0] + ".wav"
+            genapi.download(found[0]["url"], os.path.join(parent, name))
+            self._to_parent(job, "wav", task_input["file"], name)
+            return {"files": []}
+        if mode == "stems":
+            files = []
+            for track in found:
+                stem = HIT_STEMS.get(track.get("label", ""))
+                if not stem or stem == "instrumental":
+                    continue
+                path = os.path.join(folder, f"{stem}.mp3")
+                genapi.download(track["url"], path)
+                if silent(path):            # инструмента в песне нет -- дорожка тишины
+                    os.remove(path)
+                    continue
+                files.append({"name": f"{stem}.mp3", "label": STEM_LABELS.get(stem, stem)})
+            if not files:
+                raise RuntimeError("дорожки не пришли")
+            order = list(HIT_STEMS.values())
+            files.sort(key=lambda f: order.index(f["name"][:-4]))
+            return {"files": files, "pro": True}
+        prefix = {"create": "create", "extend": "extend", "continue": "continue"}.get(mode, "restyle")
+        files, image = [], ""
+        head = None
+        if mode == "extend":
+            head = os.path.join(folder, "source.mp3")
+        elif mode == "continue":
+            head = os.path.join(folder, "for_mureka.mp3")
+        for number, track in enumerate(found, 1):
+            name = f"{prefix}_{number}.mp3"
+            path = os.path.join(folder, name)
+            genapi.download(track["url"], path)
+            if head and remote.get("at") and os.path.isfile(head):
+                # нейросеть присылает только новый кусок -- приклеиваем начало
+                stitch(head, float(remote["at"]), path)
+            files.append({"name": name, "label": label_of(prefix, name), "seconds": audio_seconds(path),
+                          **({"sunoId": track["id"]} if track["id"] else {}),
+                          **({"sunoTask": track["task"]} if track.get("task") else {})})
+            image = image or track.get("image", "")
+        if not files:
+            raise RuntimeError("Нейросеть закончила, но версии до сайта не дошли")
+        if image and mode in ("create", "restyle", "continue") and not os.path.isfile(os.path.join(folder, "cover.jpg")):
+            try:
+                genapi.download(image, os.path.join(folder, "cover.jpg"))
+            except Exception as error:  # noqa: BLE001 -- обложка -- украшение
+                print(f"обложка не скачалась: {error}", file=sys.stderr, flush=True)
+        return {"files": files, "lyrics": task_input.get("lyrics", "")}
+
+    def _to_parent(self, job, key: str, file: str, value) -> None:
+        """WAV и текст в такт -- к версии трека-родителя (result[key][файл])."""
+        parent = self.storage.job(job.settings["from"])
+        result = dict(parent.result or {})
+        result[key] = {**(result.get(key) or {}), file: value}
+        self.storage.update_job(parent.id, result=result)
 
     def _from_suno(self, job_id: str, mode: str, why: str) -> bool:
         """Suno не принял задачу (кончились деньги GenAPI, сбой у них): та же

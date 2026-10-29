@@ -98,10 +98,14 @@
   <div class="card credit-table">
     <h2>Сколько стоит в кредитах</h2>
     <div class="grid" style="margin-top:12px">
-      <div><b>10</b> — песня с нуля<div class="muted">две версии, обложка, текст сочиним сами</div></div>
+      <div><b>{{createCredits}}</b> — песня с нуля<div class="muted">две версии, обложка, текст сочиним сами</div></div>
       <div><b>{{coverCredits}}</b> — кавер в другом стиле<div class="muted">нейросеть перепевает песню целиком</div></div>
-      <div><b>5</b> — продлить песню<div class="muted">ещё куплет и припев в том же звуке</div></div>
-      <div><b>3</b> — разложить на партии<div class="muted">вокал, гитара, бас, барабаны отдельно</div></div>
+      <div><b>{{continueCredits}}</b> — продолжить свою запись<div class="muted">наиграли куплет — нейросеть допишет дальше</div></div>
+      <div><b>{{extendCredits}}</b> — продлить песню<div class="muted">ещё куплет и припев в том же звуке</div></div>
+      <div><b>{{stemsCredits}}</b> — разложить на партии<div class="muted">вокал, гитара, бас, барабаны отдельно</div></div>
+      <div><b>{{stems12Credits}}</b> — 12 дорожек студийного качества<div class="muted">для песен Студии: бэк-вокал, клавиши, струнные…</div></div>
+      <div><b>{{wavCredits}}</b> — WAV для релиза<div class="muted">несжатый звук для стримингов</div></div>
+      <div><b>{{karaokeCredits}}</b> — суфлёр<div class="muted">текст песни подсвечивается в такт</div></div>
       <div><b>0</b> — темп, тональность, аккорды<div class="muted">всегда бесплатно</div></div>
     </div>
   </div>

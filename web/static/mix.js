@@ -448,7 +448,20 @@ async function init() {
       : plural(list.length, 'дорожка', 'дорожки', 'дорожек')}${job.mode === 'stems' ? '' : ` · ${version.label}`}`
     : 'Одна дорожка — разделите трек, чтобы глушить отдельные инструменты';
   hasStems = Boolean(stems);
+  version12 = Boolean(version && version.hit) && job.mode !== 'stems';
   showSplit(splitting);
+  // Суфлёр: текст версии в такт (если его сделали в Студии)
+  const kOwner = job.mode === 'stems' ? info.jobs.find((x) => x.id === job.from) : job;
+  const kFile = job.mode === 'stems' ? job.sourceFile : version && version.name;
+  const kVersion = kOwner && (kOwner.files || []).find((f) => f.name === kFile);
+  if (kVersion && kVersion.karaoke && window.Karaoke) {
+    window.Karaoke.load(kOwner.id, kFile).then((words) => {
+      if (!words.length) return;
+      window.Karaoke.render($('karaoke'), words);
+      $('karaoke').hidden = false;
+      window.Karaoke.update($('karaoke'), position());
+    });
+  }
   if (stems && !splitting) $('splitBox').hidden = true;      // покажется, когда появится монтаж (refreshSplit)
 
   // Аккорды и тональность: по партиям без голоса и барабанов, если трек
@@ -1132,6 +1145,7 @@ function edited() {
 }
 
 let hasStems = false;
+let version12 = false;     // версия новой нейросети -- 12 дорожек студийного качества
 let splitBusy = false;       // идёт разделение -- блок показывает его ход, не трогаем
 function refreshSplit() {
   if (!info || !info.services || splitBusy) return;
@@ -1150,8 +1164,9 @@ function showSplit(splitting) {
   const pro = info.services.stems_pro;
   const price = (x) => (info.unlimited ? '' : ` · ${x.pack} кредитов или ${x.price} ₽`);
   $('splitGo').textContent = `Разделить на дорожки${price(s)}`;
-  $('splitPro').hidden = info.restyleEngine !== 'mureka';
-  $('splitPro').textContent = `До 12 дорожек + MIDI${price(pro)}`;
+  $('splitPro').hidden = info.restyleEngine !== 'mureka' && !version12;
+  $('splitPro').textContent = version12 ? `12 дорожек студийного качества${price(info.services.stems12)}`
+    : `До 12 дорожек + MIDI${price(pro)}`;
   if (splitting) waitSplit(splitting);
   $('splitGo').onclick = () => split(false);
   $('splitPro').onclick = () => split(true);
@@ -1164,7 +1179,8 @@ async function split(pro) {
   form.append('pro', pro);
   $('splitGo').disabled = true;
   $('splitPro').disabled = true;
-  const response = await fetch(`/api/studio/${jobId}/stems`, { method: 'POST', body: form });
+  const response = await fetch(pro && version12 ? `/api/studio/${jobId}/hit/stems12`
+    : `/api/studio/${jobId}/stems`, { method: 'POST', body: form });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     $('splitGo').disabled = false;
@@ -1886,6 +1902,7 @@ setInterval(() => {
   // следующий кадр -- при любой ошибке, иначе курсор замирает до перезагрузки
   requestAnimationFrame(frame);
   if (playing) movePlayhead();
+  if (!$('karaoke').hidden) window.Karaoke.update($('karaoke'), position());
   if (rec) {
     const i = tracks.indexOf(rec.lane);
     if (i >= 0) drawTrack(rec.lane, i);
