@@ -1,0 +1,88 @@
+{
+ "id": 56839649,
+ "organization_id": 756697,
+ "network": "suno",
+ "status": "success",
+ "response_type": "audio",
+ "cost": 17,
+ "progress": 100,
+ "runtime": 234.96,
+ "result": [
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268935_6ae31cc794e58.mp3",
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268936_6ae31cc8a006b.mp3",
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268937_6ae31cc9c1918.mp3",
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268939_6ae31ccb0fb9a.mp3",
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268940_6ae31ccc01ef2.mp3",
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268941_6ae31ccd04984.mp3",
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268941_6ae31ccdf19b5.mp3",
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268942_6ae31ccee0c20.mp3",
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268943_6ae31ccfed614.mp3",
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268944_6ae31cd0eb740.mp3",
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268945_6ae31cd1ccc22.mp3",
+  "https://gen-api.storage.yandexcloud.net/input_files/1793268946_6ae31cd2abd45.mp3"
+ ],
+ "full_response": [
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268935_6ae31cc794e58.mp3",
+   "label": "vocalUrl"
+  },
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268936_6ae31cc8a006b.mp3",
+   "label": "backingVocalsUrl"
+  },
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268937_6ae31cc9c1918.mp3",
+   "label": "drumsUrl"
+  },
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268939_6ae31ccb0fb9a.mp3",
+   "label": "bassUrl"
+  },
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268940_6ae31ccc01ef2.mp3",
+   "label": "guitarUrl"
+  },
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268941_6ae31ccd04984.mp3",
+   "label": "keyboardUrl"
+  },
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268941_6ae31ccdf19b5.mp3",
+   "label": "percussionUrl"
+  },
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268942_6ae31ccee0c20.mp3",
+   "label": "stringsUrl"
+  },
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268943_6ae31ccfed614.mp3",
+   "label": "synthUrl"
+  },
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268944_6ae31cd0eb740.mp3",
+   "label": "fxUrl"
+  },
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268945_6ae31cd1ccc22.mp3",
+   "label": "brassUrl"
+  },
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793268946_6ae31cd2abd45.mp3",
+   "label": "woodwindsUrl"
+  }
+ ],
+ "parameters": {
+  "mv": "chirp-hawk",
+  "task": "vocal_removal",
+  "model": "v6",
+  "task_id": "0489196fdb9f861557765b9a12dbb58c",
+  "audio_id": "710fceba-86d2-4e48-b1e3-b57a5ef5f69d",
+  "custom_mode": true,
+  "audio_weight": 0.5,
+  "style_weight": 0.5,
+  "separation_type": "split_stem",
+  "translate_input": false,
+  "weirdness_constraint": 0.5
+ },
+ "timestamp": 1793268711
+}
