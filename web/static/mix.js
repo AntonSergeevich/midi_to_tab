@@ -52,7 +52,10 @@ let pick = null;          // выбранный кусок на ней (посл
 // Несколько кусков -- с Ctrl (⌘ на Mac) или Shift: двигаются, копируются и
 // удаляются вместе
 let picks = new Set();
-let montage = false;      // режим монтажа: протяжка двигает кусок
+// Кусок тянут всегда (кнопку «Монтаж» убрали, владелец 29.10: «неудобно и
+// непонятно»); выделение -- по кнопке-переключателю «Выделить»
+let montage = true;
+let selectMode = false;
 let clipboard = null;     // скопированное: {items: [{src, rel, trimStart, trimEnd}]}
 const undoStack = [];
 let duration = 0;
@@ -603,8 +606,8 @@ async function keepOffline() {
 }
 
 // ------------------------------------------------------------- монтаж
-// Куски на дорожках: «Разрезать» делит кусок по курсору на месте; в
-// «Монтаже» кусок тянут по времени и на другую дорожку, края прилипают к
+// Куски на дорожках: «Разрезать» делит кусок по курсору на месте; кусок
+// тянут по времени и на другую дорожку, края прилипают к
 // тактам и к краям других кусков -- так склеивают встык. «Копировать» --
 // выделенное на линейке (или выбранный кусок), «Вставить» -- по курсору на
 // выбранную дорожку. Ctrl+C / Ctrl+V / Delete / Ctrl+Z -- то же с клавиатуры.
@@ -663,17 +666,6 @@ function clipAt(lane, sec) {
   return lane && lane.clips.find((c) => sec >= clipStart(c) && sec <= clipEnd(c));
 }
 
-function setMontage(on, quiet = false) {
-  if (montage === on) return;
-  montage = on;
-  pressed('montage', montage);
-  $('board').classList.toggle('montage', montage);
-  if (montage && !quiet) {
-    toast('Монтаж: тяните кусок по времени или на другую дорожку. Края прилипают к тактам и к соседним кускам — так куски склеиваются', 7000);
-  }
-  redraw();
-}
-
 function cut() {
   const lane = tracks[selected];
   const at = position();
@@ -691,7 +683,6 @@ function cut() {
   lane.clips.splice(lane.clips.indexOf(c) + 1, 0, right);
   pick = right;
   picks = new Set([right]);
-  setMontage(true, true);
   render();
   save();
   if (playing) startAt(position());
@@ -752,7 +743,6 @@ function paste() {
   });
   pick = last;
   picks = new Set(pasted);
-  setMontage(true, true);
   updateDuration();
   render();
   save();
@@ -831,7 +821,28 @@ $('delClipBtn').addEventListener('click', () => deleteClip());
 $('cutXBtn').addEventListener('click', cutOut);
 $('deselectBtn').addEventListener('click', deselect);
 $('undoBtn').addEventListener('click', undo);
-$('montage').addEventListener('click', () => setMontage(!montage));
+function setSelectMode(on) {
+  selectMode = on;
+  pressed('selectMode', on);
+  $('board').classList.toggle('selecting', on);
+  if (on) toast('Выделение: протяните по дорожке или по линейке. Нажмите «Выделить» ещё раз — выключить', 6000);
+  haptic('light');
+}
+$('selectMode').addEventListener('click', () => setSelectMode(!selectMode));
+
+// Готовое выделение (линейка или дорожка в режиме «Выделить»): места и подсказка
+function finishRegion(adding) {
+  // края уже стоят там, где показывал прицел (snapSec) -- не двигаем их
+  if (loop.b - loop.a < 0.05) loop.b = loop.a + 0.05;
+  const fresh = { a: loop.a, b: loop.b };
+  regions = adding ? regions.filter((r) => r.b <= fresh.a || r.a >= fresh.b).concat([fresh]) : [fresh];
+  regions.sort((x, y) => x.a - y.a);
+  markSelected();
+  redraw();
+  toast(regions.length > 1
+    ? `Выделено мест: ${regions.length} — «Копировать», «Вырезать» или «Удалить» на выбранной дорожке`
+    : `Выделено ${clock(loop.a)} – ${clock(loop.b)}: «Копировать» (Ctrl+C) или «Повтор» — играть по кругу. С Ctrl — ещё места`);
+}
 
 // --------------------------------------------------- название дорожки
 // «Что это за дорожка?»: список инструментов, свои названия из профиля
@@ -1763,7 +1774,10 @@ function movePlayhead() {
   // при игре окно едет за курсором. Только если оно правда сдвинулось:
   // в конце песни окну некуда ехать, и redraw -> movePlayhead -> redraw
   // крутился бы без конца (курсор вставал намертво)
-  if (playing && zoom > 1 && (frac > 0.85 || frac < 0) && Date.now() > followPause) {
+  // Окно отвели полосой «Вся песня» -- не тянем его обратно, пока курсор
+  // сам не войдёт в окно или человек не поставит новое место
+  if (followOff && frac >= 0 && frac <= 0.85) followOff = false;
+  if (playing && zoom > 1 && !followOff && (frac > 0.85 || frac < 0) && Date.now() > followPause) {
     const next = Math.max(0, Math.min(duration - viewLen(), position() - viewLen() * 0.1));
     if (Math.abs(next - viewStart) > 0.01) {
       viewStart = next;
@@ -1871,6 +1885,7 @@ async function play() {
 function seek(sec) {
   if (rec) { stopRecording().then(() => seek(sec)); return; }
   sec = Math.max(0, Math.min(duration, sec));
+  followOff = false;
   if (playing) startAt(sec);
   else pos = sec;
   movePlayhead();
@@ -1959,6 +1974,7 @@ $('metroMode').addEventListener('change', () => {
 // протяжка -- повтор. Два пальца -- масштаб. Пока человек двигает окно,
 // оно не убегает за курсором.
 let followPause = 0;
+let followOff = false;     // окно отвели полосой «Вся песня» -- не следовать за курсором
 const touches = new Map();
 let pinch = null;
 
@@ -1973,6 +1989,41 @@ document.addEventListener('pointerdown', (e) => {
     }
   }
   const wave = e.target.closest('[data-wave]');
+  if (wave && duration && selectMode && !pinch) {
+    const index = Number(wave.dataset.wave);
+    if (selected !== index) choose(index);
+    const w = wave.getBoundingClientRect().width;
+    const from = snapSec(secAt(e, wave), w, e.altKey);
+    const adding = e.ctrlKey || e.metaKey || e.shiftKey;
+    wave.setPointerCapture(e.pointerId);
+    let dragged = false;
+    const move = (ev) => {
+      if (pinch) return;
+      const to = snapSec(secAt(ev, wave), w, ev.altKey);
+      if (ev.pointerType !== 'touch') showHair(to);
+      if (Math.abs(to - from) < viewLen() * 0.004) return;
+      dragged = true;
+      followPause = Date.now() + 4000;
+      loop.a = Math.min(from, to);
+      loop.b = Math.max(from, to);
+      liveRegion = { a: loop.a, b: loop.b };
+      liveAdding = adding;
+      redraw();
+    };
+    const up = (ev) => {
+      wave.removeEventListener('pointermove', move);
+      wave.removeEventListener('pointerup', up);
+      wave.removeEventListener('pointercancel', up);
+      liveRegion = null;
+      if (ev.type !== 'pointerup') { redraw(); return; }
+      if (!dragged) { seek(from); return; }
+      finishRegion(adding);
+    };
+    wave.addEventListener('pointermove', move);
+    wave.addEventListener('pointerup', up);
+    wave.addEventListener('pointercancel', up);
+    return;
+  }
   if (wave && duration) {
     let index = Number(wave.dataset.wave);
     const lane = tracks[index];
@@ -1987,14 +2038,16 @@ document.addEventListener('pointerdown', (e) => {
       if (Math.abs(px(sec) - px(clipStart(c))) < reach) { clip = c; grab = 'trimStart'; break; }
       if (Math.abs(px(sec) - px(clipEnd(c))) < reach) { clip = c; grab = 'trimEnd'; break; }
     }
+    let holdMove = null;
     if (!clip) {
       clip = clipAt(lane, sec) || null;
-      if (clip && montage) grab = 'move';
+      if (clip && e.pointerType !== 'touch') grab = 'move';
+      // пальцем протяжка листает; нажать и подержать -- взять кусок
+      else if (clip) holdMove = setTimeout(() => { grab = 'move'; haptic('pick'); }, 350);
     }
     const add = e.ctrlKey || e.metaKey || e.shiftKey;
     if (add && clip) {                         // Ctrl/Shift + щелчок -- добавить кусок к выбранным
       choose(index, clip, true);
-      setMontage(true, true);                  // выбранное -- сразу можно тянуть
       return;
     }
     if (selected !== index || !picks.has(clip)) choose(index, clip);
@@ -2010,6 +2063,10 @@ document.addEventListener('pointerdown', (e) => {
     let wasSnapped = false;
     const move = (ev) => {
       if (pinch) return;
+      if (holdMove && grab !== 'move' && (Math.abs(ev.clientX - x0) > 6 || Math.abs(ev.clientY - e.clientY) > 6)) {
+        clearTimeout(holdMove);            // повёл пальцем раньше -- это прокрутка
+        holdMove = null;
+      }
       if (grab === 'move') {
         if (!moved && Math.abs(ev.clientX - x0) < 4 && Math.abs(ev.clientY - e.clientY) < 6) return;
         if (!moved) { remember(); moved = true; haptic('pick'); }
@@ -2059,6 +2116,7 @@ document.addEventListener('pointerdown', (e) => {
       }
     };
     const up = (ev) => {
+      clearTimeout(holdMove);
       wave.removeEventListener('pointermove', move);
       wave.removeEventListener('pointerup', up);
       wave.removeEventListener('pointercancel', up);
@@ -2085,10 +2143,11 @@ document.addEventListener('pointerdown', (e) => {
     rulerDragging = true;
     ruler.setPointerCapture(e.pointerId);
     const finger = e.pointerType === 'touch';
-    // пальцем -- повтор только после долгого нажатия, иначе протяжка двигает курсор
-    let selecting = !finger;
+    // выделяет -- в режиме «Выделить» (или пальцем после долгого нажатия),
+    // иначе протяжка по линейке двигает курсор
+    let selecting = selectMode;
     let dragged = false;
-    const hold = finger ? setTimeout(() => {
+    const hold = finger && !selectMode ? setTimeout(() => {
       if (!dragged) { selecting = true; haptic('pick'); toast('Ведите пальцем — выделяем кусок'); }
     }, 450) : null;
     const move = (ev) => {
@@ -2123,16 +2182,7 @@ document.addEventListener('pointerdown', (e) => {
       if (!selecting) return;
       // Выделение -- только выделение: копировать его или включить «Повтор»
       // решает человек (раньше повтор включался сам, мешал копированию)
-      // края уже стоят там, где показывал прицел (snapSec) -- не двигаем их
-      if (loop.b - loop.a < 0.05) loop.b = loop.a + 0.05;
-      const fresh = { a: loop.a, b: loop.b };
-      regions = adding ? regions.filter((r) => r.b <= fresh.a || r.a >= fresh.b).concat([fresh]) : [fresh];
-      regions.sort((x, y) => x.a - y.a);
-      markSelected();
-      redraw();
-      toast(regions.length > 1
-        ? `Выделено мест: ${regions.length} — «Копировать», «Вырезать» или «Удалить» на выбранной дорожке`
-        : `Выделено ${clock(loop.a)} – ${clock(loop.b)}: «Копировать» (Ctrl+C) или «Повтор» — играть по кругу. С Ctrl — ещё места`);
+      finishRegion(adding);
     };
     ruler.addEventListener('pointermove', move);
     ruler.addEventListener('pointerup', up);
@@ -2142,12 +2192,17 @@ document.addEventListener('pointerdown', (e) => {
   const overview = e.target.closest('#overview');
   if (overview && duration) {
     overview.setPointerCapture(e.pointerId);
+    // Полоса «Вся песня» только листает вид (владелец, 29.10: сдвиг полосы
+    // сбивал воспроизведение) -- песня играет дальше, место старта ставят
+    // щелчком по дорожке или линейке. Рамку тянут за то место, где взяли.
+    const box0 = overview.getBoundingClientRect();
+    const at0 = Math.max(0, Math.min(1, (e.clientX - box0.left) / box0.width)) * duration;
+    const grip = at0 >= viewStart && at0 <= viewStart + viewLen() ? at0 - viewStart : viewLen() / 2;
     const jump = (ev) => {
       const box = overview.getBoundingClientRect();
       const at = Math.max(0, Math.min(1, (ev.clientX - box.left) / box.width)) * duration;
-      viewStart = Math.max(0, Math.min(duration - viewLen(), at - viewLen() / 2));
-      followPause = Date.now() + 2500;
-      seek(at);
+      viewStart = Math.max(0, Math.min(duration - viewLen(), at - grip));
+      followOff = true;                         // вид не прыгает обратно к курсору
       redraw();
     };
     jump(e);

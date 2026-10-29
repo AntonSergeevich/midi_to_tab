@@ -1459,7 +1459,8 @@ header.top > nav.topnav {
 .mx-row[data-i] .mx-ctrl { cursor: pointer; }
 .mx-lane.dropping { outline: 2px dashed var(--accent); outline-offset: -4px; background: rgba(217,154,78,.08); }
 .mx-board.montage .mx-lane canvas { cursor: grab; }
-.mx-board.montage .mx-lane canvas { touch-action: none; }
+/* «Выделить»: курсор выделения, протяжка выделяет (и пальцем -- без прокрутки страницы) */
+.mx-board.selecting .mx-lane canvas, .mx-board.selecting #ruler { cursor: crosshair; touch-action: none; }
 
 /* «＋ Дорожка» -- в колонке подписей, рядом с «Такты · аккорды» */
 .mx-ruler-head { flex-direction: row !important; align-items: center; justify-content: space-between; gap: 8px; }
