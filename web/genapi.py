@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -82,9 +83,15 @@ def call(method: str, path: str, body: dict | None = None, timeout: int = 60) ->
             pass
         if error.code == 402 or "баланс" in detail.lower() or "недостаточно" in detail.lower():
             raise GenApiNoMoney(f"GenAPI: {detail}") from error
-        raise RuntimeError(f"GenAPI ответил {error.code}: {detail}") from error
+        raise RuntimeError(f"GenAPI ответил {error.code}: {neutral(detail)}") from error
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         raise RuntimeError(f"GenAPI недоступен: {error}") from error
+
+
+def neutral(text: str) -> str:
+    """Текст для человека -- без названия нейросети у провайдера (на сайте
+    его нет нигде, решение владельца 29.10)."""
+    return re.sub(r"(?i)\bsuno\w*", "нейросеть", text or "")
 
 
 def request_id(started: dict) -> str:
@@ -112,7 +119,7 @@ def wait(rid: str, timeout: int = 900, every: int = 5, progress=None) -> dict:
         if kind == "success":
             return state
         if kind in ("error", "failed", "cancelled"):
-            raise RuntimeError(f"GenAPI: {error_text(state)}")
+            raise RuntimeError(f"GenAPI: {neutral(error_text(state))}")
         elapsed = time.time() - started
         if elapsed > timeout:
             raise RuntimeError("GenAPI не справился за отведённое время")

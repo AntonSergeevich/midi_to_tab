@@ -1709,11 +1709,11 @@ class StudioRunner:
             folder = self.folder(job_id)
             remote = settings.get("remote")
             if remote and "id" not in remote:
-                raise RuntimeError("прервано перед самой отправкой в Suno — попробуйте ещё раз")
+                raise RuntimeError("прервано перед самой отправкой в нейросеть — попробуйте ещё раз")
             if not remote:
                 settings["remote"] = {"engine": "suno", "pending": True}
                 self.storage.update_job(job_id, status="running", settings=settings,
-                                        stage="Отправляем в Suno", progress=3)
+                                        stage="Отправляем в нейросеть", progress=3)
                 upload = ""
                 if mode == "restyle":
                     source = next(os.path.join(folder, f) for f in sorted(os.listdir(folder))
@@ -1759,7 +1759,7 @@ class StudioRunner:
                               **({"sunoTask": track["task"]} if track.get("task") else {})})
                 image = image or track.get("image", "")
             if not files:
-                raise RuntimeError("Suno закончил, но версии до сайта не дошли")
+                raise RuntimeError("Нейросеть закончила, но версии до сайта не дошли")
             if image and not os.path.isfile(os.path.join(folder, "cover.jpg")):
                 try:
                     genapi.download(image, os.path.join(folder, "cover.jpg"))

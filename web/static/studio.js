@@ -1,4 +1,4 @@
-// Студия в духе Suno: слева -- что сделать, справа -- мои треки; клик по
+// Студия: слева -- что сделать, справа -- мои треки; клик по
 // треку открывает его страницу: версии, партии, текст. Музыка играет в
 // общем плеере внизу -- обновление списка её не обрывает.
 
@@ -105,11 +105,11 @@ function showMode() {
   $('modeHint').textContent = MODE[mode].hint;
   // Проба YuE2 -- у владельца (безлимит), в «С нуля» и «Переделать». Пока
   // Mureka без денег, YuE2 -- движок для всех (yue2Public), без галочки
-  // Проба Suno (GenAPI) -- у владельца; включена -- главнее YuE2
-  $('sunoBox').hidden = !(info && info.sunoOpen && !info.sunoPublic && ['create', 'restyle'].includes(mode));
-  const suno = sunoOn();
-  const pub = Boolean(info && info.yue2Public) && ['create', 'restyle'].includes(mode) && !suno;
-  const yue2Here = Boolean(info && info.yue2Open) && ['create', 'restyle'].includes(mode) && !suno;
+  // Проба новой нейросети (GenAPI) -- у владельца; включена -- главнее YuE2
+  $('hitBox').hidden = !(info && info.hitOpen && !info.hitPublic && ['create', 'restyle'].includes(mode));
+  const hit = hitOn();
+  const pub = Boolean(info && info.yue2Public) && ['create', 'restyle'].includes(mode) && !hit;
+  const yue2Here = Boolean(info && info.yue2Open) && ['create', 'restyle'].includes(mode) && !hit;
   $('yue2Box').hidden = !yue2Here || pub;
   const yue2 = pub || (yue2Here && $('useYue2').checked);
   $('yue2Knobs').hidden = !yue2;
@@ -138,8 +138,8 @@ function showMode() {
   saveDraft();
   // «Инструментал» есть только у песни с нуля: в «Переделать» поле слов не гасим
   $('lyrics').disabled = mode === 'create' && $('instrumental').checked && !yue2;
-  $('lyricsNote').textContent = mode === 'restyle' && suno
-    ? '— у своей записи Suno споёт этот текст, без текста выйдет инструментал; у чужой песни слова распознаем сами'
+  $('lyricsNote').textContent = mode === 'restyle' && hit
+    ? '— у своей записи нейросеть споёт этот текст, без текста выйдет инструментал; у чужой песни слова распознаем сами'
     : mode === 'restyle' && yue2 ? '— необязательно: распознаем сами'
     : mode === 'restyle' && mureka ? '— необязательно' : '';
   updateStart();
@@ -147,13 +147,13 @@ function showMode() {
 
 // «Дописать → Все партии»: на деле это переделка с вашим голосом (Mureka
 // пишет новую аранжировку под записанный вокал) -- так и отправляем, и цена её
-// Suno: свои песни и каверы своих записей (чужие песни сервер сам отдаст YuE2)
-function sunoOn() {
+// Новая нейросеть: свои песни и каверы своих записей (чужие песни сервер сам отдаст YuE2)
+function hitOn() {
   if (!['create', 'restyle'].includes(mode) || !info) return false;
-  return Boolean(info.sunoPublic) || (Boolean(info.sunoOpen) && $('useSuno').checked);
+  return Boolean(info.hitPublic) || (Boolean(info.hitOpen) && $('useHit').checked);
 }
 function yue2On() {
-  if (!['create', 'restyle'].includes(mode) || sunoOn()) return false;
+  if (!['create', 'restyle'].includes(mode) || hitOn()) return false;
   return Boolean(info && info.yue2Public) || (Boolean(info && info.yue2Open) && $('useYue2').checked);
 }
 
@@ -1147,7 +1147,7 @@ $('drop').addEventListener('drop', (e) => {
 $('lyrics').addEventListener('input', () => { lyricsCount(); saveDraft(); updateStart(); });
 $('keepVocals').addEventListener('change', showMode);
 $('useYue2').addEventListener('change', showMode);
-$('useSuno').addEventListener('change', showMode);
+$('useHit').addEventListener('change', showMode);
 // Заливка полосы до бегунка (--fill в app.css)
 const knobFill = (el) => el.style.setProperty('--fill', `${((el.value - el.min) / (el.max - el.min)) * 100}%`);
 $('yCfg').addEventListener('input', () => { $('yCfgVal').textContent = Number($('yCfg').value).toFixed(1); knobFill($('yCfg')); });
@@ -1262,7 +1262,7 @@ $('start').addEventListener('click', async () => {
   form.append('voice', voice);
   form.append('keep_vocals', send.keep);
   form.append('pro', mode === 'stems' && $('stemsPro').checked);
-  form.append('engine', sunoOn() ? 'suno' : yue2On() ? 'yue2' : '');
+  form.append('engine', hitOn() ? 'hit' : yue2On() ? 'yue2' : '');
   form.append('closeness', $('yClose').value);
   form.append('cfg_scale', $('yCfg').value);
   form.append('creativity', $('yCreative').value / 100);

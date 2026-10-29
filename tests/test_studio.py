@@ -2710,7 +2710,7 @@ def test_suno_engine_for_owner_creates_and_covers(studio_app, monkeypatch):
     app_module.storage.add_balance(user.id, 300)
     response = client.post("/api/studio", data={"mode": "create", "title": "Гимн", "prompt": "рэп-рок, 808",
                                                 "lyrics": "[Verse]\n(Male) Бит качает", "voice": "duet",
-                                                "engine": "suno"})
+                                                "engine": "hit"})
     assert response.status_code == 200, response.text
     job_id = response.json()["jobId"]
     job = app_module.storage.job(job_id)

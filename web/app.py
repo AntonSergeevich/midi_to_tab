@@ -326,6 +326,13 @@ for _slug in seo.BY_SLUG:
     app.get(f"/{_slug}", response_class=HTMLResponse)(_landing_route(_slug))
 
 
+@app.get("/alternativa-suno", include_in_schema=False)
+def landing_renamed():
+    """Страница переименована (29.10: сторонних названий на сайте нет) --
+    старый адрес, который уже знают поисковики, ведёт на новый."""
+    return RedirectResponse("/neyroset-dlya-muzyki", status_code=301)
+
+
 def require_admin(request: Request):
     """Пускать в админку только помеченных администраторами."""
     user = current_user(request)
@@ -1882,7 +1889,8 @@ def _studio_job_payload(job) -> dict:
     folder = studio_runner.folder(job.id)
     # Названия дорожек, которые дал сам человек (мультитрек: «Бас», «2-я гитара»)
     labels = result.get("labels") or {}
-    files = [{**f, "url": f"/api/studio/file/{job.id}/{f['name']}",
+    files = [{**{k: v for k, v in f.items() if k not in ("sunoId", "sunoTask")},
+              "url": f"/api/studio/file/{job.id}/{f['name']}",
               **({"label": labels[f["name"]], "origLabel": f.get("label", "")} if f["name"] in labels else {})}
              for f in result.get("files") or []
              if os.path.isfile(os.path.join(folder, f["name"]))]
@@ -1952,8 +1960,8 @@ def api_studio(request: Request):
         "restyleOpen": studio.restyle_open() or user.unlimited,
         "restyleEngine": studio.restyle_engine(),
         "yue2Open": studio.yue2_open(user),
-        "sunoOpen": studio.suno_open(user),
-        "sunoPublic": studio.suno_public(),
+        "hitOpen": studio.suno_open(user),
+        "hitPublic": studio.suno_public(),
         "yue2Public": studio.yue2_public(),
         "email": user.email, "maxMb": MAX_UPLOAD_MB, "maxSeconds": studio.MAX_SECONDS,
         "jobs": [_studio_job_payload(j) for j in storage.studio_jobs(user.id)],
@@ -2003,7 +2011,7 @@ async def api_studio_start(
     engine = studio.restyle_engine() if mode in ("restyle", "create") or pro else "runpod"
     if asked == "yue2" and mode in ("restyle", "create") and studio.yue2_open(user):
         engine = "yue2"            # проба владельца, см. studio.YUE2_NAME
-    if ((asked == "suno" and studio.suno_open(user)) or studio.suno_public()) \
+    if ((asked in ("hit", "suno") and studio.suno_open(user)) or studio.suno_public()) \
             and studio.suno_engine(mode, rights, voice, reference):
         engine = "suno"            # Suno через GenAPI (web/genapi.py): свои песни и каверы своих записей
     if mode in ("restyle", "create") and engine not in ("mureka", "suno") and studio.yue2_public():
