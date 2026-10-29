@@ -1,0 +1,22 @@
+{
+ "id": 56851382,
+ "organization_id": 756697,
+ "network": "suno",
+ "status": "processing",
+ "response_type": "audio",
+ "cost": 17,
+ "parameters": {
+  "mv": "chirp-hawk",
+  "task": "vocal_removal",
+  "model": "v6",
+  "task_id": "0489196fdb9f861557765b9a12dbb58c",
+  "audio_id": "710fceba-86d2-4e48-b1e3-b57a5ef5f69d",
+  "custom_mode": true,
+  "audio_weight": 0.5,
+  "style_weight": 0.5,
+  "separation_type": "split_stem",
+  "translate_input": false,
+  "weirdness_constraint": 0.5
+ },
+ "timestamp": 1793277306
+}
