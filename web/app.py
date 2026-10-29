@@ -1175,6 +1175,12 @@ def pricing_page() -> HTMLResponse:
     })
 
 
+@app.get("/guide", response_class=HTMLResponse)
+def guide_page() -> HTMLResponse:
+    """Видеоинструкция: создать песню, мультитрек, запись голоса, сведение."""
+    return page("guide.html")
+
+
 @app.get("/privacy", response_class=HTMLResponse)
 def privacy_page() -> HTMLResponse:
     return page("privacy.html")
@@ -3605,3 +3611,8 @@ def favicon():
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+# Видео и большие файлы для страниц сайта (видеоинструкция): мимо офлайн-кэша
+# sw.js -- тот кэширует /static/ целиком, а видео нужно отдавать кусками
+MEDIA_DIR = STATIC_DIR.parent / "media"
+if MEDIA_DIR.is_dir():
+    app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")

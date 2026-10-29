@@ -94,7 +94,7 @@
 
   // Юридические тексты (оферта, политика) и SEO-страницы -- только по-русски:
   // переводим шапку, а над текстом -- пометка
-  const RU_ONLY = /^\/(offer|privacy)$/.test(location.pathname) || location.pathname.startsWith('/admin');
+  const RU_ONLY = /^\/(offer|privacy|guide)$/.test(location.pathname) || location.pathname.startsWith('/admin');
 
   function markRussianOnly() {
     const main = document.querySelector('main.landing, .doc, main, article');

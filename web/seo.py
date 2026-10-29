@@ -28,6 +28,7 @@ APP_PAGES = [
     ("/", "1.0", "daily"),
     ("/studio", "0.9", "weekly"),
     ("/pricing", "0.6", "monthly"),
+    ("/guide", "0.7", "monthly"),
     ("/offer", "0.2", "yearly"),
     ("/privacy", "0.2", "yearly"),
 ]

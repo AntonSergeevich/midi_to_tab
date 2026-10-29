@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15161c">
+<title>Видеоинструкция — как сделать песню и спеть её самому | NASLUX</title>
+<meta name="description" content="3 минуты: как создать песню нейросетью, дописать стиль и текст с ИИ, разложить на дорожки, записать свой голос, добавить эффекты и свести трек в мультитреке NASLUX.">
+<link rel="canonical" href="https://naslux.ru/guide">
+<meta property="og:type" content="video.other">
+<meta property="og:title" content="Как сделать песню и спеть её самому — видеоинструкция NASLUX">
+<meta property="og:description" content="Создать песню, разложить на дорожки, записать свой голос и свести — за 3 минуты.">
+<meta property="og:image" content="https://naslux.ru/media/naslux-guide.jpg">
+<meta property="og:video" content="https://naslux.ru/media/naslux-guide.mp4">
+<meta property="og:video:type" content="video/mp4">
+<meta property="og:video:width" content="1280">
+<meta property="og:video:height" content="720">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
+    <nav class="topnav" aria-label="Разделы">
+      <a href="/studio">Студия</a>
+      <a href="/#chords">Аккорды</a>
+      <a href="/pricing">Тарифы</a>
+      <a href="/account" id="account" class="who">Вход</a>
+      <a href="/pricing" id="access" class="badge" hidden></a>
+    </nav>
+  </header>
+  <script src="/static/nav.js"></script>
+
+  <main class="gd">
+    <p class="lp-kicker">Видеоинструкция · 3 минуты</p>
+    <h1>Как сделать песню и спеть её самому</h1>
+    <video class="gd-video" id="video" controls playsinline preload="metadata" poster="/media/naslux-guide.jpg">
+      <source src="/media/naslux-guide.mp4" type="video/mp4">
+    </video>
+    <div class="gd-actions">
+      <button type="button" class="lp-btn ghost" id="share">Отправить музыканту</button>
+      <a class="lp-btn" href="/studio">Открыть Студию</a>
+    </div>
+
+    <ol class="gd-steps" id="chapters">
+      <li><button type="button" data-at="16"><span>0:16</span><b>Создать песню</b></button>
+        <p>Студия → «Создать». Опишите стиль своими словами и нажмите <b>«Дописать с ИИ»</b> — нейросеть добавит
+          жанр, темп, голос и звук. Нет текста — <b>«Сочинить»</b>: опишите, о чём песня. Выберите голос и нажмите
+          <b>«Создать»</b> — через несколько минут будут готовы две версии.</p></li>
+      <li><button type="button" data-at="53"><span>0:53</span><b>Мои треки</b></button>
+        <p>Нажмите на трек: версии, партии и справа <b>«О треке»</b> — стиль и текст с кнопками «Копировать» и
+          «В форму». В меню <b>«⋯»</b>: минус без голоса, разделить на партии, табы и MIDI, ссылка «послушать»
+          и <b>«Передать музыканту»</b> — трек со всеми дорожками появится у него после входа.</p></li>
+      <li><button type="button" data-at="76"><span>1:16</span><b>Мультитрек</b></button>
+        <p>Каждая партия — своя дорожка. <b>M</b> — заглушить (например, голос нейросети), <b>S</b> — слушать
+          только её, ползунок — громкость. <b>FX → «＋ Добавить эффект»</b>: эквалайзер, компрессор, реверберация,
+          дилей, хорус, сатурация. Метроном идёт по долям самой песни.</p></li>
+      <li><button type="button" data-at="123"><span>2:03</span><b>Запись голоса и сведение</b></button>
+        <p>Наденьте наушники и нажмите <b>«Запись»</b> — дубль ляжет на свою дорожку ровно в такт. В FX записанной
+          дорожки нейросеть уберёт шум и подтянет ноты. <b>«Свести»</b> вольёт голос в музыку, <b>«Скачать микс»</b>
+          — готовый трек одним файлом.</p></li>
+      <li><button type="button" data-at="159"><span>2:38</span><b>На телефоне</b></button>
+        <p>Всё то же в браузере телефона. M и S — в шапке дорожки, громкость и эффекты — свайпом шапки вправо.</p></li>
+    </ol>
+  </main>
+
+  <footer class="legal">
+    <a href="/privacy">Политика конфиденциальности</a>
+    <a href="/offer">Оферта</a>
+    <a href="/updates">Что нового</a>
+    <span>© NASLUX</span>
+  </footer>
+</div>
+<script>
+(function () {
+  const video = document.getElementById('video');
+  document.getElementById('chapters').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-at]');
+    if (!b) return;
+    video.currentTime = Number(b.dataset.at);
+    video.play().catch(() => {});
+    video.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  });
+  document.getElementById('share').addEventListener('click', async (e) => {
+    const url = `${location.origin}/guide`;
+    try {
+      if (navigator.share && matchMedia('(pointer: coarse)').matches) {
+        await navigator.share({ title: 'NASLUX: как сделать песню и спеть её самому', url });
+      } else { await navigator.clipboard.writeText(url); e.target.textContent = 'Ссылка скопирована'; }
+    } catch (error) { /* закрыли окно -- ничего */ }
+  });
+}());
+</script>
+</body>
+</html>
