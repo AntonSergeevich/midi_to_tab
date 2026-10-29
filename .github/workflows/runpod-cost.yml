@@ -23,8 +23,9 @@ jobs:
           for id in $(jq -r '.[].id' endpoints.json); do
             name="$(jq -r --arg id "$id" '.[] | select(.id == $id) | .name' endpoints.json)"
             # очередь и видеокарты прямо сейчас: idle/running/throttled -- нет ли нехватки
-            echo "::notice title=Сейчас $name::$(curl -sS -H "Authorization: Bearer $RUNPOD_API_KEY" "https://api.runpod.ai/v2/$id/health" | head -c 600)"
+            echo "$name $(jq -c --arg id "$id" '.[] | select(.id == $id) | {gpuTypeIds, workersMax}' endpoints.json) $(curl -sS -H "Authorization: Bearer $RUNPOD_API_KEY" "https://api.runpod.ai/v2/$id/health" | head -c 400)" >> health.txt
             bill="$(api "/billing/endpoints?endpointId=$id&bucketSize=month&startTime=$start&endTime=$end" | head -c 3000)"
             echo "::notice title=Счёт $name::$bill"
           done
+          echo "::notice title=Очередь и видеокарты сейчас::$(tr '\n' '|' < health.txt)"
           echo "::notice title=Счёт всех эндпоинтов::$(api "/billing/endpoints?bucketSize=month&startTime=$start&endTime=$end&grouping=endpointId" | head -c 3000)"
