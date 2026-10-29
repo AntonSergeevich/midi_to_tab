@@ -1857,5 +1857,12 @@
  "сейчас нет свободной видеокарты — попробуйте через 10–15 минут": "no free GPU right now — please try again in 10–15 minutes",
  "Делим своим разделением": "Splitting with our own separation",
  "Забираем дорожки:": "Fetching stems:",
- "нейросеть сейчас перегружена и не ответила вовремя — попробуйте позже": "the AI is overloaded right now and didn't answer in time — please try again later"
+ "нейросеть сейчас перегружена и не ответила вовремя — попробуйте позже": "the AI is overloaded right now and didn't answer in time — please try again later",
+ "Остановить": "Stop",
+ "Остановить эту работу? Деньги или генерация вернутся.": "Stop this job? The money or credits will be returned.",
+ "Остановили — деньги вернулись": "Stopped — the money was returned",
+ "Не получилось остановить": "Couldn't stop",
+ "Остановить разделение? Деньги или генерация вернутся.": "Stop splitting? The money or credits will be returned.",
+ "Разделение остановлено": "Splitting stopped",
+ "Остановлено.": "Stopped."
 }

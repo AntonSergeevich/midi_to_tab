@@ -386,7 +386,8 @@ function statusLine(j) {
     const tick = Math.floor(Date.now() / 7000) + seedOf(j.id);
     return `<span class="muted">${esc(j.stage || 'В очереди')}</span>
       <span class="st-fun">${pick(WAIT, tick)}</span>
-      <div class="bar done"><i style="width:${Math.max(4, j.progress)}%"></i></div>`;
+      <div class="bar done"><i style="width:${Math.max(4, j.progress)}%"></i></div>
+      <button type="button" class="st-linkbtn st-stop" data-stop="${j.id}">Остановить</button>`;
   }
   const when = new Date(j.at * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
   const length = j.files[0] && j.files[0].seconds ? ` · ${time(j.files[0].seconds)}` : '';
@@ -1331,6 +1332,16 @@ document.addEventListener('click', async (e) => {
   if (playBtn) {
     e.stopPropagation();
     play(playBtn.dataset.play, playBtn.dataset.title, playBtn.dataset.sub);
+    return;
+  }
+  // «Остановить» идущую работу -- раньше перехода по строке трека
+  const stop = e.target.closest('[data-stop]');
+  if (stop) {
+    if (!confirm('Остановить эту работу? Деньги или генерация вернутся.')) return;
+    stop.disabled = true;
+    const r = await fetch(`/api/studio/${stop.dataset.stop}/cancel`, { method: 'POST' });
+    toast(r.ok ? 'Остановили — деньги вернулись' : 'Не получилось остановить');
+    load();
     return;
   }
   // ⋯ у строки разбора -- внутри самой строки: меню раньше, чем переход по строке

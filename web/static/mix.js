@@ -1262,6 +1262,13 @@ async function waitSplit(splitting) {
   splitBusy = true;
   $('splitGo').disabled = true;
   $('splitPro').disabled = true;
+  $('splitStop').hidden = false;
+  $('splitStop').disabled = false;
+  $('splitStop').onclick = async () => {
+    if (!confirm('Остановить разделение? Деньги или генерация вернутся.')) return;
+    $('splitStop').disabled = true;
+    await fetch(`/api/studio/${splitting.id}/cancel`, { method: 'POST' });
+  };
   splitProgress(splitting.stage, Math.round(splitting.progress || 0));
   note(`Раскладываем на дорожки: ${esc(splitting.stage || 'в очереди')}… Страница обновится сама.`);
   for (;;) {
@@ -1276,9 +1283,11 @@ async function waitSplit(splitting) {
       return;
     }
     if (j.status === 'error') {
-      const text = `Не получилось разделить: ${j.error || ''}. Деньги вернулись на баланс.`;
+      $('splitStop').hidden = true;
+      const stopped = (j.error || '').startsWith('Остановлено');
+      const text = stopped ? j.error : `Не получилось разделить: ${j.error || ''}. Деньги вернулись на баланс.`;
       note(esc(text));
-      $('splitTitle').textContent = 'Не получилось разделить';
+      $('splitTitle').textContent = stopped ? 'Разделение остановлено' : 'Не получилось разделить';
       $('splitText').textContent = text;
       $('splitBar').hidden = true;
       $('splitGo').textContent = 'Попробовать ещё раз';

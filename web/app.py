@@ -3510,6 +3510,19 @@ def api_studio_delete(job_id: str, request: Request):
     return {"ok": True}
 
 
+@app.post("/api/studio/{job_id}/cancel")
+def api_studio_cancel(job_id: str, request: Request):
+    """Остановить идущую задачу -- деньги или генерация возвращаются
+    (владелец, 29.10: «останови разделение, которое идёт»)."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id or (job.settings or {}).get("kind") != "studio":
+        raise HTTPException(404, "Задача не найдена")
+    if job.status in ("queued", "running"):
+        studio_runner.cancel(job_id)
+    return {"ok": True, "status": storage.job(job_id).status}
+
+
 # ------------------------------------------------------------------ оплата
 
 def safe_next(next_path: str) -> str:

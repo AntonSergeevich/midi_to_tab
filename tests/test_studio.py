@@ -3017,3 +3017,24 @@ def test_hit_stems_stuck_fall_back_to_our_separation(studio_app, monkeypatch):
     assert after["fellBack"] == "suno" and after["input"]["mode"] == "stems" and "audio_id" not in after["input"]
     assert os.path.isfile(os.path.join(runner.folder(child), "source.mp3"))
     assert st.user(user.id).studio_credits == 97 and after["charged_credit"] == 3
+
+
+def test_cancel_running_job_refunds_and_stops_waiting(studio_app, monkeypatch):
+    """«Остановить»: задача -- «Остановлено», генерация вернулась, отмена ушла
+    на видеокарту, а цикл ожидания выходит и не перезаписывает статус."""
+    app_module, client, user, submitted = studio_app
+    studio, runner, st = app_module.studio, app_module.studio_runner, app_module.storage
+    st.add_studio_credits(user.id, 10)
+    job_id = _start(client, mode="stems").json()["jobId"]
+    settings = {**st.job(job_id).settings, "input": submitted[-1][1], "remote": {"endpoint": "ep", "id": "r1"}}
+    st.update_job(job_id, settings=settings, status="running")
+    calls = []
+    monkeypatch.setattr(studio, "call", lambda m, url, body=None, timeout=60: calls.append(url) or {"status": "IN_QUEUE"})
+    assert st.user(user.id).studio_credits == 7
+    r = client.post(f"/api/studio/{job_id}/cancel")
+    assert r.json() == {"ok": True, "status": "error"}
+    job = st.job(job_id)
+    assert job.error.startswith("Остановлено.") and st.user(user.id).studio_credits == 10
+    assert any(u.endswith("/cancel/r1") for u in calls)
+    runner._run(job_id)                                   # поток ожидания видит отметку и выходит
+    assert st.job(job_id).status == "error" and st.user(user.id).studio_credits == 10

@@ -394,6 +394,10 @@ MUREKA_RECHECK = 30 * 60
 _mureka_broke = {"at": 0.0, "why": "", "file": ""}
 
 
+class JobCancelled(Exception):
+    """Задачу остановили по кнопке «Остановить» (StudioRunner.cancel)."""
+
+
 class MurekaNoMoney(RuntimeError):
     """Mureka отказала из-за денег на счёте, а не из-за очереди."""
 
@@ -1215,8 +1219,12 @@ class StudioRunner:
             queued_since = None
             ran = False
             while True:
+                if self._cancelled(job_id):
+                    return
                 status = call("GET", f"{RUNPOD_API}/{endpoint}/status/{remote_id}")
                 state = status.get("status")
+                if self._cancelled(job_id):
+                    return
                 if state in STATES:
                     elapsed = time.time() - job.created_at
                     ran = ran or state == "IN_PROGRESS"
@@ -1833,6 +1841,8 @@ class StudioRunner:
             speed = {"stems": 0.35, "wav": 1.2, "karaoke": 15}.get(mode, 1.2)
 
             def progress(stage: str, seconds: float) -> None:
+                if self._cancelled(job_id):
+                    raise JobCancelled()
                 self.storage.update_job(job_id, status="running", stage=STAGES_HIT.get(mode, stage),
                                         progress=min(92, 5 + seconds * speed))
 
@@ -1857,8 +1867,31 @@ class StudioRunner:
                 "seconds": round(state.get("runtime") or time.time() - started, 1)})
             if mode in ("create", "restyle", "continue") and not os.path.isfile(os.path.join(folder, "cover.jpg")):
                 self._start_cover(job_id)
+        except JobCancelled:
+            return                     # остановили по кнопке -- деньги уже вернул cancel()
         except Exception as error:  # noqa: BLE001 -- любая ошибка -> деньги назад
             self._fail(job_id, str(error))
+
+    def _cancelled(self, job_id: str) -> bool:
+        job = self.storage.job(job_id)
+        return bool(job and (job.settings or {}).get("cancelled"))
+
+    def cancel(self, job_id: str) -> None:
+        """Остановить задачу по кнопке: отметка в задаче (её видят циклы
+        ожидания и выходят), отмена на видеокарте, деньги -- назад."""
+        job = self.storage.job(job_id)
+        settings = dict(job.settings or {})
+        settings["cancelled"] = True
+        self.storage.update_job(job_id, settings=settings)
+        remote = settings.get("remote") or {}
+        if remote.get("endpoint") and remote.get("id"):
+            try:
+                call("POST", f"{RUNPOD_API}/{remote['endpoint']}/cancel/{remote['id']}", {})
+            except Exception as error:  # noqa: BLE001 -- задача и так остановлена у нас
+                print(f"отмена на RunPod не прошла: {error}", file=sys.stderr, flush=True)
+        self._fail(job_id, "остановлено")
+        stopped = self.storage.job(job_id)
+        self.storage.update_job(job_id, error=(stopped.error or "").replace("Не получилось: остановлено.", "Остановлено.", 1))
 
     def _fallback_stems(self, job_id: str, why: str) -> bool:
         """12 дорожек (или минус) новой нейросети не пришли -- та же задача
