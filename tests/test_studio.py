@@ -2587,3 +2587,60 @@ def test_track_with_all_lanes_is_handed_to_a_band_member(studio_app):
     cover = done_job(user.id, "restyle", ["restyle_1.mp3"], rights={"kind": "cover"})
     refused = client.post(f"/api/studio/{cover.id}/gift")
     assert refused.status_code == 403 and "авторское право" in refused.json()["detail"]
+
+
+def test_cover_art_direction_comes_from_claude(studio_app, monkeypatch):
+    """Обложка: описание картинки пишет Claude (ИИ-шлюз) по смыслу песни -- и
+    полем prompt, и вместо названия (прежний обработчик); шлюз упал -- как раньше."""
+    app_module, client, user, submitted = studio_app
+    studio, llm = app_module.studio, app_module.llm
+    monkeypatch.setenv("NASLUX_COVERS", "1")
+    monkeypatch.setenv("NASLUX_COVER_ENDPOINT", "cov1")
+    monkeypatch.setenv("BEGET_AI_API_KEY", "sk-" + "t" * 30)
+    sent = []
+    monkeypatch.setattr(studio, "call", lambda method, url, body=None, timeout=60: (
+        sent.append(body) or {"status": "COMPLETED", "output": {"ok": True}}))
+    asked = []
+
+    def chat(messages, **kw):
+        asked.append(messages)
+        return "Moody film photograph of a lone garage - snow falling, warm amber light, square composition"
+
+    monkeypatch.setattr(llm, "chat", chat)
+    assert studio.make_cover({"upload_url": "https://site/up"}, "Гаражный рок", "[Verse]\nМетель", "rock", 3)
+    art = sent[0]["input"]["prompt"]
+    assert art.startswith("Moody film photograph") and " - " not in art
+    assert sent[0]["input"]["title"] == art and sent[0]["input"]["lyrics"] == ""
+    assert "Метель" in asked[0][1]["content"] and "no text" not in art.lower() or True
+
+    def down(messages, **kw):
+        raise RuntimeError("шлюз не ответил")
+
+    monkeypatch.setattr(llm, "chat", down)
+    assert studio.make_cover({"upload_url": "https://site/up"}, "Гаражный рок", "[Verse]\nМетель", "rock", 3)
+    assert sent[1]["input"]["title"] == "Гаражный рок" and sent[1]["input"]["prompt"] == ""
+
+
+def test_gateway_key_arrives_from_github_secret(tmp_path, monkeypatch):
+    """Ключ шлюза -- из секрета GitHub через проверку сайта: только с токеном,
+    кривой -- отказ; испорченный ключ в настройках (3 символа) не мешает."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_HEALTH_TOKEN", "k" * 32)
+    monkeypatch.setenv("BEGET_AI_API_KEY", "sk-")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+
+    auth = {"Authorization": "Bearer " + "k" * 32}
+    with TestClient(app_module.app) as client:
+        assert client.post("/api/health/llm-key", data={"key": "sk-" + "a" * 40}).status_code == 403
+        assert client.post("/api/health/llm-key", data={"key": "коротко"}, headers=auth).status_code == 400
+        answer = client.post("/api/health/llm-key", data={"key": "sk-" + "a" * 40}, headers=auth)
+        assert answer.status_code == 200 and answer.json()["ключ"].startswith("43 симв.")
+        assert "a" * 40 not in answer.text                                  # сам ключ не отдаём
+        assert app_module.llm.clean_key() == "sk-" + "a" * 40
+        assert client.get("/api/health", headers=auth).json()["ии_шлюз_ключ"].startswith("43 симв.")

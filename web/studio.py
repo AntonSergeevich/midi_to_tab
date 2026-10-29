@@ -495,10 +495,23 @@ def make_cover(task_input: dict, title: str, lyrics: str, style: str, seed: int)
     if not api_key() or not task_input.get("upload_url") \
             or os.environ.get("NASLUX_COVERS", "1") == "0":
         return False
+    # Арт-директор -- Claude через ИИ-шлюз: описание картинки по смыслу песни
+    # (сюжет, настроение, цвета, стиль). Нет шлюза или не вышло -- как раньше:
+    # обработчик сам соберёт описание из названия и первых строк
+    art = ""
+    from . import llm
+    if llm.ready():
+        try:
+            art = llm.cover_prompt(title, lyrics, style)
+        except RuntimeError as error:
+            llm.note_error("обложка", error)
     try:
         endpoint = cover_endpoint_id()
+        # описание идёт и полем prompt (новый обработчик), и вместо названия
+        # (прежний: латиницу он не переводит и кладёт в начало описания)
         job = call("POST", f"{RUNPOD_API}/{endpoint}/runsync", {"input": {
-            "title": title[:120], "lyrics": lyrics[:1500], "style": style[:200], "seed": seed,
+            "title": art or title[:120], "lyrics": "" if art else lyrics[:1500],
+            "style": "" if art else style[:200], "prompt": art, "seed": seed,
             "upload_url": task_input["upload_url"]}}, timeout=180)
         started = time.time()
         while job.get("status") in ("IN_QUEUE", "IN_PROGRESS") and time.time() - started < 600:

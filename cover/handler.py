@@ -66,7 +66,10 @@ def build_prompt(job: dict) -> str:
 
 def handler(event):
     job = event.get("input") or {}
-    prompt = build_prompt(job)
+    # Описание от арт-директора (Claude на сайте) -- как есть, только без текста
+    # на картинке; нет -- собираем из названия и первых строк
+    given = (job.get("prompt") or "").strip()
+    prompt = f"album cover art, {given[:600]}, no text, no letters" if given else build_prompt(job)
     generator = torch.Generator("cuda").manual_seed(int(job.get("seed") or 0) % 2**31)
     image = pipe(prompt, num_inference_steps=4, guidance_scale=0, width=1024, height=1024,
                  generator=generator).images[0]

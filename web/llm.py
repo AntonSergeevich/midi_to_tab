@@ -41,8 +41,38 @@ class LlmNoMoney(RuntimeError):
     """На балансе Beget кончились деньги (или упёрлись в лимит ключа)."""
 
 
+KEY_FILE_NAME = "beget_ai_key"
+
+
+def _key_file() -> str:
+    return os.path.join(os.environ.get("MIDI2TAB_DATA", "data"), KEY_FILE_NAME)
+
+
 def key() -> str:
-    return os.environ.get("BEGET_AI_API_KEY", "")
+    """Ключ шлюза: из настроек сервера, а если там его нет или он явно
+    испорчен (короче 20 символов -- обрезался при вставке в консоли) -- из
+    файла, который присылает проверка сайта из секрета GitHub (save_key)."""
+    env = os.environ.get("BEGET_AI_API_KEY", "")
+    if len(env.strip().strip("\"'")) >= 20:
+        return env
+    try:
+        with open(_key_file(), encoding="utf-8") as f:
+            saved = f.read().strip()
+        return saved or env
+    except OSError:
+        return env
+
+
+def save_key(value: str) -> None:
+    value = value.strip()
+    if not (20 <= len(value) <= 300) or not value.isascii() or any(ch.isspace() for ch in value):
+        raise ValueError("ключ не похож на ключ шлюза")
+    path = _key_file()
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as f:
+        f.write(value)
+    os.replace(tmp, path)
 
 
 def clean_key() -> str:
@@ -242,3 +272,34 @@ def write_style(style: str, lyrics: str = "") -> dict:
             return {"style": out, "tags": tags}
         note_error("стиль", f"непонятный ответ (попытка {attempt + 1}): {answer[:200]}")
     raise RuntimeError("модель не прислала стиль")
+
+
+# ----------------------------------------------------------------- обложки
+
+COVER_RULES = """You are an art director for album covers. From a song's title, lyrics and style write ONE
+image prompt in English for an image model (SDXL), 35-70 words, a single paragraph.
+
+Rules:
+- Pick a clear visual idea from the song's meaning and mood: a concrete subject and scene,
+  not a list of words from the lyrics.
+- Name the art style that fits the genre (for example: moody film photograph, oil painting,
+  bold minimal vector poster, retro 80s synthwave, ink illustration, surreal collage) and
+  vary it between songs.
+- Describe color palette, lighting and composition (square album cover, strong focal point).
+- Never ask for text, letters, words, logos or watermarks. No real people, celebrities or
+  existing characters. Nothing violent, sexual or hateful.
+- Do not use dashes or quotes. Reply with the prompt only."""
+
+
+def cover_prompt(title: str, lyrics: str, style: str) -> str:
+    """Описание обложки для SDXL -- по смыслу песни, а не машинным переводом строк."""
+    answer = chat([
+        {"role": "system", "content": COVER_RULES},
+        {"role": "user", "content": f"Title: {title.strip()[:120]}\nStyle: {style.strip()[:300]}\n"
+                                    f"Lyrics:\n{lyrics.strip()[:1500]}"},
+    ], max_tokens=1200, temperature=0.9)
+    text = re.sub(r"\s+", " ", answer or "").strip().strip("\"'«»")
+    text = re.sub(r"\s[-–—]\s", ", ", text)          # без тире: обработчик режет «Исполнитель - Песня»
+    if len(text) < 20 or re.search(r"[А-Яа-яЁё]", text):
+        raise RuntimeError("модель не прислала описание обложки")
+    return text[:600]

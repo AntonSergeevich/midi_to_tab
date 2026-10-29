@@ -1,0 +1,22 @@
+name: Ключ ИИ-шлюза -- на сервер
+
+# Ключ Beget из секрета BEGET_AI_API_KEY -- на сайт (POST /api/health/llm-key
+# с токеном проверки). Без ручной вставки в консоли сервера. В логах ключа
+# нет: GitHub прячет секреты, ответ сайта -- только длина и признаки ключа.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      KEY: ${{ secrets.BEGET_AI_API_KEY }}
+      NASLUX_HEALTH_TOKEN: ${{ secrets.NASLUX_HEALTH_TOKEN }}
+    steps:
+      - name: Отправить ключ
+        run: |
+          [ -n "$KEY" ] || { echo "::error::Секрет BEGET_AI_API_KEY не задан"; exit 1; }
+          out=$(curl -sS -w '\n%{http_code}' -H "Authorization: Bearer ${NASLUX_HEALTH_TOKEN}" \
+            --data-urlencode "key=${KEY}" https://naslux.ru/api/health/llm-key)
+          echo "::notice title=Ответ сайта::$(echo "$out" | tail -n1) $(echo "$out" | sed '$d' | head -c 300)"

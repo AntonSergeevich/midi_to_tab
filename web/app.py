@@ -484,6 +484,19 @@ def _gpu_usage() -> dict:
     return out
 
 
+@app.post("/api/health/llm-key", include_in_schema=False)
+def api_health_llm_key(request: Request, key: str = Form(...)):
+    """Ключ ИИ-шлюза -- из секрета GitHub (проверка сайта), без ручной вставки
+    в консоли сервера: там он дважды обрезался до 3 символов (29.10). Пишется
+    в файл в папке данных (права 600); в ответе -- только его признаки."""
+    require_health_token(request)
+    try:
+        llm.save_key(key)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return {"ключ": llm.key_shape(), "шлюз": llm.ready()}
+
+
 def _disk() -> dict:
     """Сколько места: от этого зависит, как долго можно хранить треки."""
     usage = shutil.disk_usage(DATA_DIR)
