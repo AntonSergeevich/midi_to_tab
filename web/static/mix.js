@@ -142,6 +142,7 @@ function saved() {
 function layout() {
   return tracks.map((t) => ({
     key: t.key, name: t.name, custom: Boolean(t.custom), mute: t.mute, solo: t.solo, vol: t.vol, fx: t.fx || '',
+    effects: window.laneFx.clean(t.effects),
     clips: t.clips.filter((c) => !c.src.local).map((c) => ({ src: c.src.key, offset: c.offset,
       trimStart: c.trimStart, trimEnd: c.trimEnd })),
   })).filter((l) => l.clips.length || l.custom || !l.key.startsWith('local:'));
@@ -174,7 +175,7 @@ function updateDuration() {
 function makeLane(name, extra = {}) {
   const gain = ctx.createGain();
   const lane = { name, key: extra.key || `lane:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-    url: '', orig: '', extra: '', custom: false, mute: false, solo: false, vol: 100, fx: '', ...extra,
+    url: '', orig: '', extra: '', custom: false, mute: false, solo: false, vol: 100, fx: '', effects: [], ...extra,
     gain, color: colorOf(name), clips: [] };
   route(lane);
   return lane;
@@ -265,10 +266,21 @@ function limiter(c) {
 function route(lane) {
   try { lane.gain.disconnect(); } catch (error) { /* ещё не подключён */ }
   if (lane.fxNodes) { try { lane.fxNodes.output.disconnect(); } catch (error) { /* */ } }
+  if (lane.userFx) { try { lane.userFx.output.disconnect(); } catch (error) { /* */ } }
   const voice = liveBus && roleOf(lane) === 'voice';
   lane.fxNodes = voice ? window.mixBus.voiceChain(ctx, mixing.style) : fxChain(ctx, lane.fx);
+  lane.userFx = window.laneFx.build(ctx, lane.effects);      // свои эффекты -- после готовой обработки
   lane.gain.connect(lane.fxNodes.input);
-  lane.fxNodes.output.connect(!liveBus ? master : voice ? liveBus.voice : liveBus.music);
+  lane.fxNodes.output.connect(lane.userFx.input);
+  lane.userFx.output.connect(!liveBus ? master : voice ? liveBus.voice : liveBus.music);
+}
+
+// Та же цепочка на другом контексте (сведение в файл, разбор громкости)
+function laneChain(c, t, voice) {
+  const first = voice ? window.mixBus.voiceChain(c, mixing.style) : fxChain(c, t.fx);
+  const mine = window.laneFx.build(c, t.effects);
+  first.output.connect(mine.input);
+  return { input: first.input, output: mine.output };
 }
 
 // Голос это или музыка: как отметили в «Сведении», иначе -- по названию
@@ -298,7 +310,8 @@ function addSource(key, url, name, buffer, extra = '', local = false) {
 
 // ---------------------------------------------- отмена (Ctrl+Z) и выбор
 function remember() {
-  undoStack.push(tracks.map((t) => ({ ...t, clips: t.clips.map((c) => ({ ...c })) })));
+  undoStack.push(tracks.map((t) => ({ ...t, clips: t.clips.map((c) => ({ ...c })),
+    effects: (t.effects || []).map((e) => ({ ...e, p: { ...e.p } })) })));
   if (undoStack.length > 40) undoStack.shift();
   $('undoBtn').disabled = false;
 }
@@ -454,7 +467,11 @@ function plural(n, one, few, many) {
 
 async function loadTracks(list) {
   audio();
-  const memory = saved();
+  // Трек передали с другого аккаунта -- раскладка мультитрека (громкость,
+  // эффекты, монтаж) приехала с ним; своя, если уже есть, -- главнее
+  const own = saved();
+  const giftKey = STORE.slice(`naslux.mix.${jobId}.`.length);
+  const memory = Object.keys(own).length ? own : ((job.giftLayout || {})[giftKey] || {});
   metroOn = Boolean(memory.metro);
   countIn = Boolean(memory.countIn);
   if (memory.metroVol) $('metroVol').value = memory.metroVol;
@@ -496,7 +513,8 @@ async function loadTracks(list) {
       if (!item && !l.custom && !(l.clips || []).length) return;
       const lane = makeLane(item && !l.custom ? item.name : (l.name || 'Дорожка'),
         { ...(item ? origin(item) : { key: l.key }), custom: Boolean(l.custom) && !item,
-          mute: Boolean(l.mute), solo: Boolean(l.solo), vol: l.vol ?? 100, fx: FX[l.fx] ? l.fx : '' });
+          mute: Boolean(l.mute), solo: Boolean(l.solo), vol: l.vol ?? 100, fx: FX[l.fx] ? l.fx : '',
+          effects: window.laneFx.clean(l.effects) });
       lane.clips = (l.clips || []).filter((c) => files.has(c.src)).map((c) => makeClip(files.get(c.src), c));
       if (lane.clips.length || lane.custom || item) tracks.push(lane);
     });
@@ -1256,7 +1274,7 @@ function render() {
           <button type="button" class="mx-ms solo" data-solo="${i}" aria-pressed="${t.solo}" title="Только эта (соло)">S</button>
           <input type="range" class="mx-vol" data-vol="${i}" min="0" max="150" value="${t.vol}"
             aria-label="Громкость: ${esc(t.name)}" title="Громкость: ${t.vol}%">
-          <button type="button" class="mx-ms mx-fxbtn" data-fx="${i}" aria-pressed="${Boolean(t.fx)}"
+          <button type="button" class="mx-ms mx-fxbtn" data-fx="${i}" aria-pressed="${Boolean(t.fx || (t.effects || []).some((e) => e.on))}"
             title="Обработка: ${esc(FX[t.fx] ? FX[t.fx].title : FX[''].title)}">FX</button>
           <button type="button" class="mx-ms" data-lanemenu="${i}" title="Ещё: загрузить или скачать файл, убрать дорожку"
             aria-label="Ещё" aria-haspopup="menu">⋯</button>
@@ -1433,7 +1451,7 @@ function paintState() {
   document.querySelectorAll('[data-state]').forEach((el) => {
     const t = tracks[el.dataset.state];
     if (!t) return;
-    el.innerHTML = (t.fx ? '<b>FX</b>' : '') + (t.vol !== 100 ? `<b>${t.vol}%</b>` : '');
+    el.innerHTML = (t.fx || (t.effects || []).some((e) => e.on) ? '<b>FX</b>' : '') + (t.vol !== 100 ? `<b>${t.vol}%</b>` : '');
   });
   // у дорожки две пары M/S (в шапке -- для телефона, в пульте -- для
   // компьютера): нажатие одной -- видно на обеих
@@ -2850,8 +2868,89 @@ function openFx(i) {
   $('fxMixNote').hidden = !(liveBus && roleOf(t) === 'voice');
   $('fxAi').hidden = !laneSource(t);
   $('fxAiNote').textContent = '';
+  $('fxTypes').hidden = true;
+  drawEffects();
   $('fxSheet').hidden = false;
 }
+
+// ---------------------------------------- свои эффекты дорожки (effects.js)
+// Сначала пусто; «＋ Добавить эффект» -- выбрать какой. Порядок -- как в
+// списке (звук идёт сверху вниз), у каждого: вкл/выкл, ↑ ↓, убрать, ручки.
+function drawEffects() {
+  const t = tracks[fxLane];
+  if (!t) return;
+  const T = window.laneFx.TYPES;
+  const list = t.effects || [];
+  $('fxChainList').innerHTML = list.length ? list.map((e, n) => `
+    <div class="mx-effect${e.on ? '' : ' off'}" data-eff="${e.id}">
+      <div class="mx-effect-head">
+        <button type="button" class="mx-ms mx-effect-on" data-effon="${e.id}" aria-pressed="${e.on}"
+          title="${e.on ? 'Выключить' : 'Включить'}" aria-label="${e.on ? 'Выключить' : 'Включить'} эффект">⏻</button>
+        <b>${esc(T[e.type].title)}</b>
+        <span class="spacer"></span>
+        <button type="button" class="mx-ms" data-effmove="${e.id}:-1" ${n ? '' : 'disabled'} title="Выше в цепочке" aria-label="Выше">↑</button>
+        <button type="button" class="mx-ms" data-effmove="${e.id}:1" ${n < list.length - 1 ? '' : 'disabled'} title="Ниже в цепочке" aria-label="Ниже">↓</button>
+        <button type="button" class="mx-ms" data-effdel="${e.id}" title="Убрать эффект" aria-label="Убрать эффект">✕</button>
+      </div>
+      ${T[e.type].params.map((q) => `
+        <label class="mx-effect-knob"><span>${esc(q.label)} <b data-effval="${e.id}:${q.k}">${esc(window.laneFx.show(q, e.p[q.k]))}</b></span>
+          <input type="range" min="${q.min}" max="${q.max}" step="${q.step}" value="${e.p[q.k]}"
+            data-effknob="${e.id}:${q.k}" aria-label="${esc(q.label)}"></label>`).join('')}
+    </div>`).join('') : '<p class="muted mx-effect-empty">Эффектов пока нет — добавьте нужный: эквалайзер, компрессор, реверберацию…</p>';
+  $('fxAdd').disabled = list.length >= window.laneFx.MAX;
+  $('fxTypes').innerHTML = Object.entries(T).map(([id, f]) => `
+    <button type="button" class="mx-fxpick" data-effadd="${id}"><b>${esc(f.title)}</b><small>${esc(f.text)}</small></button>`).join('');
+}
+function effectsChanged(t) {
+  route(t);
+  render();
+  save();
+}
+$('fxAdd').addEventListener('click', () => { $('fxTypes').hidden = !$('fxTypes').hidden; haptic('light'); });
+$('fxEffects').addEventListener('click', (e) => {
+  const t = tracks[fxLane];
+  if (!t) return;
+  const add = e.target.closest('[data-effadd]');
+  const on = e.target.closest('[data-effon]');
+  const move = e.target.closest('[data-effmove]');
+  const del = e.target.closest('[data-effdel]');
+  if (!add && !on && !move && !del) return;
+  remember();
+  t.effects = t.effects || [];
+  if (add && t.effects.length < window.laneFx.MAX) {
+    t.effects.push(window.laneFx.make(add.dataset.effadd));
+    $('fxTypes').hidden = true;
+    haptic('success');
+  }
+  if (on) { const fx = t.effects.find((x) => x.id === on.dataset.effon); if (fx) fx.on = !fx.on; haptic('tick'); }
+  if (move) {
+    const [id, dir] = move.dataset.effmove.split(':');
+    const n = t.effects.findIndex((x) => x.id === id);
+    const m = n + Number(dir);
+    if (n >= 0 && m >= 0 && m < t.effects.length) [t.effects[n], t.effects[m]] = [t.effects[m], t.effects[n]];
+    haptic('tick');
+  }
+  if (del) { t.effects = t.effects.filter((x) => x.id !== del.dataset.effdel); haptic('light'); }
+  effectsChanged(t);
+  drawEffects();
+  if (playing) startAt(position(), 0.03);
+});
+// Ручка эффекта: звук меняется сразу, без пересборки цепочки (без щелчков)
+$('fxEffects').addEventListener('input', (e) => {
+  const knob = e.target.closest('[data-effknob]');
+  const t = tracks[fxLane];
+  if (!knob || !t) return;
+  const [id, k] = knob.dataset.effknob.split(':');
+  const fx = (t.effects || []).find((x) => x.id === id);
+  if (!fx) return;
+  fx.p[k] = Number(knob.value);
+  const q = window.laneFx.TYPES[fx.type].params.find((x) => x.k === k);
+  const label = $('fxEffects').querySelector(`[data-effval="${id}:${k}"]`);
+  if (label && q) label.textContent = window.laneFx.show(q, fx.p[k]);
+  if (t.userFx) t.userFx.set(id, fx.p);
+  clearTimeout(drawEffects.saveTimer);
+  drawEffects.saveTimer = setTimeout(save, 400);
+});
 
 // Нейросеть на сервере -- для своих дорожек (записанный голос, загруженный файл)
 const laneSource = (t) => t && t.clips.map((c) => c.src).find((src) => src.extra && !src.local);
@@ -2994,7 +3093,7 @@ async function analyzeMix() {
     const off = new OfflineAudioContext(2, len, rate);
     lanes.forEach((t) => {
       const g = off.createGain();
-      const chain = role === 'voice' ? window.mixBus.voiceChain(off, mixing.style) : fxChain(off, t.fx);
+      const chain = laneChain(off, t, role === 'voice');
       g.connect(chain.input);
       chain.output.connect(off.destination);
       t.clips.forEach((c) => schedule(off, c, 0, 0, g, duration));
@@ -3241,7 +3340,7 @@ function mixdown(from, to, lead = 0, rate = ctx.sampleRate) {
     const g = offline.createGain();
     g.gain.value = t.vol / 100;
     const voice = mb && roleOf(t) === 'voice';
-    const fx = voice ? window.mixBus.voiceChain(offline, mixing.style) : fxChain(offline, t.fx);
+    const fx = laneChain(offline, t, voice);
     g.connect(fx.input);
     fx.output.connect(!mb ? bus : voice ? mb.voice : mb.music);
     t.clips.forEach((clip) => schedule(offline, clip, from, lead, g, to));

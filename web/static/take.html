@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15161c">
+<meta name="robots" content="noindex">
+<title>{{TITLE}} — вам передали трек в NASLUX</title>
+<meta name="description" content="Трек с дорожками для репетиции: добавьте его в свои «Мои треки» в NASLUX.">
+<meta property="og:title" content="{{TITLE}} — трек с дорожками">
+<meta property="og:description" content="Вам передали трек с дорожками для репетиции в NASLUX">
+<meta property="og:image" content="https://naslux.ru/static/og.png">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
+    <nav class="topnav" aria-label="Разделы">
+      <a href="/studio">Студия</a>
+      <a href="/#chords">Аккорды</a>
+      <a href="/pricing">Тарифы</a>
+      <a href="/account" id="account" class="who">Вход</a>
+      <a href="/pricing" id="access" class="badge" hidden></a>
+    </nav>
+  </header>
+  <script src="/static/nav.js"></script>
+
+  <main class="tk">
+    <div class="tk-card">
+      <p class="lp-kicker">Вам передали трек</p>
+      <h1 class="tk-title" data-noi18n>{{TITLE}}</h1>
+      <p class="muted">С дорожками для репетиции — их не нужно загружать и раскладывать заново.
+        Дорожек: <b>{{COUNT}}</b></p>
+      <ul class="tk-lanes">{{LANES}}</ul>
+      <div class="tk-state" id="state">{{STATE}}</div>
+      <p class="tk-msg" id="msg" aria-live="polite"></p>
+    </div>
+    <p class="muted tk-note">Копия станет вашей: свои громкость, эффекты и записи. Мультитрек — в тарифе «Студия».</p>
+  </main>
+
+  <footer class="legal">
+    <a href="/privacy">Политика конфиденциальности</a>
+    <a href="/offer">Оферта</a>
+    <span>© NASLUX</span>
+  </footer>
+</div>
+<script>
+(function () {
+  const btn = document.getElementById('take');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'Добавляем…';
+    const answer = await fetch('/api/take/{{TOKEN}}', { method: 'POST' }).catch(() => null);
+    const data = answer ? await answer.json().catch(() => ({})) : {};
+    if (answer && answer.ok && data.jobId) {
+      if (window.haptic) window.haptic('success');
+      location.href = `/studio#${encodeURIComponent(data.jobId)}`;
+      return;
+    }
+    btn.disabled = false;
+    btn.textContent = 'Добавить в «Мои треки»';
+    document.getElementById('msg').textContent = data.detail || 'Не получилось — попробуйте ещё раз';
+  });
+}());
+</script>
+</body>
+</html>

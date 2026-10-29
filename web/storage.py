@@ -148,6 +148,25 @@ CREATE TABLE IF NOT EXISTS shares (
 -- продолжает отдавать трек без входа бессрочно (см. _migrate: на базе,
 -- где уже есть такие дубликаты, индекс сам по себе их не уберёт).
 CREATE UNIQUE INDEX IF NOT EXISTS shares_job ON shares(job_id, file);
+
+-- Передать трек музыканту (гитаристу группы): по ссылке трек со всеми
+-- дорожками копируется в «Мои треки» того, кто вошёл. Одна ссылка -- на
+-- трек (его можно отдать всей группе), каждый получатель -- один раз.
+CREATE TABLE IF NOT EXISTS gifts (
+    token        TEXT PRIMARY KEY,
+    job_id       TEXT NOT NULL,
+    user_id      TEXT NOT NULL,
+    created_at   REAL NOT NULL,
+    layout       TEXT NOT NULL DEFAULT '{}'
+);
+CREATE UNIQUE INDEX IF NOT EXISTS gifts_job ON gifts(job_id);
+CREATE TABLE IF NOT EXISTS gift_takes (
+    token        TEXT NOT NULL,
+    user_id      TEXT NOT NULL,
+    job_id       TEXT NOT NULL,
+    created_at   REAL NOT NULL,
+    PRIMARY KEY (token, user_id)
+);
 CREATE INDEX IF NOT EXISTS voices_user ON voices(user_id, created_at);
 CREATE INDEX IF NOT EXISTS tickets_status ON tickets(status, created_at);
 CREATE INDEX IF NOT EXISTS jobs_user ON jobs(user_id, created_at);
@@ -1224,6 +1243,53 @@ class Storage:
                 (token, job_id, file, user_id, time.time()))
             row = conn.execute("SELECT * FROM shares WHERE job_id = ? AND file = ?", (job_id, file)).fetchone()
         return dict(row)
+
+    def studio_children(self, job_id: str) -> list[Job]:
+        """Готовые задачи Студии, порождённые треком: партии, минус, ноты, темп."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM jobs WHERE json_extract(settings, '$.from') = ?"
+                " AND json_extract(settings, '$.kind') = 'studio' AND status = 'done' ORDER BY created_at",
+                (job_id,)).fetchall()
+        return [j for j in (self.job(r["id"]) for r in rows) if j]
+
+    def get_or_create_gift(self, token: str, job_id: str, user_id: str, layout: dict) -> dict:
+        """Ссылка «передать музыканту» на трек: та же, если уже есть (раскладку
+        дорожек обновляем -- она могла поменяться)."""
+        with self._connect() as conn:
+            conn.execute("INSERT OR IGNORE INTO gifts (token, job_id, user_id, created_at, layout)"
+                         " VALUES (?, ?, ?, ?, ?)", (token, job_id, user_id, time.time(), json.dumps(layout)))
+            if layout:
+                conn.execute("UPDATE gifts SET layout = ? WHERE job_id = ?", (json.dumps(layout), job_id))
+            row = conn.execute("SELECT * FROM gifts WHERE job_id = ?", (job_id,)).fetchone()
+        return {**dict(row), "layout": json.loads(row["layout"] or "{}")}
+
+    def gift(self, token: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM gifts WHERE token = ?", (token,)).fetchone()
+        return {**dict(row), "layout": json.loads(row["layout"] or "{}")} if row else None
+
+    def gift_taken(self, token: str, user_id: str) -> str:
+        """Копия, которую этот человек уже получил по ссылке (её id), или ''."""
+        with self._connect() as conn:
+            row = conn.execute("SELECT job_id FROM gift_takes WHERE token = ? AND user_id = ?",
+                               (token, user_id)).fetchone()
+        return row["job_id"] if row else ""
+
+    def claim_gift(self, token: str, user_id: str, job_id: str) -> bool:
+        """Отметить получение; False -- этот человек уже получал (второй клик)."""
+        with self._connect() as conn:
+            return bool(conn.execute("INSERT OR IGNORE INTO gift_takes (token, user_id, job_id, created_at)"
+                                     " VALUES (?, ?, ?, ?)", (token, user_id, job_id, time.time())).rowcount)
+
+    def gift_count(self, token: str) -> int:
+        with self._connect() as conn:
+            return conn.execute("SELECT COUNT(*) FROM gift_takes WHERE token = ?", (token,)).fetchone()[0]
+
+    def delete_gift(self, token: str, user_id: str) -> bool:
+        with self._connect() as conn:
+            return bool(conn.execute("DELETE FROM gifts WHERE token = ? AND user_id = ?",
+                                     (token, user_id)).rowcount)
 
     def share(self, token: str) -> dict | None:
         with self._connect() as conn:

@@ -1226,6 +1226,13 @@ document.addEventListener('click', async (e) => {
   if (menuBtn) { openMenu(menuBtn); return; }
   const action = e.target.closest('[data-act]');
   if (action) { await act(action.dataset.act, action.dataset.job, action.dataset.file); return; }
+  const ungift = e.target.closest('[data-ungift]');
+  if (ungift) {
+    const r = await fetch(`/api/gift/${encodeURIComponent(ungift.dataset.ungift)}`, { method: 'DELETE' });
+    toast(r.ok ? 'Ссылка закрыта — по ней больше не получить трек. Те, кто уже получил, его сохранят'
+      : 'Не получилось закрыть ссылку');
+    return;
+  }
   const unshare = e.target.closest('[data-unshare]');
   if (unshare) {
     const r = await fetch(`/api/share/${encodeURIComponent(unshare.dataset.unshare)}`, { method: 'DELETE' });
@@ -1264,6 +1271,7 @@ function openMenu(button) {
       + (info.yue2Open && !button.dataset.stem ? item('notes', ICON.tabs, '🧪 Ноты, аккорды и MIDI (проба)') : '')
       + item('shift', ICON.tempo, 'Темп и тональность')
       + (button.dataset.stem ? '' : item('share', ICON.mix, 'Поделиться ссылкой: послушать без входа'))
+      + item('gift', ICON.split, 'Передать музыканту — со всеми дорожками')
       + (button.dataset.extend ? item('extend', ICON.again, 'Продлить песню') : '')
       + (button.dataset.stem ? '' : item('reference', ICON.tabs, 'Сверить аккорды с эталоном'))
       + '<hr>' + (button.dataset.stem ? '' : item('cover', ICON.again, 'Кавер на эту версию'))
@@ -1502,6 +1510,38 @@ async function act(what, jobId, fileName) {
     if (!response.ok) toast(`${pick(OOPS, Date.now())} ${data.detail || ''}`);
     else toast('Дописываем продолжение — появится под треком 🎶');
     load();
+    return;
+  }
+  if (what === 'gift') {
+    // Передать трек музыканту: по ссылке он войдёт -- и трек со всеми
+    // дорожками (и раскладкой мультитрека с этого устройства) уже у него
+    const j = info.jobs.find((x) => x.id === jobId) || {};
+    const root = j.from && info.jobs.some((x) => x.id === j.from) ? j.from : jobId;
+    const layout = {};
+    try {
+      const prefix = `naslux.mix.${root}.`;
+      for (let n = 0; n < localStorage.length; n++) {
+        const key = localStorage.key(n);
+        if (key && key.startsWith(prefix)) layout[key.slice(prefix.length)] = JSON.parse(localStorage.getItem(key) || '{}');
+      }
+    } catch (error) { /* без раскладки -- дорожки всё равно передадутся */ }
+    const gift = new FormData();
+    gift.append('layout', JSON.stringify(layout).slice(0, 200000));
+    const response = await fetch(`/api/studio/${jobId}/gift`, { method: 'POST', body: gift });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { toast(esc(data.detail || 'Не получилось сделать ссылку'), 12000); return; }
+    const url = `${location.origin}${data.path}`;
+    let how = 'Ссылка скопирована';
+    try {
+      if (navigator.share && matchMedia('(pointer: coarse)').matches) {
+        await navigator.share({ title: 'Трек с дорожками в NASLUX', url });
+        how = 'Ссылка готова';
+      } else await navigator.clipboard.writeText(url);
+    } catch (error) { how = 'Ссылка готова'; }
+    toast(`${how}: <a href="${esc(data.path)}" target="_blank" rel="noopener">${esc(url)}</a>`
+      + ' — музыкант войдёт, и трек со всеми дорожками появится в его «Моих треках»'
+      + `${data.taken ? ` · уже получили: ${data.taken}` : ''}`
+      + ` · <button type="button" class="st-linkbtn" data-ungift="${esc(data.token)}">закрыть доступ</button>`, 20000);
     return;
   }
   if (what === 'share') {

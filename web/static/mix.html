@@ -179,6 +179,13 @@
       <p class="muted">Звучит сразу и попадает в «Скачать микс». Исходная запись не меняется — можно передумать.</p>
       <p class="mx-recwarn mx-mixreport" id="fxMixNote" hidden>Сейчас голос обрабатывает «Сведение» — эти настройки звучат, когда сведение выключено.</p>
       <div class="mx-fxlist" id="fxList"></div>
+      <div class="mx-effects" id="fxEffects">
+        <h4 class="mx-subhead">Эффекты</h4>
+        <p class="muted">Свои эффекты — после готовой обработки, по порядку сверху вниз. Как в Audition: что нужно, то и добавьте.</p>
+        <div id="fxChainList"></div>
+        <button type="button" class="mx-fxadd" id="fxAdd">＋ Добавить эффект</button>
+        <div class="mx-fxlist mx-fxtypes" id="fxTypes" hidden></div>
+      </div>
       <div class="mx-sheet-actions">
         <span class="spacer"></span>
         <button type="button" class="primary" id="fxDone">Готово</button>
@@ -287,6 +294,7 @@
 <div class="st-toast" id="toast" hidden></div>
 <script src="/static/metro_sounds.js"></script>
 <script src="/static/mixbus.js"></script>
+<script src="/static/effects.js"></script>
 <script src="/static/mix.js"></script>
 </body>
 </html>

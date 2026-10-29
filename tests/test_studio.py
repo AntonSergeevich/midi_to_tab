@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -2525,3 +2526,64 @@ def test_style_is_finished_by_ai_and_its_tags_go_to_yue2(studio_app, monkeypatch
     monkeypatch.setattr(studio, "_style_tags", None)               # после перезапуска -- из файла
     assert studio.english_style("мрачный гаражный рок, 140 BPM, хриплый мужской вокал").startswith("dark garage")
     assert studio.english_style("грустный рок") == "sad rock"        # без ИИ -- словарь, как раньше
+
+
+def test_track_with_all_lanes_is_handed_to_a_band_member(studio_app):
+    """Гитарист на репетиции: «скинь треки с дорожками». Ссылка /take/<токен>:
+    вошёл -- копия трека, партий и своих дорожек в его «Моих треках» (с
+    раскладкой мультитрека); второй раз -- та же копия; каверы -- нельзя."""
+    import os
+
+    app_module, client, user, submitted = studio_app
+    storage, runner = app_module.storage, app_module.studio_runner
+
+    def done_job(owner, mode, files, **settings):
+        job = storage.create_job(owner, "Наша песня.mp3", {"kind": "studio", "mode": mode, **settings})
+        folder = runner.folder(job.id)
+        os.makedirs(folder, exist_ok=True)
+        for name in files:
+            with open(os.path.join(folder, name), "wb") as f:
+                f.write(b"ID3" + name.encode())
+        storage.update_job(job.id, status="done", progress=100,
+                           result={"files": [{"name": n, "label": n[:-4]} for n in files if not n.startswith("extra")],
+                                   "extras": [{"name": n, "label": "Мой голос"} for n in files if n.startswith("extra")]})
+        return job
+
+    song = done_job(user.id, "create", ["create_1.mp3", "extra_ab12.mp3"])
+    stems = done_job(user.id, "stems", ["vocals.mp3", "guitar.mp3"], **{"from": song.id})
+    layout = {"create_1.mp3": {"lanes": [{"key": "guitar.mp3", "vol": 70, "effects": []}]}}
+    made = client.post(f"/api/studio/{stems.id}/gift", data={"layout": json.dumps(layout)})   # нажали на партиях
+    assert made.status_code == 200, made.text
+    token = made.json()["token"]
+    assert made.json()["path"] == f"/take/{token}"
+    assert client.post(f"/api/studio/{song.id}/gift").json()["token"] == token          # одна ссылка на трек
+
+    # гитарист: сначала без входа -- страница зовёт войти, получить нельзя
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.app) as friend:
+        page = friend.get(f"/take/{token}")
+        assert page.status_code == 200 and "Войти и добавить" in page.text and "Мой голос" in page.text
+        assert friend.post(f"/api/take/{token}").status_code == 401
+        guitarist = storage.ensure_user(None)
+        storage.register(guitarist.id, "guitar@example.com", "hash")
+        friend.cookies.set("uid", app_module.signer.dumps(guitarist.id))
+        assert "Добавить в «Мои треки»" in friend.get(f"/take/{token}").text
+        got = friend.post(f"/api/take/{token}")
+        assert got.status_code == 200, got.text
+        copy_id = got.json()["jobId"]
+        assert friend.post(f"/api/take/{token}").json() == {"jobId": copy_id, "again": True}
+        mine = {j["id"]: j for j in friend.get("/api/studio").json()["jobs"]}
+        assert copy_id in mine and mine[copy_id]["giftLayout"] == layout
+        assert [x["label"] for x in mine[copy_id]["extras"]] == ["Мой голос"]
+        child = next(j for j in mine.values() if j["from"] == copy_id)
+        assert sorted(f["name"] for f in child["files"]) == ["guitar.mp3", "vocals.mp3"]
+        assert friend.get(child["files"][0]["url"]).status_code == 200                  # файлы -- у него
+        assert "Открыть в «Моих треках»" in friend.get(f"/take/{token}").text
+    assert storage.job(song.id).user_id == user.id                                      # оригинал -- у владельца
+
+    # закрыл ссылку -- больше не получить; кавер на чужую песню -- не передать
+    assert client.delete(f"/api/gift/{token}").status_code == 200
+    assert client.get(f"/take/{token}").status_code == 404
+    cover = done_job(user.id, "restyle", ["restyle_1.mp3"], rights={"kind": "cover"})
+    refused = client.post(f"/api/studio/{cover.id}/gift")
+    assert refused.status_code == 403 and "авторское право" in refused.json()["detail"]

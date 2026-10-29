@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import os
 import re
 import secrets
@@ -1852,6 +1853,7 @@ def _studio_job_payload(job) -> dict:
                      if os.path.isfile(os.path.join(folder, a))],
         "pro": bool(result.get("pro")),
         "midiBusy": [n for j, n in studio_runner.transcribing if j == job.id],
+        "giftLayout": result.get("giftLayout") or None,
         "extras": [{**x, "url": f"/api/studio/file/{job.id}/{x['name']}"} for x in result.get("extras") or []
                    if os.path.isfile(os.path.join(folder, x["name"]))],
         "shift": {"of": settings.get("shiftOf"), "file": settings.get("shiftFile"),
@@ -3005,6 +3007,140 @@ def _shared(token: str):
     except HTTPException as error:
         raise HTTPException(404, "Ссылка больше не работает") from error
     return found, job, path
+
+
+# ------------------------------------------ передать трек музыканту
+# Гитарист на репетиции: «скинь эти треки с дорожками». Ссылка /take/<токен>:
+# вошёл -- трек со всеми дорожками (партии, минус, свои записи, названия и
+# раскладка мультитрека) копируется в его «Мои треки», грузить ничего не
+# надо. Копия -- его: свои настройки, свой срок хранения. Каверы на чужие
+# песни передать нельзя (как и ссылкой «послушать») -- авторское право.
+_gift_lock = threading.Lock()
+GIFT_LAYOUT_MAX = 200_000
+
+
+def _visitor(request: Request):
+    """Кто зашёл -- без заведения нового анонима (страница по ссылке)."""
+    raw = request.cookies.get("uid")
+    try:
+        return storage.user(signer.loads(raw)) if raw else None
+    except BadSignature:
+        return None
+
+
+def _gift_root(job):
+    """Трек целиком: если нажали на партиях -- их трек."""
+    parent_id = (job.settings or {}).get("from")
+    parent = storage.job(parent_id) if parent_id else None
+    return parent if parent and parent.user_id == job.user_id else job
+
+
+def _giftable(job) -> None:
+    if not job or (job.settings or {}).get("kind") != "studio" or job.status != "done":
+        raise HTTPException(404, "Трек не найден")
+    if ((job.settings or {}).get("rights") or {}).get("kind") == "cover":
+        raise HTTPException(403, "Передать можно свою песню. Кавер на чужую песню — только для себя: "
+                                 "так требует авторское право. Музыкант может загрузить запись сам")
+
+
+@app.post("/api/studio/{job_id}/gift")
+def api_studio_gift(job_id: str, request: Request, layout: str = Form("{}")):
+    """Ссылка «передать музыканту» на трек со всеми дорожками."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(404, "Трек не найден")
+    root = _gift_root(job)
+    _giftable(root)
+    try:
+        mix = json.loads(layout[:GIFT_LAYOUT_MAX] or "{}")
+    except ValueError:
+        mix = {}
+    mix = {str(k)[:200]: v for k, v in mix.items() if isinstance(v, dict)} if isinstance(mix, dict) else {}
+    gift = storage.get_or_create_gift(secrets.token_urlsafe(12), root.id, user.id, mix)
+    return {"path": f"/take/{gift['token']}", "token": gift["token"], "taken": storage.gift_count(gift["token"])}
+
+
+@app.delete("/api/gift/{token}")
+def api_gift_delete(token: str, request: Request):
+    if not storage.delete_gift(token, current_user(request).id):
+        raise HTTPException(404, "Ссылка не найдена")
+    return {"ok": True}
+
+
+def _gift_found(token: str):
+    gift = storage.gift(token) if re.fullmatch(r"[\w-]{6,40}", token or "") else None
+    root = storage.job(gift["job_id"]) if gift else None
+    if not root or not any(os.path.isfile(os.path.join(studio_runner.folder(root.id), f["name"]))
+                           for f in (root.result or {}).get("files") or []):
+        raise HTTPException(404, "Ссылка больше не работает: трек удалён")
+    _giftable(root)
+    return gift, root
+
+
+def _copy_job(src, user_id: str, token: str, parent_id: str = "") -> str:
+    settings = json.loads(json.dumps(src.settings or {}))
+    settings.update(charged=0, gift=token)
+    settings.pop("remote", None)
+    if parent_id:
+        settings["from"] = parent_id
+    # «gift» на время создания: копия -- не новая загрузка, счётчик загрузок не трогаем
+    job = storage.create_job(user_id, src.filename, {**settings, "mode": "gift"})
+    source, target = studio_runner.folder(src.id), studio_runner.folder(job.id)
+    if os.path.isdir(source):
+        shutil.copytree(source, target, dirs_exist_ok=True)
+    storage.update_job(job.id, settings=settings, status="done", stage="Готово", progress=100,
+                       result=json.loads(json.dumps(src.result or {})))
+    return job.id
+
+
+@app.post("/api/take/{token}")
+def api_take(token: str, request: Request):
+    """Получить переданный трек: копия трека и всех его дорожек -- себе."""
+    user = _visitor(request)
+    if not user or not user.registered:
+        raise HTTPException(401, "Войдите или зарегистрируйтесь — трек появится в ваших «Моих треках»")
+    gift, root = _gift_found(token)
+    if root.user_id == user.id:
+        return {"jobId": root.id, "own": True}
+    with _gift_lock:
+        taken = storage.gift_taken(token, user.id)
+        if taken and storage.job(taken):
+            return {"jobId": taken, "again": True}
+        new_root = _copy_job(root, user.id, token)
+        for child in storage.studio_children(root.id):
+            _copy_job(child, user.id, token, parent_id=new_root)
+        if gift["layout"]:
+            fresh = storage.job(new_root)
+            storage.update_job(new_root, result={**(fresh.result or {}), "giftLayout": gift["layout"]})
+        storage.claim_gift(token, user.id, new_root)
+    return {"jobId": new_root}
+
+
+@app.get("/take/{token}", response_class=HTMLResponse)
+def take_page(token: str, request: Request) -> HTMLResponse:
+    gift, root = _gift_found(token)
+    user = _visitor(request)
+    esc = html.escape
+    title = Path(root.filename).stem[:120] or "Трек"
+    lanes = [f.get("label") or f["name"] for f in (root.result or {}).get("files") or []]
+    for child in storage.studio_children(root.id):
+        lanes += [f.get("label") or f["name"] for f in (child.result or {}).get("files") or []]
+    lanes += [x.get("label") or "Своя дорожка" for x in (root.result or {}).get("extras") or []]
+    taken = storage.gift_taken(token, user.id) if user else ""
+    if user and user.id == root.user_id:
+        state = '<p class="muted">Это ваш трек — отправьте ссылку музыканту.</p>'
+    elif taken and storage.job(taken):
+        state = (f'<a class="primary-link" href="/studio#{esc(taken)}">Открыть в «Моих треках»</a>'
+                 '<p class="muted">Трек уже у вас.</p>')
+    elif user and user.registered:
+        state = '<button type="button" class="primary-link" id="take">Добавить в «Мои треки»</button>'
+    else:
+        state = (f'<a class="primary-link" href="/account?next=/take/{esc(token)}">Войти и добавить</a>'
+                 '<p class="muted">Нет аккаунта? Регистрация — минута, трек сразу появится у вас.</p>')
+    return page("take.html", {"TITLE": esc(title), "TOKEN": esc(token), "STATE": state,
+                              "COUNT": str(len(lanes)),
+                              "LANES": "".join(f"<li data-noi18n>{esc(str(x))}</li>" for x in lanes[:24])})
 
 
 @app.get("/listen/{token}", response_class=HTMLResponse)
