@@ -32,11 +32,11 @@ jobs:
           echo "::notice title=Ответ /api/studio/lyrics::$(echo "$out" | tail -n1) | $(echo "$out" | sed '$d' | head -c 200 | tr '\n' ' ')"
       - name: Доходит ли поле формы до /api/health/llm-key (негодный ключ -- не сохранится)
         run: |
-          out=$(curl -sS -w ' %{http_code}' -H "Authorization: Bearer ${NASLUX_HEALTH_TOKEN}" \
+          out=$(curl -sS -w ' %{http_code}' -H "Authorization: Bearer $(printf %s "$NASLUX_HEALTH_TOKEN" | tr -d '\r\n ')" \
             -H "Content-Type: application/json" --data-binary '{"key":"abc"}' https://naslux.ru/api/health/llm-key 2>&1 || true)
           echo "::notice title=Проба поля key::$out"
       - name: Сбои ИИ-шлюза
         run: |
-          curl -sS -H "Authorization: Bearer ${NASLUX_HEALTH_TOKEN}" https://naslux.ru/api/health \
+          curl -sS -H "Authorization: Bearer $(printf %s "$NASLUX_HEALTH_TOKEN" | tr -d '\r\n ')" https://naslux.ru/api/health \
             | jq -c '{"ключ": .["ии_шлюз_ключ"], "сбои": .["ии_шлюз_сбои"]}' \
             | head -c 3000 | sed 's/^/::notice title=Сбои ИИ-шлюза::/'

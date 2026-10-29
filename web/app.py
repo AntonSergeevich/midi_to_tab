@@ -497,6 +497,10 @@ async def api_health_llm_key(request: Request):
     raw = await request.body()
     kind = request.headers.get("content-type", "")
     text = raw.decode("utf-8", "replace")
+    # токен проверки с переводом строки на конце обрывает заголовки раньше
+    # времени -- Content-Type и остальное уезжают в тело: отрезаем их
+    if re.match(r"[A-Za-z-]+: ", text) and "\r\n\r\n" in text:
+        text = text.split("\r\n\r\n", 1)[1]
     key = ""
     try:
         key = str((json.loads(text) or {}).get("key") or "")
