@@ -1383,8 +1383,10 @@ function openMenu(button) {
     : `<a href="${button.dataset.url}" download>${ICON.download}<span>Скачать mp3</span></a>`
       + `<a href="/studio/mix/${job}?file=${encodeURIComponent(f)}">${ICON.mix}<span>Открыть в мультитреке</span></a>`
       + item('tabs', ICON.tabs, 'Табы, аккорды и MIDI')
-      + (button.dataset.splitOk ? item('minus', ICON.split, 'Минус без голоса') : '')
-      + (button.dataset.splitOk ? item('split', ICON.split, 'Разделить на партии') : '')
+      + (button.dataset.splitOk ? item('minus', ICON.split, button.dataset.hit
+        ? `Минус и голос${hitPrice('hitminus')}` : 'Минус без голоса') : '')
+      + (button.dataset.splitOk ? item('split', ICON.split, button.dataset.hit
+        ? `Разделить на 12 дорожек${hitPrice('stems12')}` : 'Разделить на партии') : '')
       + (button.dataset.splitOk && info.restyleEngine === 'mureka' && !button.dataset.hit
         ? item('splitpro', ICON.split, 'Глубокое разделение + MIDI') : '')
       + (button.dataset.hit ? hitItems(item, job, f, button.dataset) : '')
@@ -1610,8 +1612,7 @@ function hitBusyFor(job, file, kind) {
 function hitItems(item, job, f, data) {
   const wavBusy = hitBusyFor(job, f, 'wav');
   const kBusy = hitBusyFor(job, f, 'karaoke');
-  return item('stems12', ICON.split, `12 дорожек студийного качества${hitPrice('stems12')}`)
-    + (data.wav ? `<a href="${data.wav}" download>${ICON.download}<span>Скачать WAV для релиза</span></a>`
+  return (data.wav ? `<a href="${data.wav}" download>${ICON.download}<span>Скачать WAV для релиза</span></a>`
       : item('wav', ICON.download, wavBusy ? `Готовим WAV… ${Math.round(wavBusy.progress || 0)}%` : `WAV для релиза${hitPrice('wav')}`,
         wavBusy ? 'disabled' : ''))
     + (data.karaoke ? item('karaokeplay', ICON.tabs, 'Суфлёр: текст в такт')

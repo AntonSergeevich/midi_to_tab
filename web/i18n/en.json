@@ -1850,5 +1850,9 @@
  "Песню Студии можно разложить на 12 дорожек — вокал, бэк-вокал, барабаны, бас, гитара, клавиши, струнные и другие — и скачать в WAV для выпуска на стримингах.": "A Studio song can be split into 12 stems — vocals, backing vocals, drums, bass, guitar, keys, strings and more — and downloaded as WAV for release on streaming platforms.",
  "Студия → «⋯» у версии · Мультитрек → «12 дорожек»": "Studio → version “⋯” · Multitrack → “12 stems”",
  "Продлить, «Без чего» и смелый режим": "Extend, “Without” and bold mode",
- "Продлить можно любую песню Студии. В форме — поле «Без чего» (без автотюна, без электроники) и смелый режим для неожиданных сочетаний жанров.": "Any Studio song can be extended. The form has a “Without” field (no autotune, no electronics) and a bold mode for unexpected genre blends."
+ "Продлить можно любую песню Студии. В форме — поле «Без чего» (без автотюна, без электроники) и смелый режим для неожиданных сочетаний жанров.": "Any Studio song can be extended. The form has a “Without” field (no autotune, no electronics) and a bold mode for unexpected genre blends.",
+ "Минус и голос": "Backing track and vocals",
+ "Разделить на 12 дорожек": "Split into 12 stems",
+ "Минус и голос студийного качества": "Studio-quality backing track and vocals",
+ "сейчас нет свободной видеокарты — попробуйте через 10–15 минут": "no free GPU right now — please try again in 10–15 minutes"
 }

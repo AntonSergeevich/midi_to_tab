@@ -43,6 +43,9 @@ USER_AGENT = "naslux-studio/1.0 (+https://naslux.ru)"
 WORKER_NAME = "naslux-worker"
 POLL_SECONDS = 10
 JOB_TIMEOUT = 45 * 60
+# Видеокарты RunPod не нашлось за это время (задача так и стоит в очереди) --
+# отменяем с возвратом денег, а не держим человека 45 минут на «90%» (29.10)
+QUEUE_LIMIT = 12 * 60
 LINK_TTL = 2 * 3600
 MAX_SECONDS = 600
 
@@ -69,6 +72,7 @@ SERVICES = {
     # от 10 кредитов за действие; песня и продолжение -- по 15
     "continue": Service("Продолжить свою запись", 49.0),
     "stems12": Service("12 дорожек студийного качества", 49.0),
+    "hitminus": Service("Минус и голос студийного качества", 29.0),
     "wav": Service("WAV для релиза", 29.0),
     "karaoke": Service("Суфлёр: текст в такт", 29.0),
     "voice": Service("Мой голос для песен", 49.0),
@@ -94,7 +98,7 @@ MUREKA_STATES = {"preparing": "Готовим трек", "queued": "В очер�
 # Цена в кредитах Студии (billing.PLANS): от себестоимости действия.
 # Живые замеры (28.09): продление -- $0.03, песня «как в образце» -- $0.09 за две.
 CREDIT_COST = {"create": 15, "restyle": 40, "keep": 20, "enrich": 5, "stems": 3, "extend": 10,
-               "continue": 15, "stems12": 15, "wav": 10, "karaoke": 10,
+               "continue": 15, "stems12": 15, "hitminus": 10, "wav": 10, "karaoke": 10,
                "voice": 10, "stems_pro": 60}  # глубокое разделение Mureka -- $0.70
 # «Сохранить мой голос» (track/generate без вокала + сведение) дешевле обычной
 # переделки (remix с двумя версиями) ровно вдвое -- вдвое же дешевле и с
@@ -1202,11 +1206,24 @@ class StudioRunner:
                 settings["remote"] = remote
                 self.storage.update_job(job_id, settings=settings)
             endpoint, remote_id = remote["endpoint"], remote["id"]
+            queued_since = None
+            ran = False
             while True:
                 status = call("GET", f"{RUNPOD_API}/{endpoint}/status/{remote_id}")
                 state = status.get("status")
                 if state in STATES:
                     elapsed = time.time() - job.created_at
+                    ran = ran or state == "IN_PROGRESS"
+                    if state == "IN_QUEUE" and not ran:
+                        # в очереди полоска не растёт: работа ещё не началась
+                        queued_since = queued_since or time.time()
+                        self.storage.update_job(job_id, status="running", stage=STATES[state],
+                                                progress=min(8, 3 + (time.time() - queued_since) / 60))
+                        if time.time() - queued_since > QUEUE_LIMIT:
+                            call("POST", f"{RUNPOD_API}/{endpoint}/cancel/{remote_id}", {})
+                            raise RuntimeError("сейчас нет свободной видеокарты — попробуйте через 10–15 минут")
+                        time.sleep(POLL_SECONDS)
+                        continue
                     # Честной доли готовности воркер не сообщает; растим
                     # полоску по времени, не доводя до конца.
                     self.storage.update_job(job_id, status="running", stage=STATES[state],
@@ -1851,7 +1868,8 @@ class StudioRunner:
             task = {"stems": "vocal_removal", "wav": "wav", "karaoke": "timestamped_lyrics"}[mode]
             return {"model": genapi.SUNO_MODEL, "task": task, "translate_input": False,
                     "audio_id": task_input["audio_id"], "task_id": task_input["task_id"],
-                    **({"separation_type": "split_stem"} if mode == "stems" else {})}
+                    **({"separation_type": "separate_vocal" if task_input.get("parts") == "minus" else "split_stem"}
+                       if mode == "stems" else {})}
         return genapi.suno_params("generate", **common)
 
     def _hit_collect(self, job, mode: str, state: dict, folder: str, task_input: dict, remote: dict) -> dict:
@@ -1874,9 +1892,10 @@ class StudioRunner:
             return {"files": []}
         if mode == "stems":
             files = []
+            minus = task_input.get("parts") == "minus"
             for track in found:
                 stem = HIT_STEMS.get(track.get("label", ""))
-                if not stem or stem == "instrumental":
+                if not stem or (stem == "instrumental" and not minus):   # минус -- только в «минус и голос»
                     continue
                 path = os.path.join(folder, f"{stem}.mp3")
                 genapi.download(track["url"], path)
@@ -1888,7 +1907,7 @@ class StudioRunner:
                 raise RuntimeError("дорожки не пришли")
             order = list(HIT_STEMS.values())
             files.sort(key=lambda f: order.index(f["name"][:-4]))
-            return {"files": files, "pro": True}
+            return {"files": files, "pro": not minus}
         prefix = {"create": "create", "extend": "extend", "continue": "continue"}.get(mode, "restyle")
         files, image = [], ""
         head = None

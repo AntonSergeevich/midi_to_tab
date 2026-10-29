@@ -1163,10 +1163,11 @@ function showSplit(splitting) {
   const s = info.services.stems;
   const pro = info.services.stems_pro;
   const price = (x) => (info.unlimited ? '' : ` · ${x.pack} кредитов или ${x.price} ₽`);
-  $('splitGo').textContent = `Разделить на дорожки${price(s)}`;
-  $('splitPro').hidden = info.restyleEngine !== 'mureka' && !version12;
-  $('splitPro').textContent = version12 ? `12 дорожек студийного качества${price(info.services.stems12)}`
-    : `До 12 дорожек + MIDI${price(pro)}`;
+  // песня новой нейросети -- её же разделение: сразу 12 дорожек, без очереди на нашу видеокарту
+  $('splitGo').textContent = version12 ? `Разделить на 12 дорожек${price(info.services.stems12)}`
+    : `Разделить на дорожки${price(s)}`;
+  $('splitPro').hidden = info.restyleEngine !== 'mureka' || version12;
+  $('splitPro').textContent = `До 12 дорожек + MIDI${price(pro)}`;
   if (splitting) waitSplit(splitting);
   $('splitGo').onclick = () => split(false);
   $('splitPro').onclick = () => split(true);
@@ -1179,8 +1180,7 @@ async function split(pro) {
   form.append('pro', pro);
   $('splitGo').disabled = true;
   $('splitPro').disabled = true;
-  const response = await fetch(pro && version12 ? `/api/studio/${jobId}/hit/stems12`
-    : `/api/studio/${jobId}/stems`, { method: 'POST', body: form });
+  const response = await fetch(`/api/studio/${jobId}/stems`, { method: 'POST', body: form });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     $('splitGo').disabled = false;

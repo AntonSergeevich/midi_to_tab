@@ -2951,3 +2951,40 @@ def test_continue_own_recording(studio_app, monkeypatch):
     assert 7.0 < studio.audio_length(out) < 8.2
     assert done.result["files"][0]["label"] == "Продолжение 1"
     assert st.user(user.id).studio_credits == 85
+
+
+def test_split_of_hit_song_goes_to_its_own_separation(studio_app, monkeypatch):
+    """Песню новой нейросети делит она же (владелец, 29.10): «Разделить» --
+    12 дорожек, «Минус» -- минус и голос; без очереди на нашу видеокарту."""
+    app_module, client, user, submitted = studio_app
+    st = app_module.storage
+    monkeypatch.setenv("GENAPI_API_KEY", "ga-" + "x" * 30)
+    st.add_studio_credits(user.id, 100)
+    song = _hit_song(app_module, user)
+    split = client.post(f"/api/studio/{song}/stems", data={"file": "create_1.mp3"}).json()["jobId"]
+    minus = client.post(f"/api/studio/{song}/stems", data={"file": "create_1.mp3", "minus": "true"}).json()["jobId"]
+    assert st.job(split).settings["engine"] == "suno" and st.job(split).settings["parts"] == "12"
+    assert st.job(minus).settings["parts"] == "minus" and submitted[-1][1]["parts"] == "minus"
+    assert st.user(user.id).studio_credits == 100 - 15 - 10
+
+
+def test_runpod_queue_without_gpu_gives_money_back(studio_app, monkeypatch):
+    """Видеокарты так и нет (задача стоит в очереди) -- отмена и возврат
+    через QUEUE_LIMIT, а не 45 минут на «90%»."""
+    app_module, client, user, submitted = studio_app
+    studio, runner, st = app_module.studio, app_module.studio_runner, app_module.storage
+    st.add_studio_credits(user.id, 10)
+    job_id = _start(client, mode="stems").json()["jobId"]
+    st.update_job(job_id, settings={**st.job(job_id).settings, "input": submitted[-1][1]})
+    calls = []
+    clock = [1000.0]
+    monkeypatch.setattr(studio.time, "time", lambda: clock[0])
+    monkeypatch.setattr(studio.time, "sleep", lambda s: clock.__setitem__(0, clock[0] + s))
+    monkeypatch.setattr(studio, "endpoint_id", lambda *a: "ep")
+    monkeypatch.setattr(studio, "call", lambda m, url, body=None, timeout=60: calls.append(url) or (
+        {"id": "r1"} if url.endswith("/run") else {} if "/cancel/" in url else {"status": "IN_QUEUE"}))
+    runner._run(job_id)
+    job = st.job(job_id)
+    assert job.status == "error" and "нет свободной видеокарты" in job.error
+    assert any("/cancel/r1" in u for u in calls) and job.progress <= 8
+    assert st.user(user.id).studio_credits == 10                  # деньги вернулись
