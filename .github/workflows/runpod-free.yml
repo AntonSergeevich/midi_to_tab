@@ -1,0 +1,17 @@
+name: RunPod -- освободить видеокарты
+
+# Тестовым эндпоинтам (замеры, сайт ими не пользуется) -- workersMax 0: их
+# дежурные машины занимают лимит воркеров аккаунта, и naslux-worker не
+# поднимается (29.10). В итоге -- состояние naslux-worker через 1-2 минуты.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  free:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q requests && python scripts/runpod_free.py
