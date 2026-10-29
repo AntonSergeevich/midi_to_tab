@@ -28,6 +28,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -912,6 +913,17 @@ def suno_public() -> bool:
     return genapi.ready() and os.environ.get("NASLUX_SUNO_PUBLIC", "0") == "1"
 
 
+def mp3_link(url: str) -> str:
+    """Подписанная ссылка «…/mureka/<id>?e=..&s=..» -> «…/mureka/<id>/<e>/<s>/source.mp3»:
+    GenAPI берёт формат файла из окончания ссылки."""
+    parts = urllib.parse.urlsplit(url)
+    query = urllib.parse.parse_qs(parts.query)
+    if not query.get("e") or not query.get("s"):
+        return url
+    path = f"{parts.path}/{query['e'][0]}/{query['s'][0]}/source.mp3"
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
 def suno_style(style: str, voice: str) -> str:
     """Стиль для Suno: теги, которые дописал ИИ (английские), иначе как
     написал человек -- Suno понимает и русское описание; голос -- словами."""
@@ -1697,7 +1709,7 @@ class StudioRunner:
                     source = next(os.path.join(folder, f) for f in sorted(os.listdir(folder))
                                   if f.startswith("source."))
                     mureka_source(source, folder)          # mp3 до 350 с -- его и заберёт GenAPI
-                    upload = task_input.get("mureka_url", "")
+                    upload = mp3_link(task_input.get("mureka_url", ""))
                 voice = task_input.get("voice", "")
                 lyrics = without_voice_marks(task_input.get("lyrics", "")).strip()
                 params = genapi.suno_params(

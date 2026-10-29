@@ -2766,6 +2766,12 @@ def test_suno_restyle_sends_our_mp3_link(studio_app, monkeypatch):
         {"request_id": 1} if m == "POST" else {"status": "error", "error": "upstream failed"}))
     runner._run(job_id)
     assert sent[0]["task"] == "cover" and "/api/studio/mureka/" in sent[0]["upload_url"]
+    link = sent[0]["upload_url"]
+    assert link.endswith("/source.mp3") and "?" not in link       # GenAPI берёт формат по окончанию
+    import os
+    open(os.path.join(runner.folder(job_id), "for_mureka.mp3"), "wb").write(b"ID3")
+    assert client.get(link.split("testserver", 1)[1]).content == b"ID3"
+    assert client.get(link.split("testserver", 1)[1].replace("/source.mp3", "x/source.mp3")).status_code == 403
     assert sent[0]["audio_weight"] == 0.7 and sent[0]["instrumental"] is True and "prompt" not in sent[0]
     failed = app_module.storage.job(job_id)
     assert failed.status == "error" and "upstream failed" in failed.error

@@ -73,7 +73,11 @@ def call(method: str, path: str, body: dict | None = None, timeout: int = 60) ->
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", "replace")[:300]
         try:
-            detail = str(json.loads(detail).get("error") or json.loads(detail).get("message") or detail)
+            parsed = json.loads(detail)
+            # 422: {"error": true, "errors_validation": {"поле": ["текст", ...]}}
+            problems = parsed.get("errors_validation") or {}
+            detail = "; ".join(" ".join(map(str, v if isinstance(v, list) else [v])) for v in problems.values()) \
+                if isinstance(problems, dict) and problems else str(parsed.get("message") or parsed.get("error") or detail)
         except (ValueError, AttributeError):
             pass
         if error.code == 402 or "баланс" in detail.lower() or "недостаточно" in detail.lower():

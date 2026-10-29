@@ -2651,6 +2651,14 @@ def api_studio_mureka_source(job_id: str, e: int = 0, s: str = ""):
     return FileResponse(path, media_type="audio/mpeg")
 
 
+@app.get("/api/studio/mureka/{job_id}/{e}/{s}/source.mp3")
+def api_studio_mp3_source(job_id: str, e: int, s: str):
+    """Тот же ужатый трек, но ссылкой с .mp3 на конце и подписью в пути:
+    GenAPI (Suno) узнаёт формат по окончанию ссылки -- на «?e=..&s=..»
+    отвечал 422 «Неверный формат файла» (29.10)."""
+    return api_studio_mureka_source(job_id, e, s)
+
+
 _lyrics_calls: dict[str, list[float]] = {}
 
 
