@@ -46,6 +46,12 @@ JOB_TIMEOUT = 45 * 60
 # Видеокарты RunPod не нашлось за это время (задача так и стоит в очереди) --
 # отменяем с возвратом денег, а не держим человека 45 минут на «90%» (29.10)
 QUEUE_LIMIT = 12 * 60
+# Сколько ждать ответа GenAPI (от создания задачи): обычно песня -- минута,
+# 12 дорожек -- 4 минуты, WAV -- минута, суфлёр -- секунды. 29.10 12 дорожек
+# висели у провайдера больше 25 минут -- дальше не ждём: дорожки -- запасным
+# разделением (fallback_stems), остальное -- с возвратом денег
+HIT_TIMEOUT = {"stems": 10 * 60, "wav": 6 * 60, "karaoke": 4 * 60}
+HIT_TIMEOUT_SONG = 15 * 60
 LINK_TTL = 2 * 3600
 MAX_SECONDS = 600
 
@@ -1813,6 +1819,8 @@ class StudioRunner:
                 except RuntimeError as error:   # в том числе GenApiNoMoney
                     if mode in ("create", "restyle") and self._from_suno(job_id, mode, str(error)):
                         return
+                    if mode == "stems" and self._fallback_stems(job_id, str(error)):
+                        return
                     if isinstance(error, genapi.GenApiNoMoney):
                         raise RuntimeError("генерация временно недоступна — пополняем счёт нейросети, "
                                            "попробуйте позже") from None
@@ -1828,8 +1836,22 @@ class StudioRunner:
                 self.storage.update_job(job_id, status="running", stage=STAGES_HIT.get(mode, stage),
                                         progress=min(92, 5 + seconds * speed))
 
-            state = genapi.wait(remote["id"], timeout=JOB_TIMEOUT, every=POLL_SECONDS, progress=progress)
-            result = self._hit_collect(job, mode, state, folder, task_input, remote)
+            limit = HIT_TIMEOUT.get(mode, HIT_TIMEOUT_SONG)
+            try:
+                state = genapi.wait(remote["id"], timeout=max(60, limit - (time.time() - job.created_at)),
+                                    every=POLL_SECONDS, progress=progress)
+            except RuntimeError as error:
+                if mode == "stems" and self._fallback_stems(job_id, str(error)):
+                    return
+                if "не справился за отведённое время" in str(error):
+                    raise RuntimeError("нейросеть сейчас перегружена и не ответила вовремя — попробуйте позже") from None
+                raise
+            try:
+                result = self._hit_collect(job, mode, state, folder, task_input, remote)
+            except Exception as error:  # noqa: BLE001 -- файлы не скачались (29.10: BlobNotFound)
+                if mode == "stems" and self._fallback_stems(job_id, str(error)):
+                    return
+                raise
             self.storage.update_job(job_id, status="done", stage="Готово", progress=100, result={
                 **result, "engine": "suno", "model": remote.get("model", ""), "genapiCost": state.get("cost") or 0,
                 "seconds": round(state.get("runtime") or time.time() - started, 1)})
@@ -1837,6 +1859,41 @@ class StudioRunner:
                 self._start_cover(job_id)
         except Exception as error:  # noqa: BLE001 -- любая ошибка -> деньги назад
             self._fail(job_id, str(error))
+
+    def _fallback_stems(self, job_id: str, why: str) -> bool:
+        """12 дорожек (или минус) новой нейросети не пришли -- та же задача
+        уходит на наше разделение (Demucs на видеокарте RunPod): человек
+        ничего не переспрашивает, разница в цене возвращается сразу."""
+        print(f"12 дорожек не пришли ({job_id}): {why} -- делим своим разделением", file=sys.stderr, flush=True)
+        job = self.storage.job(job_id)
+        settings = dict(job.settings or {})
+        parent = self.folder(settings.get("from", ""))
+        source = os.path.join(parent, settings.get("sourceFile", ""))
+        if not settings.get("from") or not os.path.isfile(source):
+            return False
+        shutil.copyfile(source, os.path.join(self.folder(job_id), "source.mp3"))
+        task_input = {k: v for k, v in (settings.get("input") or {}).items()
+                      if k not in ("audio_id", "task_id", "file", "parts")}
+        minus = settings.get("parts") == "minus"
+        task_input.update(mode="stems", cost_key="stems", **({"parts": "minus"} if minus else {}))
+        # разница -- сразу назад: наше разделение дешевле
+        by_pack = int(settings.get("charged_credit") or 0)
+        charged = float(settings.get("charged") or 0)
+        if by_pack > credit_cost("stems"):
+            self.storage.add_studio_credits(job.user_id, by_pack - credit_cost("stems"))
+            settings["charged_credit"] = credit_cost("stems")
+        elif charged > SERVICES["stems"].price:
+            self.storage.add_balance(job.user_id, charged - SERVICES["stems"].price)
+            settings["charged"] = SERVICES["stems"].price
+        settings.update(input=task_input, fellBack="suno", title="Разделение на партии")
+        for key in ("engine", "remote", "parts"):
+            settings.pop(key, None)
+        if minus:
+            settings["parts"] = "minus"
+        self.storage.update_job(job_id, settings=settings, status="running", progress=3,
+                                stage="Делим своим разделением")
+        self._run(job_id)
+        return True
 
     def _hit_params(self, job, mode: str, task_input: dict, folder: str) -> dict:
         from . import genapi

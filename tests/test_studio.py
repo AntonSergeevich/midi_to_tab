@@ -2988,3 +2988,32 @@ def test_runpod_queue_without_gpu_gives_money_back(studio_app, monkeypatch):
     assert job.status == "error" and "нет свободной видеокарты" in job.error
     assert any("/cancel/r1" in u for u in calls) and job.progress <= 8
     assert st.user(user.id).studio_credits == 10                  # деньги вернулись
+
+
+def test_hit_stems_stuck_fall_back_to_our_separation(studio_app, monkeypatch):
+    """12 дорожек висят у провайдера -- через HIT_TIMEOUT та же задача уходит
+    на наше разделение, разница в цене возвращается сразу."""
+    app_module, client, user, submitted = studio_app
+    studio, runner, genapi, st = app_module.studio, app_module.studio_runner, app_module.genapi, app_module.storage
+    monkeypatch.setenv("GENAPI_API_KEY", "ga-" + "x" * 30)
+    st.add_studio_credits(user.id, 100)
+    song = _hit_song(app_module, user)
+    child = client.post(f"/api/studio/{song}/stems", data={"file": "create_1.mp3"}).json()["jobId"]
+    st.update_job(child, settings={**st.job(child).settings, "input": submitted[-1][1]})
+    assert st.user(user.id).studio_credits == 85
+    monkeypatch.setattr(genapi, "call", lambda m, p, b=None, timeout=60: {"request_id": 5} if m == "POST"
+                        else {"status": "processing"})
+    clock = [st.job(child).created_at]
+    monkeypatch.setattr(studio.time, "time", lambda: clock[0])
+    monkeypatch.setattr(genapi.time, "time", lambda: clock[0])
+    monkeypatch.setattr(genapi.time, "sleep", lambda s: clock.__setitem__(0, clock[0] + s))
+    moved = []
+    real = runner._run
+    monkeypatch.setattr(runner, "_run", lambda jid: moved.append(dict(st.job(jid).settings))
+                        if not st.job(jid).settings.get("engine") else real(jid))
+    runner._run(child)
+    import os
+    after = moved[0]
+    assert after["fellBack"] == "suno" and after["input"]["mode"] == "stems" and "audio_id" not in after["input"]
+    assert os.path.isfile(os.path.join(runner.folder(child), "source.mp3"))
+    assert st.user(user.id).studio_credits == 97 and after["charged_credit"] == 3

@@ -1854,5 +1854,8 @@
  "Минус и голос": "Backing track and vocals",
  "Разделить на 12 дорожек": "Split into 12 stems",
  "Минус и голос студийного качества": "Studio-quality backing track and vocals",
- "сейчас нет свободной видеокарты — попробуйте через 10–15 минут": "no free GPU right now — please try again in 10–15 minutes"
+ "сейчас нет свободной видеокарты — попробуйте через 10–15 минут": "no free GPU right now — please try again in 10–15 minutes",
+ "Делим своим разделением": "Splitting with our own separation",
+ "Забираем дорожки:": "Fetching stems:",
+ "нейросеть сейчас перегружена и не ответила вовремя — попробуйте позже": "the AI is overloaded right now and didn't answer in time — please try again later"
 }
