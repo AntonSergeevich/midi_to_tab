@@ -1,0 +1,61 @@
+{
+ "id": 56835159,
+ "organization_id": 756697,
+ "network": "suno",
+ "status": "success",
+ "response_type": "audio",
+ "cost": 17,
+ "progress": 100,
+ "runtime": 57.68,
+ "result": [
+  "https://gen-api.storage.yandexcloud.net/input_files/1793265098_6ae30dca4b149.mp3",
+  "https://gen-api.storage.yandexcloud.net/input_files/1793265100_6ae30dcc2195a.mp3",
+  {
+   "audio_url": "https://gen-api.storage.yandexcloud.net/input_files/1793265098_6ae30dca4b149.mp3",
+   "image": "https://gen-api.storage.yandexcloud.net/input_files/1793265099_6ae30dcb0f5ad.jpeg",
+   "audio_id": "21d76d10-6e7d-4a8d-81ea-af64b4455066",
+   "task_id": "0489196fdb9f861557765b9a12dbb58c"
+  },
+  {
+   "audio_url": "https://gen-api.storage.yandexcloud.net/input_files/1793265100_6ae30dcc2195a.mp3",
+   "image": "https://gen-api.storage.yandexcloud.net/input_files/1793265100_6ae30dccc4bd9.jpeg",
+   "audio_id": "710fceba-86d2-4e48-b1e3-b57a5ef5f69d",
+   "task_id": "0489196fdb9f861557765b9a12dbb58c"
+  }
+ ],
+ "full_response": [
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793265098_6ae30dca4b149.mp3"
+  },
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793265100_6ae30dcc2195a.mp3"
+  },
+  {
+   "audio_url": "https://gen-api.storage.yandexcloud.net/input_files/1793265098_6ae30dca4b149.mp3",
+   "image": "https://gen-api.storage.yandexcloud.net/input_files/1793265099_6ae30dcb0f5ad.jpeg",
+   "audio_id": "21d76d10-6e7d-4a8d-81ea-af64b4455066",
+   "task_id": "0489196fdb9f861557765b9a12dbb58c"
+  },
+  {
+   "audio_url": "https://gen-api.storage.yandexcloud.net/input_files/1793265100_6ae30dcc2195a.mp3",
+   "image": "https://gen-api.storage.yandexcloud.net/input_files/1793265100_6ae30dccc4bd9.jpeg",
+   "audio_id": "710fceba-86d2-4e48-b1e3-b57a5ef5f69d",
+   "task_id": "0489196fdb9f861557765b9a12dbb58c"
+  }
+ ],
+ "parameters": {
+  "mv": "chirp-hawk",
+  "tags": "nu metal, Russian, heavy drop-tuned seven-string guitars, groovy bouncy palm-muted riffs, turntable scratches, slap bass, punchy tight live drums, aggressive raw male rap verses, screamed ad-libs, powerful melodic female vocals in chorus, male and female vocals, huge explosive chorus, breakdown, dark, intense, high energy, 100 bpm",
+  "task": "generate",
+  "model": "v6",
+  "title": "Наслукс — это наш звук (ню-метал)",
+  "prompt": "[Intro]\nЭй! Наслукс! Громче!\n\n[Verse 1: male rap]\nБит качает, стены дрожат, я на старте,\nСто идей в голове — ни одной на карте,\nХватит ждать, хватит думать, что «потом» и «не время»,\nЖму на кнопку — и ломаю это тихое бремя!\nБочка бьёт по груди, бас взрывает колонки,\nМой куплет как ракета, мой голос — на кромке,\nЭто не чужой трек, это мой огонь —\nВся студия в кармане, весь мир — на ладонь!\n\n[Pre-Chorus: female]\nСлышишь, как растёт этот гул внутри?\nРаз, два — дыши, три — смотри!\n\n[Chorus: female and male, explosive]\nНаслукс! Взрыв! Это наш звук!\nБит из нейросети — а сердце из рук!\nНаслукс! Громче, сильней!\nПой своим голосом — и будь собой в ней!\n\n[Verse 2: male rap]\nРазложил по дорожкам: бас, гитара, барабаны,\nСверху мой вокал — и никакого обмана,\nСкинул бэнду ссылку — через час уже в деле,\nМы за вечер сделали, что не могли за недели!\nЭто драйв, это скорость, это шторм и гроза,\nНе смотри на других — посмотри мне в глаза,\nЯ не копия, нет, я — оригинал,\nМой звук — это мой личный сигнал!\n\n[Pre-Chorus: female]\nСлышишь, как растёт этот гул внутри?\nРаз, два — дыши, три — смотри!\n\n[Chorus: female and male, explosive]\nНаслукс! Взрыв! Это наш звук!\nБит из нейросети — а сердце из рук!\nНаслукс! Громче, сильней!\nПой своим голосом — и будь собой в ней!\n\n[Outro]\nНаслукс! Наслукс! Это наш звук!",
+  "custom_mode": true,
+  "audio_weight": 0.5,
+  "instrumental": false,
+  "style_weight": 0.5,
+  "translate_input": false,
+  "weirdness_constraint": 0.5
+ },
+ "timestamp": 1793265042
+}
