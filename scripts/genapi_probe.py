@@ -22,6 +22,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("job")
     parser.add_argument("--out", default="results")
+    parser.add_argument("--request", default="", help="забрать готовый запрос, не заказывая новый")
     args = parser.parse_args()
     job = json.load(open(args.job, encoding="utf-8"))
     os.makedirs(args.out, exist_ok=True)
@@ -30,10 +31,13 @@ def main() -> None:
                                 instrumental=job.get("instrumental", False), gender=job.get("gender", ""),
                                 model=job.get("model", ""), upload_url=job.get("upload_url", ""))
     t = time.time()
-    started = genapi.call("POST", f"/networks/{genapi.SUNO}", params)
-    json.dump(started, open(f"{args.out}/start.json", "w"), ensure_ascii=False, indent=1)
-    rid = genapi.request_id(started)
-    print(f"запрос {rid}: {json.dumps(started, ensure_ascii=False)[:300]}", flush=True)
+    if args.request:
+        rid = args.request
+    else:
+        started = genapi.call("POST", f"/networks/{genapi.SUNO}", params)
+        json.dump(started, open(f"{args.out}/start.json", "w"), ensure_ascii=False, indent=1)
+        rid = genapi.request_id(started)
+        print(f"запрос {rid}: {json.dumps(started, ensure_ascii=False)[:300]}", flush=True)
     try:
         state = genapi.wait(rid, timeout=900, every=10,
                             progress=lambda stage, s: print(f"  {stage}, {s:.0f} с", flush=True))

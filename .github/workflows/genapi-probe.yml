@@ -9,6 +9,9 @@ on:
       job:
         description: Файл задания
         default: scripts/suno_job_naslux_drive.json
+      request:
+        description: Номер готового запроса GenAPI -- забрать без новой оплаты
+        default: ""
 
 permissions:
   contents: write
@@ -20,13 +23,14 @@ jobs:
     env:
       GENAPI_API_KEY: ${{ secrets.GENAPI_API_KEY }}
       JOB: ${{ inputs.job }}
+      REQUEST: ${{ inputs.request }}
     steps:
       - uses: actions/checkout@v4
       - name: Генерация
         run: |
           [ -n "$GENAPI_API_KEY" ] || { echo "::error::Секрет GENAPI_API_KEY не задан"; exit 1; }
           export GENAPI_API_KEY="$(printf %s "$GENAPI_API_KEY" | tr -d '\r\n ')"
-          python -u scripts/genapi_probe.py "$JOB" --out results
+          python -u scripts/genapi_probe.py "$JOB" --out results --request "$REQUEST"
       - name: В ветку test-results
         if: always()
         run: |
