@@ -30,6 +30,11 @@ jobs:
           out=$(curl -sS -c "$jar" -b "$jar" -w '\n%{http_code} за %{time_total}с' --max-time 120 \
             -F 'prompt=короткая песня про дождь' https://naslux.ru/api/studio/lyrics 2>&1 || true)
           echo "::notice title=Ответ /api/studio/lyrics::$(echo "$out" | tail -n1) | $(echo "$out" | sed '$d' | head -c 200 | tr '\n' ' ')"
+      - name: Доходит ли поле формы до /api/health/llm-key (негодный ключ -- не сохранится)
+        run: |
+          out=$(curl -sS -w ' %{http_code}' -H "Authorization: Bearer ${NASLUX_HEALTH_TOKEN}" \
+            -F "key=abc" https://naslux.ru/api/health/llm-key 2>&1 || true)
+          echo "::notice title=Проба поля key::$out"
       - name: Сбои ИИ-шлюза
         run: |
           curl -sS -H "Authorization: Bearer ${NASLUX_HEALTH_TOKEN}" https://naslux.ru/api/health \
