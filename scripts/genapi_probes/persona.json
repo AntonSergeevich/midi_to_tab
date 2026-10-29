@@ -1,0 +1,11 @@
+{
+ "params": {
+  "task": "generate",
+  "custom_mode": true,
+  "title": "Проба голоса",
+  "tags": "nu metal, female vocals, heavy guitars",
+  "prompt": "[Verse]\nПроба голоса артиста,\nТот же голос, новая песня",
+  "persona_id": "710fceba-86d2-4e48-b1e3-b57a5ef5f69d",
+  "persona_model": "voice_persona"
+ }
+}

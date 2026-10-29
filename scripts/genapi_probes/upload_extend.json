@@ -1,0 +1,12 @@
+{
+ "params": {
+  "task": "upload_extend",
+  "upload_url": "https://raw.githubusercontent.com/AntonSergeevich/midi_to_tab/test-results/yue2-40840975383/831001_yue2_1.mp3",
+  "continue_at": 60,
+  "default_param_flag": true,
+  "custom_mode": true,
+  "title": "Продолжение",
+  "tags": "aggressive rap rock, male and female vocals, 808",
+  "prompt": "[Chorus]\nНаслукс! Это наш звук!\nМы продолжаем, и мир вокруг!"
+ }
+}

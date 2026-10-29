@@ -26,10 +26,12 @@ def main() -> None:
     args = parser.parse_args()
     job = json.load(open(args.job, encoding="utf-8"))
     os.makedirs(args.out, exist_ok=True)
-    params = genapi.suno_params(job.get("task", "generate"), title=job.get("title", ""),
-                                style=job.get("style", ""), lyrics=job.get("lyrics", ""),
-                                instrumental=job.get("instrumental", False), gender=job.get("gender", ""),
-                                model=job.get("model", ""), upload_url=job.get("upload_url", ""))
+    # «params» -- запрос как есть (дорожки, WAV, таймкоды, продление): для проб цен
+    params = {"translate_input": False, "model": "v6", **job["params"]} if job.get("params") else \
+        genapi.suno_params(job.get("task", "generate"), title=job.get("title", ""),
+        style=job.get("style", ""), lyrics=job.get("lyrics", ""),
+        instrumental=job.get("instrumental", False), gender=job.get("gender", ""),
+        model=job.get("model", ""), upload_url=job.get("upload_url", ""))
     t = time.time()
     if args.request:
         rid = args.request
@@ -46,6 +48,8 @@ def main() -> None:
     found = genapi.tracks(state)
     print(f"::notice title=Suno {params['model']} за {time.time() - t:.0f} с, цена {state.get('cost')}::"
           f"треков {len(found)}: " + "; ".join(f"{x['title']} {x['seconds']} с" for x in found))
+    print(f"::notice title=Цена {params.get('task')} {params.get('separation_type', '')}::{state.get('cost')} ₽, "
+          f"{state.get('runtime')} с, файлов {len(found)}")
     for number, track in enumerate(found, 1):
         size = genapi.download(track["url"], f"{args.out}/suno_{number}.mp3")
         print(f"  suno_{number}.mp3 {size // 1024} КБ", flush=True)
