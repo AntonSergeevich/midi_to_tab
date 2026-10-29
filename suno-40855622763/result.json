@@ -1,0 +1,33 @@
+{
+ "id": 56839669,
+ "organization_id": 756697,
+ "network": "suno",
+ "status": "error",
+ "response_type": "audio",
+ "cost": 0,
+ "runtime": 103.79,
+ "result": [
+  "Произошла ошибка. Пожалуйста, попробуйте еще раз или повторите попытку позже."
+ ],
+ "full_response": [
+  {
+   "error": "Произошла ошибка. Пожалуйста, попробуйте еще раз или повторите попытку позже."
+  }
+ ],
+ "parameters": {
+  "mv": "chirp-hawk",
+  "tags": "nu metal, female vocals, heavy guitars",
+  "task": "generate",
+  "model": "v6",
+  "title": "Проба голоса",
+  "prompt": "[Verse]\nПроба голоса артиста,\nТот же голос, новая песня",
+  "persona_id": "710fceba-86d2-4e48-b1e3-b57a5ef5f69d",
+  "custom_mode": true,
+  "audio_weight": 0.5,
+  "style_weight": 0.5,
+  "persona_model": "voice_persona",
+  "translate_input": false,
+  "weirdness_constraint": 0.5
+ },
+ "timestamp": 1793268722
+}
