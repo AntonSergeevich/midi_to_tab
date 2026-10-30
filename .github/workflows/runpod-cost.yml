@@ -44,4 +44,9 @@ jobs:
           wid=$(jq -r '.[] | select(.name | startswith("naslux-worker")) | .id' endpoints.json | head -1)
           api "/endpoints/$wid?includeWorkers=true&includeTemplate=true" | jq -c '{workers: [.workers[]? | {id, desiredStatus, lastStatusChange, machineId, gpuTypeId: (.machine.gpuTypeId // .gpuTypeId), costPerHr, lastStartedAt}], template: (.template | {imageName, containerDiskInGb, env: ((.env // {}) | keys)})}' > worker.json 2>&1 || true
           echo "::notice title=Воркеры naslux-worker::$(head -c 1800 worker.json)"
+          # баланс и лимит трат аккаунта: без денег новые воркеры стоят «throttled»
+          bal=$(curl -sS -H "Content-Type: application/json" -H "Authorization: Bearer $RUNPOD_API_KEY" \
+            -d '{"query":"query { myself { clientBalance currentSpendPerHr spendLimit underBalance minBalance referralEarned } }"}' \
+            https://api.runpod.io/graphql | head -c 600)
+          echo "::notice title=Баланс RunPod::$bal"
           echo "::notice title=Счёт всех эндпоинтов::$(api "/billing/endpoints?bucketSize=month&startTime=$start&endTime=$end&grouping=endpointId" | head -c 3000)"
