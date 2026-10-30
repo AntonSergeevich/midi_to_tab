@@ -26,6 +26,12 @@ const plural = (n, one, few, many) => {
 const time = (s) => (s ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '');
 
 const ICON = {
+  // плеер: свои значки NASLUX -- тонкая линия, скруглённые концы
+  repeat: '<svg viewBox="0 0 24 24"><path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H19"/><path d="m16 3 3 3-3 3"/><path d="M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H5"/><path d="m8 21-3-3 3-3"/></svg>',
+  repeatOne: '<svg viewBox="0 0 24 24"><path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H19"/><path d="m16 3 3 3-3 3"/><path d="M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H5"/><path d="m8 21-3-3 3-3"/><path d="M11 10.5 12.5 9.5V15"/></svg>',
+  shuffle: '<svg viewBox="0 0 24 24"><path d="M3 7h3.2c1.3 0 2.5.7 3.2 1.8l5.2 7.4c.7 1.1 1.9 1.8 3.2 1.8H21"/><path d="m18 15 3 3-3 3"/><path d="M3 17h3.2c1 0 1.9-.4 2.6-1.1"/><path d="M13.2 8.1A3.9 3.9 0 0 1 15.6 7H21"/><path d="m18 4 3 3-3 3"/></svg>',
+  addList: '<svg viewBox="0 0 24 24"><path d="M4 6h12M4 11h12M4 16h7"/><path d="M18 13v7M14.5 16.5h7"/></svg>',
+  sliders: '<svg viewBox="0 0 24 24"><path d="M5 4v6M5 14v6M12 4v2M12 10v10M19 4v9M19 17v3"/><circle cx="5" cy="12" r="2"/><circle cx="12" cy="8" r="2"/><circle cx="19" cy="15" r="2"/></svg>',
   list: '<svg viewBox="0 0 24 24"><path d="M4 6h11M4 11h11M4 16h7M17 14v6m-3-3h6"/></svg>',
   mix: '<svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
   upload: '<svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4 4m4-4 4 4M5 20h14"/></svg>',
@@ -1044,6 +1050,9 @@ let queue = [];
 let qi = -1;
 let playingList = null;           // имя плейлиста, который играет (или null -- версии трека)
 let repeatMode = 'off';           // off | all | one
+let shuffleOn = false;            // перемешано -- baseQueue хранит исходный порядок
+let baseQueue = [];
+try { shuffleOn = localStorage.getItem('naslux.shuffle') === '1'; } catch (error) { /* */ }
 try { repeatMode = localStorage.getItem('naslux.repeat') || 'off'; } catch (error) { /* */ }
 
 // Скачивание mp3 из Студии -- со свойствами трека и обложкой внутри файла
@@ -1085,10 +1094,23 @@ function play(url, title, sub) {
     return;
   }
   const found = queueFor(url);
-  queue = found ? found.items : [{ url, title, sub, art: coverStyle(null), lyrics: '' }];
-  qi = found ? found.index : 0;
-  playingList = null;
+  setQueue(found ? found.items : [{ url, title, sub, art: coverStyle(null), lyrics: '' }], found ? found.index : 0, null);
   startTrack();
+}
+
+// Новая очередь: с какого трека и как называется; перемешивание включено --
+// этот трек первым, остальные вразброс (исходный порядок -- в baseQueue)
+function setQueue(items, start, name) {
+  baseQueue = items;
+  playingList = name;
+  if (shuffleOn && items.length > 1) {
+    const first = items[start];
+    queue = [first, ...shuffled(items.filter((x) => x !== first))];
+    qi = 0;
+  } else {
+    queue = items;
+    qi = start;
+  }
 }
 
 function startTrack() {
@@ -2582,9 +2604,8 @@ function shuffled(items) {
 }
 function playList(items, name, mix) {
   if (!items.length) { toast('В плейлисте пока нет треков'); return; }
-  queue = mix ? shuffled(items) : items;
-  qi = 0;
-  playingList = name;
+  if (mix && !shuffleOn) setShuffle(true, false);
+  setQueue(items, mix ? Math.floor(Math.random() * items.length) : 0, name);
   startTrack();
   if (window.haptic) window.haptic('light');
 }
@@ -2656,9 +2677,7 @@ document.addEventListener('click', async (e) => {
   if ((el = t('plat'))) {                 // нажали на трек -- слушать плейлист с него
     const [id, at] = el.dataset.plat.split(':');
     const { items, name } = itemsOf(id);
-    queue = items;
-    qi = Math.min(Number(at), items.length - 1);
-    playingList = name;
+    setQueue(items, Math.min(Number(at), items.length - 1), name);
     startTrack();
     renderPlaylists();
     return;
@@ -2745,29 +2764,60 @@ $('plCreate').addEventListener('click', async () => {
 });
 $('plNew').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('plCreate').click(); });
 
-// Повтор, перемешать, в плейлист, звук -- в полноэкранном плеере
+// Повтор, перемешать, в плейлист, звук -- значками в полноэкранном плеере;
+// что включилось -- мягкой подсказкой посередине (как в плеерах телефона)
+let hudTimer = null;
+function hud(icon, title, text) {
+  $('hudIcon').innerHTML = icon;
+  $('hudTitle').textContent = title;
+  $('hudText').textContent = text;
+  $('hud').classList.add('on');
+  clearTimeout(hudTimer);
+  hudTimer = setTimeout(() => $('hud').classList.remove('on'), 1800);
+  if (window.haptic) window.haptic('light');
+}
+const REPEAT_HUD = {
+  off: ['Повтор: выкл', 'Воспроизведение остановится, когда очередь закончится.'],
+  all: ['Повтор: все', 'Очередь будет играть по кругу.'],
+  one: ['Повтор: один', 'Текущий трек будет повторяться — удобно заучивать.'],
+};
 function modeButtons() {
-  const label = { off: 'Повтор', all: 'Повтор: все', one: 'Повтор: один' }[repeatMode] || 'Повтор';
-  $('fRepeat').innerHTML = `${repeatMode === 'one' ? '🔂' : '🔁'} <span>${label}</span>`;
+  $('fRepeat').innerHTML = repeatMode === 'one' ? ICON.repeatOne : ICON.repeat;
   $('fRepeat').classList.toggle('on', repeatMode !== 'off');
+  $('fRepeat').setAttribute('aria-label', (REPEAT_HUD[repeatMode] || REPEAT_HUD.off)[0]);
+  $('fShuffle').innerHTML = ICON.shuffle;
+  $('fShuffle').classList.toggle('on', shuffleOn);
+  $('fShuffle').setAttribute('aria-pressed', String(shuffleOn));
+  $('fAddPl').innerHTML = ICON.addList;
+  $('fFx').innerHTML = ICON.sliders;
   const item = queue[qi];
   $('fAddPl').hidden = !(item && item.job);
   $('fFx').classList.toggle('on', window.SoundFX.on);
+}
+function setShuffle(on, announce = true) {
+  shuffleOn = on;
+  try { localStorage.setItem('naslux.shuffle', on ? '1' : '0'); } catch (error) { /* */ }
+  const now = queue[qi];
+  if (now && baseQueue.length > 1) {
+    if (on) { queue = [now, ...shuffled(baseQueue.filter((x) => x !== now))]; qi = 0; } else {
+      queue = baseQueue;
+      qi = Math.max(0, queue.indexOf(now));
+    }
+    $('fQueue').textContent = playingList ? `${playingList} · ${qi + 1} из ${queue.length}` : '';
+  }
+  modeButtons();
+  if (announce) {
+    hud(ICON.shuffle, on ? 'Перемешать: вкл' : 'Перемешать: выкл',
+      on ? 'Треки играют в случайном порядке.' : 'Треки играют по порядку очереди.');
+  }
 }
 $('fRepeat').addEventListener('click', () => {
   repeatMode = { off: 'all', all: 'one', one: 'off' }[repeatMode] || 'all';
   try { localStorage.setItem('naslux.repeat', repeatMode); } catch (error) { /* */ }
   modeButtons();
-  toast({ off: 'Повтор выключен', all: 'Повтор всего списка', one: 'Повтор одного трека — заучивайте 🎧' }[repeatMode]);
+  hud(repeatMode === 'one' ? ICON.repeatOne : ICON.repeat, ...REPEAT_HUD[repeatMode]);
 });
-$('fShuffle').addEventListener('click', () => {
-  if (queue.length < 2) { toast('Перемешивать нечего — один трек'); return; }
-  const now = queue[qi];
-  queue = [now, ...shuffled(queue.filter((x) => x !== now))];
-  qi = 0;
-  $('fQueue').textContent = playingList ? `${playingList} · 1 из ${queue.length}` : '';
-  toast('Очередь перемешана');
-});
+$('fShuffle').addEventListener('click', () => setShuffle(!shuffleOn));
 $('fAddPl').addEventListener('click', () => { const item = queue[qi]; if (item && item.job) addToPlaylist(item.job, item.file); });
 window.SoundFX.attach($('audio'));
 window.SoundFX.bind($('fxPanel'));

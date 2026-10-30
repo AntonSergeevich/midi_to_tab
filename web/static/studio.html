@@ -401,6 +401,7 @@
 
 <div class="st-full" id="full" hidden>
   <div class="st-full-bg" id="fBg"></div>
+  <div class="st-hud" id="hud" aria-live="polite"><span class="st-hud-icon" id="hudIcon"></span><b id="hudTitle"></b><small id="hudText"></small></div>
   <div class="st-full-inner">
     <div class="st-full-head">
       <button type="button" class="st-pbtn" id="fClose" aria-label="Свернуть"></button>
@@ -415,16 +416,16 @@
       <input type="range" id="fVolume" min="0" max="100" value="100" aria-label="Громкость">
       <span aria-hidden="true">🔊</span></label>
     <div class="st-full-controls">
+      <button type="button" class="st-mode-btn" id="fRepeat" aria-label="Повтор"></button>
       <button type="button" class="st-pbtn" id="fPrev" aria-label="Предыдущая"></button>
       <button type="button" class="play-btn big" id="fToggle" aria-label="Играть"></button>
       <button type="button" class="st-pbtn" id="fNext" aria-label="Следующая"></button>
+      <button type="button" class="st-mode-btn" id="fShuffle" aria-label="Перемешать"></button>
     </div>
     <p class="st-full-queue" id="fQueue"></p>
     <div class="st-full-modes">
-      <button type="button" class="st-mode-btn" id="fRepeat" title="Повтор: выкл → весь список → один трек">🔁 <span>Повтор</span></button>
-      <button type="button" class="st-mode-btn" id="fShuffle" title="Перемешать очередь">🔀 <span>Перемешать</span></button>
-      <button type="button" class="st-mode-btn" id="fAddPl" title="Добавить этот трек в плейлист">＋ <span>В плейлист</span></button>
-      <button type="button" class="st-mode-btn" id="fFx" title="Эквалайзер и объёмный звук">🎚 <span>Звук</span></button>
+      <button type="button" class="st-mode-btn" id="fAddPl" aria-label="Добавить в плейлист"></button>
+      <button type="button" class="st-mode-btn" id="fFx" aria-label="Звук: эквалайзер и объём"></button>
     </div>
     <div class="st-fx" id="fxPanel" hidden></div>
     <button type="button" class="st-full-lyrics-btn" id="fLyricsBtn" hidden>Текст песни</button>

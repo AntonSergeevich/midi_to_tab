@@ -246,12 +246,25 @@
     });
   }
 
+  // Разбудить звук -- вызывать из нажатия: граф создаётся (если эффекты
+  // включены) и контекст запускается в том же касании, иначе iPhone молчит
+  function wake() {
+    if (!nodes && state.on && audio) ensure();
+    if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
+  }
+
   window.SoundFX = {
-    attach(element) { audio = element; if (state.on) element.addEventListener('play', () => ensure(), { once: true }); },
+    attach(element) { audio = element; },
+    wake,
     ensure,
     bind,
     get on() { return state.on; },
     // громкость: через граф, если он есть (iPhone), иначе -- false
     setVolume(level) { volume = level; if (nodes) { nodes.out.gain.value = level; return true; } return false; },
   };
+  // iPhone будит звук Web Audio только из нажатия (не из события «play»):
+  // после паузы, блокировки экрана или звонка контекст «спит», а созданный
+  // не из касания -- молчит с самого начала, и звук пропадал (владелец,
+  // 30.10: «выключил, включил -- звука нет»). Любое касание -- будим.
+  ['touchend', 'pointerup', 'click', 'keydown'].forEach((ev) => document.addEventListener(ev, wake, true));
 }());

@@ -1993,5 +1993,14 @@
  "Авто подстраивает звук под каждый трек за несколько секунд.": "Auto adapts the sound to each track within a few seconds.",
  "Голос впереди — удобно заучивать слова.": "Vocals up front, handy for learning the words.",
  "Лучше всего в наушниках. Если при заблокированном экране звук прервётся — выключите эффекты.": "Best with headphones. If the sound stops with the screen locked, turn the effects off.",
- "Слушать с этого трека": "Play from this track"
+ "Слушать с этого трека": "Play from this track",
+ "Повтор: выкл": "Repeat: off",
+ "Воспроизведение остановится, когда очередь закончится.": "Playback stops when the queue ends.",
+ "Очередь будет играть по кругу.": "The queue will play on a loop.",
+ "Текущий трек будет повторяться — удобно заучивать.": "The current track will repeat, handy for learning it.",
+ "Перемешать: вкл": "Shuffle: on",
+ "Перемешать: выкл": "Shuffle: off",
+ "Треки играют в случайном порядке.": "Tracks play in random order.",
+ "Треки играют по порядку очереди.": "Tracks play in queue order.",
+ "Звук: эквалайзер и объём": "Sound: equalizer and space"
 }
