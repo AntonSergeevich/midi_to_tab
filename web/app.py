@@ -3059,7 +3059,7 @@ def api_studio_file(job_id: str, name: str, request: Request):
     return FileResponse(path, filename=download_name(job.filename, label, ".mp3"))
 
 
-EXTRAS_PER_TRACK = 16
+EXTRAS_PER_TRACK = 40          # своих дорожек к треку: грузят и пачкой (30.10)
 # Диктофоны телефонов пишут и в aac/opus/amr -- ffmpeg прочтёт всё
 EXTRA_ALLOWED = (".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aiff", ".aif",
                  ".aac", ".opus", ".webm", ".amr", ".3gp", ".wma", ".mp4")

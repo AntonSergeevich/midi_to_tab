@@ -2341,6 +2341,7 @@ document.addEventListener('click', (e) => {
   const loadFile = e.target.closest('[data-loadfile]');
   if (loadFile) {
     choose(Number(loadFile.dataset.loadfile), null);
+    fileTarget = Number(loadFile.dataset.loadfile);
     $('addFile').click();
     return;
   }
@@ -2554,10 +2555,29 @@ $('addTrack').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addLane(); }
 });
 
+// Куда лягут выбранные файлы: на выбранную дорожку (первый) или каждый -- на новую
+let fileTarget = -1;
+const AUDIO_FILE = /\.(mp3|wav|m4a|flac|ogg|aac|opus|amr|3gp|webm)$/i;
+// Несколько файлов разом (владелец, 30.10: «выбрал 10 дорожек и загрузил»):
+// первый -- на дорожку, куда грузили, остальные -- каждый на свою новую
+async function filesToLanes(list, index) {
+  const files = [...list].filter((f) => /^audio\//.test(f.type) || AUDIO_FILE.test(f.name));
+  if (!files.length) { toast('Нужен аудиофайл: mp3, wav, m4a, flac, ogg'); return; }
+  if (files.length > 1) toast(`Загружаем ${files.length} ${plural(files.length, 'файл', 'файла', 'файлов')} — каждый на свою дорожку…`, 8000);
+  for (let n = 0; n < files.length; n++) {
+    await fileToLane(files[n], n === 0 ? index : -1);
+  }
+  if (files.length > 1) toast(`Готово: ${files.length} ${plural(files.length, 'дорожка', 'дорожки', 'дорожек')} добавлено`);
+}
 $('addFile').addEventListener('change', async (e) => {
-  const chosen = e.target.files[0];
+  const list = [...e.target.files];
   e.target.value = '';
-  if (chosen) await fileToLane(chosen, selected);
+  if (list.length) await filesToLanes(list, fileTarget);
+});
+$('addFiles').addEventListener('click', (e) => {
+  e.stopPropagation();                 // не добавлять пустую дорожку -- только файлы
+  fileTarget = -1;
+  $('addFile').click();
 });
 
 // Файл с компьютера -- кусок на дорожке, с курсора (на пустой -- с начала).
@@ -2631,9 +2651,7 @@ document.addEventListener('drop', (e) => {
   if (!zone || !e.dataTransfer || !e.dataTransfer.files.length) return;
   e.preventDefault();
   zone.classList.remove('dropping');
-  const chosen = [...e.dataTransfer.files].find((f) => /^audio\//.test(f.type) || /\.(mp3|wav|m4a|flac|ogg|aac|opus|amr|3gp|webm)$/i.test(f.name));
-  if (!chosen) { toast('Нужен аудиофайл: mp3, wav, m4a, flac, ogg'); return; }
-  fileToLane(chosen, Number(zone.dataset.drop));
+  filesToLanes(e.dataTransfer.files, Number(zone.dataset.drop));
 });
 
 // Файл, который уже играет из памяти браузера, -- на сервер; дальше кусок

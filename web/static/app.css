@@ -1476,10 +1476,15 @@ header.top > nav.topnav {
   background: rgba(217,154,78,.12); border-style: solid; }
 .mx-addrow:focus-visible { outline: none; }
 .mx-addrow > .mx-ctrl { flex-direction: row; justify-content: flex-start; }
+.mx-addrow .mx-lane { justify-content: space-between; }
+.mx-addrow-files { flex: none; height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid rgba(217,154,78,.5);
+  background: transparent; color: var(--accent, #d99a4e); font: inherit; font-size: 13px; cursor: pointer; }
+.mx-addrow-files:hover { background: rgba(217,154,78,.16); }
 .mx-addrow-plus { width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center;
   border: 1px dashed currentColor; font-size: 16px; line-height: 1; flex: none; }
 @media (max-width: 720px) {
-  .mx-addrow .mx-lane { display: none; }
+  .mx-addrow .mx-lane span { display: none; }
+  .mx-addrow .mx-lane { justify-content: center; min-height: 52px; border-top-width: 0; border-left-width: 1px; }
   .mx-addrow > .mx-ctrl { border-right-width: 1px; justify-content: center; }
 }
 

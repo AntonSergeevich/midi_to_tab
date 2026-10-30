@@ -95,7 +95,7 @@
     </span>
     <button type="button" class="icon-btn mx-export" id="exportMix" title="Скачать то, что сейчас звучит, одним файлом"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg><span>Скачать микс</span></button>
     <button type="button" class="icon-btn" id="restoreTracks" hidden title="Вернуть убранные дорожки"></button>
-    <input type="file" id="addFile" hidden accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a,.aac,.opus,.webm,.amr,.3gp">
+    <input type="file" id="addFile" hidden multiple accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a,.aac,.opus,.webm,.amr,.3gp">
   </section>
 
   <p class="mx-note" id="note" hidden></p>
@@ -232,7 +232,8 @@
     <div class="mx-row mx-addrow" id="addTrack" role="button" tabindex="0" data-drop="-1"
          title="Добавить пустую дорожку: загрузить в неё файл, записать голос или перетащить кусок с другой дорожки">
       <div class="mx-ctrl"><span class="mx-addrow-plus" aria-hidden="true">＋</span><b>Добавить дорожку</b></div>
-      <div class="mx-lane"><span>Нажмите — появится пустая дорожка. Или бросьте сюда аудиофайл</span></div>
+      <div class="mx-lane"><span>Нажмите — появится пустая дорожка. Или бросьте сюда аудиофайлы — каждый на свою дорожку</span>
+        <button type="button" class="mx-addrow-files" id="addFiles">Загрузить файлы…</button></div>
     </div>
     <div class="mx-playhead" id="playhead"></div>
     <!-- Прицел: где начнётся выделение -- линия через все дорожки и точное время -->
