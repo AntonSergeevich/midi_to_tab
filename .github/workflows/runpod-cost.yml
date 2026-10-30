@@ -17,6 +17,11 @@ jobs:
           set -uo pipefail
           api() { curl -sS -H "Authorization: Bearer $RUNPOD_API_KEY" "https://rest.runpod.io/v1$1"; }
           api /endpoints | jq -c '[.[] | {name, id, gpuTypeIds, gpuCount, workersMin, workersMax, idleTimeout, flashboot, allowedCudaVersions, networkVolumeId, dataCenterIds, templateId}]' > endpoints.json || true
+          # баланс и лимит трат аккаунта: без денег новые воркеры стоят «throttled»
+          bal=$(curl -sS -H "Content-Type: application/json" -H "Authorization: Bearer $RUNPOD_API_KEY" \
+            -d '{"query":"query { myself { clientBalance currentSpendPerHr spendLimit underBalance minBalance referralEarned } }"}' \
+            https://api.runpod.io/graphql | head -c 600)
+          echo "::notice title=Баланс RunPod::$bal"
           echo "::notice title=Эндпоинты::$(cat endpoints.json)"
           start="$(date -u -d '30 days ago' +%Y-%m-%dT00:00:00Z)"
           end="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -25,8 +30,9 @@ jobs:
             # очередь и видеокарты прямо сейчас: idle/running/throttled -- нет ли нехватки
             echo "$name $(jq -c --arg id "$id" '.[] | select(.id == $id) | {gpuTypeIds, workersMax, allowedCudaVersions, networkVolumeId, dataCenterIds, templateId}' endpoints.json) $(curl -sS -H "Authorization: Bearer $RUNPOD_API_KEY" "https://api.runpod.ai/v2/$id/health" | head -c 400)" >> health.txt
             bill="$(api "/billing/endpoints?endpointId=$id&bucketSize=month&startTime=$start&endTime=$end" | head -c 3000)"
-            echo "::notice title=Счёт $name::$bill"
+            echo "$name $(echo "$bill" | jq -c '[.[] | {amount, timeBilledMs}]' 2>/dev/null || echo "$bill")" >> bills.txt
           done
+          echo "::notice title=Счета эндпоинтов за 30 дней::$(tr '\n' '|' < bills.txt)"
           echo "::notice title=Очередь и видеокарты сейчас::$(tr '\n' '|' < health.txt)"
           # образы шаблонов: есть ли такой тег в реестре (нет -- воркер не поднимется)
           api /templates | jq -r '.[] | select(.isServerless) | "\(.name) \(.imageName)"' > templates.txt || true
@@ -44,9 +50,4 @@ jobs:
           wid=$(jq -r '.[] | select(.name | startswith("naslux-worker")) | .id' endpoints.json | head -1)
           api "/endpoints/$wid?includeWorkers=true&includeTemplate=true" | jq -c '{workers: [.workers[]? | {id, desiredStatus, lastStatusChange, machineId, gpuTypeId: (.machine.gpuTypeId // .gpuTypeId), costPerHr, lastStartedAt}], template: (.template | {imageName, containerDiskInGb, env: ((.env // {}) | keys)})}' > worker.json 2>&1 || true
           echo "::notice title=Воркеры naslux-worker::$(head -c 1800 worker.json)"
-          # баланс и лимит трат аккаунта: без денег новые воркеры стоят «throttled»
-          bal=$(curl -sS -H "Content-Type: application/json" -H "Authorization: Bearer $RUNPOD_API_KEY" \
-            -d '{"query":"query { myself { clientBalance currentSpendPerHr spendLimit underBalance minBalance referralEarned } }"}' \
-            https://api.runpod.io/graphql | head -c 600)
-          echo "::notice title=Баланс RunPod::$bal"
           echo "::notice title=Счёт всех эндпоинтов::$(api "/billing/endpoints?bucketSize=month&startTime=$start&endTime=$end&grouping=endpointId" | head -c 3000)"
