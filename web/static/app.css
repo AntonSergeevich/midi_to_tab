@@ -2138,3 +2138,13 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
 .st-browse[hidden] { display: none; }
 .st-browse iframe { width: 100%; height: 100%; border: 0; display: block; background: var(--bg); }
 body.browsing { overflow: hidden; }
+
+/* iPhone увеличивает страницу при вводе в поле со шрифтом мельче 16px -- и
+   страница остаётся увеличенной: ездит влево-вправо, нижний плеер уезжает
+   (владелец, 30.10). На телефоне все поля ввода -- 16px; и вбок страница
+   не прокручивается вовсе. */
+@media (pointer: coarse) {
+  input:not([type=range]):not([type=checkbox]):not([type=radio]), textarea, select { font-size: 16px !important; }
+}
+html, body { overflow-x: hidden; }
+@supports (overflow-x: clip) { html, body { overflow-x: clip; } }
