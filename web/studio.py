@@ -1059,6 +1059,115 @@ def karaoke_words(state: dict) -> list:
     return out
 
 
+LINE_BREAK = 3.5     # пауза между строками дольше -- новый куплет (пустая строка)
+
+
+def whisper_text(found: dict) -> tuple[str, list]:
+    """Разбор Whisper (lyrics.to_dict) -> текст по строкам с пустой строкой
+    между частями песни и слова с таймкодами для суфлёра [{w, s, e, nl}]."""
+    lines, words, last = [], [], None
+    for line in found.get("lines") or []:
+        text = " ".join(str(line.get("text") or "").split())
+        if not text:
+            continue
+        if last is not None and float(line.get("start") or 0) - last > LINE_BREAK:
+            lines.append("")
+        lines.append(text)
+        last = float(line.get("end") or 0)
+        first = True
+        for word in line.get("words") or []:
+            clean = " ".join(str(word.get("text") or "").split())
+            if clean:
+                words.append({"w": clean, "s": round(float(word.get("start") or 0), 2),
+                              "e": round(float(word.get("end") or 0), 2), **({"nl": 1} if first else {})})
+                first = False
+    return "\n".join(lines).strip()[:5000], words
+
+
+def vocals_for(storage, folder_of, job_id: str, name: str) -> str | None:
+    """Голос этой записи, если трек уже раскладывали: «минус» исходника или
+    партии -- задачей-разделением этой версии. Нет -- None (слушаем весь трек)."""
+    own = os.path.join(folder_of(job_id), "vocals.mp3")
+    if os.path.isfile(own):
+        return own
+    for child in storage.studio_children(job_id):
+        settings = child.settings or {}
+        if child.status == "done" and settings.get("mode") == "stems" \
+                and settings.get("sourceFile", name) == name:
+            path = os.path.join(folder_of(child.id), "vocals.mp3")
+            if os.path.isfile(path):
+                return path
+    return None
+
+
+COVER_SIDE = 1024
+
+
+def save_cover(source: str, target: str) -> None:
+    """Своя обложка: любая картинка -> квадрат 1024 по центру, JPEG. Пишем во
+    временный файл и подменяем разом -- старая обложка видна до последнего."""
+    temp = f"{target}.part.jpg"
+    run = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", source, "-frames:v", "1",
+                          "-vf", f"scale={COVER_SIDE}:{COVER_SIDE}:force_original_aspect_ratio=increase,"
+                                 f"crop={COVER_SIDE}:{COVER_SIDE}", "-q:v", "3", temp],
+                         capture_output=True, timeout=60)
+    if run.returncode or not os.path.isfile(temp) or os.path.getsize(temp) < 1000:
+        if os.path.exists(temp):
+            os.remove(temp)
+        raise RuntimeError("не получилось прочитать картинку — подойдёт JPG, PNG или WebP")
+    os.replace(temp, target)
+
+
+META_FIELDS = {"artist": 120, "lyricist": 120, "composer": 120, "album": 120, "year": 4, "genre": 80}
+ID3_KEYS = {"artist": "artist", "lyricist": "lyricist", "composer": "composer",
+            "album": "album", "year": "date", "genre": "genre"}
+
+
+def tagged_copy(folder: str, name: str, title: str, meta: dict, lyrics: str) -> str:
+    """mp3 для скачивания со свойствами трека внутри (ID3): название,
+    исполнитель, авторы, альбом, год, жанр, текст и обложка -- плеер в
+    телефоне и площадки видят их сразу. Копия -- в tagged/, по свойствам;
+    без ffmpeg или при ошибке отдаём исходный файл."""
+    source = os.path.join(folder, name)
+    cover = os.path.join(folder, "cover.jpg")
+    has_cover = os.path.isfile(cover)
+    stamp = json.dumps([title, meta, lyrics, os.path.getmtime(cover) if has_cover else 0,
+                        os.path.getmtime(source)], ensure_ascii=False, sort_keys=True)
+    digest = hashlib.sha1(stamp.encode()).hexdigest()[:12]
+    stem = Path(name).stem
+    out_dir = os.path.join(folder, "tagged")
+    target = os.path.join(out_dir, f"{stem}-{digest}.mp3")
+    if os.path.isfile(target):
+        return target
+    if not shutil.which("ffmpeg"):
+        return source
+    os.makedirs(out_dir, exist_ok=True)
+    for old in os.listdir(out_dir):
+        if old.startswith(f"{stem}-"):
+            os.remove(os.path.join(out_dir, old))
+    command = ["ffmpeg", "-v", "error", "-y", "-i", source]
+    if has_cover:
+        command += ["-i", cover, "-map", "0:a", "-map", "1:v", "-c:v", "copy", "-disposition:v", "attached_pic",
+                    "-metadata:s:v", "title=Album cover", "-metadata:s:v", "comment=Cover (front)"]
+    else:
+        command += ["-map", "0:a"]
+    command += ["-c:a", "copy", "-map_metadata", "-1", "-id3v2_version", "3", "-metadata", f"title={title}"]
+    for key, tag in ID3_KEYS.items():
+        if meta.get(key):
+            command += ["-metadata", f"{tag}={meta[key]}"]
+    if lyrics:
+        command += ["-metadata", f"lyrics={lyrics}"]
+    temp = f"{target}.part.mp3"
+    run = subprocess.run(command + [temp], capture_output=True, timeout=120)
+    if run.returncode or not os.path.isfile(temp):
+        print(f"[теги] {name}: {run.stderr.decode(errors='replace')[-300:]}", file=sys.stderr, flush=True)
+        if os.path.exists(temp):
+            os.remove(temp)
+        return source
+    os.replace(temp, target)
+    return target
+
+
 def audio_seconds(path: str) -> int:
     """Длительность записи в секундах (ffprobe; нет его -- 0)."""
     try:
@@ -1157,6 +1266,7 @@ class StudioRunner:
         # MIDI отдельной партии -- по одной за раз: Basic Pitch ест процессор
         self.midi_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="midi")
         self.transcribing: set[tuple[str, str]] = set()
+        self.reading: set[tuple[str, str]] = set()     # распознаём слова (Whisper)
         self._analyzing: set[tuple[str, str]] = set()
 
     def folder(self, job_id: str) -> str:
@@ -1372,6 +1482,51 @@ class StudioRunner:
                     self.transcribing.discard(key)
 
         self.midi_pool.submit(work)
+        return True
+
+    def read_lyrics_later(self, job_id: str, name: str) -> bool:
+        """Слова песни с записи -- Whisper на сервере (тот же, что в «Аккордах»),
+        в фоне: текст -- в «О треке», слова с таймкодами -- в суфлёр этой
+        версии. Голос, если трек уже разделён, слушаем отдельно от музыки.
+        False -- уже распознаём."""
+        key = (job_id, name)
+        with self._analysis_lock:
+            if key in self.reading:
+                return False
+            self.reading.add(key)
+
+        def work():
+            error = ""
+            try:
+                from midi2tab import lyrics as lyrics_mod
+
+                folder = self.folder(job_id)
+                source = vocals_for(self.storage, self.folder, job_id, name) or os.path.join(folder, name)
+                with HEAVY:
+                    found = lyrics_mod.to_dict(lyrics_mod.transcribe(
+                        source, model=lyrics_mod.DEFAULT_MODEL, language=None,
+                        cache_dir=os.path.join(self.data_dir, "models")))
+                text, words = whisper_text(found)
+                if not text:
+                    raise RuntimeError("слов не слышно — похоже, это инструментал")
+                with self._analysis_lock:
+                    job = self.storage.job(job_id)
+                    result = dict(job.result or {})
+                    result["lyrics"] = text
+                    result["karaoke"] = {**(result.get("karaoke") or {}), name: words}
+                    result.pop("lyricsError", None)
+                    self.storage.update_job(job_id, result=result)
+            except Exception as failure:  # noqa: BLE001
+                error = short_error(str(failure))
+                print(f"[текст] {job_id}/{name}: {failure}", file=sys.stderr, flush=True)
+            finally:
+                with self._analysis_lock:
+                    if error:
+                        job = self.storage.job(job_id)
+                        self.storage.update_job(job_id, result={**(job.result or {}), "lyricsError": error})
+                    self.reading.discard(key)
+
+        threading.Thread(target=work, daemon=True, name="lyrics").start()
         return True
 
     def describe(self, job_id: str, name: str, mureka_url: str) -> dict:

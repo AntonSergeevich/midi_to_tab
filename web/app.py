@@ -1904,6 +1904,16 @@ def _chord_line(result: dict) -> str:
     return " ".join(out[:64])
 
 
+def _cover_url(job_id: str) -> str | None:
+    """Ссылка на обложку с меткой версии: перерисовали или загрузили свою --
+    браузер не покажет старую из кэша."""
+    path = os.path.join(studio_runner.folder(job_id), "cover.jpg")
+    try:
+        return f"/api/studio/file/{job_id}/cover.jpg?v={int(os.path.getmtime(path))}"
+    except OSError:
+        return None
+
+
 def _studio_job_payload(job) -> dict:
     settings = job.settings or {}
     result = job.result or {}
@@ -1952,9 +1962,12 @@ def _studio_job_payload(job) -> dict:
         "shift": {"of": settings.get("shiftOf"), "file": settings.get("shiftFile"),
                   "semitones": settings.get("semitones", 0), "tempo": settings.get("tempo", 1.0)}
         if settings.get("mode") == "shift" else None,
-        "cover": f"/api/studio/file/{job.id}/cover.jpg"
-                 if os.path.isfile(os.path.join(folder, "cover.jpg")) else None,
+        "cover": _cover_url(job.id),
+        "coverLeft": max(0, studio.COVER_TRIES - int(settings.get("coverTries") or 0)),
         "lyrics": result.get("lyrics") or (settings.get("input") or {}).get("lyrics") or "",
+        "lyricsBusy": any(j == job.id for j, _ in studio_runner.reading),
+        "lyricsError": result.get("lyricsError", ""),
+        "meta": settings.get("meta") or {},
         "hasAbc": bool(result.get("abc")),
         "chords": _chord_line(result),
         # Файлы Студии уборка удаляет через 14 дней (deploy/cleanup.py)
@@ -2995,16 +3008,20 @@ async def api_studio_upload(job_id: str, request: Request, e: int = 0, s: str = 
     if not name:
         raise HTTPException(400, "Недопустимое имя файла")
     target = os.path.join(studio_runner.folder(job_id), name)
+    # Пишем рядом и подменяем разом: перерисованная обложка не видна
+    # наполовину скачанной, пока воркер её присылает
+    temp = f"{target}.part"
     # 12 дорожек WAV глубокого разделения -- сотни мегабайт одним архивом
     size, limit = 0, 1024 * 1024 * 1024
-    with open(target, "wb") as out:
+    with open(temp, "wb") as out:
         async for chunk in request.stream():
             size += len(chunk)
             if size > limit:
                 out.close()
-                os.remove(target)
+                os.remove(temp)
                 raise HTTPException(413, "Слишком большой файл")
             out.write(chunk)
+    os.replace(temp, target)
     return {"ok": True, "bytes": size}
 
 
@@ -3034,7 +3051,7 @@ def _studio_expires(job) -> float | None:
 
 
 @app.get("/api/studio/file/{job_id}/{name}")
-def api_studio_file(job_id: str, name: str, request: Request):
+def api_studio_file(job_id: str, name: str, request: Request, dl: int = 0):
     user = current_user(request)
     job = storage.job(job_id)
     safe = studio.safe_file_name(name)
@@ -3056,6 +3073,14 @@ def api_studio_file(job_id: str, name: str, request: Request):
     label = extra["label"] if extra else studio.label_of((job.settings or {}).get("mode", ""), safe)
     if safe.endswith(".wav"):
         return FileResponse(path, media_type="audio/wav", filename=download_name(job.filename, f"{label} WAV", ".wav"))
+    if dl and safe.endswith(".mp3"):
+        # скачивают -- со свойствами трека и обложкой внутри файла
+        meta = (job.settings or {}).get("meta") or {}
+        tagged = studio.tagged_copy(studio_runner.folder(job_id), safe, Path(job.filename).stem,
+                                    meta, (job.result or {}).get("lyrics") or "")
+        artist = f"{meta['artist']} — " if meta.get("artist") else ""
+        return FileResponse(tagged, media_type="audio/mpeg",
+                            filename=download_name(artist + Path(job.filename).stem, label, ".mp3"))
     return FileResponse(path, filename=download_name(job.filename, label, ".mp3"))
 
 
@@ -3272,19 +3297,101 @@ def _giftable(job) -> None:
 
 @app.post("/api/studio/{job_id}/cover")
 def api_studio_cover(job_id: str, request: Request):
-    """Нарисовать обложку треку без неё (бесплатно, до трёх раз на трек)."""
+    """Нарисовать обложку -- или перерисовать (бесплатно, до трёх раз на трек)."""
     user = current_user(request)
     job = storage.job(job_id)
     if not job or job.user_id != user.id or job.status != "done":
         raise HTTPException(404, "Трек не найден")
-    if os.path.isfile(os.path.join(studio_runner.folder(job_id), "cover.jpg")):
-        return {"ok": True, "ready": True}
     if not studio.api_key() or os.environ.get("NASLUX_COVERS", "1") == "0":
         raise HTTPException(503, "Обложки сейчас не рисуются — попробуйте позже")
     base = str(request.base_url).rstrip("/")
     if not studio_runner.draw_cover(job_id, studio.link(base, SECRET, job_id, "upload")):
-        raise HTTPException(429, "Обложка этому треку уже рисовалась трижды")
+        raise HTTPException(429, "Обложка этому треку уже рисовалась трижды — загрузите свою картинку")
     return {"ok": True, "ready": False}
+
+
+COVER_UPLOAD_LIMIT = 15 * 1024 * 1024
+
+
+@app.post("/api/studio/{job_id}/cover/upload")
+async def api_studio_cover_upload(job_id: str, request: Request, file: UploadFile = File(...)):
+    """Своя обложка: картинка с телефона или компьютера, квадратом 1024."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(404, "Трек не найден")
+    folder = studio_runner.folder(job_id)
+    os.makedirs(folder, exist_ok=True)
+    raw = os.path.join(folder, "cover-upload.tmp")
+    data = await file.read(COVER_UPLOAD_LIMIT + 1)
+    if len(data) > COVER_UPLOAD_LIMIT:
+        raise HTTPException(413, "Картинка больше 15 МБ")
+    with open(raw, "wb") as out:
+        out.write(data)
+    try:
+        await asyncio.to_thread(studio.save_cover, raw, os.path.join(folder, "cover.jpg"))
+    except RuntimeError as error:
+        raise HTTPException(400, str(error)[:1].upper() + str(error)[1:]) from error
+    finally:
+        if os.path.exists(raw):
+            os.remove(raw)
+    return {"ok": True, "cover": _cover_url(job_id)}
+
+
+@app.post("/api/studio/{job_id}/lyrics/read")
+def api_studio_lyrics_read(job_id: str, request: Request, file: str = Form("")):
+    """Распознать слова песни с записи (бесплатно): текст -- в «О треке»,
+    слова по времени -- в суфлёр плеера."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id or job.status != "done":
+        raise HTTPException(404, "Трек не найден")
+    ok, why = lyrics_mod.available()
+    if not ok:
+        raise HTTPException(503, "Распознавание текста сейчас недоступно — попробуйте позже")
+    names = [f["name"] for f in (job.result or {}).get("files") or []
+             if os.path.isfile(os.path.join(studio_runner.folder(job_id), f["name"]))]
+    name = file if file in names else (names[0] if names else "")
+    if not name:
+        raise HTTPException(404, "У трека нет записи")
+    if any(j == job_id for j, _ in studio_runner.reading):
+        return {"ok": True, "busy": True}
+    if sum(1 for j, _ in studio_runner.reading if (storage.job(j) or job).user_id == user.id) >= 2:
+        raise HTTPException(429, "Уже распознаём два трека — дождитесь их")
+    storage.update_job(job_id, result={k: v for k, v in (job.result or {}).items() if k != "lyricsError"})
+    studio_runner.read_lyrics_later(job_id, name)
+    return {"ok": True, "busy": True}
+
+
+@app.post("/api/studio/{job_id}/meta")
+def api_studio_meta(job_id: str, request: Request, name: str = Form(""), artist: str = Form(""),
+                    lyricist: str = Form(""), composer: str = Form(""), album: str = Form(""),
+                    year: str = Form(""), genre: str = Form(""), lyrics: str | None = Form(None)):
+    """Свойства трека: название, исполнитель, авторы, альбом, год, жанр,
+    текст. Идут в «О треке» и внутрь скачанного mp3 (теги ID3)."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(404, "Трек не найден")
+    given = {"artist": artist, "lyricist": lyricist, "composer": composer,
+             "album": album, "year": year, "genre": genre}
+    meta = {}
+    for key, limit in studio.META_FIELDS.items():
+        value = " ".join(given[key].split())[:limit]
+        if key == "year" and value and not re.fullmatch(r"(19|20)\d\d", value):
+            raise HTTPException(400, "Год — четыре цифры, например 2026")
+        if value:
+            meta[key] = value
+    settings = {**(job.settings or {}), "meta": meta}
+    fields = {"settings": settings}
+    title = " ".join(name.split())[:120]
+    if title:
+        fields["filename"] = title
+    if lyrics is not None:
+        text = lyrics.replace("\r\n", "\n").strip()[:5000]
+        fields["result"] = {**(job.result or {}), "lyrics": text}
+    storage.update_job(job_id, **fields)
+    return {"ok": True, "meta": meta}
 
 
 @app.post("/api/studio/{job_id}/gift")
@@ -3392,7 +3499,9 @@ def listen_page(token: str, request: Request) -> HTMLResponse:
     found, job, _ = _shared(token)
     title = Path(job.filename).stem[:120] or "Песня"
     analysis = ((job.result or {}).get("analysis") or {}).get(found["file"]) or {}
-    facts = [x for x in (f"Тональность {analysis['key']}" if analysis.get("key") else "",
+    meta = (job.settings or {}).get("meta") or {}
+    facts = [x for x in (meta.get("artist", ""), meta.get("album", ""), meta.get("year", ""),
+                         f"Тональность {analysis['key']}" if analysis.get("key") else "",
                          f"{analysis['bpm']} BPM" if analysis.get("bpm") else "") if x]
     chords: list[str] = []
     for item in analysis.get("chords") or []:
@@ -3410,6 +3519,9 @@ def listen_page(token: str, request: Request) -> HTMLResponse:
         "AUDIO": esc(f"{base}/api/listen/{token}/audio"),
         "AUDIO_PATH": esc(f"/api/listen/{token}/audio"),
         "COVER": f'<img src="/api/listen/{esc(token)}/cover" alt="">' if cover else '<span aria-hidden="true">♪</span>',
+        # страница живёт цветом обложки: размытая картинка фоном
+        "BACKDROP": f'<div class="ls-bg" style="background-image:url(/api/listen/{esc(token)}/cover)" aria-hidden="true"></div>'
+                    if cover else "",
         "CHORDS": ('<section class="ls-chords"><h2>Аккорды</h2><p data-noi18n>'
                    + " ".join(f"<b>{esc(c)}</b>" for c in chords[:80]) + "</p></section>") if chords else "",
     })
@@ -3422,7 +3534,13 @@ def listen_audio(token: str, request: Request, download: int = 0):
     if not download and not is_bot and request.headers.get("range", "bytes=0-").startswith("bytes=0-"):
         storage.count_play(token)          # начали слушать с начала -- одно прослушивание
     _touch_used(studio_runner.folder(job.id))
-    name = download_name(job.filename, "", ".mp3") if download else None
+    name = None
+    if download:
+        meta = (job.settings or {}).get("meta") or {}
+        if path.endswith(".mp3"):
+            path = studio.tagged_copy(studio_runner.folder(job.id), os.path.basename(path),
+                                      Path(job.filename).stem, meta, (job.result or {}).get("lyrics") or "")
+        name = download_name((f"{meta['artist']} — " if meta.get("artist") else "") + Path(job.filename).stem, "", ".mp3")
     return FileResponse(path, media_type="audio/mpeg", filename=name,
                         content_disposition_type="attachment" if download else "inline")
 

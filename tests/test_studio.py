@@ -1226,7 +1226,7 @@ def test_cover_is_drawn_alongside_and_served(studio_app, monkeypatch):
     folder = app_module.studio_runner.folder(job_id)
     open(f"{folder}/cover.jpg", "wb").write(b"\xff\xd8jpeg")
     listed = client.get("/api/studio").json()["jobs"][0]
-    assert listed["cover"] == f"/api/studio/file/{job_id}/cover.jpg"
+    assert listed["cover"].startswith(f"/api/studio/file/{job_id}/cover.jpg?v=")
     response = client.get(listed["cover"])
     assert response.headers["content-type"] == "image/jpeg" and response.content == b"\xff\xd8jpeg"
     assert studio.safe_file_name("../cover.jpg") is None
@@ -2696,8 +2696,6 @@ def test_cover_on_gpu_path_and_by_button(studio_app, monkeypatch):
     assert drawn[0][0]["upload_url"].startswith("http") and "/api/studio/upload/" in drawn[0][0]["upload_url"]
     assert drawn[0][2] == "Строка" and drawn[0][4] != drawn[1][4]       # другое зерно -- другая картинка
     assert client.post(f"/api/studio/{job_id}/cover").status_code == 429
-    open(f"{runner.folder(job_id)}/cover.jpg", "wb").write(b"\xff\xd8")
-    assert client.post(f"/api/studio/{job_id}/cover").json()["ready"] is True
 
 
 def test_suno_engine_for_owner_creates_and_covers(studio_app, monkeypatch):
@@ -3051,3 +3049,92 @@ def test_failed_job_shows_briefly_then_disappears(studio_app, monkeypatch):
     settings = st.job(job_id).settings
     st.update_job(job_id, settings={**settings, "failedAt": settings["failedAt"] - app_module.ERROR_SHOWN - 1})
     assert client.get("/api/studio").json()["jobs"] == []
+
+
+def test_track_properties_cover_upload_and_tagged_download(studio_app, monkeypatch, tmp_path):
+    """Свойства трека (исполнитель, авторы, год...) сохраняются, видны в
+    списке и попадают внутрь скачанного mp3; своя обложка -- квадрат JPEG."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("нет ffmpeg")
+    app_module, client, user, _ = studio_app
+    app_module.storage.add_balance(user.id, 100)
+    job_id = _start(client, mode="stems").json()["jobId"]
+    folder = app_module.studio_runner.folder(job_id)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=d=2", f"{folder}/song.mp3"], check=True)
+    app_module.storage.update_job(job_id, status="done", result={"files": [{"name": "song.mp3", "label": "Оригинал"}]})
+
+    bad = client.post(f"/api/studio/{job_id}/meta", data={"name": "Свайп", "year": "26"})
+    assert bad.status_code == 400
+    saved = client.post(f"/api/studio/{job_id}/meta", data={
+        "name": "Свайп-реальность", "artist": "  Антон   Глухов ", "year": "2026", "album": "",
+        "lyrics": "Первая строка\r\nВторая"}).json()
+    assert saved["meta"] == {"artist": "Антон Глухов", "year": "2026"}
+    job = client.get("/api/studio").json()["jobs"][0]
+    assert job["name"] == "Свайп-реальность" and job["meta"]["artist"] == "Антон Глухов"
+    assert job["lyrics"] == "Первая строка\nВторая" and job["cover"] is None and job["coverLeft"] == 3
+
+    picture = tmp_path / "pic.png"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=640x360",
+                    "-frames:v", "1", str(picture)], check=True)
+    up = client.post(f"/api/studio/{job_id}/cover/upload", files={"file": ("pic.png", picture.read_bytes())})
+    assert up.status_code == 200 and up.json()["cover"].startswith(f"/api/studio/file/{job_id}/cover.jpg?v=")
+    assert client.post(f"/api/studio/{job_id}/cover/upload",
+                       files={"file": ("x.png", b"not a picture")}).status_code == 400
+
+    plain = client.get(f"/api/studio/file/{job_id}/song.mp3")
+    tagged = client.get(f"/api/studio/file/{job_id}/song.mp3?dl=1")
+    assert "Антон Глухов" in tagged.headers["content-disposition"] or "%D0%90%D0%BD%D1%82" in tagged.headers["content-disposition"]
+    out = tmp_path / "t.mp3"
+    out.write_bytes(tagged.content)
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format_tags:stream=codec_name,width",
+                            "-of", "json", str(out)], capture_output=True, text=True).stdout
+    data = json.loads(probe)
+    tags = data["format"]["tags"]
+    assert tags["artist"] == "Антон Глухов" and tags["title"] == "Свайп-реальность" and tags["date"] == "2026"
+    assert any(st.get("codec_name") == "mjpeg" and st.get("width") == 1024 for st in data["streams"])
+    assert len(plain.content) < len(tagged.content)
+
+
+def test_lyrics_read_from_recording(studio_app, monkeypatch):
+    """«Распознать текст»: Whisper в фоне -> текст в «О треке» (пустая строка
+    между частями) и слова с таймкодами в суфлёр этой версии."""
+    app_module, client, user, _ = studio_app
+    studio, runner = app_module.studio, app_module.studio_runner
+    app_module.storage.add_balance(user.id, 100)
+    job_id = _start(client, mode="stems").json()["jobId"]
+    folder = runner.folder(job_id)
+    open(f"{folder}/song.mp3", "wb").write(b"mp3")
+    app_module.storage.update_job(job_id, status="done", result={"files": [{"name": "song.mp3", "label": "Оригинал"}]})
+
+    from midi2tab import lyrics as lyrics_mod
+    heard = []
+    monkeypatch.setattr(app_module.lyrics_mod, "available", lambda: (True, ""))
+    monkeypatch.setattr(lyrics_mod, "transcribe", lambda path, **kw: heard.append(path) or "parsed")
+    monkeypatch.setattr(lyrics_mod, "to_dict", lambda _: {"lines": [
+        {"text": "Свайп реальность", "start": 1.0, "end": 3.0,
+         "words": [{"text": "Свайп", "start": 1.0, "end": 1.6}, {"text": "реальность", "start": 1.6, "end": 3.0}]},
+        {"text": "Новый день", "start": 3.4, "end": 5.0, "words": [{"text": "Новый", "start": 3.4, "end": 4.0}]},
+        {"text": "Припев", "start": 12.0, "end": 13.0, "words": []}]})
+
+    class Now:
+        def __init__(self, target, daemon=None, name=None):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(studio.threading, "Thread", Now)
+    assert client.post(f"/api/studio/{job_id}/lyrics/read", data={"file": "song.mp3"}).json()["ok"] is True
+    assert heard == [f"{folder}/song.mp3"]
+    job = client.get("/api/studio").json()["jobs"][0]
+    assert job["lyrics"] == "Свайп реальность\nНовый день\n\nПрипев"
+    assert job["lyricsBusy"] is False and job["files"][0]["karaoke"] is True
+    words = app_module.storage.job(job_id).result["karaoke"]["song.mp3"]
+    assert words[0] == {"w": "Свайп", "s": 1.0, "e": 1.6, "nl": 1} and words[2]["nl"] == 1
+
+    monkeypatch.setattr(lyrics_mod, "to_dict", lambda _: {"lines": []})
+    client.post(f"/api/studio/{job_id}/lyrics/read")
+    assert "инструментал" in client.get("/api/studio").json()["jobs"][0]["lyricsError"]

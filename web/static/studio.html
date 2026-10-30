@@ -279,6 +279,30 @@
   </div>
 </div>
 
+<!-- Свойства трека: идут в «О треке» и внутрь скачанного mp3 -->
+<div class="st-modal" id="metaModal" hidden>
+  <form class="st-modal-box st-meta" id="metaForm" role="dialog" aria-modal="true" aria-labelledby="metaTitle">
+    <h3 id="metaTitle">Свойства трека</h3>
+    <p class="muted">Видны в «О треке» и записываются внутрь скачанного mp3 — плеер в телефоне и площадки покажут их сами.</p>
+    <label class="st-field"><span>Название</span><input type="text" id="metaName" maxlength="120" required></label>
+    <label class="st-field"><span>Исполнитель</span><input type="text" id="meta_artist" maxlength="120" placeholder="ваше имя или название группы"></label>
+    <div class="st-meta-pair">
+      <label class="st-field"><span>Автор слов</span><input type="text" id="meta_lyricist" maxlength="120"></label>
+      <label class="st-field"><span>Автор музыки</span><input type="text" id="meta_composer" maxlength="120"></label>
+    </div>
+    <div class="st-meta-pair">
+      <label class="st-field"><span>Альбом</span><input type="text" id="meta_album" maxlength="120"></label>
+      <label class="st-field"><span>Год</span><input type="text" id="meta_year" maxlength="4" inputmode="numeric" pattern="(19|20)[0-9]{2}" placeholder="2026"></label>
+    </div>
+    <label class="st-field"><span>Жанр</span><input type="text" id="meta_genre" maxlength="80" placeholder="например: ню-метал"></label>
+    <label class="st-field"><span>Текст песни</span><textarea id="metaLyrics" rows="6" maxlength="5000" class="st-textarea"></textarea></label>
+    <div class="st-modal-actions">
+      <button type="button" id="metaCancel">Отмена</button>
+      <button type="submit" class="primary">Сохранить</button>
+    </div>
+  </form>
+</div>
+
 <!-- Темп и тональность версии -->
 <div class="st-modal" id="shiftModal" hidden>
   <div class="st-modal-box" role="dialog" aria-modal="true" aria-labelledby="shiftTitle">

@@ -695,12 +695,49 @@ function renderDetail(jobs) {
     ${versions}${sheetBlock(j)}${j.mode === 'stems' ? midiList(j) : ''}${midi}${parts}${analyses}</div>
     ${trackInfo(j)}</div>`;
   markInfoVersion();
+  paintArt(j);
+}
+
+// Цвет обложки -- акцент страницы трека: сияние сверху, отметка версии,
+// тень обложки. Берём самый сочный цвет картинки, а не средний бурый.
+const artColors = {};
+function paintArt(j) {
+  const view = $('detailView');
+  view.classList.toggle('st-arty', Boolean(j.cover));
+  if (!j.cover) { view.style.removeProperty('--art'); view.style.removeProperty('--art-img'); return; }
+  view.style.setProperty('--art-img', `url("${j.cover}")`);
+  const apply = (color) => { if (openJob === j.id && color) view.style.setProperty('--art', color); };
+  if (j.cover in artColors) { apply(artColors[j.cover]); return; }
+  const img = new Image();
+  img.onload = () => {
+    try {
+      const side = 32;
+      const canvas = document.createElement('canvas');
+      canvas.width = side; canvas.height = side;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, side, side);
+      const d = ctx.getImageData(0, 0, side, side).data;
+      const px = [];
+      for (let i = 0; i < d.length; i += 4) {
+        const max = Math.max(d[i], d[i + 1], d[i + 2]);
+        const min = Math.min(d[i], d[i + 1], d[i + 2]);
+        px.push([max ? ((max - min) / max) * max : 0, d[i], d[i + 1], d[i + 2]]);
+      }
+      px.sort((a, b) => b[0] - a[0]);
+      const top = px.slice(0, Math.max(8, px.length >> 3));
+      const avg = [1, 2, 3].map((k) => Math.round(top.reduce((sum, p) => sum + p[k], 0) / top.length));
+      artColors[j.cover] = `rgb(${avg.join(',')})`;
+    } catch (error) { artColors[j.cover] = ''; }
+    apply(artColors[j.cover]);
+  };
+  img.src = j.cover;
 }
 
 // «О треке» -- справа от версий (на телефоне -- под ними): обложка,
 // название, стиль и текст с «Копировать» и «В форму», голос, темп и
 // тональность выбранной версии. Понравился стиль -- не писать заново.
 let infoFile = '';
+const META_FACTS = [['lyricist', 'Слова'], ['composer', 'Музыка'], ['album', 'Альбом'], ['year', 'Год'], ['genre', 'Жанр']];
 function trackInfo(j) {
   const files = j.files || [];
   if (!files.some((f) => f.name === infoFile)) infoFile = files.length ? files[0].name : '';
@@ -711,21 +748,36 @@ function trackInfo(j) {
     ['Что это', MODE[j.mode] ? MODE[j.mode].title : j.title],
     ['Версия', f.label], ['Длина', time(f.seconds)],
     ['Тональность', k.key || j.key], ['Темп', (k.bpm || j.bpm) ? `${k.bpm || j.bpm} BPM` : ''],
-    ['Голос', voice], ['Создан', j.at ? new Date(j.at * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : ''],
+    ['Голос', voice], ...META_FACTS.map(([key, title]) => [title, (j.meta || {})[key]]),
+    ['Создан', j.at ? new Date(j.at * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : ''],
   ].filter(([, v]) => v);
   const copyBox = (kind, title, text) => (text ? `<div class="st-info-block">
       <div class="st-info-head"><b>${title}</b>
         <button type="button" class="st-linkbtn" data-copy="${kind}">Копировать</button>
         <button type="button" class="st-linkbtn" data-useinfo="${kind}">В форму</button></div>
       <${kind === 'lyrics' ? 'pre' : 'p'} class="st-info-text" data-noi18n>${esc(text)}</${kind === 'lyrics' ? 'pre' : 'p'}></div>` : '');
+  const done = j.status === 'done' && j.mode !== 'stems';
+  const drawing = coverWaiting(j);
+  const coverActs = done ? `<div class="st-info-coveracts">
+      ${j.cover ? `<a class="st-linkbtn" href="${j.cover}" download="${esc(j.name)}.jpg">Скачать</a>` : ''}
+      ${j.coverLeft || drawing ? `<button type="button" class="st-linkbtn" data-act="drawcover" data-job="${j.id}"${drawing
+    ? ' disabled>Рисуем…' : `>🎨 ${j.cover ? 'Перерисовать' : 'Нарисовать'}`}</button>` : ''}
+      <button type="button" class="st-linkbtn" data-coverup="${j.id}">🖼 Своя картинка</button></div>`
+    : j.cover ? `<a class="st-linkbtn" href="${j.cover}" download="${esc(j.name)}.jpg">Скачать обложку</a>` : '';
+  const lyricsBox = j.lyrics ? copyBox('lyrics', 'Текст песни', j.lyrics) : done ? `<div class="st-info-block">
+      <div class="st-info-head"><b>Текст песни</b></div>
+      ${j.lyricsBusy ? '<p class="muted st-info-busy">Распознаём слова… обычно 2–5 минут, страницу можно закрыть</p>'
+    : `<button type="button" class="st-info-read" data-readlyrics="${j.id}">📝 Распознать текст с записи</button>
+      <p class="muted st-info-note">${j.lyricsError ? `Не вышло: ${esc(j.lyricsError)}` : 'Бесплатно. Слова появятся здесь и в суфлёре плеера'}</p>`}</div>` : '';
   return `<aside class="st-info" data-info="${j.id}" aria-label="О треке">
     ${j.cover ? `<img class="st-info-cover" src="${j.cover}" alt="Обложка">` : cover(j, true)}
+    ${coverActs}
     <div class="st-info-head"><b class="st-info-title" data-noi18n>${esc(j.name)}</b>
-      <button type="button" class="st-linkbtn" data-copy="title">Копировать</button></div>
+      <button type="button" class="st-linkbtn" data-copy="title">Копировать</button>
+      ${j.status === 'done' ? `<button type="button" class="st-linkbtn" data-editmeta="${j.id}">✎ Свойства</button>` : ''}</div>
+    ${(j.meta || {}).artist ? `<p class="st-info-artist" data-noi18n>${esc(j.meta.artist)}</p>` : ''}
     <dl class="st-info-facts">${facts.map(([t, v]) => `<dt>${t}</dt><dd>${esc(String(v))}</dd>`).join('')}</dl>
-    ${copyBox('style', 'Стиль', j.style)}${copyBox('lyrics', 'Текст песни', j.lyrics)}
-    ${j.cover ? `<a class="st-linkbtn" href="${j.cover}" download="${esc(j.name)}.jpg">Скачать обложку</a>`
-    : j.status === 'done' && j.mode !== 'stems' ? `<button type="button" class="st-linkbtn" data-act="drawcover" data-job="${j.id}"${coverWait[j.id] > Date.now() ? ' disabled>Рисуем обложку…' : '>🎨 Нарисовать обложку'}</button>` : ''}
+    ${copyBox('style', 'Стиль', j.style)}${lyricsBox}
     ${['done', 'error'].includes(j.status) && j.mode !== 'stems' ? `<button type="button" class="st-info-again" data-act="again" data-job="${j.id}">↻ Повторить с этими настройками</button>` : ''}
   </aside>`;
 }
@@ -751,6 +803,12 @@ document.addEventListener('click', async (e) => {
   if (!j || !e.target.closest('#detailView')) return;
   const copy = e.target.closest('[data-copy]');
   const use = e.target.closest('[data-useinfo]');
+  const meta = e.target.closest('[data-editmeta]');
+  if (meta) { editMeta(meta.dataset.editmeta); return; }
+  const coverUp = e.target.closest('[data-coverup]');
+  if (coverUp) { uploadCover(coverUp.dataset.coverup); return; }
+  const read = e.target.closest('[data-readlyrics]');
+  if (read) { read.disabled = true; readLyrics(read.dataset.readlyrics); return; }
   if (copy) {
     const text = { title: j.name, style: j.style, lyrics: j.lyrics }[copy.dataset.copy] || '';
     const what = { title: 'Название', style: 'Стиль', lyrics: 'Текст' }[copy.dataset.copy];
@@ -908,8 +966,9 @@ async function loadOnce() {
     return 5000;
   }
   if (analyzing) return 6000;            // тональность и темп вот-вот будут
-  if (info.jobs.some((j) => j.status === 'done' && !j.cover
-      && (coverWait[j.id] > Date.now() || (['create', 'restyle', 'continue'].includes(j.mode) && Date.now() / 1000 - j.at < 900)))) {
+  if (info.jobs.some((j) => j.lyricsBusy)) return 6000;   // распознаём слова
+  if (info.jobs.some((j) => j.status === 'done' && (coverWaiting(j)
+      || (!j.cover && ['create', 'restyle', 'continue'].includes(j.mode) && Date.now() / 1000 - j.at < 900)))) {
     return 15000;                        // обложка ещё рисуется
   }
   if (info.jobs.some((j) => j.status === 'error')) return 30000;   // «не получилось» само исчезнет
@@ -919,7 +978,12 @@ async function loadOnce() {
 // Тональность и темп: разбор на сервере по запросу, не больше двух треков
 // за раз (открытый трек -- первым). true -- что-то ещё считается.
 const keyAsked = {};
+// Ждём обложку: { until, was } -- пока ссылка не сменилась (перерисовка) или не появилась
 const coverWait = {};
+function coverWaiting(j) {
+  const w = coverWait[j.id];
+  return Boolean(w && w.until > Date.now() && j.cover === w.was);
+}
 async function ensureKeys() {
   const wanted = [];
   const open = info.jobs.find((j) => j.id === openJob);
@@ -949,6 +1013,11 @@ async function ensureKeys() {
 // и «назад» листают их, как треки альбома.
 let queue = [];
 let qi = -1;
+
+// Скачивание mp3 из Студии -- со свойствами трека и обложкой внутри файла
+function withTags(url) {
+  return /^\/api\/studio\/file\/[^?]+\.mp3$/.test(url || '') ? `${url}?dl=1` : url;
+}
 
 function coverStyle(j) {
   if (j && j.cover) return `url("${j.cover}")`;
@@ -1000,7 +1069,7 @@ function startTrack() {
   $('fSub').textContent = item.sub;
   ['pCover', 'fCover'].forEach((id) => { $(id).style.backgroundImage = item.art; });
   $('fBg').style.backgroundImage = item.art;
-  $('fDownload').href = item.url;
+  $('fDownload').href = withTags(item.url);
   $('fLyrics').textContent = item.lyrics;
   $('fLyrics').classList.remove('kk');
   $('fLyrics')._kk = null;
@@ -1392,7 +1461,7 @@ function openMenu(button) {
       + (button.dataset.upload ? item('like', ICON.again, 'Похожая песня: стиль и слова из трека')
         : item('again', ICON.again, 'Повторить с этими настройками'))
       + '<hr>' + item('delete', ICON.trash, 'Удалить трек', 'class="danger"')
-    : `<a href="${button.dataset.url}" download>${ICON.download}<span>Скачать mp3</span></a>`
+    : `<a href="${withTags(button.dataset.url)}" download>${ICON.download}<span>Скачать mp3</span></a>`
       + `<a href="/studio/mix/${job}?file=${encodeURIComponent(f)}">${ICON.mix}<span>Открыть в мультитреке</span></a>`
       + item('tabs', ICON.tabs, 'Табы, аккорды и MIDI')
       + (button.dataset.splitOk ? item('minus', ICON.split, button.dataset.hit
@@ -1686,11 +1755,74 @@ async function drawCover(jobId) {
   const data = await r.json().catch(() => ({}));
   if (!r.ok) { toast(data.detail || 'Не получилось нарисовать обложку'); return; }
   if (!data.ready) {
-    coverWait[jobId] = Date.now() + 4 * 60 * 1000;
+    const j = info.jobs.find((x) => x.id === jobId);
+    coverWait[jobId] = { until: Date.now() + 4 * 60 * 1000, was: j ? j.cover : null };
     toast('Рисуем обложку по смыслу песни — появится через минуту-две');
   }
   load();
 }
+
+// Своя обложка: картинка с телефона или компьютера
+function uploadCover(jobId) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/jpeg,image/png,image/webp,image/gif,image/bmp';
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    if (!file) return;
+    if (file.size > 15 * 1024 * 1024) { toast('Картинка больше 15 МБ'); return; }
+    toast('Ставим обложку…');
+    const form = new FormData();
+    form.append('file', file);
+    const r = await fetch(`/api/studio/${jobId}/cover/upload`, { method: 'POST', body: form }).catch(() => null);
+    const data = r ? await r.json().catch(() => ({})) : {};
+    toast(r && r.ok ? 'Обложка обновлена' : data.detail || 'Не получилось поставить обложку');
+    if (r && r.ok && window.haptic) window.haptic('success');
+    load();
+  });
+  input.click();
+}
+
+// Слова с записи: Whisper на сервере, пару минут -- опрос сам покажет текст
+async function readLyrics(jobId) {
+  const form = new FormData();
+  form.append('file', infoFile);
+  const r = await fetch(`/api/studio/${jobId}/lyrics/read`, { method: 'POST', body: form }).catch(() => null);
+  const data = r ? await r.json().catch(() => ({})) : {};
+  if (!r || !r.ok) { toast(data.detail || 'Не получилось начать распознавание'); return; }
+  toast('Распознаём слова — обычно 2–5 минут');
+  load();
+}
+
+// Свойства трека: название, исполнитель, авторы, альбом, год, жанр, текст --
+// видны в «О треке» и попадают внутрь скачанного mp3
+function editMeta(jobId) {
+  const j = info.jobs.find((x) => x.id === jobId);
+  if (!j) return;
+  const m = j.meta || {};
+  $('metaName').value = j.name || '';
+  ['artist', 'lyricist', 'composer', 'album', 'year', 'genre'].forEach((k) => { $(`meta_${k}`).value = m[k] || ''; });
+  $('metaLyrics').value = j.lyrics || '';
+  $('metaModal').dataset.job = jobId;
+  $('metaModal').hidden = false;
+  $('metaName').focus();
+}
+$('metaCancel').addEventListener('click', () => { $('metaModal').hidden = true; });
+$('metaModal').addEventListener('click', (e) => { if (e.target === $('metaModal')) $('metaModal').hidden = true; });
+$('metaForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const jobId = $('metaModal').dataset.job;
+  const form = new FormData();
+  form.append('name', $('metaName').value);
+  ['artist', 'lyricist', 'composer', 'album', 'year', 'genre'].forEach((k) => form.append(k, $(`meta_${k}`).value));
+  form.append('lyrics', $('metaLyrics').value);
+  const r = await fetch(`/api/studio/${jobId}/meta`, { method: 'POST', body: form }).catch(() => null);
+  const data = r ? await r.json().catch(() => ({})) : {};
+  if (!r || !r.ok) { toast(data.detail || 'Не получилось сохранить'); return; }
+  $('metaModal').hidden = true;
+  toast('Свойства сохранены — они будут и в скачанном mp3');
+  load();
+});
 async function act(what, jobId, fileName) {
   $('menu').hidden = true;
   if (what === 'again') { repeat(jobId); return; }
