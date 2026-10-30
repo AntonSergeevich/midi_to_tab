@@ -2993,3 +2993,45 @@ $('shFile').addEventListener('click', async () => {
     if (!error || error.name !== 'AbortError') toast('Не получилось отправить файл');
   }
 });
+
+// ------------------------------------------------ разделы сайта под музыку
+// Владелец, 30.10: «переключаю меню -- плеер пропадает и музыка обрывается,
+// а я хотел полазить по сайту под музыку». Каждый раздел -- отдельная
+// страница, переход перезагружает её вместе с плеером. Поэтому, пока играет
+// музыка, раздел открывается поверх Студии (тот же сайт во фрейме), а плеер
+// внизу продолжает играть. «Студия» в меню раздела -- обратно сюда
+// (nav.js во фрейме сообщает об этом). Мультитрек, плеер табов, вход через
+// Яндекс/VK и оплата -- обычным переходом: у них свой звук или чужой сайт.
+window.NASLUX_HOST = true;
+const BROWSE_SKIP = /^\/(studio\/mix|player\/|auth|oauth|api\/|media\/|static\/|logout|listen\/|take\/)/;
+function musicOn() { return !$('player').hidden && !$('audio').paused; }
+function openBrowse(href) {
+  $('browseFrame').src = href;
+  $('browse').hidden = false;
+  document.body.classList.add('browsing');
+  playerSpace();
+}
+function closeBrowse() {
+  if ($('browse').hidden) return;
+  $('browse').hidden = true;
+  $('browseFrame').src = 'about:blank';
+  document.body.classList.remove('browsing');
+}
+document.addEventListener('click', (e) => {
+  if (e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const a = e.target.closest('a[href]');
+  if (!a || (a.target && a.target !== '_self') || a.hasAttribute('download')) return;
+  const url = new URL(a.href, location.href);
+  if (url.origin !== location.origin || url.pathname === '/studio' || BROWSE_SKIP.test(url.pathname)) return;
+  if (!musicOn()) return;
+  e.preventDefault();
+  openBrowse(url.pathname + url.search + url.hash);
+});
+window.addEventListener('message', (e) => {
+  if (e.origin !== location.origin || !e.data || e.data.naslux !== 'studio') return;
+  const url = new URL(e.data.href, location.href);
+  if (url.pathname !== '/studio') { location.href = url.href; return; }      // мультитрек и т.п.
+  closeBrowse();
+  if (url.hash && url.hash !== location.hash) location.hash = url.hash;
+  load();                       // во фрейме могли войти, оплатить, пополнить
+});

@@ -2015,5 +2015,8 @@
  "Послушать можно без входа": "Anyone can listen without signing in",
  "Доступ по ссылке закрыт": "Link access revoked",
  "Ссылка скопирована — вставьте её в сообщение": "Link copied; paste it into a message",
- "Не получилось отправить файл": "Couldn't send the file"
+ "Не получилось отправить файл": "Couldn't send the file",
+ "Музыка не обрывается при переходах": "Music doesn't stop when you switch sections",
+ "Играет трек — открывайте «Аккорды», «Тарифы», кабинет: раздел откроется поверх Студии, а плеер внизу продолжит играть. «Студия» в меню — обратно к плееру.": "While a track plays, open «Chords», «Pricing» or your account: the section opens over the Studio and the player at the bottom keeps playing. «Studio» in the menu brings you back to the player.",
+ "Любой раздел сайта, пока играет плеер Студии": "Any section of the site while the Studio player is playing"
 }

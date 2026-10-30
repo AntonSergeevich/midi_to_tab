@@ -277,7 +277,7 @@ async function loadBilling(me) {
       $('billingMsg').innerHTML = `<span class="bad">${data.detail}</span>`;
       return;
     }
-    if (data.paymentUrl) location.href = data.paymentUrl;
+    if (data.paymentUrl) window.top.location.href = data.paymentUrl;
   };
 }
 

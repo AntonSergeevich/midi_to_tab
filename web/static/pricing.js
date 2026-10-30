@@ -31,7 +31,7 @@ async function load() {
   // Что у человека уже есть -- одной строкой: подписка, кредиты, деньги
   const have = [
     me.unlimited ? 'безлимитный доступ' : '',
-    me.subscribed ? `подписка до ${date(me.paidUntil)}` : '',
+    me.subscribed && me.paidUntil ? `подписка до ${date(me.paidUntil)}` : '',   // у безлимита даты нет
     me.studioCredits > 0 ? `кредитов Студии: ${me.studioCredits}` : '',
     me.credits > 0 ? `оплачено разборов: ${me.credits}` : '',
     me.balance > 0 ? `на балансе ${me.balance} ₽` : '',
@@ -156,7 +156,7 @@ async function pay(button, makeRequest) {
     return;
   }
   if (data.paymentUrl) {
-    location.href = data.paymentUrl;
+    window.top.location.href = data.paymentUrl;
   } else {
     $('msg').innerHTML =
       '<span class="bad">Платёжный сервис не вернул ссылку на оплату. ' +

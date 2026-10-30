@@ -2132,3 +2132,9 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
 .dl-quiet { background: transparent !important; color: var(--muted) !important; font-weight: 600 !important; }
 .dl-info .st-linkbtn { font-size: 13px; }
 .st-full-modes { gap: 22px; }
+
+/* Раздел сайта поверх Студии, пока играет музыка: плеер внизу -- над ним */
+.st-browse { position: fixed; left: 0; right: 0; top: 0; bottom: var(--player-h, 0px); z-index: 38; background: var(--bg); }
+.st-browse[hidden] { display: none; }
+.st-browse iframe { width: 100%; height: 100%; border: 0; display: block; background: var(--bg); }
+body.browsing { overflow: hidden; }

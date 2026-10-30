@@ -449,3 +449,27 @@ window.haptic = (() => {
     }
   });
 })();
+
+// Страница открыта поверх Студии, пока там играет музыка (studio.js,
+// «разделы сайта под музыку»): «Студия» -- обратно к плееру, а мультитрек,
+// вход через Яндекс/VK, оплата и чужие сайты -- на всё окно, не во фрейме.
+(() => {
+  let host = null;
+  try { host = window.top !== window && window.parent.NASLUX_HOST ? window.parent : null; } catch (error) { host = null; }
+  if (!host) return;
+  const toStudio = (href) => host.postMessage({ naslux: 'studio', href }, location.origin);
+  if (location.pathname === '/studio') { toStudio(location.href); return; }     // сюда привёл вход или оплата
+  document.documentElement.classList.add('in-frame');
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('a[href]');
+    if (!a || e.defaultPrevented || a.hasAttribute('download')) return;
+    const url = new URL(a.href, location.href);
+    if (url.origin === location.origin && (url.pathname === '/studio' || url.pathname.startsWith('/studio/'))) {
+      e.preventDefault();
+      toStudio(url.href);
+    } else if (url.origin !== location.origin || /^\/(auth|oauth|player\/)/.test(url.pathname)) {
+      e.preventDefault();
+      window.top.location.href = url.href;
+    }
+  }, true);
+})();
