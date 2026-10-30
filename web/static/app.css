@@ -2095,3 +2095,10 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
   .play-btn:active { filter: brightness(1.1); }
   button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
 }
+
+/* Перемотка в полноэкранном плеере: широкая зона для пальца, на касание --
+   полоса толще и бегунок крупнее (как в плеерах телефона) */
+.st-full-seek { padding: 14px 0 4px; margin: -14px 0 -4px; touch-action: none; }
+.st-full-seek #fSeek { display: block; margin: 0; transition: transform .15s; }
+.st-full-seek.scrubbing #fSeek { transform: scaleY(1.25); }
+.st-full-seek .st-full-times { margin-top: 6px; }

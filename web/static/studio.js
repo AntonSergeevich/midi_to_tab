@@ -88,6 +88,7 @@ const MODE = {
 };
 const MODE_ICON = { create: '✦', restyle: '↻', stems: '≡', enrich: '+', upload: '⤒' };
 let fresh = null;
+let fScrub = null;        // ведут пальцем по перемотке полноэкранного плеера
 let seeking = false;      // тянут ползунок нижнего плеера -- время не перерисовываем          // только что запущенный трек -- подсветить в списке
 
 // Обложка трека: свой градиент для каждого id -- чтобы список не был серым.
@@ -1214,9 +1215,9 @@ function syncTime() {
   $('pSeek').setAttribute('aria-valuenow', dur ? Math.round((cur / dur) * 100) : 0);
   $('pSeek').setAttribute('aria-valuetext', `${time(cur) || '0:00'} из ${time(dur) || '0:00'}`);
   $('pTime').textContent = `${time(cur) || '0:00'} / ${time(dur) || '0:00'}`;
-  $('fCur').textContent = time(cur) || '0:00';
+  if (!fScrub) $('fCur').textContent = time(cur) || '0:00';
   $('fDur').textContent = time(dur) || '0:00';
-  if (!$('fSeek').matches(':active')) $('fSeek').value = dur ? Math.round((cur / dur) * 1000) : 0;
+  if (!$('fSeek').matches(':active') && !fScrub) $('fSeek').value = dur ? Math.round((cur / dur) * 1000) : 0;
 }
 
 // ---------------------------------------------------------------- события
@@ -2324,9 +2325,12 @@ const PULL = 110;     // свернуть
 const FLIP = 70;      // сменить трек
 
 swipe($('full'), {
-  canStart: (e) => !e.target.closest('input[type="range"], .st-full-lyrics, a, .st-full-volume'),
+  canStart: (e) => !e.target.closest('input[type="range"], .st-full-seek, .st-full-lyrics, a, .st-full-volume, .st-fx'),
   onMove: (g, e) => {
     const inner = $('full').querySelector('.st-full-inner');
+    // трек листают только по обложке (как в плеерах телефона): иначе
+    // перемотку назад «перехватывало» переключение трека (владелец, 30.10)
+    if (g.mode === 'h' && !g.target.closest('#fCover')) return false;
     if (g.mode === 'v') {
       if (g.dy < 0 || $('full').scrollTop > 0) return false;      // листают текст -- не мешаем
       e.preventDefault();
@@ -2828,3 +2832,37 @@ $('fFx').addEventListener('click', () => {
 $('fxPanel').addEventListener('click', () => setTimeout(modeButtons));
 $('audio').addEventListener('play', modeButtons);
 modeButtons();
+
+// Перемотка пальцем в полноэкранном плеере (владелец, 30.10: «назад очень
+// сложно -- переключается трек»): вся полоса с подписями времени -- одна
+// широкая зона. Коснулись где угодно -- бегунок сразу там, ведёте --
+// перематывается; переключение трека сюда не дотягивается.
+function scrubTo(x) {
+  const box = $('fSeek').getBoundingClientRect();
+  const frac = Math.max(0, Math.min(1, (x - box.left) / box.width));
+  $('fSeek').value = Math.round(frac * 1000);
+  const audio = $('audio');
+  if (audio.duration) $('fCur').textContent = time(frac * audio.duration) || '0:00';
+  return frac;
+}
+$('fSeekZone').addEventListener('touchstart', (e) => {
+  if (e.touches.length !== 1) return;
+  e.preventDefault();                       // не прокручивать и не тянуть плеер
+  fScrub = { frac: scrubTo(e.touches[0].clientX) };
+  $('fSeekZone').classList.add('scrubbing');
+  if (window.haptic) window.haptic('tick');
+}, { passive: false });
+$('fSeekZone').addEventListener('touchmove', (e) => {
+  if (!fScrub) return;
+  e.preventDefault();
+  fScrub.frac = scrubTo(e.touches[0].clientX);
+}, { passive: false });
+const scrubEnd = () => {
+  if (!fScrub) return;
+  const audio = $('audio');
+  if (audio.duration) audio.currentTime = fScrub.frac * audio.duration;
+  fScrub = null;
+  $('fSeekZone').classList.remove('scrubbing');
+};
+$('fSeekZone').addEventListener('touchend', scrubEnd);
+$('fSeekZone').addEventListener('touchcancel', scrubEnd);
