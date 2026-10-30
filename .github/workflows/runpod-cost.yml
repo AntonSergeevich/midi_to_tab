@@ -40,4 +40,8 @@ jobs:
             echo "$name $image -> $code" >> images.txt
           done < templates.txt
           echo "::notice title=Образы шаблонов::$(tr '\n' '|' < images.txt)"
+          # воркеры naslux-worker: почему не поднимаются (статус, машина, последняя смена)
+          wid=$(jq -r '.[] | select(.name | startswith("naslux-worker")) | .id' endpoints.json | head -1)
+          api "/endpoints/$wid?includeWorkers=true&includeTemplate=true" | jq -c '{workers: [.workers[]? | {id, desiredStatus, lastStatusChange, machineId, gpuTypeId: (.machine.gpuTypeId // .gpuTypeId), costPerHr, lastStartedAt}], template: (.template | {imageName, containerDiskInGb, env: ((.env // {}) | keys)})}' > worker.json 2>&1 || true
+          echo "::notice title=Воркеры naslux-worker::$(head -c 1800 worker.json)"
           echo "::notice title=Счёт всех эндпоинтов::$(api "/billing/endpoints?bucketSize=month&startTime=$start&endTime=$end&grouping=endpointId" | head -c 3000)"
