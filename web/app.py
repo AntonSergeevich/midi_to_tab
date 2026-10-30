@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import io
 import json
 import os
 import re
@@ -24,6 +25,7 @@ import shutil
 import sys
 import threading
 import time
+import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -1986,7 +1988,7 @@ def _studio_job_payload(job) -> dict:
         "cover": _cover_url(job.id),
         "coverLeft": max(0, studio.COVER_TRIES - int(settings.get("coverTries") or 0)),
         "lyrics": result.get("lyrics") or (settings.get("input") or {}).get("lyrics") or "",
-        "lyricsBusy": any(j == job.id for j, _ in studio_runner.reading),
+        "lyricsBusy": any(j == job.id for j, _ in studio_runner.reading) or bool(result.get("lyricsReading")),
         "lyricsError": result.get("lyricsError", ""),
         "meta": settings.get("meta") or {},
         "hasAbc": bool(result.get("abc")),
@@ -2014,6 +2016,10 @@ def _error_gone(job) -> bool:
 def api_studio(request: Request):
     user = current_user(request)
     jobs = storage.studio_jobs(user.id)
+    for job in jobs:
+        if (job.result or {}).get("lyricsReading"):
+            studio_runner.resume_lyrics(job)        # оборвал перезапуск -- продолжаем
+    jobs = storage.studio_jobs(user.id) if any((j.result or {}).get("lyricsReading") for j in jobs) else jobs
     ready, why = studio.available()
     response = JSONResponse({
         "ready": ready, "why": why,
@@ -2629,6 +2635,52 @@ def api_studio_midi(job_id: str, request: Request, file: str = Form("")):
         raise HTTPException(503, why)
     studio_runner.transcribe_later(job_id, file)
     return {"pending": True}
+
+
+def _midi_job(job_id: str, request: Request):
+    user = current_user(request)
+    job = storage.job(job_id)
+    if (not job or job.user_id != user.id or (job.settings or {}).get("kind") != "studio"
+            or job.status != "done"):
+        raise HTTPException(404, "Готовая работа не найдена")
+    return job
+
+
+@app.post("/api/studio/{job_id}/midi/all")
+def api_studio_midi_all(job_id: str, request: Request):
+    """MIDI всех партий разом (владелец, 30.10): каждая, кроме барабанов, --
+    в очередь нашей расшифровки нот, по одной. Уже готовые не трогаем."""
+    job = _midi_job(job_id, request)
+    ready, why = audioin.available()
+    if not ready:
+        raise HTTPException(503, why)
+    folder = studio_runner.folder(job_id)
+    done = {m["name"] for m in (job.result or {}).get("midi") or []}
+    mode = (job.settings or {}).get("mode", "")
+    started = 0
+    for f in (job.result or {}).get("files") or []:
+        name = f["name"]
+        if (DRUMS.search(name) or DRUMS.search(studio.label_of(mode, name)) or f"{Path(name).stem}.mid" in done
+                or not os.path.isfile(os.path.join(folder, name))):
+            continue
+        started += studio_runner.transcribe_later(job_id, name)
+    return {"started": started}
+
+
+@app.get("/api/studio/{job_id}/midi.zip")
+def api_studio_midi_zip(job_id: str, request: Request):
+    """Все готовые MIDI партий одним архивом -- с понятными именами."""
+    job = _midi_job(job_id, request)
+    folder = studio_runner.folder(job_id)
+    found = [m for m in (job.result or {}).get("midi") or [] if os.path.isfile(os.path.join(folder, m["name"]))]
+    if not found:
+        raise HTTPException(404, "MIDI ещё нет")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for m in found:
+            archive.write(os.path.join(folder, m["name"]), download_name(job.filename, m.get("label") or m["name"], ".mid"))
+    return Response(buffer.getvalue(), media_type="application/zip", headers={
+        "Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(download_name(job.filename, "MIDI", ".zip"))})
 
 
 @app.get("/studio/mix/{job_id}", response_class=HTMLResponse)
@@ -3379,7 +3431,8 @@ def api_studio_lyrics_read(job_id: str, request: Request, file: str = Form("")):
         return {"ok": True, "busy": True}
     if sum(1 for j, _ in studio_runner.reading if (storage.job(j) or job).user_id == user.id) >= 2:
         raise HTTPException(429, "Уже распознаём два трека — дождитесь их")
-    storage.update_job(job_id, result={k: v for k, v in (job.result or {}).items() if k != "lyricsError"})
+    storage.update_job(job_id, result={k: v for k, v in (job.result or {}).items()
+                                       if k not in ("lyricsError", "lyricsReading")})
     studio_runner.read_lyrics_later(job_id, name)
     return {"ok": True, "busy": True}
 

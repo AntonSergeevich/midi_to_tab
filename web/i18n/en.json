@@ -135,7 +135,7 @@
  "Барабаны": "Drums",
  "Барабаны в MIDI переводит только «Глубокое разделение + MIDI» —": "Drums are converted to MIDI only by “Deep separation + MIDI” —",
  "Барабаны в MIDI переводит только «Глубокое разделение + MIDI» — обычная расшифровка слышит ноты, а не удары": "Drums are converted to MIDI only by “Deep separation + MIDI” — regular transcription hears notes, not hits",
- "Барабаны в MIDI — через «Глубокое разделение + MIDI» в ⋯ у версии трека.": "Drums in MIDI — via “Deep separation + MIDI” in the track version's ⋯ menu.",
+ "Барабаны в MIDI — через «Глубокое разделение + MIDI» в ⋯ у версии трека.": "Drums to MIDI: use «Deep split + MIDI» in the ⋯ menu of a track version.",
  "Бас": "Bass",
  "Бас 4 струны (EADG)": "Bass, 4 strings (EADG)",
  "Басист ищет тонику…": "The bass player is looking for the tonic…",
@@ -1929,5 +1929,12 @@
  "Обложка этому треку уже рисовалась трижды — загрузите свою картинку": "A cover has already been drawn three times for this track; upload your own picture",
  "Не получилось прочитать картинку — подойдёт JPG, PNG или WebP": "Couldn't read the picture; JPG, PNG or WebP will do",
  "Распознавание текста сейчас недоступно — попробуйте позже": "Lyrics recognition is unavailable right now; try again later",
- "Уже распознаём два трека — дождитесь их": "Already recognising two tracks; please wait for them"
+ "Уже распознаём два трека — дождитесь их": "Already recognising two tracks; please wait for them",
+ "MIDI всех партий одной кнопкой": "MIDI of all parts in one click",
+ "Разложили трек — нажмите «MIDI всех партий»: каждая дорожка, кроме барабанов, переведётся в ноты по очереди, а все MIDI скачаются одним архивом. Бесплатно.": "Split a track? Press «MIDI of all parts»: every track except drums is turned into notes one by one, and all MIDI files download as one archive. Free.",
+ "Студия → трек → под партиями": "Studio → track → under the parts",
+ "⬇ Все MIDI одним архивом": "⬇ All MIDI as one archive",
+ "Переводим партии в ноты по одной — минута-две на каждую 🎼": "Turning the parts into notes one by one, a minute or two each 🎼",
+ "Не получилось начать": "Couldn't start",
+ "MIDI ещё нет": "No MIDI yet"
 }

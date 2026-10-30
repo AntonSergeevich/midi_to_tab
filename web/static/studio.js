@@ -876,12 +876,30 @@ function stemData(c, f) {
   return `data-stem="1" data-midi="${ready ? ready.url : ''}" data-busy="${(c.midiBusy || []).includes(f.name) ? 1 : ''}"`;
 }
 
+// MIDI всех партий одной кнопкой (кроме барабанов: их ноты так не услышать)
+// и все готовые MIDI одним архивом
+const DRUM_PART = /drum|барабан|ударн/i;
 function midiList(c) {
   if (c.mode !== 'stems') return '';
-  const hint = c.pro ? '' : `<p class="muted st-midi-hint">Нужен MIDI? В ⋯ у партии — «MIDI этой дорожки», бесплатно.
-    Барабаны в MIDI — через «Глубокое разделение + MIDI» в ⋯ у версии трека.</p>`;
-  return hint;
+  const parts = (c.files || []).filter((f) => !DRUM_PART.test(f.name) && !DRUM_PART.test(f.label || ''));
+  const ready = parts.filter((f) => (c.midi || []).some((m) => m.name === `${f.name.replace(/\.[^.]+$/, '')}.mid`));
+  const busy = (c.midiBusy || []).length;
+  const button = !parts.length || ready.length === parts.length ? ''
+    : busy ? `<button type="button" class="st-info-read" disabled>🎼 Переводим в ноты… готово ${ready.length} из ${parts.length}</button>`
+      : `<button type="button" class="st-info-read" data-midiall="${c.id}">🎼 MIDI всех партий${ready.length ? ` (осталось ${parts.length - ready.length})` : ''} — бесплатно</button>`;
+  const zip = (c.midi || []).length ? `<a class="st-linkbtn" href="/api/studio/${c.id}/midi.zip" download>⬇ Все MIDI одним архивом</a>` : '';
+  const hint = c.pro ? '' : '<p class="muted st-midi-hint">Барабаны в MIDI — через «Глубокое разделение + MIDI» в ⋯ у версии трека.</p>';
+  return `<div class="st-midiall">${button}${zip}</div>${hint}`;
 }
+document.addEventListener('click', async (e) => {
+  const all = e.target.closest('[data-midiall]');
+  if (!all) return;
+  all.disabled = true;
+  const r = await fetch(`/api/studio/${all.dataset.midiall}/midi/all`, { method: 'POST' }).catch(() => null);
+  const data = r ? await r.json().catch(() => ({})) : {};
+  toast(r && r.ok ? 'Переводим партии в ноты по одной — минута-две на каждую 🎼' : data.detail || 'Не получилось начать');
+  load();
+});
 
 // Открытый трек -- запись в истории: жест «назад» на телефоне закрывает
 // трек и возвращает к списку на ту же страницу и прокрутку, а не уводит с сайта

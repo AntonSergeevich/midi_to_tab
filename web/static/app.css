@@ -1956,3 +1956,5 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
 .ls-bg { position: fixed; inset: -80px; z-index: -1; background: center/cover; filter: blur(80px) saturate(1.4) brightness(.5);
   opacity: .55; pointer-events: none; }
 .ls-cover img { box-shadow: 0 20px 50px -20px rgba(0,0,0,.7); }
+.st-midiall { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.st-midiall .st-linkbtn { align-self: flex-start; }

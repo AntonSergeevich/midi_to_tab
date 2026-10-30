@@ -1495,6 +1495,16 @@ class StudioRunner:
             if key in self.reading:
                 return False
             self.reading.add(key)
+            # Отметка в задаче: сервер перезапускается при каждом обновлении
+            # сайта, и распознавание (минуты на процессоре) молча обрывалось --
+            # ни текста, ни ошибки. По отметке оно продолжится само (resume_lyrics)
+            job = self.storage.job(job_id)
+            result = dict(job.result or {})
+            mark = result.get("lyricsReading") or {}
+            result["lyricsReading"] = {"file": name, "at": time.time(),
+                                       "tries": int(mark.get("tries") or 0) + 1 if mark.get("file") == name else 1}
+            result.pop("lyricsError", None)
+            self.storage.update_job(job_id, result=result)
 
         def work():
             error, started = "", time.time()
@@ -1522,15 +1532,34 @@ class StudioRunner:
                 print(f"[текст] {job_id}/{name}: {failure}", file=sys.stderr, flush=True)
             finally:
                 with self._analysis_lock:
+                    job = self.storage.job(job_id)
+                    result = {k: v for k, v in (job.result or {}).items() if k != "lyricsReading"}
                     if error:
-                        job = self.storage.job(job_id)
-                        self.storage.update_job(job_id, result={**(job.result or {}), "lyricsError": error})
+                        result["lyricsError"] = error
+                    self.storage.update_job(job_id, result=result)
                     self.reading.discard(key)
                     self.reading_log = [*self.reading_log, {"трек": job_id[:8], "секунд": round(time.time() - started),
                                                             "ошибка": error or None}][-5:]
 
         threading.Thread(target=work, daemon=True, name="lyrics").start()
         return True
+
+    LYRICS_TRIES = 3
+
+    def resume_lyrics(self, job) -> bool:
+        """Распознавание оборвал перезапуск сервера -- начать заново (до трёх
+        раз; дальше честная ошибка вместо вечного «распознаём»)."""
+        mark = (job.result or {}).get("lyricsReading")
+        if not mark or (job.id, mark.get("file")) in self.reading:
+            return False
+        if int(mark.get("tries") or 0) >= self.LYRICS_TRIES:
+            with self._analysis_lock:
+                fresh = self.storage.job(job.id)
+                result = {k: v for k, v in (fresh.result or {}).items() if k != "lyricsReading"}
+                result["lyricsError"] = "сервер перезапускался во время распознавания — нажмите ещё раз"
+                self.storage.update_job(job.id, result=result)
+            return False
+        return self.read_lyrics_later(job.id, mark["file"])
 
     def describe(self, job_id: str, name: str, mureka_url: str) -> dict:
         """Стиль и слова готового трека -- для «Повторить» и «Кавер на этот

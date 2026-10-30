@@ -3138,3 +3138,54 @@ def test_lyrics_read_from_recording(studio_app, monkeypatch):
     monkeypatch.setattr(lyrics_mod, "to_dict", lambda _: {"lines": []})
     client.post(f"/api/studio/{job_id}/lyrics/read")
     assert "инструментал" in client.get("/api/studio").json()["jobs"][0]["lyricsError"]
+
+
+def test_midi_of_all_parts_and_zip(studio_app, monkeypatch):
+    """«MIDI всех партий»: каждая партия, кроме барабанов, -- в расшифровку;
+    готовые MIDI -- одним архивом с понятными именами."""
+    import io
+    import zipfile
+
+    app_module, client, user, _ = studio_app
+    runner = app_module.studio_runner
+    app_module.storage.add_balance(user.id, 100)
+    job_id = _start(client, mode="stems").json()["jobId"]
+    folder = runner.folder(job_id)
+    for name in ("vocals.mp3", "drums.mp3", "bass.mp3"):
+        open(f"{folder}/{name}", "wb").write(b"mp3")
+    open(f"{folder}/bass.mid", "wb").write(b"MThd")
+    app_module.storage.update_job(job_id, status="done", result={
+        "files": [{"name": n, "label": n} for n in ("vocals.mp3", "drums.mp3", "bass.mp3")],
+        "midi": [{"name": "bass.mid", "label": "Бас"}]})
+    asked = []
+    monkeypatch.setattr(app_module.audioin, "available", lambda: (True, ""))
+    monkeypatch.setattr(runner, "transcribe_later", lambda jid, name: asked.append(name) or True)
+    assert client.post(f"/api/studio/{job_id}/midi/all").json() == {"started": 1}
+    assert asked == ["vocals.mp3"]
+    response = client.get(f"/api/studio/{job_id}/midi.zip")
+    assert response.headers["content-type"] == "application/zip"
+    names = zipfile.ZipFile(io.BytesIO(response.content)).namelist()
+    assert len(names) == 1 and names[0].endswith("Бас.mid")
+
+
+def test_lyrics_reading_resumes_after_restart(studio_app, monkeypatch):
+    """Перезапуск сервера оборвал распознавание -- отметка в задаче, и при
+    следующем открытии Студии оно начинается заново; после трёх обрывов --
+    честная ошибка, а не вечное «распознаём»."""
+    app_module, client, user, _ = studio_app
+    runner = app_module.studio_runner
+    app_module.storage.add_balance(user.id, 100)
+    job_id = _start(client, mode="stems").json()["jobId"]
+    app_module.storage.update_job(job_id, status="done", result={
+        "files": [{"name": "song.mp3", "label": "Оригинал"}],
+        "lyricsReading": {"file": "song.mp3", "at": 1.0, "tries": 1}})
+    started = []
+    monkeypatch.setattr(runner, "read_lyrics_later", lambda jid, name: started.append((jid, name)) or True)
+    job = client.get("/api/studio").json()["jobs"][0]
+    assert started == [(job_id, "song.mp3")] and job["lyricsBusy"] is True
+
+    app_module.storage.update_job(job_id, result={
+        "files": [{"name": "song.mp3", "label": "Оригинал"}],
+        "lyricsReading": {"file": "song.mp3", "at": 1.0, "tries": 3}})
+    job = client.get("/api/studio").json()["jobs"][0]
+    assert len(started) == 1 and job["lyricsBusy"] is False and "перезапуск" in job["lyricsError"]
