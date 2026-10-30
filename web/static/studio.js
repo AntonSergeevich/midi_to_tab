@@ -1123,6 +1123,7 @@ function startTrack() {
   ['pPrev', 'pNext', 'fPrev', 'fNext'].forEach((id) => { $(id).disabled = !many; });
   $('fQueue').textContent = playingList ? `${playingList} · ${qi + 1} из ${queue.length}` : '';
   lockScreen(item);
+  if (list.lists && !$('listView').hidden) renderPlaylists();    // подсветить, что играет
   $('player').hidden = false;
   playerSpace();
   syncButtons();
@@ -2597,25 +2598,27 @@ function renderPlaylists() {
     const minutes = Math.round(items.reduce((s, x) => s + (((info.jobs.find((j) => j.id === x.job) || {}).files || [])
       .find((f) => f.name === x.file) || {}).seconds || 0, 0) / 60);
     const art = (items[0] ? items[0].art : coverStyle(null)).replace(/"/g, "'");   // внутри style="…"
-    const open = own && plOpen === id;
+    const open = plOpen === id;
     return `<div class="st-pl${open ? ' open' : ''}">
-      <div class="st-pl-head">
+      <div class="st-pl-head" data-pltoggle="${id}" role="button" aria-expanded="${open}">
         <span class="st-pl-art" style="background:${art.startsWith('url') ? `${art} center/cover` : art}"></span>
         <div class="st-row-main"><b data-noi18n>${esc(name)}</b>
           <span class="muted">${items.length} ${plural(items.length, 'трек', 'трека', 'треков')}${minutes ? ` · ${minutes} мин` : ''}</span></div>
+        <span class="st-pl-chev" aria-hidden="true">${open ? '▴' : '▾'}</span>
         <button type="button" class="icon-btn" data-plshuffle="${id}" title="Перемешать и слушать">🔀</button>
-        ${own ? `<button type="button" class="icon-btn" data-plopen="${id}" title="Треки плейлиста">${open ? '▴' : '✎'}</button>` : ''}
         <button type="button" class="play-btn" data-plplay="${id}" title="Слушать подряд">${ICON.play}</button>
       </div>
       ${open ? `<div class="st-pl-items">${items.length ? items.map((x, i) => `
-        <div class="st-pl-item"><span class="st-pl-n">${i + 1}</span>
-          <div class="st-row-main"><b data-noi18n>${esc(x.title)}</b><span class="muted">${esc(x.sub || '')}</span></div>
-          <button type="button" class="icon-btn" data-plup="${i}" title="Выше"${i ? '' : ' disabled'}>↑</button>
+        <div class="st-pl-item${playingList === name && queue[qi] && queue[qi].url === x.url ? ' now' : ''}">
+          <button type="button" class="st-pl-track" data-plat="${id}:${i}" title="Слушать с этого трека">
+            <span class="st-pl-n">${i + 1}</span>
+            <span class="st-row-main"><b data-noi18n>${esc(x.title)}</b><span class="muted">${esc(x.sub || '')}</span></span></button>
+          ${own ? `<button type="button" class="icon-btn" data-plup="${i}" title="Выше"${i ? '' : ' disabled'}>↑</button>
           <button type="button" class="icon-btn" data-pldown="${i}" title="Ниже"${i < items.length - 1 ? '' : ' disabled'}>↓</button>
-          <button type="button" class="icon-btn" data-pldel="${i}" title="Убрать из плейлиста">✕</button></div>`).join('')
+          <button type="button" class="icon-btn" data-pldel="${i}" title="Убрать из плейлиста">✕</button>` : ''}</div>`).join('')
     : '<p class="muted">Пусто. Добавить трек: ⋯ у версии → «Добавить в плейлист».</p>'}
-        <div class="st-pl-foot"><button type="button" class="st-linkbtn" data-plrename="${id}">Переименовать</button>
-          <button type="button" class="st-linkbtn danger" data-plremove="${id}">Удалить плейлист</button></div></div>` : ''}
+        ${own ? `<div class="st-pl-foot"><button type="button" class="st-linkbtn" data-plrename="${id}">Переименовать</button>
+          <button type="button" class="st-linkbtn danger" data-plremove="${id}">Удалить плейлист</button></div>` : ''}</div>` : ''}
     </div>`;
   };
   $('jobs').innerHTML = `<div class="st-pls">
@@ -2650,7 +2653,22 @@ document.addEventListener('click', async (e) => {
     playList(items, name, Boolean(el.dataset.plshuffle));
     return;
   }
-  if ((el = t('plopen'))) { plOpen = plOpen === el.dataset.plopen ? '' : el.dataset.plopen; renderPlaylists(); return; }
+  if ((el = t('plat'))) {                 // нажали на трек -- слушать плейлист с него
+    const [id, at] = el.dataset.plat.split(':');
+    const { items, name } = itemsOf(id);
+    queue = items;
+    qi = Math.min(Number(at), items.length - 1);
+    playingList = name;
+    startTrack();
+    renderPlaylists();
+    return;
+  }
+  // нажали на карточку (не на кнопку) -- раскрыть/свернуть треки
+  if ((el = t('pltoggle')) && !e.target.closest('button')) {
+    plOpen = plOpen === el.dataset.pltoggle ? '' : el.dataset.pltoggle;
+    renderPlaylists();
+    return;
+  }
   if (t('plnew')) {
     const name = prompt('Название плейлиста', 'Заучить к концерту');
     if (!name || !name.trim()) return;

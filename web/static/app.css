@@ -2044,3 +2044,10 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
 .st-full { overflow-x: hidden; }
 .st-full-inner { width: 100%; box-sizing: border-box; }
 .st-full-modes .st-mode-btn { flex: 0 1 auto; min-width: 0; }
+.st-pl-head { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.st-pl-chev { color: var(--muted); font-size: 14px; padding: 0 2px; }
+.st-pl-track { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 4px 0; border: 0;
+  background: none; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.st-pl-track .st-row-main { min-width: 0; display: flex; flex-direction: column; }
+.st-pl-track b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-pl-item.now .st-pl-n, .st-pl-item.now b { color: var(--accent); }

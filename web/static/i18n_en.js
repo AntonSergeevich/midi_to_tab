@@ -1298,6 +1298,7 @@ window.NASLUX_EN = {
 "Слушаем трек всеми моделями… около минуты ⏳": "Listening to the track with all models… about a minute ⏳",
 "Слушаем трек: распознаём стиль и слова… 🎧": "Listening to the track: recognizing style and lyrics… 🎧",
 "Слушать": "Listen",
+"Слушать с этого трека": "Play from this track",
 "Слушаю аккорды": "Listening to the chords",
 "Слушаю аккорды без барабанов и голоса...": "Listening to the chords without drums and vocals...",
 "Слушаю аккорды нейросетью...": "Listening to the chords with AI...",
