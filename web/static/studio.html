@@ -427,10 +427,24 @@
     <div class="st-full-modes">
       <button type="button" class="st-mode-btn" id="fAddPl" aria-label="Добавить в плейлист"></button>
       <button type="button" class="st-mode-btn" id="fFx" aria-label="Звук: эквалайзер и объём"></button>
+      <button type="button" class="st-mode-btn" id="fShare" aria-label="Поделиться треком"></button>
     </div>
     <div class="st-fx" id="fxPanel" hidden></div>
     <button type="button" class="st-full-lyrics-btn" id="fLyricsBtn" hidden>Текст песни</button>
     <pre class="st-full-lyrics" id="fLyrics" hidden></pre>
+  </div>
+</div>
+
+<!-- Поделиться треком из плеера: ссылка «послушать без входа» или сам mp3 -->
+<div class="dl-sheet" id="shareSheet" hidden>
+  <div class="dl-box" role="dialog" aria-modal="true" aria-labelledby="shName">
+    <div class="dl-icon" id="shIcon" aria-hidden="true"></div>
+    <b class="dl-name" id="shName" data-noi18n></b>
+    <small class="dl-info" id="shInfo"></small>
+    <button type="button" class="dl-save" id="shSend" disabled>Отправить ссылку</button>
+    <button type="button" class="dl-back" id="shFile" hidden>Отправить файл mp3</button>
+    <button type="button" class="dl-back" id="shCopy" disabled>Скопировать ссылку</button>
+    <button type="button" class="dl-back dl-quiet" id="shBack">Назад</button>
   </div>
 </div>
 

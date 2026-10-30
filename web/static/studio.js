@@ -31,6 +31,7 @@ const ICON = {
   repeatOne: '<svg viewBox="0 0 24 24"><path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H19"/><path d="m16 3 3 3-3 3"/><path d="M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H5"/><path d="m8 21-3-3 3-3"/><path d="M11 10.5 12.5 9.5V15"/></svg>',
   shuffle: '<svg viewBox="0 0 24 24"><path d="M3 7h3.2c1.3 0 2.5.7 3.2 1.8l5.2 7.4c.7 1.1 1.9 1.8 3.2 1.8H21"/><path d="m18 15 3 3-3 3"/><path d="M3 17h3.2c1 0 1.9-.4 2.6-1.1"/><path d="M13.2 8.1A3.9 3.9 0 0 1 15.6 7H21"/><path d="m18 4 3 3-3 3"/></svg>',
   addList: '<svg viewBox="0 0 24 24"><path d="M4 6h12M4 11h12M4 16h7"/><path d="M18 13v7M14.5 16.5h7"/></svg>',
+  share: '<svg viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M7 10H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1"/></svg>',
   sliders: '<svg viewBox="0 0 24 24"><path d="M5 4v6M5 14v6M12 4v2M12 10v10M19 4v9M19 17v3"/><circle cx="5" cy="12" r="2"/><circle cx="12" cy="8" r="2"/><circle cx="19" cy="15" r="2"/></svg>',
   list: '<svg viewBox="0 0 24 24"><path d="M4 6h11M4 11h11M4 16h7M17 14v6m-3-3h6"/></svg>',
   mix: '<svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
@@ -2830,8 +2831,10 @@ function modeButtons() {
   $('fShuffle').setAttribute('aria-pressed', String(shuffleOn));
   $('fAddPl').innerHTML = ICON.addList;
   $('fFx').innerHTML = ICON.sliders;
+  $('fShare').innerHTML = ICON.share;
   const item = queue[qi];
   $('fAddPl').hidden = !(item && item.job);
+  $('fShare').hidden = !(item && item.job);
   $('fFx').classList.toggle('on', window.SoundFX.on);
 }
 function setShuffle(on, announce = true) {
@@ -2902,3 +2905,91 @@ const scrubEnd = () => {
 };
 $('fSeekZone').addEventListener('touchend', scrubEnd);
 $('fSeekZone').addEventListener('touchcancel', scrubEnd);
+
+// Поделиться треком из плеера (владелец, 30.10: «в плеере не могу
+// поделиться»): ссылка «послушать без входа» -- в мессенджер или
+// скопировать; или сам mp3 (со свойствами и обложкой). Ссылка и файл
+// готовятся сразу при открытии окна, а отправка -- по нажатию: так
+// системное меню телефона открывается наверняка.
+let shareJob = null;
+function closeShare() {
+  shareJob = null;
+  $('shareSheet').classList.remove('on');
+  setTimeout(() => { if (!shareJob) $('shareSheet').hidden = true; }, 220);
+}
+async function openShare() {
+  const item = queue[qi];
+  if (!item || !item.job) return;
+  const mine = { item, url: '', file: null };
+  shareJob = mine;
+  $('shIcon').innerHTML = ICON.share;
+  $('shName').textContent = `${item.title}${item.sub ? ` — ${item.sub}` : ''}`;
+  $('shInfo').textContent = 'Готовим ссылку…';
+  ['shSend', 'shCopy'].forEach((id) => { $(id).disabled = true; });
+  $('shFile').hidden = true;
+  $('shareSheet').hidden = false;
+  requestAnimationFrame(() => $('shareSheet').classList.add('on'));
+  const form = new FormData();
+  form.append('file', item.file);
+  const r = await fetch(`/api/studio/${item.job}/share`, { method: 'POST', body: form }).catch(() => null);
+  const data = r ? await r.json().catch(() => ({})) : {};
+  if (shareJob !== mine) return;
+  if (!r || !r.ok) { $('shInfo').textContent = data.detail || 'Не получилось сделать ссылку'; return; }
+  mine.url = `${location.origin}${data.path}`;
+  mine.token = data.token;
+  $('shInfo').innerHTML = `Послушать можно без входа${data.plays ? ` · прослушиваний: ${data.plays}` : ''}
+    · <button type="button" class="st-linkbtn" id="shStop">закрыть доступ</button>`;
+  ['shSend', 'shCopy'].forEach((id) => { $(id).disabled = false; });
+  // сам файл -- в мессенджер, если телефон умеет делиться файлами
+  if (navigator.canShare) {
+    const f = await fetch(withTags(item.url)).then((x) => (x.ok ? x.blob() : null)).catch(() => null);
+    if (shareJob !== mine || !f) return;
+    const name = `${item.title}${item.sub ? ` — ${item.sub}` : ''}.mp3`.replace(/[\\/:*?"<>|]/g, '_');
+    const file = new File([f], name, { type: 'audio/mpeg' });
+    if (navigator.canShare({ files: [file] })) {
+      mine.file = file;
+      $('shFile').textContent = `Отправить файл mp3 · ${(f.size / 1048576).toFixed(1).replace('.', ',')} МБ`;
+      $('shFile').hidden = false;
+    }
+  }
+}
+$('fShare').addEventListener('click', openShare);
+$('shBack').addEventListener('click', closeShare);
+$('shareSheet').addEventListener('click', async (e) => {
+  if (e.target === $('shareSheet')) { closeShare(); return; }
+  if (e.target.id === 'shStop' && shareJob && shareJob.token) {
+    const r = await fetch(`/api/share/${encodeURIComponent(shareJob.token)}`, { method: 'DELETE' }).catch(() => null);
+    toast(r && r.ok ? 'Доступ по ссылке закрыт' : 'Не получилось закрыть доступ');
+    closeShare();
+  }
+});
+$('shSend').addEventListener('click', async () => {
+  const job = shareJob;
+  if (!job || !job.url) return;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: job.item.title, text: `${job.item.title} — послушать в NASLUX`, url: job.url });
+      closeShare();
+      return;
+    }
+  } catch (error) {
+    if (error && error.name === 'AbortError') return;        // закрыли меню -- окно остаётся
+  }
+  $('shCopy').click();
+});
+$('shCopy').addEventListener('click', async () => {
+  const job = shareJob;
+  if (!job || !job.url) return;
+  toast(await copyText(job.url) ? 'Ссылка скопирована — вставьте её в сообщение' : 'Не получилось скопировать');
+  closeShare();
+});
+$('shFile').addEventListener('click', async () => {
+  const job = shareJob;
+  if (!job || !job.file) return;
+  try {
+    await navigator.share({ files: [job.file], title: job.file.name });
+    closeShare();
+  } catch (error) {
+    if (!error || error.name !== 'AbortError') toast('Не получилось отправить файл');
+  }
+});

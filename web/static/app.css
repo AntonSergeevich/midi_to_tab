@@ -2126,3 +2126,9 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
 .dl-save { margin-top: 10px; background: var(--accent); color: #1a1206; }
 .dl-save:disabled { opacity: .6; }
 .dl-back { background: var(--panel-hi); color: var(--text); }
+.dl-box .dl-back + .dl-back { margin-top: 0; }
+.dl-box .dl-back[hidden] { display: none; }
+.dl-box .dl-back:disabled { opacity: .55; }
+.dl-quiet { background: transparent !important; color: var(--muted) !important; font-weight: 600 !important; }
+.dl-info .st-linkbtn { font-size: 13px; }
+.st-full-modes { gap: 22px; }

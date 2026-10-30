@@ -2007,5 +2007,13 @@
  "Готовим файл…": "Preparing the file…",
  "Файл": "File",
  "Не получилось скачать — проверьте интернет": "Couldn't download; check your connection",
- "Не получилось": "Didn't work"
+ "Не получилось": "Didn't work",
+ "Поделиться треком": "Share the track",
+ "Отправить ссылку": "Send link",
+ "Отправить файл mp3": "Send mp3 file",
+ "Готовим ссылку…": "Preparing the link…",
+ "Послушать можно без входа": "Anyone can listen without signing in",
+ "Доступ по ссылке закрыт": "Link access revoked",
+ "Ссылка скопирована — вставьте её в сообщение": "Link copied; paste it into a message",
+ "Не получилось отправить файл": "Couldn't send the file"
 }
