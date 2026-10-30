@@ -2003,5 +2003,9 @@
  "Треки играют в случайном порядке.": "Tracks play in random order.",
  "Треки играют по порядку очереди.": "Tracks play in queue order.",
  "Звук: эквалайзер и объём": "Sound: equalizer and space",
- "С эффектами тихие треки звучат громче — без хрипа. Лучше всего в наушниках. Если при заблокированном экране звук прервётся — выключите эффекты.": "With effects on, quiet tracks sound louder without distortion. Best with headphones. If the sound stops with the screen locked, turn the effects off."
+ "С эффектами тихие треки звучат громче — без хрипа. Лучше всего в наушниках. Если при заблокированном экране звук прервётся — выключите эффекты.": "With effects on, quiet tracks sound louder without distortion. Best with headphones. If the sound stops with the screen locked, turn the effects off.",
+ "Готовим файл…": "Preparing the file…",
+ "Файл": "File",
+ "Не получилось скачать — проверьте интернет": "Couldn't download; check your connection",
+ "Не получилось": "Didn't work"
 }

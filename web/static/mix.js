@@ -3439,11 +3439,14 @@ $('exportGo').addEventListener('click', async () => {
   try {
     const { rendered, part, from, to } = await renderMix();
     const blob = wav(rendered);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${mixName(part, from, to)}.wav`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    // iPhone: окно «Сохранить / Назад» (nav.js) -- не уводит со страницы
+    if (window.saveFile) { window.saveFile(blob, `${mixName(part, from, to)}.wav`); } else {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${mixName(part, from, to)}.wav`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    }
   } catch (error) {
     toast('Не получилось свести микс в этом браузере');
   }

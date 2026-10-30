@@ -336,3 +336,116 @@ window.haptic = (() => {
   window.addEventListener('offline', offlineNote);
   if (document.body) offlineNote(); else document.addEventListener('DOMContentLoaded', offlineNote);
 })();
+
+// Скачивание на iPhone (владелец, 30.10: «нажал скачать и не могу вернуться
+// назад»). В приложении с экрана «Домой» у iPhone нет кнопки «назад», и
+// ссылка на файл открывала его просмотр, из которого не выйти. Теперь файл
+// готовится тут же, а «Сохранить» открывает системное меню («Сохранить в
+// Файлы», другое приложение, AirDrop); «Назад» -- остаться на странице.
+(() => {
+  const IOS = /iP(hone|ad|od)/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (!IOS) { window.saveFile = null; return; }
+
+  let sheet = null;
+  let job = null;
+  const text = (s) => (window.__t ? window.__t(s) : s);
+  function ensureSheet() {
+    if (sheet) return sheet;
+    sheet = document.createElement('div');
+    sheet.className = 'dl-sheet';
+    sheet.hidden = true;
+    sheet.innerHTML = `<div class="dl-box" role="dialog" aria-modal="true">
+      <div class="dl-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg></div>
+      <b class="dl-name" data-noi18n></b><small class="dl-info"></small>
+      <button type="button" class="dl-save" disabled></button>
+      <button type="button" class="dl-back"></button></div>`;
+    document.body.appendChild(sheet);
+    sheet.querySelector('.dl-back').textContent = text('Назад');
+    sheet.querySelector('.dl-back').addEventListener('click', close);
+    sheet.addEventListener('click', (e) => { if (e.target === sheet) close(); });
+    sheet.querySelector('.dl-save').addEventListener('click', save);
+    return sheet;
+  }
+  function close() {
+    if (job && job.abort) job.abort.abort();
+    job = null;
+    if (sheet) sheet.classList.remove('on');
+    setTimeout(() => { if (sheet && !job) sheet.hidden = true; }, 220);
+  }
+  const mb = (n) => `${(n / 1048576).toFixed(n < 10485760 ? 1 : 0).replace('.', ',')} МБ`;
+  function ready(blob, name) {
+    job.file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
+    sheet.querySelector('.dl-info').textContent = mb(blob.size);
+    const button = sheet.querySelector('.dl-save');
+    button.disabled = false;
+    button.textContent = text('Сохранить');
+  }
+  function open(name) {
+    ensureSheet();
+    job = { abort: null, file: null };
+    sheet.querySelector('.dl-name').textContent = name || text('Файл');
+    sheet.querySelector('.dl-info').textContent = text('Готовим файл…');
+    const button = sheet.querySelector('.dl-save');
+    button.disabled = true;
+    button.textContent = text('Готовим файл…');
+    sheet.hidden = false;
+    requestAnimationFrame(() => sheet.classList.add('on'));
+  }
+  async function save() {
+    if (!job || !job.file) return;
+    const file = job.file;
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: file.name });
+        close();
+        return;
+      }
+    } catch (error) {
+      if (error && error.name === 'AbortError') return;       // закрыли меню -- остаёмся в окне
+    }
+    // нет системного меню -- обычное скачивание файла из памяти: страница не уходит
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(file);
+    a.download = file.name;
+    a.dataset.direct = '1';                 // не перехватывать самим собой
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    close();
+  }
+  function nameFrom(response, fallback) {
+    const header = response.headers.get('content-disposition') || '';
+    const star = header.match(/filename\*=UTF-8''([^;]+)/i);
+    if (star) { try { return decodeURIComponent(star[1]); } catch (error) { /* */ } }
+    const plain = header.match(/filename="?([^";]+)"?/i);
+    return plain ? plain[1] : fallback;
+  }
+
+  // готовый файл в памяти (сведённый микс, ноты) -- то же окно
+  window.saveFile = (blob, name) => { open(name); ready(blob, name); };
+
+  document.addEventListener('click', async (e) => {
+    const link = e.target.closest('a[download]');
+    if (!link || !link.href || e.defaultPrevented || link.dataset.direct) return;
+    e.preventDefault();
+    const fallback = link.getAttribute('download') || decodeURIComponent(link.pathname.split('/').pop() || 'file');
+    open(link.getAttribute('download') || '');
+    const mine = job;
+    mine.abort = new AbortController();
+    try {
+      const response = await fetch(link.href, { signal: mine.abort.signal, credentials: 'same-origin' });
+      if (!response.ok) throw new Error(String(response.status));
+      const name = nameFrom(response, fallback);
+      const blob = await response.blob();
+      if (job !== mine) return;
+      sheet.querySelector('.dl-name').textContent = name;
+      ready(blob, name);
+    } catch (error) {
+      if (job !== mine || (error && error.name === 'AbortError')) return;
+      sheet.querySelector('.dl-info').textContent = text('Не получилось скачать — проверьте интернет');
+      sheet.querySelector('.dl-save').textContent = text('Не получилось');
+    }
+  });
+})();
