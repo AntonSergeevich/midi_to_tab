@@ -2034,3 +2034,13 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
 .fx-band input { writing-mode: vertical-lr; direction: rtl; width: 26px; flex: 1; accent-color: var(--accent); }
 .fx-note { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
 .fx-note:empty { display: none; }
+
+/* Окна поверх полноэкранного плеера (z-index 80): «Добавить в плейлист»
+   из плеера пряталось под ним (владелец, 30.10) */
+.st-modal { z-index: 90; }
+/* iPhone увеличивает страницу при вводе в поле с шрифтом мельче 16px -- и
+   плеер «вылезал» за экран; поля окон -- 16px, плеер -- не шире экрана */
+.st-modal input, .st-modal textarea, .st-modal select { font-size: 16px; }
+.st-full { overflow-x: hidden; }
+.st-full-inner { width: 100%; box-sizing: border-box; }
+.st-full-modes .st-mode-btn { flex: 0 1 auto; min-width: 0; }
