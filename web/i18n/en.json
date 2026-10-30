@@ -1736,7 +1736,7 @@
  "↻ Повторить с этими настройками": "↻ Repeat with these settings",
  "Стиль — в поле «Стиль»": "Style — in the “Style” field",
  "Текст — в поле «Текст песни»": "Lyrics — in the “Lyrics” field",
- "Не получилось скопировать": "Couldn’t copy",
+ "Не получилось скопировать": "Couldn't copy",
  "Обложка": "Cover",
  "Название скопировано": "Title copied",
  "Стиль скопирован": "Style copied",
@@ -2018,5 +2018,9 @@
  "Не получилось отправить файл": "Couldn't send the file",
  "Музыка не обрывается при переходах": "Music doesn't stop when you switch sections",
  "Играет трек — открывайте «Аккорды», «Тарифы», кабинет: раздел откроется поверх Студии, а плеер внизу продолжит играть. «Студия» в меню — обратно к плееру.": "While a track plays, open «Chords», «Pricing» or your account: the section opens over the Studio and the player at the bottom keeps playing. «Studio» in the menu brings you back to the player.",
- "Любой раздел сайта, пока играет плеер Студии": "Any section of the site while the Studio player is playing"
+ "Любой раздел сайта, пока играет плеер Студии": "Any section of the site while the Studio player is playing",
+ "Вставьте её в сообщение — послушать можно без входа.": "Paste it into a message; anyone can listen without signing in.",
+ "Нажмите «Отправить ссылку» — откроется меню телефона.": "Tap «Send link» to open the phone share menu.",
+ "Доступ закрыт": "Access revoked",
+ "По этой ссылке трек больше не откроется.": "The track will no longer open from this link."
 }

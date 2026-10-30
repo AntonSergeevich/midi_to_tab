@@ -31,6 +31,8 @@ const ICON = {
   repeatOne: '<svg viewBox="0 0 24 24"><path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H19"/><path d="m16 3 3 3-3 3"/><path d="M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H5"/><path d="m8 21-3-3 3-3"/><path d="M11 10.5 12.5 9.5V15"/></svg>',
   shuffle: '<svg viewBox="0 0 24 24"><path d="M3 7h3.2c1.3 0 2.5.7 3.2 1.8l5.2 7.4c.7 1.1 1.9 1.8 3.2 1.8H21"/><path d="m18 15 3 3-3 3"/><path d="M3 17h3.2c1 0 1.9-.4 2.6-1.1"/><path d="M13.2 8.1A3.9 3.9 0 0 1 15.6 7H21"/><path d="m18 4 3 3-3 3"/></svg>',
   addList: '<svg viewBox="0 0 24 24"><path d="M4 6h12M4 11h12M4 16h7"/><path d="M18 13v7M14.5 16.5h7"/></svg>',
+  link: '<svg viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3.2-3.2a4.5 4.5 0 0 0-6.4-6.4l-1.1 1.1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3.2 3.2a4.5 4.5 0 0 0 6.4 6.4l1.1-1.1"/></svg>',
+  unlink: '<svg viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3.2-3.2a4.5 4.5 0 0 0-6.4-6.4l-1.1 1.1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3.2 3.2a4.5 4.5 0 0 0 6.4 6.4l1.1-1.1"/><path d="M4 4l16 16"/></svg>',
   share: '<svg viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M7 10H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1"/></svg>',
   sliders: '<svg viewBox="0 0 24 24"><path d="M5 4v6M5 14v6M12 4v2M12 10v10M19 4v9M19 17v3"/><circle cx="5" cy="12" r="2"/><circle cx="12" cy="8" r="2"/><circle cx="19" cy="15" r="2"/></svg>',
   list: '<svg viewBox="0 0 24 24"><path d="M4 6h11M4 11h11M4 16h7M17 14v6m-3-3h6"/></svg>',
@@ -2959,8 +2961,9 @@ $('shareSheet').addEventListener('click', async (e) => {
   if (e.target === $('shareSheet')) { closeShare(); return; }
   if (e.target.id === 'shStop' && shareJob && shareJob.token) {
     const r = await fetch(`/api/share/${encodeURIComponent(shareJob.token)}`, { method: 'DELETE' }).catch(() => null);
-    toast(r && r.ok ? 'Доступ по ссылке закрыт' : 'Не получилось закрыть доступ');
     closeShare();
+    if (r && r.ok) hud(ICON.unlink, 'Доступ закрыт', 'По этой ссылке трек больше не откроется.');
+    else toast('Не получилось закрыть доступ');
   }
 });
 $('shSend').addEventListener('click', async () => {
@@ -2980,8 +2983,12 @@ $('shSend').addEventListener('click', async () => {
 $('shCopy').addEventListener('click', async () => {
   const job = shareJob;
   if (!job || !job.url) return;
-  toast(await copyText(job.url) ? 'Ссылка скопирована — вставьте её в сообщение' : 'Не получилось скопировать');
+  const ok = await copyText(job.url);
   closeShare();
+  // та же мягкая подсказка, что у «повтора» и «перемешать» (владелец, 30.10:
+  // «не понимаю, скопирована ли ссылка»)
+  if (ok) hud(ICON.link, 'Ссылка скопирована', 'Вставьте её в сообщение — послушать можно без входа.');
+  else hud(ICON.unlink, 'Не получилось скопировать', 'Нажмите «Отправить ссылку» — откроется меню телефона.');
 });
 $('shFile').addEventListener('click', async () => {
   const job = shareJob;
