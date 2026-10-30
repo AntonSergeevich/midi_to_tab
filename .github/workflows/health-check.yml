@@ -80,7 +80,7 @@ jobs:
           echo "::notice title=Диск::$(echo "$body" | jq -c '.["диск"]')"
           echo "::notice title=GPU за 30 дней::$(echo "$body" | jq -c '.["gpu_за_30_дней"] // "нет данных"')"
           echo "::notice title=Шумодав голоса::$(echo "$body" | jq -r '.["шумодав_голоса"] // "нет данных"')"
-          echo "::notice title=Тексты песен::$(echo "$body" | jq -r '.["тексты_песен"] // "нет данных"')"
+          echo "::notice title=Тексты песен и распознавание слов::$(echo "$body" | jq -r '.["тексты_песен"] // "нет данных"') | $(echo "$body" | jq -c '.["распознавание_слов"] // "нет"')"
           echo "::notice title=Сбои ИИ-шлюза::$(echo "$body" | jq -c '.["ии_шлюз_сбои"] // []')"
           echo "::notice title=Suno (GenAPI)::$(echo "$body" | jq -c '.["suno_genapi"] // "нет"')"
 

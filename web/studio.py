@@ -1267,6 +1267,7 @@ class StudioRunner:
         self.midi_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="midi")
         self.transcribing: set[tuple[str, str]] = set()
         self.reading: set[tuple[str, str]] = set()     # распознаём слова (Whisper)
+        self.reading_log: list[dict] = []               # последние распознавания -- в /api/health
         self._analyzing: set[tuple[str, str]] = set()
 
     def folder(self, job_id: str) -> str:
@@ -1496,7 +1497,7 @@ class StudioRunner:
             self.reading.add(key)
 
         def work():
-            error = ""
+            error, started = "", time.time()
             try:
                 from midi2tab import lyrics as lyrics_mod
 
@@ -1525,6 +1526,8 @@ class StudioRunner:
                         job = self.storage.job(job_id)
                         self.storage.update_job(job_id, result={**(job.result or {}), "lyricsError": error})
                     self.reading.discard(key)
+                    self.reading_log = [*self.reading_log, {"трек": job_id[:8], "секунд": round(time.time() - started),
+                                                            "ошибка": error or None}][-5:]
 
         threading.Thread(target=work, daemon=True, name="lyrics").start()
         return True

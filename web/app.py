@@ -423,6 +423,26 @@ def voicefx_ready() -> bool:
     return bool(voicefx.deep_filter_path())
 
 
+def _lyrics_health() -> dict:
+    """Распознавание слов (Whisper): установлено ли, какие модели скачаны,
+    сколько памяти и что было с последними распознаваниями."""
+    models = os.path.join(DATA_DIR, "models")
+    try:
+        cached = sorted(n for n in os.listdir(models) if "whisper" in n.lower())
+    except OSError:
+        cached = []
+    memory = {}
+    try:
+        for line in open("/proc/meminfo", encoding="utf-8"):
+            key, value = line.split(":", 1)
+            if key in ("MemTotal", "MemAvailable", "SwapFree"):
+                memory[key] = f"{int(value.split()[0]) // 1024} МБ"
+    except OSError:
+        pass
+    return {"установлено": lyrics_mod.available()[0], "модели": cached, "память": memory,
+            "ядер": os.cpu_count(), "идут": len(studio_runner.reading), "последние": studio_runner.reading_log}
+
+
 @app.get("/api/health")
 def api_health(request: Request):
     """
@@ -448,6 +468,7 @@ def api_health(request: Request):
                                   "этап": j.stage, "минут": round((time.time() - j.created_at) / 60, 1)}
                                  for j in storage.unfinished_studio_jobs() if (j.settings or {}).get("engine") == "suno"][:10],
                         **storage.suno_usage(time.time() - 30 * 86400)},
+        "распознавание_слов": _lyrics_health(),
         "тексты_песен": f"ИИ-шлюз Beget ({llm.model()})" if llm.ready() else (
             "Mureka" if studio.mureka_key() else "выключено"),
         "уведомлений_за_последние": len(recent),
