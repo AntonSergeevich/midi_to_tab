@@ -56,15 +56,23 @@
       // моно-запись -- в стерео, иначе «Объём» тянет звук в одно ухо
       spaceIn.channelCount = 2; spaceIn.channelCountMode = 'explicit'; spaceIn.channelInterpretation = 'speakers';
       const spaceOut = ctx.createGain();
-      const limiter = ctx.createDynamicsCompressor();       // подняли полосы -- не хрипеть
-      limiter.threshold.value = -2; limiter.knee.value = 0; limiter.ratio.value = 20;
-      limiter.attack.value = 0.003; limiter.release.value = 0.15;
+      // Громкость (владелец, 30.10: «стало тише»): эффекты выравнивают её
+      // вверх -- тихий трек подтягивается до громкости хорошего релиза
+      // (makeup до +9 дБ), а ограничитель только ловит пики выше −1 дБ,
+      // чтобы не хрипело. Выключили эффекты -- ни того, ни другого в цепи нет.
+      const makeup = ctx.createGain();
+      const limiter = ctx.createDynamicsCompressor();
+      limiter.threshold.value = -1; limiter.knee.value = 2; limiter.ratio.value = 20;
+      limiter.attack.value = 0.002; limiter.release.value = 0.12;
       const out = ctx.createGain();
       source.connect(input);
       input.connect(analyser);
       filters.reduce((prev, f) => { prev.connect(f); return f; }, input).connect(spaceIn);
-      spaceOut.connect(limiter).connect(out).connect(ctx.destination);
-      nodes = { source, input, analyser, filters, spaceIn, spaceOut, limiter, out, space: [] };
+      out.connect(ctx.destination);
+      makeup.connect(limiter);
+      nodes = { source, input, analyser, filters, spaceIn, spaceOut, makeup, limiter, out, space: [] };
+      setInterval(loudnessStep, 400);
+      audio.addEventListener('loadstart', () => { loud = null; avg = null; });   // новый трек -- слушаем заново
       audio.addEventListener('play', () => { if (ctx.state !== 'running') ctx.resume().catch(() => {}); });
       apply();
       return true;
@@ -131,6 +139,7 @@
     const panner = ctx.createPanner();
     panner.panningModel = 'HRTF';
     panner.distanceModel = 'inverse';
+    panner.refDistance = 2;                 // по кругу радиусом 1,5 -- без потери громкости
     spaceIn.connect(dry); dry.connect(spaceOut);
     spaceIn.connect(panner); panner.connect(spaceOut);
     nodes.space.push(dry, panner, ...reverb(0.18, spaceOut));
@@ -162,6 +171,22 @@
     // подняли полосы -- общий уровень чуть вниз, чтобы ограничитель не давил
     const boost = Math.max(0, ...gains) * 0.5;
     nodes.input.gain.setTargetAtTime(10 ** (-boost / 20), now, smooth || 0.05);
+  }
+
+  // Выравнивание громкости: средний уровень (RMS) трека -> к −14 дБ
+  // (громкость стримингов), только вверх и плавно; паузы не считаем
+  let loud = null;
+  function loudnessStep() {
+    if (!nodes || !state.on || audio.paused) return;
+    const data = new Float32Array(nodes.analyser.fftSize);
+    nodes.analyser.getFloatTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 1) sum += data[i] * data[i];
+    const rms = 10 * Math.log10(sum / data.length + 1e-12);
+    if (rms < -50) return;
+    loud = loud == null ? rms : loud * 0.92 + rms * 0.08;
+    const gain = Math.max(0, Math.min(9, -14 - loud));
+    nodes.makeup.gain.setTargetAtTime(10 ** (gain / 20), ctx.currentTime, 1.2);
   }
 
   // Авто: слушаем средний спектр трека и мягко выравниваем его к
@@ -196,7 +221,10 @@
     if (gains) setGains(gains);
     else { avg = null; autoTimer = setInterval(autoStep, 400); }
     buildSpace();
-    nodes.limiter.threshold.value = state.on ? -2 : 0;
+    // эффекты выключены -- звук идёт мимо выравнивания и ограничителя, как был
+    nodes.spaceOut.disconnect();
+    nodes.limiter.disconnect();
+    if (state.on) { nodes.spaceOut.connect(nodes.makeup); nodes.limiter.connect(nodes.out); } else nodes.spaceOut.connect(nodes.out);
     nodes.out.gain.value = volume;
   }
 
@@ -217,7 +245,7 @@
     : state.eq === 'vocal' ? 'Голос впереди — удобно заучивать слова.' : ''}</p>
         <div class="fx-label">Пространство</div>
         <div class="fx-chips">${chips(SPACES, state.space, 'fxspace')}</div>
-        <p class="fx-note">Лучше всего в наушниках. Если при заблокированном экране звук прервётся — выключите эффекты.</p>
+        <p class="fx-note">С эффектами тихие треки звучат громче — без хрипа. Лучше всего в наушниках. Если при заблокированном экране звук прервётся — выключите эффекты.</p>
       </div>`;
   }
 
@@ -254,6 +282,7 @@
   }
 
   window.SoundFX = {
+    debug: () => (nodes ? { makeup: nodes.makeup.gain.value, loud, state: ctx.state } : null),
     attach(element) { audio = element; },
     wake,
     ensure,

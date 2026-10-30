@@ -1207,6 +1207,7 @@ window.NASLUX_EN = {
 "С дописанной партией": "With the added part",
 "С дорожками для репетиции — их не нужно загружать и раскладывать заново.": "With stems for rehearsal — no need to upload and split again.",
 "С метрономом (звук и громкость — как сейчас)": "With the metronome (sound and volume as now)",
+"С эффектами тихие треки звучат громче — без хрипа. Лучше всего в наушниках. Если при заблокированном экране звук прервётся — выключите эффекты.": "With effects on, quiet tracks sound louder without distortion. Best with headphones. If the sound stops with the screen locked, turn the effects off.",
 "Саксофон": "Saxophone",
 "Самая первая": "The very first",
 "Сатурация": "Saturation",
