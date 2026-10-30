@@ -2636,10 +2636,9 @@ function shuffled(items) {
   }
   return a;
 }
-function playList(items, name, mix) {
+function playList(items, name) {
   if (!items.length) { toast('В плейлисте пока нет треков'); return; }
-  if (mix && !shuffleOn) setShuffle(true, false);
-  setQueue(items, mix ? Math.floor(Math.random() * items.length) : 0, name);
+  setQueue(items, shuffleOn ? Math.floor(Math.random() * items.length) : 0, name);
   startTrack();
   if (window.haptic) window.haptic('light');
 }
@@ -2660,7 +2659,8 @@ function renderPlaylists() {
         <div class="st-row-main"><b data-noi18n>${esc(name)}</b>
           <span class="muted">${items.length} ${plural(items.length, 'трек', 'трека', 'треков')}${minutes ? ` · ${minutes} мин` : ''}</span></div>
         <span class="st-pl-chev" aria-hidden="true">${open ? '▴' : '▾'}</span>
-        <button type="button" class="icon-btn" data-plshuffle="${id}" title="Перемешать и слушать">🔀</button>
+        <button type="button" class="st-mode-btn${shuffleOn ? ' on' : ''}" data-plshuffle="${id}"
+          aria-pressed="${shuffleOn}" aria-label="${shuffleOn ? 'Перемешать: вкл' : 'Перемешать: выкл'}">${ICON.shuffle}</button>
         <button type="button" class="play-btn" data-plplay="${id}" title="Слушать подряд">${ICON.play}</button>
       </div>
       ${open ? `<div class="st-pl-items">${items.length ? items.map((x, i) => `
@@ -2702,10 +2702,16 @@ function visibleIndex(p, i) {
 document.addEventListener('click', async (e) => {
   const t = (attr) => e.target.closest(`[data-${attr}]`);
   let el;
-  if ((el = t('plplay')) || (el = t('plshuffle'))) {
-    const id = el.dataset.plplay || el.dataset.plshuffle;
-    const { items, name } = itemsOf(id);
-    playList(items, name, Boolean(el.dataset.plshuffle));
+  if ((el = t('plplay'))) {
+    const { items, name } = itemsOf(el.dataset.plplay);
+    playList(items, name);
+    return;
+  }
+  // «перемешать» -- переключатель, как в плеере: горит -- включено (для всех
+  // плейлистов); играет этот плейлист -- очередь перестраивается сразу
+  if ((el = t('plshuffle'))) {
+    setShuffle(!shuffleOn);
+    renderPlaylists();
     return;
   }
   if ((el = t('plat'))) {                 // нажали на трек -- слушать плейлист с него

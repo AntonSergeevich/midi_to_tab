@@ -2106,3 +2106,5 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
 /* Шторка плеера: едет целиком, с тенью сверху -- под ней видна Студия */
 .st-full { will-change: transform; box-shadow: 0 -18px 50px rgba(0,0,0,.45); }
 .st-full-bg { border-radius: inherit; }
+.st-hud { z-index: 95; background: rgba(24,21,27,.88); }
+.st-pl-head .st-mode-btn { flex: none; }
