@@ -1190,9 +1190,43 @@ function step(delta) {
   startTrack();
 }
 
+// Плеер во весь экран выезжает снизу и уезжает вниз (владелец, 30.10:
+// «открывается очень быстро, не чувствуется»), как шторка в плеерах телефона
+let fullAnim = null;
+const CALM = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 function fullPlayer(open) {
-  $('full').hidden = !open;
-  document.body.style.overflow = open ? 'hidden' : '';
+  const full = $('full');
+  clearTimeout(fullAnim);
+  if (open) {
+    if (!full.hidden && !full.classList.contains('closing')) return;
+    full.classList.remove('closing');
+    full.hidden = false;
+    document.body.style.overflow = 'hidden';
+    if (CALM) return;
+    if (!full.style.transform) {
+      full.style.transition = 'none';
+      full.style.transform = 'translateY(100%)';
+      void full.offsetHeight;                     // зафиксировать начало, потом -- ехать
+    }
+    // кривая шторок iPhone: плавный разгон и мягкая остановка, 0,55 с
+    full.style.transition = 'transform .55s cubic-bezier(.32,.72,0,1), border-radius .55s';
+    full.style.borderRadius = full.style.borderRadius || '22px 22px 0 0';
+    requestAnimationFrame(() => { full.style.transform = 'translateY(0)'; full.style.borderRadius = ''; });
+    fullAnim = setTimeout(() => { full.style.transition = ''; full.style.transform = ''; }, 580);
+    return;
+  }
+  if (full.hidden) return;
+  document.body.style.overflow = '';
+  if (CALM) { full.hidden = true; return; }
+  full.classList.add('closing');
+  full.style.transition = 'transform .4s cubic-bezier(.32,0,.67,0), border-radius .4s';
+  full.style.borderRadius = '22px 22px 0 0';
+  full.style.transform = 'translateY(100%)';
+  fullAnim = setTimeout(() => {
+    full.hidden = true;
+    full.classList.remove('closing');
+    full.style.transition = ''; full.style.transform = ''; full.style.borderRadius = '';
+  }, 410);
 }
 
 function syncButtons() {
@@ -2327,16 +2361,17 @@ const FLIP = 70;      // сменить трек
 swipe($('full'), {
   canStart: (e) => !e.target.closest('input[type="range"], .st-full-seek, .st-full-lyrics, a, .st-full-volume, .st-fx'),
   onMove: (g, e) => {
-    const inner = $('full').querySelector('.st-full-inner');
     // трек листают только по обложке (как в плеерах телефона): иначе
     // перемотку назад «перехватывало» переключение трека (владелец, 30.10)
     if (g.mode === 'h' && !g.target.closest('#fCover')) return false;
     if (g.mode === 'v') {
       if (g.dy < 0 || $('full').scrollTop > 0) return false;      // листают текст -- не мешаем
       e.preventDefault();
-      inner.style.transition = 'none';
-      inner.style.transform = `translateY(${g.dy}px)`;
-      $('full').style.background = `rgba(14,15,19,${Math.max(0.35, 1 - g.dy / 600)})`;
+      // тянут вниз -- едет вся шторка вместе с фоном: сверху видна Студия
+      const full = $('full');
+      full.style.transition = 'none';
+      full.style.transform = `translateY(${g.dy}px)`;
+      full.style.borderRadius = `${Math.min(22, g.dy / 4)}px ${Math.min(22, g.dy / 4)}px 0 0`;
     } else {
       if (queue.length < 2) return false;
       e.preventDefault();
@@ -2349,21 +2384,16 @@ swipe($('full'), {
     return true;
   },
   onEnd: (g) => {
-    const inner = $('full').querySelector('.st-full-inner');
     if (g.mode === 'v') {
       if (g.armed && !g.cancelled) {
         window.haptic('light');
-        inner.style.transition = 'transform .22s ease-in';
-        inner.style.transform = 'translateY(100vh)';
-        setTimeout(() => {
-          fullPlayer(false);
-          inner.style.transition = '';
-          inner.style.transform = '';
-          $('full').style.background = '';
-        }, 220);
+        fullPlayer(false);                // доезжает вниз с того места, где отпустили
       } else {
-        springBack(inner);
-        $('full').style.background = '';
+        const full = $('full');
+        full.style.transition = 'transform .28s cubic-bezier(.22,1,.36,1), border-radius .28s';
+        full.style.transform = 'translateY(0)';
+        full.style.borderRadius = '';
+        setTimeout(() => { full.style.transition = ''; full.style.transform = ''; }, 300);
       }
     } else if (g.mode === 'h') {
       const cover = $('fCover');
