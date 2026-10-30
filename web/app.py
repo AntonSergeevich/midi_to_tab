@@ -1229,10 +1229,16 @@ def pricing_page() -> HTMLResponse:
     страницы: иначе человек секунду видит пустоту на месте главного,
     за чем он сюда и пришёл.
     """
+    return page("pricing.html", pricing_values())
+
+
+def pricing_values() -> dict:
+    """Цены словами -- для страницы тарифов и PDF-инструкции
+    (scripts/manual_build.py): из тех же констант, что считают оплату."""
     what = _credits_what
     plans = billing.PLANS
     credit_rub = plans["studio10"]["price"] / plans["studio10"]["studio_credits"]
-    return page("pricing.html", {
+    return {
         "welcomeWhat": what(billing.WELCOME_CREDITS),
         "monthWhat": what(plans["month"]["studio_credits"]),
         "studioWhat": what(plans["studio_month"]["studio_credits"]),
@@ -1257,7 +1263,7 @@ def pricing_page() -> HTMLResponse:
         "creditRub": _rub_text(credit_rub),
         "createRub": _rub_text(credit_rub * studio.credit_cost("create")),
         "packCredits": str(plans["studio10"]["studio_credits"]),
-    })
+    }
 
 
 @app.get("/guide", response_class=HTMLResponse)

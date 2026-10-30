@@ -43,3 +43,12 @@ give cleaner guitar stems than Demucs alone. Confirmed impractical on the
 production server's CPU (2+ hours for one track) — would need a GPU to be
 viable. Judging whether the audio actually sounds better needs a human ear,
 not something a text-only agent can verify itself.
+
+## Releases: update the PDF manual too
+
+Every new version in `web/releases.py` (and any change to prices or to
+`docs/manual/manual.html`) needs `python3 scripts/manual_build.py`: it rebuilds
+`web/media/naslux-manual.pdf` (linked from /guide) with prices and «Что нового»
+taken from the code. `tests/test_manual.py` fails until it is rebuilt. When a
+release changes how a feature works, also edit the matching chapter of
+`docs/manual/manual.html`; retake `docs/manual/img` after visible UI changes.
