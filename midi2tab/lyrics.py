@@ -155,7 +155,7 @@ def transcribe(
         # температурой, а не оставлять мусор в тексте.
         temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
         compression_ratio_threshold=2.2,
-        no_speech_threshold=0.5,
+        no_speech_threshold=0.75 if song else 0.5,
         vad_parameters=SONG_VAD if song else {
             # В пении паузы длиннее, чем в речи: между строчками легко
             # проходит секунда, и при коротком пороге VAD режет фразу
@@ -163,7 +163,6 @@ def transcribe(
             "min_silence_duration_ms": 700,
             "speech_pad_ms": 300,
         },
-        **({"no_speech_threshold": 0.75} if song else {}),
     )
 
     lines: list[Line] = []
