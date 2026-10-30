@@ -1816,6 +1816,7 @@ window.NASLUX_EN = {
 "— текст продолжения: следующий куплет или припев; пусто — инструментальное продолжение": "— lyrics for the continuation: the next verse or chorus; empty — instrumental continuation",
 "— темп, тональность, аккорды": "— tempo, key, chords",
 "— трек загрузится при запуске": "— the track will upload when you start",
+"— у нейросети очередь, обычно до 30 минут; можно закрыть страницу": "— the AI has a queue, usually up to 30 minutes; you can close the page",
 "— у своей записи нейросеть споёт этот текст, без текста выйдет инструментал; у чужой песни слова распознаем сами": "— for your own recording the AI sings these lyrics, without them you get an instrumental; for someone else's song we recognize the words ourselves",
 "— ☆ сохранит навсегда": "— ☆ keeps it forever",
 "… Страница обновится сама.": "… The page will refresh by itself.",

@@ -1281,7 +1281,7 @@ async function waitSplit(splitting) {
     await fetch(`/api/studio/${splitting.id}/cancel`, { method: 'POST' });
   };
   splitProgress(splitting.stage, Math.round(splitting.progress || 0));
-  note(`Раскладываем на дорожки: ${esc(splitting.stage || 'в очереди')}… Страница обновится сама.`);
+  note('');            // ход -- только в блоке разделения, без второй плашки сверху
   for (;;) {
     await new Promise((r) => setTimeout(r, 4000));
     const fresh = await (await fetch('/api/studio')).json();
@@ -1297,7 +1297,6 @@ async function waitSplit(splitting) {
       $('splitStop').hidden = true;
       const stopped = (j.error || '').startsWith('Остановлено');
       const text = stopped ? j.error : `Не получилось разделить: ${j.error || ''}. Деньги вернулись на баланс.`;
-      note(esc(text));
       $('splitTitle').textContent = stopped ? 'Разделение остановлено' : 'Не получилось разделить';
       $('splitText').textContent = text;
       $('splitBar').hidden = true;
@@ -1309,7 +1308,6 @@ async function waitSplit(splitting) {
     }
     const pct = Math.round(j.progress || 0);
     splitProgress(j.stage, pct);
-    note(`Раскладываем на дорожки: ${esc(j.stage || 'в очереди')} · ${pct}%… Страница обновится сама.`);
   }
 }
 

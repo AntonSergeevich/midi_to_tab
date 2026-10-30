@@ -20,6 +20,7 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import shutil
@@ -50,7 +51,9 @@ QUEUE_LIMIT = 12 * 60
 # 12 дорожек -- 4 минуты, WAV -- минута, суфлёр -- секунды. 29.10 12 дорожек
 # висели у провайдера больше 25 минут -- дальше не ждём: дорожки -- запасным
 # разделением (fallback_stems), остальное -- с возвратом денег
-HIT_TIMEOUT = {"stems": 10 * 60, "wav": 6 * 60, "karaoke": 4 * 60}
+# 30.10: у провайдера очередь -- 12 дорожек пришли через 31 минуту, поэтому
+# дорожки ждём до 40 минут (дальше -- запасное разделение)
+HIT_TIMEOUT = {"stems": 40 * 60, "wav": 10 * 60, "karaoke": 6 * 60}
 HIT_TIMEOUT_SONG = 15 * 60
 LINK_TTL = 2 * 3600
 MAX_SECONDS = 600
@@ -1844,8 +1847,12 @@ class StudioRunner:
                 if self._cancelled(job_id):
                     raise JobCancelled()
                 label = "Отделяем голос от музыки" if task_input.get("parts") == "minus" else STAGES_HIT.get(mode, stage)
+                waited = time.time() - job.created_at
+                if mode == "stems" and waited > 6 * 60:
+                    label += " — у нейросети очередь, обычно до 30 минут; можно закрыть страницу"
+                # полоска растёт всё медленнее и не замирает на одном месте
                 self.storage.update_job(job_id, status="running", stage=label,
-                                        progress=min(92, 5 + seconds * speed))
+                                        progress=round(5 + 90 * (1 - math.exp(-seconds * speed / 90)), 1))
 
             limit = HIT_TIMEOUT.get(mode, HIT_TIMEOUT_SONG)
             try:
