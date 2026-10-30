@@ -3180,7 +3180,7 @@ def test_lyrics_reading_resumes_after_restart(studio_app, monkeypatch):
         "files": [{"name": "song.mp3", "label": "Оригинал"}],
         "lyricsReading": {"file": "song.mp3", "at": 1.0, "tries": 1}})
     started = []
-    monkeypatch.setattr(runner, "read_lyrics_later", lambda jid, name: started.append((jid, name)) or True)
+    monkeypatch.setattr(runner, "read_lyrics_later", lambda jid, name, *a: started.append((jid, name)) or True)
     job = client.get("/api/studio").json()["jobs"][0]
     assert started == [(job_id, "song.mp3")] and job["lyricsBusy"] is True
 
@@ -3205,3 +3205,21 @@ def test_playlists_are_saved_cleaned_and_shared_across_devices(studio_app):
     assert saved[1]["name"] == "Плейлист" and saved[1]["id"] != "bad id!"
     assert client.get("/api/me/playlists").json()["playlists"] == saved
     assert client.post("/api/me/playlists", data={"data": "{oops"}).status_code == 400
+
+
+def test_edited_lyrics_keep_karaoke_timing(studio_app):
+    """Исправили распознанный текст -- суфлёр показывает исправленные слова
+    с таймингами распознанных (совпавшие -- их время, новые -- между ними)."""
+    app_module, client, user, _ = studio_app
+    app_module.storage.add_balance(user.id, 100)
+    job_id = _start(client, mode="stems").json()["jobId"]
+    heard = [{"w": w, "s": float(i), "e": i + 0.8, **({"nl": 1} if i == 0 else {})}
+             for i, w in enumerate("место дыхания твоих шагов".split())]
+    app_module.storage.update_job(job_id, status="done", result={
+        "files": [{"name": "song.mp3", "label": "Оригинал"}], "lyrics": "Место дыхания твоих шагов",
+        "karaoke": {"song.mp3": heard}, "karaokeHeard": {"song.mp3": heard}, "lyricsAuto": "fast"})
+    client.post(f"/api/studio/{job_id}/meta", data={"name": "Тишина", "lyrics": "[Куплет]\nМесто дыханья\nтвоих шагов"})
+    words = app_module.storage.job(job_id).result["karaoke"]["song.mp3"]
+    assert [w["w"] for w in words] == ["Место", "дыханья", "твоих", "шагов"]
+    assert words[0]["s"] == 0 and words[2]["s"] == 2 and words[2].get("nl") == 1 and words[1]["s"] == 1
+    assert client.get("/api/studio").json()["jobs"][0]["lyricsAuto"] == "fast"

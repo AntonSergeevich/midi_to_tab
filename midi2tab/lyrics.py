@@ -110,6 +110,7 @@ def transcribe(
     language: str | None = "ru",
     cache_dir: str | None = None,
     progress=None,
+    song: bool = False,
 ) -> Lyrics:
     """
     Распознать текст. language=None -- определить язык самостоятельно.
@@ -155,17 +156,20 @@ def transcribe(
         temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
         compression_ratio_threshold=2.2,
         no_speech_threshold=0.5,
-        vad_parameters={
+        vad_parameters=SONG_VAD if song else {
             # В пении паузы длиннее, чем в речи: между строчками легко
             # проходит секунда, и при коротком пороге VAD режет фразу
             # посередине слова.
             "min_silence_duration_ms": 700,
             "speech_pad_ms": 300,
         },
+        **({"no_speech_threshold": 0.75} if song else {}),
     )
 
     lines: list[Line] = []
     for segment in segments:
+        if song and hallucination(segment):
+            continue
         words = [
             Word(
                 text=w.word.strip(),
@@ -191,6 +195,25 @@ def transcribe(
         language=getattr(info, "language", language or ""),
         duration=round(getattr(info, "duration", 0.0), 3),
     )
+
+
+# Песня целиком (Студия, «Распознать текст»): детектор речи (VAD) обучен на
+# разговоре и выбрасывал куски, спетые поверх громкой музыки -- текст
+# выходил с дырами (владелец, 30.10). Для песни порог ниже, паузы длиннее,
+# поля шире; проигрыши всё равно отсекаются.
+SONG_VAD = {"threshold": 0.25, "min_speech_duration_ms": 150, "min_silence_duration_ms": 1500, "speech_pad_ms": 500}
+
+# Без речи Whisper «досочиняет» титры из своих обучающих роликов
+_HALLUCINATIONS = ("субтитр", "редактор субтитров", "продолжение следует", "спасибо за просмотр",
+                   "подписывайтесь", "dimatorzok", "amara.org", "субтитры сделал", "thanks for watching")
+
+
+def hallucination(segment) -> bool:
+    text = (getattr(segment, "text", "") or "").lower()
+    if any(h in text for h in _HALLUCINATIONS):
+        return True
+    # тихо и неуверенно -- скорее «послышалось», чем спето
+    return getattr(segment, "no_speech_prob", 0.0) > 0.8 and getattr(segment, "avg_logprob", 0.0) < -1.0
 
 
 def to_dict(lyrics: Lyrics) -> dict:

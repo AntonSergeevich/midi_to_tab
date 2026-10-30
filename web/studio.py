@@ -1076,12 +1076,57 @@ def whisper_text(found: dict) -> tuple[str, list]:
         last = float(line.get("end") or 0)
         first = True
         for word in line.get("words") or []:
-            clean = " ".join(str(word.get("text") or "").split())
+            # lyrics.to_dict пишет слова как {t, s, e}
+            clean = " ".join(str(word.get("t") or word.get("text") or "").split())
             if clean:
-                words.append({"w": clean, "s": round(float(word.get("start") or 0), 2),
-                              "e": round(float(word.get("end") or 0), 2), **({"nl": 1} if first else {})})
+                words.append({"w": clean, "s": round(float(word.get("s", word.get("start")) or 0), 2),
+                              "e": round(float(word.get("e", word.get("end")) or 0), 2), **({"nl": 1} if first else {})})
                 first = False
     return "\n".join(lines).strip()[:5000], words
+
+
+def _norm_word(word: str) -> str:
+    return re.sub(r"[^\w]+", "", word.lower().replace("ё", "е"))
+
+
+def realign_words(heard: list, text: str) -> list:
+    """Исправили текст -- суфлёр показывает исправленный, а тайминги берёт у
+    распознанных слов: совпавшие слова (difflib) -- их время, новые -- поровну
+    между соседями. Строки -- как в исправленном тексте; [Куплет] -- мимо."""
+    import difflib
+
+    lines = [" ".join(re.sub(r"\[[^\]]*\]", " ", l).split()) for l in text.splitlines()]
+    target = [(w, i == 0) for line in lines if line for i, w in enumerate(line.split())]
+    if not heard or not target:
+        return []
+    a = [_norm_word(h["w"]) for h in heard]
+    b = [_norm_word(w) for w, _ in target]
+    times: list = [None] * len(target)
+    for block in difflib.SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks():
+        for k in range(block.size):
+            h = heard[block.a + k]
+            times[block.b + k] = (h["s"], h["e"])
+    for opcode, a0, a1, b0, b1 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if opcode == "replace":                       # заменили слова -- время заменённого куска поровну
+            start, end = heard[a0]["s"], heard[a1 - 1]["e"]
+            step = (end - start) / (b1 - b0)
+            for k in range(b1 - b0):
+                times[b0 + k] = (start + step * k, start + step * (k + 1))
+    known = [i for i, t in enumerate(times) if t]
+    if not known:
+        return []
+    for i, t in enumerate(times):                     # вставки -- между соседями
+        if t:
+            continue
+        before = max((k for k in known if k < i), default=None)
+        after = min((k for k in known if k > i), default=None)
+        lo = times[before][1] if before is not None else max(0.0, times[after][0] - 0.6)
+        hi = times[after][0] if after is not None else lo + 0.6
+        gap = [k for k in range((before if before is not None else -1) + 1, after if after is not None else len(times))]
+        part = (hi - lo) / max(1, len(gap))
+        times[i] = (lo + part * gap.index(i), lo + part * (gap.index(i) + 1))
+    return [{"w": w, "s": round(t[0], 2), "e": round(max(t[1], t[0] + 0.05), 2), **({"nl": 1} if first else {})}
+            for (w, first), t in zip(target, times)]
 
 
 def vocals_for(storage, folder_of, job_id: str, name: str) -> str | None:
@@ -1485,7 +1530,7 @@ class StudioRunner:
         self.midi_pool.submit(work)
         return True
 
-    def read_lyrics_later(self, job_id: str, name: str) -> bool:
+    def read_lyrics_later(self, job_id: str, name: str, precise: bool = False, language: str | None = "ru") -> bool:
         """Слова песни с записи -- Whisper на сервере (тот же, что в «Аккордах»),
         в фоне: текст -- в «О треке», слова с таймкодами -- в суфлёр этой
         версии. Голос, если трек уже разделён, слушаем отдельно от музыки.
@@ -1501,7 +1546,7 @@ class StudioRunner:
             job = self.storage.job(job_id)
             result = dict(job.result or {})
             mark = result.get("lyricsReading") or {}
-            result["lyricsReading"] = {"file": name, "at": time.time(),
+            result["lyricsReading"] = {"file": name, "at": time.time(), "precise": precise, "language": language,
                                        "tries": int(mark.get("tries") or 0) + 1 if mark.get("file") == name else 1}
             result.pop("lyricsError", None)
             self.storage.update_job(job_id, result=result)
@@ -1515,8 +1560,8 @@ class StudioRunner:
                 source = vocals_for(self.storage, self.folder, job_id, name) or os.path.join(folder, name)
                 with HEAVY:
                     found = lyrics_mod.to_dict(lyrics_mod.transcribe(
-                        source, model=lyrics_mod.DEFAULT_MODEL, language=None,
-                        cache_dir=os.path.join(self.data_dir, "models")))
+                        source, model="large-v3" if precise else lyrics_mod.DEFAULT_MODEL, language=language,
+                        cache_dir=os.path.join(self.data_dir, "models"), song=True))
                 text, words = whisper_text(found)
                 if not text:
                     raise RuntimeError("слов не слышно — похоже, это инструментал")
@@ -1524,7 +1569,10 @@ class StudioRunner:
                     job = self.storage.job(job_id)
                     result = dict(job.result or {})
                     result["lyrics"] = text
+                    result["lyricsAuto"] = "precise" if precise else "fast"
                     result["karaoke"] = {**(result.get("karaoke") or {}), name: words}
+                    # слова суфлёра -- распознанные: правку текста под них подстроим
+                    result["karaokeHeard"] = {**(result.get("karaokeHeard") or {}), name: words}
                     result.pop("lyricsError", None)
                     self.storage.update_job(job_id, result=result)
             except Exception as failure:  # noqa: BLE001
@@ -1559,7 +1607,7 @@ class StudioRunner:
                 result["lyricsError"] = "сервер перезапускался во время распознавания — нажмите ещё раз"
                 self.storage.update_job(job.id, result=result)
             return False
-        return self.read_lyrics_later(job.id, mark["file"])
+        return self.read_lyrics_later(job.id, mark["file"], bool(mark.get("precise")), mark.get("language", "ru"))
 
     def describe(self, job_id: str, name: str, mureka_url: str) -> dict:
         """Стиль и слова готового трека -- для «Повторить» и «Кавер на этот

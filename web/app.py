@@ -2006,6 +2006,7 @@ def _studio_job_payload(job) -> dict:
         "lyrics": result.get("lyrics") or (settings.get("input") or {}).get("lyrics") or "",
         "lyricsBusy": any(j == job.id for j, _ in studio_runner.reading) or bool(result.get("lyricsReading")),
         "lyricsError": result.get("lyricsError", ""),
+        "lyricsAuto": result.get("lyricsAuto", ""),
         "meta": settings.get("meta") or {},
         "hasAbc": bool(result.get("abc")),
         "chords": _chord_line(result),
@@ -3428,7 +3429,8 @@ async def api_studio_cover_upload(job_id: str, request: Request, file: UploadFil
 
 
 @app.post("/api/studio/{job_id}/lyrics/read")
-def api_studio_lyrics_read(job_id: str, request: Request, file: str = Form("")):
+def api_studio_lyrics_read(job_id: str, request: Request, file: str = Form(""), precise: str = Form(""),
+                           lang: str = Form("ru")):
     """Распознать слова песни с записи (бесплатно): текст -- в «О треке»,
     слова по времени -- в суфлёр плеера."""
     user = current_user(request)
@@ -3449,7 +3451,9 @@ def api_studio_lyrics_read(job_id: str, request: Request, file: str = Form("")):
         raise HTTPException(429, "Уже распознаём два трека — дождитесь их")
     storage.update_job(job_id, result={k: v for k, v in (job.result or {}).items()
                                        if k not in ("lyricsError", "lyricsReading")})
-    studio_runner.read_lyrics_later(job_id, name)
+    # язык -- как у интерфейса: на пении автоопределение путает русский с соседними
+    language = {"ru": "ru", "en": "en"}.get(lang, None)
+    studio_runner.read_lyrics_later(job_id, name, precise=precise == "1", language=language)
     return {"ok": True, "busy": True}
 
 
@@ -3479,7 +3483,18 @@ def api_studio_meta(job_id: str, request: Request, name: str = Form(""), artist:
         fields["filename"] = title
     if lyrics is not None:
         text = lyrics.replace("\r\n", "\n").strip()[:5000]
-        fields["result"] = {**(job.result or {}), "lyrics": text}
+        result = {**(job.result or {}), "lyrics": text}
+        if text != ((job.result or {}).get("lyrics") or ""):
+            # исправили распознанный текст -- суфлёр показывает исправленный,
+            # с таймингами распознанных слов
+            heard = result.get("karaokeHeard") or {}
+            karaoke = dict(result.get("karaoke") or {})
+            for name, words in heard.items():
+                aligned = studio.realign_words(words, text)
+                if aligned:
+                    karaoke[name] = aligned
+            result["karaoke"] = karaoke
+        fields["result"] = result
     storage.update_job(job_id, **fields)
     return {"ok": True, "meta": meta}
 

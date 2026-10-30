@@ -785,7 +785,13 @@ function trackInfo(j) {
     ? ' disabled>Рисуем…' : `>🎨 ${j.cover ? 'Перерисовать' : 'Нарисовать'}`}</button>` : ''}
       <button type="button" class="st-linkbtn" data-coverup="${j.id}">🖼 Своя картинка</button></div>`
     : j.cover ? `<a class="st-linkbtn" href="${j.cover}" download="${esc(j.name)}.jpg">Скачать обложку</a>` : '';
-  const lyricsBox = j.lyrics ? copyBox('lyrics', 'Текст песни', j.lyrics) : done ? `<div class="st-info-block">
+  const lyricsBox = j.lyrics ? copyBox('lyrics', 'Текст песни', j.lyrics).replace('</div>', `
+        <button type="button" class="st-linkbtn" data-editlyrics="${j.id}">✎ Исправить</button></div>`)
+      + (done && j.lyricsAuto === 'fast' ? `<div class="st-info-block">${j.lyricsBusy
+        ? '<p class="muted st-info-busy">Распознаём точнее… обычно 10–15 минут, страницу можно закрыть</p>'
+        : `<button type="button" class="st-linkbtn" data-readlyrics="${j.id}" data-precise="1">🎯 Распознать точнее — дольше, 10–15 минут</button>`}
+        ${j.lyricsError ? `<p class="muted st-info-note">Не вышло: ${esc(j.lyricsError)}</p>` : ''}</div>` : '')
+    : done ? `<div class="st-info-block">
       <div class="st-info-head"><b>Текст песни</b></div>
       ${j.lyricsBusy ? '<p class="muted st-info-busy">Распознаём слова… обычно 2–5 минут, страницу можно закрыть</p>'
     : `<button type="button" class="st-info-read" data-readlyrics="${j.id}">📝 Распознать текст с записи</button>
@@ -829,7 +835,9 @@ document.addEventListener('click', async (e) => {
   const coverUp = e.target.closest('[data-coverup]');
   if (coverUp) { uploadCover(coverUp.dataset.coverup); return; }
   const read = e.target.closest('[data-readlyrics]');
-  if (read) { read.disabled = true; readLyrics(read.dataset.readlyrics); return; }
+  if (read) { read.disabled = true; readLyrics(read.dataset.readlyrics, Boolean(read.dataset.precise)); return; }
+  const fixLyrics = e.target.closest('[data-editlyrics]');
+  if (fixLyrics) { editMeta(fixLyrics.dataset.editlyrics, true); return; }
   if (copy) {
     const text = { title: j.name, style: j.style, lyrics: j.lyrics }[copy.dataset.copy] || '';
     const what = { title: 'Название', style: 'Стиль', lyrics: 'Текст' }[copy.dataset.copy];
@@ -1079,6 +1087,7 @@ function queueItem(j, f) {
   return {
     url: f.url, title: owner.name, sub: f.label, art: coverStyle(owner), cover: owner.cover || '',
     lyrics: owner.lyrics || '', kar: f.karaoke ? { job: j.id, file: f.name } : null, job: j.id, file: f.name,
+    owner: owner.id,
   };
 }
 
@@ -1138,6 +1147,7 @@ function startTrack() {
   if (!item.kar) $('full').classList.remove('kk-on');
   $('fLyricsBtn').hidden = !item.lyrics && !item.kar;
   $('fLyricsBtn').textContent = item.kar ? 'Суфлёр' : 'Текст песни';
+  $('fLyricsEdit').hidden = $('fLyrics').hidden || !item.owner;
   if (item.kar) {
     window.Karaoke.load(item.kar.job, item.kar.file).then((words) => {
       if (queue[qi] !== item || !words.length) return;
@@ -1908,19 +1918,21 @@ function uploadCover(jobId) {
 }
 
 // Слова с записи: Whisper на сервере, пару минут -- опрос сам покажет текст
-async function readLyrics(jobId) {
+async function readLyrics(jobId, precise) {
   const form = new FormData();
   form.append('file', infoFile);
+  form.append('precise', precise ? '1' : '');
+  form.append('lang', document.documentElement.lang === 'en' ? 'en' : 'ru');
   const r = await fetch(`/api/studio/${jobId}/lyrics/read`, { method: 'POST', body: form }).catch(() => null);
   const data = r ? await r.json().catch(() => ({})) : {};
   if (!r || !r.ok) { toast(data.detail || 'Не получилось начать распознавание'); return; }
-  toast('Распознаём слова — обычно 2–5 минут');
+  toast(precise ? 'Распознаём точнее — обычно 10–15 минут' : 'Распознаём слова — обычно 2–5 минут');
   load();
 }
 
 // Свойства трека: название, исполнитель, авторы, альбом, год, жанр, текст --
 // видны в «О треке» и попадают внутрь скачанного mp3
-function editMeta(jobId) {
+function editMeta(jobId, lyricsFirst) {
   const j = info.jobs.find((x) => x.id === jobId);
   if (!j) return;
   const m = j.meta || {};
@@ -1929,7 +1941,12 @@ function editMeta(jobId) {
   $('metaLyrics').value = j.lyrics || '';
   $('metaModal').dataset.job = jobId;
   $('metaModal').hidden = false;
-  $('metaName').focus();
+  $('metaLyrics').rows = lyricsFirst ? 16 : 6;       // правят текст -- поле во весь рост
+  if (lyricsFirst) {
+    // исправить текст: сразу к нему, остальное -- выше
+    $('metaLyrics').focus();
+    $('metaLyrics').scrollIntoView({ block: 'center' });
+  } else $('metaName').focus();
 }
 $('metaCancel').addEventListener('click', () => { $('metaModal').hidden = true; });
 $('metaModal').addEventListener('click', (e) => { if (e.target === $('metaModal')) $('metaModal').hidden = true; });
@@ -1944,8 +1961,11 @@ $('metaForm').addEventListener('submit', async (e) => {
   const data = r ? await r.json().catch(() => ({})) : {};
   if (!r || !r.ok) { toast(data.detail || 'Не получилось сохранить'); return; }
   $('metaModal').hidden = true;
-  toast('Свойства сохранены — они будут и в скачанном mp3');
-  load();
+  toast('Сохранено — текст и свойства будут и в скачанном mp3');
+  window.Karaoke.drop(jobId);
+  queue.forEach((x) => { if (x.owner === jobId) x.lyrics = $('metaLyrics').value; });
+  await load();
+  refreshNowLyrics();
 });
 async function act(what, jobId, fileName) {
   $('menu').hidden = true;
@@ -2476,6 +2496,7 @@ $('fNext').addEventListener('click', () => step(1));
 $('fClose').addEventListener('click', () => fullPlayer(false));
 $('fLyricsBtn').addEventListener('click', () => {
   $('fLyrics').hidden = !$('fLyrics').hidden;
+  $('fLyricsEdit').hidden = $('fLyrics').hidden || !(queue[qi] && queue[qi].owner);
   $('full').classList.toggle('kk-on', !$('fLyrics').hidden && Boolean($('fLyrics')._kk));
 });
 
@@ -3042,3 +3063,20 @@ window.addEventListener('message', (e) => {
   if (url.hash && url.hash !== location.hash) location.hash = url.hash;
   load();                       // во фрейме могли войти, оплатить, пополнить
 });
+
+// Исправить текст прямо из плеера: окно свойств -- сразу с текстом
+$('fLyricsEdit').addEventListener('click', () => { const item = queue[qi]; if (item && item.owner) editMeta(item.owner, true); });
+// Сохранили текст -- плеер показывает исправленный (и суфлёр с ним)
+function refreshNowLyrics() {
+  const item = queue[qi];
+  if (!item || !item.owner) return;
+  $('fLyrics').textContent = item.lyrics;
+  $('fLyrics')._kk = null;
+  if (item.kar) {
+    window.Karaoke.load(item.kar.job, item.kar.file).then((words) => {
+      if (queue[qi] !== item || !words.length) return;
+      window.Karaoke.render($('fLyrics'), words);
+      window.Karaoke.update($('fLyrics'), $('audio').currentTime);
+    });
+  }
+}

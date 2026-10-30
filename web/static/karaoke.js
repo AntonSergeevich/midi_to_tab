@@ -64,5 +64,8 @@ window.Karaoke = (function () {
     }
   }
 
-  return { load, render, update };
+  // исправили текст -- слова суфлёра этого трека загрузить заново
+  function drop(job) { Object.keys(cache).forEach((k) => { if (k.startsWith(`${job}/`)) delete cache[k]; }); }
+
+  return { load, render, update, drop };
 }());

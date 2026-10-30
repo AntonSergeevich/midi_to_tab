@@ -2022,5 +2022,14 @@
  "Вставьте её в сообщение — послушать можно без входа.": "Paste it into a message; anyone can listen without signing in.",
  "Нажмите «Отправить ссылку» — откроется меню телефона.": "Tap «Send link» to open the phone share menu.",
  "Доступ закрыт": "Access revoked",
- "По этой ссылке трек больше не откроется.": "The track will no longer open from this link."
+ "По этой ссылке трек больше не откроется.": "The track will no longer open from this link.",
+ "Текст точнее и его можно исправить": "More accurate lyrics you can correct",
+ "Распознавание настроено на пение: куски, спетые поверх громкой музыки, больше не теряются. Есть «Распознать точнее» — самая сильная модель, 10–15 минут. Исправить текст — «✎» в «О треке» или в плеере: суфлёр подстроится под исправленные слова.": "Recognition is tuned for singing: parts sung over loud music are no longer lost. «Recognise more accurately» uses the strongest model, 10–15 minutes. To correct the lyrics, tap «✎» in «About the track» or in the player; the prompter follows the corrected words.",
+ "Студия → трек → О треке; плеер → «Текст песни»": "Studio → track → About the track; player → «Lyrics»",
+ "✎ Исправить текст": "✎ Correct lyrics",
+ "✎ Исправить": "✎ Correct",
+ "🎯 Распознать точнее — дольше, 10–15 минут": "🎯 Recognise more accurately: slower, 10–15 minutes",
+ "Распознаём точнее… обычно 10–15 минут, страницу можно закрыть": "Recognising more accurately… usually 10–15 minutes, you can close the page",
+ "Распознаём точнее — обычно 10–15 минут": "Recognising more accurately, usually 10–15 minutes",
+ "Сохранено — текст и свойства будут и в скачанном mp3": "Saved; lyrics and properties will be in the downloaded mp3 too"
 }
