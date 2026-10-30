@@ -3189,3 +3189,19 @@ def test_lyrics_reading_resumes_after_restart(studio_app, monkeypatch):
         "lyricsReading": {"file": "song.mp3", "at": 1.0, "tries": 3}})
     job = client.get("/api/studio").json()["jobs"][0]
     assert len(started) == 1 and job["lyricsBusy"] is False and "перезапуск" in job["lyricsError"]
+
+
+def test_playlists_are_saved_cleaned_and_shared_across_devices(studio_app):
+    """Плейлисты -- в профиле: чужие поля и пути отбрасываются, повторы --
+    тоже; другой браузер того же человека видит их же."""
+    app_module, client, user, _ = studio_app
+    job = "a" * 32
+    raw = [{"id": "pl01", "name": "  Заучить   к концерту ", "items": [
+        {"job": job, "file": "create_1.mp3"}, {"job": job, "file": "create_1.mp3"},
+        {"job": job, "file": "../etc/passwd"}, {"job": "x", "file": "a.mp3"}]},
+        {"id": "bad id!", "name": "", "items": []}]
+    saved = client.post("/api/me/playlists", data={"data": json.dumps(raw)}).json()["playlists"]
+    assert saved[0] == {"id": "pl01", "name": "Заучить к концерту", "items": [{"job": job, "file": "create_1.mp3"}]}
+    assert saved[1]["name"] == "Плейлист" and saved[1]["id"] != "bad id!"
+    assert client.get("/api/me/playlists").json()["playlists"] == saved
+    assert client.post("/api/me/playlists", data={"data": "{oops"}).status_code == 400

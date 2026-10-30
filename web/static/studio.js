@@ -26,6 +26,7 @@ const plural = (n, one, few, many) => {
 const time = (s) => (s ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '');
 
 const ICON = {
+  list: '<svg viewBox="0 0 24 24"><path d="M4 6h11M4 11h11M4 16h7M17 14v6m-3-3h6"/></svg>',
   mix: '<svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
   upload: '<svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4 4m4-4 4 4M5 20h14"/></svg>',
   play: '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
@@ -426,7 +427,7 @@ function renderVoices() {
 // Поиск и страницы: список перерисовывается при каждом опросе сервера,
 // поэтому запрос и номер страницы живут отдельно и не сбрасываются
 const PER_PAGE = 10;
-const list = { query: '', page: 0, jobs: [], fav: false };
+const list = { query: '', page: 0, jobs: [], fav: false, lists: false };
 // Страница списка, поиск и прокрутка -- в памяти вкладки: зашёл в трек,
 // ушёл в плеер или табы, вернулся «назад» -- список там же, где был
 // (раньше всегда сбрасывался на первую страницу, 06.10)
@@ -438,13 +439,14 @@ try {
   list.page = Number(saved.page) || 0;
   list.query = String(saved.query || '');
   list.fav = Boolean(saved.fav);
+  list.lists = Boolean(saved.lists);
   listScroll = Number(saved.scroll) || 0;
   if (list.query) $('search').value = list.query;
 } catch (error) { /* нет хранилища -- с первой страницы */ }
 function saveList() {
   try {
     sessionStorage.setItem(LIST_KEY, JSON.stringify({
-      page: list.page, query: list.query, fav: list.fav, scroll: openJob ? listScroll : window.scrollY }));
+      page: list.page, query: list.query, fav: list.fav, lists: list.lists, scroll: openJob ? listScroll : window.scrollY }));
   } catch (error) { /* не страшно */ }
 }
 window.addEventListener('pagehide', saveList);
@@ -467,8 +469,9 @@ function renderList(jobs) {
   const all = jobs.filter((j) => !j.from && j.mode !== 'voice').concat(tabs).sort((x, y) => y.at - x.at);
   const words = fold(list.query).split(/\s+/).filter(Boolean);
   const favs = all.filter((j) => j.fav);
-  document.querySelectorAll('[data-favtab]').forEach((b) => b.setAttribute('aria-selected',
-    String((b.dataset.favtab === 'fav') === list.fav)));
+  const tab = list.lists ? 'lists' : list.fav ? 'fav' : 'all';
+  document.querySelectorAll('[data-favtab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.favtab === tab)));
+  if (list.lists) { renderPlaylists(); return; }
   const pool = list.fav ? favs : all;
   const top = words.length ? pool.filter((j) => matches(j, words)) : pool;
   $('count').textContent = pool.length ? (words.length ? `${top.length} из ${pool.length}` : `${pool.length}`) : '';
@@ -1039,6 +1042,9 @@ async function ensureKeys() {
 // и «назад» листают их, как треки альбома.
 let queue = [];
 let qi = -1;
+let playingList = null;           // имя плейлиста, который играет (или null -- версии трека)
+let repeatMode = 'off';           // off | all | one
+try { repeatMode = localStorage.getItem('naslux.repeat') || 'off'; } catch (error) { /* */ }
 
 // Скачивание mp3 из Студии -- со свойствами трека и обложкой внутри файла
 function withTags(url) {
@@ -1052,19 +1058,22 @@ function coverStyle(j) {
   return `linear-gradient(135deg, hsl(${h} 70% 45%), hsl(${(h + 60) % 360} 70% 30%))`;
 }
 
+// Строка очереди плеера: версия (или партия) трека -- с названием,
+// обложкой, текстом и суфлёром «родителя»
+function queueItem(j, f) {
+  const parent = j.from ? info.jobs.find((x) => x.id === j.from) : null;
+  const owner = parent || j;
+  return {
+    url: f.url, title: owner.name, sub: f.label, art: coverStyle(owner), cover: owner.cover || '',
+    lyrics: owner.lyrics || '', kar: f.karaoke ? { job: j.id, file: f.name } : null, job: j.id, file: f.name,
+  };
+}
+
 function queueFor(url) {
   for (const j of (info ? info.jobs : [])) {
     const index = (j.files || []).findIndex((f) => f.url === url);
     if (index < 0) continue;
-    const parent = j.from ? info.jobs.find((x) => x.id === j.from) : null;
-    const owner = parent || j;
-    return {
-      index,
-      items: j.files.map((f) => ({
-        url: f.url, title: owner.name, sub: f.label, art: coverStyle(owner), lyrics: owner.lyrics || '',
-        kar: f.karaoke ? { job: j.id, file: f.name } : null,
-      })),
-    };
+    return { index, items: j.files.map((f) => queueItem(j, f)) };
   }
   return null;
 }
@@ -1078,6 +1087,7 @@ function play(url, title, sub) {
   const found = queueFor(url);
   queue = found ? found.items : [{ url, title, sub, art: coverStyle(null), lyrics: '' }];
   qi = found ? found.index : 0;
+  playingList = null;
   startTrack();
 }
 
@@ -1087,7 +1097,7 @@ function startTrack() {
   const audio = $('audio');
   playing = item.url;
   audio.src = item.url;
-  if (Number($('fVolume').value) !== 100 || gainNode) setVolume(Number($('fVolume').value));
+  if (Number($('fVolume').value) !== 100) setVolume(Number($('fVolume').value));
   audio.play();
   $('playerTitle').textContent = item.title;
   $('playerSub').textContent = item.sub;
@@ -1111,6 +1121,8 @@ function startTrack() {
   }
   const many = queue.length > 1;
   ['pPrev', 'pNext', 'fPrev', 'fNext'].forEach((id) => { $(id).disabled = !many; });
+  $('fQueue').textContent = playingList ? `${playingList} · ${qi + 1} из ${queue.length}` : '';
+  lockScreen(item);
   $('player').hidden = false;
   playerSpace();
   syncButtons();
@@ -1124,6 +1136,29 @@ function playerSpace() {
   if (on) document.documentElement.style.setProperty('--player-h', `${$('player').offsetHeight}px`);
 }
 window.addEventListener('resize', () => { if (!$('player').hidden) playerSpace(); });
+
+// Экран блокировки и наушники: название, обложка, «дальше/назад» --
+// слушать плейлист на улице, не доставая телефон
+function lockScreen(item) {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: item.title, artist: item.sub || 'NASLUX', album: playingList || 'NASLUX',
+      artwork: item.cover ? [{ src: new URL(item.cover, location.href).href, sizes: '1024x1024', type: 'image/jpeg' }]
+        : [{ src: '/static/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+    });
+  } catch (error) { /* старый браузер */ }
+}
+if ('mediaSession' in navigator) {
+  const on = (action, handler) => { try { navigator.mediaSession.setActionHandler(action, handler); } catch (error) { /* */ } };
+  on('play', () => $('audio').play());
+  on('pause', () => $('audio').pause());
+  on('previoustrack', () => { if ($('audio').currentTime > 4 || queue.length < 2) $('audio').currentTime = 0; else step(-1); });
+  on('nexttrack', () => step(1));
+  on('seekbackward', () => { $('audio').currentTime = Math.max(0, $('audio').currentTime - 10); });
+  on('seekforward', () => { $('audio').currentTime += 10; });
+  on('seekto', (e) => { if (e.seekTime != null) $('audio').currentTime = e.seekTime; });
+}
 
 function step(delta) {
   if (queue.length < 2) return;
@@ -1419,6 +1454,7 @@ document.addEventListener('click', async (e) => {
   const favTab = e.target.closest('[data-favtab]');
   if (favTab) {
     list.fav = favTab.dataset.favtab === 'fav';
+    list.lists = favTab.dataset.favtab === 'lists';
     list.page = 0;
     saveList();
     renderList(list.jobs);
@@ -1502,6 +1538,7 @@ function openMenu(button) {
         : item('midi', ICON.tabs, button.dataset.busy ? 'MIDI уже считается…' : 'MIDI этой дорожки',
           button.dataset.busy ? 'disabled' : '')) : '')
       + (info.yue2Open && !button.dataset.stem ? item('notes', ICON.tabs, '🧪 Ноты, аккорды и MIDI (проба)') : '')
+      + item('toplaylist', ICON.list, 'Добавить в плейлист')
       + item('shift', ICON.tempo, 'Темп и тональность')
       + (button.dataset.stem ? '' : item('share', ICON.mix, 'Поделиться ссылкой: послушать без входа'))
       + item('gift', ICON.split, 'Передать музыканту — со всеми дорожками')
@@ -1854,6 +1891,7 @@ async function act(what, jobId, fileName) {
   if (what === 'again') { repeat(jobId); return; }
   if (what === 'cover') { coverOf(jobId, fileName); return; }
   if (what === 'drawcover') { drawCover(jobId); return; }
+  if (what === 'toplaylist') { addToPlaylist(jobId, fileName); return; }
   if (['stems12', 'wav', 'karaoke'].includes(what)) { hitAction(what, jobId, fileName); return; }
   if (what === 'karaokeplay') { karaokePlay(jobId, fileName); return; }
   if (what === 'like') { likeOf(jobId, fileName); return; }
@@ -2131,7 +2169,13 @@ function afterPayment(restored) {
   if (audio.paused) audio.play(); else audio.pause();
 }));
 ['play', 'pause'].forEach((ev) => $('audio').addEventListener(ev, syncButtons));
-$('audio').addEventListener('ended', () => { if (qi < queue.length - 1) step(1); else syncButtons(); });
+// Конец трека: «повтор одного» -- заново (заучивать), дальше по очереди,
+// «повтор всех» -- с начала очереди по кругу
+$('audio').addEventListener('ended', () => {
+  if (repeatMode === 'one') { $('audio').currentTime = 0; $('audio').play(); return; }
+  if (qi < queue.length - 1) step(1);
+  else if (repeatMode === 'all' && queue.length) { qi = 0; startTrack(); } else syncButtons();
+});
 ['timeupdate', 'loadedmetadata'].forEach((ev) => $('audio').addEventListener(ev, syncTime));
 // Полоса над нижним плеером -- ползунок: клик, перетаскивание (мышь и
 // палец), стрелки с клавиатуры; над полосой -- время, куда перемотаем
@@ -2387,26 +2431,11 @@ const IOS = /iP(hone|ad|od)/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const IOS_VOLUME = IOS && 'audioSession' in navigator;
 if (IOS && !IOS_VOLUME) $('fVolume').closest('.st-full-volume').style.display = 'none';
-let gainNode = null;
-let audioContext = null;
 function setVolume(percent) {
   const level = Math.max(0, Math.min(1, percent / 100));
-  if (!IOS) { $('audio').volume = level; }
-  else if (IOS_VOLUME) {
-    const Context = window.AudioContext || window.webkitAudioContext;
-    if (!gainNode && Context) {
-      try {
-        navigator.audioSession.type = 'playback';   // играть и в беззвучном режиме
-        audioContext = new Context();
-        const source = audioContext.createMediaElementSource($('audio'));
-        gainNode = audioContext.createGain();
-        source.connect(gainNode).connect(audioContext.destination);
-        $('audio').addEventListener('play', () => { if (audioContext.state !== 'running') audioContext.resume(); });
-      } catch (error) { gainNode = null; }
-    }
-    if (audioContext && audioContext.state !== 'running') audioContext.resume().catch(() => {});
-    if (gainNode) gainNode.gain.value = level;
-  }
+  // звук идёт через эффекты (или iPhone) -- громкость там; иначе -- у <audio>
+  if (IOS_VOLUME) window.SoundFX.ensure($('audio'));
+  if (!window.SoundFX.setVolume(level) && !IOS) $('audio').volume = level;
   try { localStorage.setItem('naslux.volume', percent); } catch (error) { /* инкогнито */ }
 }
 $('fVolume').addEventListener('input', () => setVolume(Number($('fVolume').value)));
@@ -2504,3 +2533,230 @@ window.addEventListener('hashchange', () => {
   requestAnimationFrame(karaokeFrame);
   if ($('fLyrics')._kk && !$('full').hidden && !$('fLyrics').hidden) window.Karaoke.update($('fLyrics'), $('audio').currentTime);
 }());
+
+// ------------------------------------------------------------- плейлисты
+// Свои подборки треков (владелец, 30.10: «иду по улице, заучиваю свои
+// треки -- и всё время переоткрываю другой плеер»): играют подряд, по
+// кругу или один трек, перемешанно; управление -- и с экрана блокировки.
+// Хранятся в профиле (/api/me/playlists) -- те же на телефоне и компьютере.
+let playlists = [];
+let plLoaded = false;
+let plOpen = '';
+let plTarget = null;               // { job, file } -- что добавляем
+
+async function loadPlaylists() {
+  const r = await fetch('/api/me/playlists').catch(() => null);
+  if (r && r.ok) playlists = (await r.json()).playlists || [];
+  plLoaded = true;
+}
+async function savePlaylists() {
+  const form = new FormData();
+  form.append('data', JSON.stringify(playlists));
+  const r = await fetch('/api/me/playlists', { method: 'POST', body: form }).catch(() => null);
+  if (r && r.ok) playlists = (await r.json()).playlists;
+  else toast('Не получилось сохранить плейлист');
+}
+loadPlaylists();
+
+function plItems(p) {
+  const out = [];
+  for (const it of p.items) {
+    const j = info && info.jobs.find((x) => x.id === it.job);
+    const f = j && (j.files || []).find((x) => x.name === it.file);
+    if (f) out.push(queueItem(j, f));
+  }
+  return out;
+}
+function favItems() {
+  return ((info && info.jobs) || []).filter((j) => j.fav && !j.from && j.status === 'done' && j.files[0])
+    .map((j) => queueItem(j, j.files[0]));
+}
+function shuffled(items) {
+  const a = items.slice();
+  for (let i = a.length - 1; i > 0; i -= 1) {
+    const k = Math.floor(Math.random() * (i + 1));
+    [a[i], a[k]] = [a[k], a[i]];
+  }
+  return a;
+}
+function playList(items, name, mix) {
+  if (!items.length) { toast('В плейлисте пока нет треков'); return; }
+  queue = mix ? shuffled(items) : items;
+  qi = 0;
+  playingList = name;
+  startTrack();
+  if (window.haptic) window.haptic('light');
+}
+
+function renderPlaylists() {
+  $('count').textContent = playlists.length ? String(playlists.length) : '';
+  $('searchBox').hidden = true;
+  $('pages').hidden = true;
+  const favs = favItems();
+  const card = (id, name, items, own) => {
+    const minutes = Math.round(items.reduce((s, x) => s + (((info.jobs.find((j) => j.id === x.job) || {}).files || [])
+      .find((f) => f.name === x.file) || {}).seconds || 0, 0) / 60);
+    const art = (items[0] ? items[0].art : coverStyle(null)).replace(/"/g, "'");   // внутри style="…"
+    const open = own && plOpen === id;
+    return `<div class="st-pl${open ? ' open' : ''}">
+      <div class="st-pl-head">
+        <span class="st-pl-art" style="background:${art.startsWith('url') ? `${art} center/cover` : art}"></span>
+        <div class="st-row-main"><b data-noi18n>${esc(name)}</b>
+          <span class="muted">${items.length} ${plural(items.length, 'трек', 'трека', 'треков')}${minutes ? ` · ${minutes} мин` : ''}</span></div>
+        <button type="button" class="icon-btn" data-plshuffle="${id}" title="Перемешать и слушать">🔀</button>
+        ${own ? `<button type="button" class="icon-btn" data-plopen="${id}" title="Треки плейлиста">${open ? '▴' : '✎'}</button>` : ''}
+        <button type="button" class="play-btn" data-plplay="${id}" title="Слушать подряд">${ICON.play}</button>
+      </div>
+      ${open ? `<div class="st-pl-items">${items.length ? items.map((x, i) => `
+        <div class="st-pl-item"><span class="st-pl-n">${i + 1}</span>
+          <div class="st-row-main"><b data-noi18n>${esc(x.title)}</b><span class="muted">${esc(x.sub || '')}</span></div>
+          <button type="button" class="icon-btn" data-plup="${i}" title="Выше"${i ? '' : ' disabled'}>↑</button>
+          <button type="button" class="icon-btn" data-pldown="${i}" title="Ниже"${i < items.length - 1 ? '' : ' disabled'}>↓</button>
+          <button type="button" class="icon-btn" data-pldel="${i}" title="Убрать из плейлиста">✕</button></div>`).join('')
+    : '<p class="muted">Пусто. Добавить трек: ⋯ у версии → «Добавить в плейлист».</p>'}
+        <div class="st-pl-foot"><button type="button" class="st-linkbtn" data-plrename="${id}">Переименовать</button>
+          <button type="button" class="st-linkbtn danger" data-plremove="${id}">Удалить плейлист</button></div></div>` : ''}
+    </div>`;
+  };
+  $('jobs').innerHTML = `<div class="st-pls">
+    <button type="button" class="st-pl-new" data-plnew="1">＋ Новый плейлист</button>
+    ${favs.length ? card('fav', '★ Избранное подряд', favs, false) : ''}
+    ${playlists.map((p) => card(p.id, p.name, plItems(p), true)).join('')}
+    ${!playlists.length ? `<p class="muted">Соберите треки, которые хотите слушать подряд — например, заучить к концерту:
+      ⋯ у версии → «Добавить в плейлист». Плейлист играет и с выключенным экраном, «дальше» — с наушников.</p>` : ''}
+  </div>`;
+}
+
+function itemsOf(id) {
+  if (id === 'fav') return { items: favItems(), name: 'Избранное' };
+  const p = playlists.find((x) => x.id === id);
+  return p ? { items: plItems(p), name: p.name, p } : { items: [], name: '' };
+}
+// перестановка/удаление -- по видимому порядку (пропавшие треки уже не видны)
+function visibleIndex(p, i) {
+  const shown = p.items.filter((it) => {
+    const j = info.jobs.find((x) => x.id === it.job);
+    return j && (j.files || []).some((f) => f.name === it.file);
+  });
+  return p.items.indexOf(shown[i]);
+}
+
+document.addEventListener('click', async (e) => {
+  const t = (attr) => e.target.closest(`[data-${attr}]`);
+  let el;
+  if ((el = t('plplay')) || (el = t('plshuffle'))) {
+    const id = el.dataset.plplay || el.dataset.plshuffle;
+    const { items, name } = itemsOf(id);
+    playList(items, name, Boolean(el.dataset.plshuffle));
+    return;
+  }
+  if ((el = t('plopen'))) { plOpen = plOpen === el.dataset.plopen ? '' : el.dataset.plopen; renderPlaylists(); return; }
+  if (t('plnew')) {
+    const name = prompt('Название плейлиста', 'Заучить к концерту');
+    if (!name || !name.trim()) return;
+    playlists.push({ id: Math.random().toString(36).slice(2, 10), name: name.trim(), items: [] });
+    await savePlaylists();
+    plOpen = playlists[playlists.length - 1].id;
+    renderPlaylists();
+    return;
+  }
+  const p = playlists.find((x) => x.id === plOpen);
+  if (p && ((el = t('plup')) || (el = t('pldown')) || (el = t('pldel')))) {
+    const at = visibleIndex(p, Number(el.dataset.plup || el.dataset.pldown || el.dataset.pldel));
+    if (el.dataset.pldel != null) p.items.splice(at, 1);
+    else {
+      const to = visibleIndex(p, Number(el.dataset.plup || el.dataset.pldown) + (el.dataset.plup != null ? -1 : 1));
+      [p.items[at], p.items[to]] = [p.items[to], p.items[at]];
+    }
+    renderPlaylists();
+    await savePlaylists();
+    return;
+  }
+  if ((el = t('plrename'))) {
+    const pl = playlists.find((x) => x.id === el.dataset.plrename);
+    const name = pl && prompt('Новое название', pl.name);
+    if (!name || !name.trim()) return;
+    pl.name = name.trim();
+    await savePlaylists();
+    renderPlaylists();
+    return;
+  }
+  if ((el = t('plremove'))) {
+    const pl = playlists.find((x) => x.id === el.dataset.plremove);
+    if (!pl || !confirm(`Удалить плейлист «${pl.name}»? Сами треки останутся.`)) return;
+    playlists = playlists.filter((x) => x !== pl);
+    plOpen = '';
+    await savePlaylists();
+    renderPlaylists();
+    return;
+  }
+  if ((el = t('pladd'))) {
+    const pl = playlists.find((x) => x.id === el.dataset.pladd);
+    if (pl && plTarget) await addTo(pl);
+  }
+});
+
+async function addTo(pl) {
+  if (!pl.items.some((x) => x.job === plTarget.job && x.file === plTarget.file)) pl.items.push(plTarget);
+  $('plModal').hidden = true;
+  await savePlaylists();
+  toast(`Добавлено в «${pl.name}» 🎧`);
+  if (list.lists) renderPlaylists();
+}
+
+async function addToPlaylist(job, file) {
+  if (!plLoaded) await loadPlaylists();
+  const j = info.jobs.find((x) => x.id === job);
+  const f = j && (j.files || []).find((x) => x.name === file);
+  if (!f) return;
+  plTarget = { job, file };
+  $('plWhat').textContent = `${(queueItem(j, f)).title} — ${f.label}`;
+  $('plPick').innerHTML = playlists.map((p) => `<button type="button" class="st-pl-choice" data-pladd="${p.id}">
+    <b data-noi18n>${esc(p.name)}</b><small>${p.items.length} ${plural(p.items.length, 'трек', 'трека', 'треков')}</small></button>`).join('')
+    || '<p class="muted">Плейлистов пока нет — создайте первый.</p>';
+  $('plNew').value = '';
+  $('plModal').hidden = false;
+}
+$('plCancel').addEventListener('click', () => { $('plModal').hidden = true; });
+$('plModal').addEventListener('click', (e) => { if (e.target === $('plModal')) $('plModal').hidden = true; });
+$('plCreate').addEventListener('click', async () => {
+  const name = $('plNew').value.trim() || 'Мой плейлист';
+  const pl = { id: Math.random().toString(36).slice(2, 10), name, items: [] };
+  playlists.push(pl);
+  await addTo(playlists[playlists.length - 1]);
+});
+$('plNew').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('plCreate').click(); });
+
+// Повтор, перемешать, в плейлист, звук -- в полноэкранном плеере
+function modeButtons() {
+  const label = { off: 'Повтор', all: 'Повтор: все', one: 'Повтор: один' }[repeatMode] || 'Повтор';
+  $('fRepeat').innerHTML = `${repeatMode === 'one' ? '🔂' : '🔁'} <span>${label}</span>`;
+  $('fRepeat').classList.toggle('on', repeatMode !== 'off');
+  const item = queue[qi];
+  $('fAddPl').hidden = !(item && item.job);
+  $('fFx').classList.toggle('on', window.SoundFX.on);
+}
+$('fRepeat').addEventListener('click', () => {
+  repeatMode = { off: 'all', all: 'one', one: 'off' }[repeatMode] || 'all';
+  try { localStorage.setItem('naslux.repeat', repeatMode); } catch (error) { /* */ }
+  modeButtons();
+  toast({ off: 'Повтор выключен', all: 'Повтор всего списка', one: 'Повтор одного трека — заучивайте 🎧' }[repeatMode]);
+});
+$('fShuffle').addEventListener('click', () => {
+  if (queue.length < 2) { toast('Перемешивать нечего — один трек'); return; }
+  const now = queue[qi];
+  queue = [now, ...shuffled(queue.filter((x) => x !== now))];
+  qi = 0;
+  $('fQueue').textContent = playingList ? `${playingList} · 1 из ${queue.length}` : '';
+  toast('Очередь перемешана');
+});
+$('fAddPl').addEventListener('click', () => { const item = queue[qi]; if (item && item.job) addToPlaylist(item.job, item.file); });
+window.SoundFX.attach($('audio'));
+window.SoundFX.bind($('fxPanel'));
+$('fFx').addEventListener('click', () => {
+  $('fxPanel').hidden = !$('fxPanel').hidden;
+  if (!$('fxPanel').hidden) $('fxPanel').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+});
+$('fxPanel').addEventListener('click', () => setTimeout(modeButtons));
+$('audio').addEventListener('play', modeButtons);
+modeButtons();

@@ -219,6 +219,7 @@
           <span class="st-favtabs" role="tablist" aria-label="Какие треки показать">
             <button type="button" role="tab" data-favtab="all" aria-selected="true">Все</button>
             <button type="button" role="tab" data-favtab="fav" aria-selected="false">★ Избранное</button>
+            <button type="button" role="tab" data-favtab="lists" aria-selected="false">♫ Плейлисты</button>
           </span></div>
         <label class="st-search" id="searchBox" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
@@ -301,6 +302,21 @@
       <button type="submit" class="primary">Сохранить</button>
     </div>
   </form>
+</div>
+
+<!-- Добавить в плейлист -->
+<div class="st-modal" id="plModal" hidden>
+  <div class="st-modal-box" role="dialog" aria-modal="true" aria-labelledby="plTitle">
+    <h3 id="plTitle">Добавить в плейлист</h3>
+    <p class="muted" id="plWhat" data-noi18n></p>
+    <div class="st-pl-pick" id="plPick"></div>
+    <label class="st-field"><span>Новый плейлист</span>
+      <input type="text" id="plNew" maxlength="60" placeholder="например: Заучить к концерту"></label>
+    <div class="st-modal-actions">
+      <button type="button" id="plCancel">Отмена</button>
+      <button type="button" class="primary" id="plCreate">Создать и добавить</button>
+    </div>
+  </div>
 </div>
 
 <!-- Темп и тональность версии -->
@@ -403,6 +419,14 @@
       <button type="button" class="play-btn big" id="fToggle" aria-label="Играть"></button>
       <button type="button" class="st-pbtn" id="fNext" aria-label="Следующая"></button>
     </div>
+    <p class="st-full-queue" id="fQueue"></p>
+    <div class="st-full-modes">
+      <button type="button" class="st-mode-btn" id="fRepeat" title="Повтор: выкл → весь список → один трек">🔁 <span>Повтор</span></button>
+      <button type="button" class="st-mode-btn" id="fShuffle" title="Перемешать очередь">🔀 <span>Перемешать</span></button>
+      <button type="button" class="st-mode-btn" id="fAddPl" title="Добавить этот трек в плейлист">＋ <span>В плейлист</span></button>
+      <button type="button" class="st-mode-btn" id="fFx" title="Эквалайзер и объёмный звук">🎚 <span>Звук</span></button>
+    </div>
+    <div class="st-fx" id="fxPanel" hidden></div>
     <button type="button" class="st-full-lyrics-btn" id="fLyricsBtn" hidden>Текст песни</button>
     <pre class="st-full-lyrics" id="fLyrics" hidden></pre>
   </div>
@@ -410,6 +434,7 @@
 
 <script src="/static/lyricstags.js"></script>
 <script src="/static/karaoke.js"></script>
+<script src="/static/soundfx.js"></script>
 <script src="/static/studio.js"></script>
 <script src="/static/consent.js"></script>
 </body>

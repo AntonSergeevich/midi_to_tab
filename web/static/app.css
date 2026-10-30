@@ -1988,3 +1988,49 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
 .pr-buy:hover { filter: brightness(1.06); }
 .pr-credits p { margin: 12px 0 0; color: var(--muted); line-height: 1.5; }
 .pr-credits p b { color: var(--text); }
+
+/* Плейлисты (30.10): свои подборки -- слушать подряд, по кругу, перемешанно */
+.st-pls { display: flex; flex-direction: column; gap: 10px; }
+.st-pl-new { align-self: flex-start; padding: 10px 16px; border-radius: 999px; border: 1px dashed var(--accent);
+  background: rgba(217,154,78,.08); color: var(--accent); font-weight: 700; cursor: pointer; }
+.st-pl { border: 1px solid var(--border); border-radius: 14px; background: var(--panel-hi); overflow: hidden; }
+.st-pl.open { border-color: rgba(217,154,78,.6); }
+.st-pl-head { display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
+.st-pl-art { flex: none; width: 52px; height: 52px; border-radius: 10px; box-shadow: 0 8px 20px -10px rgba(0,0,0,.7); }
+.st-pl-head .st-row-main { min-width: 0; }
+.st-pl-head .st-row-main b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-pl-items { border-top: 1px solid var(--border); padding: 6px 12px 10px; }
+.st-pl-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.st-pl-item .icon-btn { width: 32px; height: 32px; }
+.st-pl-n { width: 20px; color: var(--muted); font-size: 12px; text-align: right; }
+.st-pl-foot { display: flex; gap: 16px; padding-top: 10px; }
+.st-pl-pick { display: flex; flex-direction: column; gap: 8px; max-height: 40vh; overflow-y: auto; }
+.st-pl-choice { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 14px;
+  border-radius: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; text-align: left; }
+.st-pl-choice:hover { border-color: var(--accent); }
+.st-pl-choice small { color: var(--muted); }
+.st-full-queue { margin: -6px 0 0; text-align: center; color: var(--muted); font-size: 13px; min-height: 1em; }
+.st-full-modes { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.st-mode-btn { padding: 8px 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06); color: var(--text); font-size: 13px; cursor: pointer; }
+.st-mode-btn.on { border-color: var(--accent); background: rgba(217,154,78,.18); color: var(--accent); }
+.st-mode-btn[hidden] { display: none; }
+@media (max-width: 420px) { .st-mode-btn span { display: none; } .st-mode-btn { font-size: 18px; padding: 8px 14px; } }
+
+/* Звук: эквалайзер и пространство */
+.st-fx { background: rgba(0,0,0,.32); border: 1px solid rgba(255,255,255,.1); border-radius: 16px; padding: 14px; }
+.st-fx[hidden] { display: none; }
+.fx-switch { display: flex; align-items: center; gap: 10px; font-weight: 700; cursor: pointer; }
+.fx-switch input { width: 20px; height: 20px; accent-color: var(--accent); }
+.fx-body[hidden] { display: none; }
+.fx-label { margin: 14px 0 6px; font-size: 12px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.fx-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fx-chip { padding: 7px 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); background: transparent;
+  color: var(--text); font-size: 13px; cursor: pointer; }
+.fx-chip.on { background: var(--accent); border-color: var(--accent); color: #1a1206; font-weight: 700; }
+.fx-bands { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 12px; height: 150px; }
+.fx-bands[hidden] { display: none; }
+.fx-band { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.fx-band input { writing-mode: vertical-lr; direction: rtl; width: 26px; flex: 1; accent-color: var(--accent); }
+.fx-note { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+.fx-note:empty { display: none; }

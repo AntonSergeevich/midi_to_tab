@@ -3687,6 +3687,57 @@ def api_job_rename(job_id: str, request: Request, name: str = Form(...)):
     return {"ok": True, "name": name}
 
 
+# Плейлисты плеера Студии (владелец, 30.10: «иду по улице, заучиваю свои
+# треки -- и всё время переоткрываю другой плеер»). Хранятся в профиле --
+# те же на телефоне и компьютере. Целиком: клиент присылает весь список.
+PLAYLISTS_MAX, PLAYLIST_ITEMS = 30, 300
+
+
+def _clean_playlists(raw) -> list[dict]:
+    if not isinstance(raw, list):
+        raise HTTPException(400, "Плейлисты -- списком")
+    out, ids = [], set()
+    for entry in raw[:PLAYLISTS_MAX]:
+        if not isinstance(entry, dict):
+            continue
+        pid = str(entry.get("id") or "")
+        if not re.fullmatch(r"[a-z0-9]{4,16}", pid) or pid in ids:
+            pid = secrets.token_hex(4)
+        ids.add(pid)
+        name = " ".join(str(entry.get("name") or "").split())[:60] or "Плейлист"
+        items, seen = [], set()
+        for item in entry.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            job, file = str(item.get("job") or ""), studio.safe_file_name(str(item.get("file") or ""))
+            if re.fullmatch(r"[0-9a-f]{32}", job) and file and (job, file) not in seen:
+                seen.add((job, file))
+                items.append({"job": job, "file": file})
+            if len(items) >= PLAYLIST_ITEMS:
+                break
+        out.append({"id": pid, "name": name, "items": items})
+    return out
+
+
+@app.get("/api/me/playlists")
+def api_playlists(request: Request):
+    user = current_user(request)
+    return {"playlists": storage.prefs(user.id).get("playlists") or []}
+
+
+@app.post("/api/me/playlists")
+def api_playlists_save(request: Request, data: str = Form(...)):
+    user = current_user(request)
+    try:
+        raw = json.loads(data[:200_000])
+    except ValueError as error:
+        raise HTTPException(400, "Не получилось прочитать плейлисты") from error
+    playlists = _clean_playlists(raw)
+    prefs = storage.prefs(user.id)
+    storage.set_prefs(user.id, {**prefs, "playlists": playlists})
+    return {"playlists": playlists}
+
+
 # Личная среда: свои названия дорожек, свои стили -- то, что человек вводил
 # сам, предлагается ему снова. Хранится в профиле, на любом устройстве.
 PREF_LISTS = {"instruments": 40, "styles": 30}
