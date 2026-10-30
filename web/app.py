@@ -1217,6 +1217,11 @@ def _plural(n: int, one: str, few: str, many: str) -> str:
     return f"{n} {word}"
 
 
+def _rub_text(value: float) -> str:
+    """1,99 -> «2», 29,85 -> «30»: в тарифах -- круглые рубли."""
+    return f"{round(value):.0f}"
+
+
 @app.get("/pricing", response_class=HTMLResponse)
 def pricing_page() -> HTMLResponse:
     """
@@ -1226,6 +1231,7 @@ def pricing_page() -> HTMLResponse:
     """
     what = _credits_what
     plans = billing.PLANS
+    credit_rub = plans["studio10"]["price"] / plans["studio10"]["studio_credits"]
     return page("pricing.html", {
         "welcomeWhat": what(billing.WELCOME_CREDITS),
         "monthWhat": what(plans["month"]["studio_credits"]),
@@ -1247,6 +1253,10 @@ def pricing_page() -> HTMLResponse:
         "studioCreate": f"{studio.SERVICES['create'].price:.0f}",
         "studioMonth": f"{billing.PLANS['studio_month']['price']:.0f}",
         "welcome": str(billing.WELCOME_CREDITS),
+        # цена кредита -- по пакету «докупить»: им и платят сверх подписки
+        "creditRub": _rub_text(credit_rub),
+        "createRub": _rub_text(credit_rub * studio.credit_cost("create")),
+        "packCredits": str(plans["studio10"]["studio_credits"]),
     })
 
 

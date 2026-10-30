@@ -47,82 +47,76 @@ async function load() {
 }
 
 // ------------------------------------------------------- выбор варианта
-// Клик отмечает вариант, а не сразу уводит на оплату -- отдельная кнопка
-// "Оплатить" подтверждает выбор. Для пополнения так ещё и даёт вписать
-// сумму, прежде чем платить.
+// Нажали на карточку -- она подсвечена, а под рядом раскрываются её
+// подробности в той же подсветке, со стрелкой к выбранной: видно, что к чему.
+// Оплата -- кнопкой внутри подробностей, а не сразу по нажатию на карточку.
 
-let selectedPlan = null;
-
-document.querySelectorAll('[data-plan]').forEach((el) => {
-  el.onclick = () => selectPlan(el.dataset.plan, el);
-  if (el.dataset.plan === 'topup') {
-    el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') selectPlan('topup', el); };
-  }
-});
-$('amount').addEventListener('input', updatePayLabel);
-$('amount').addEventListener('click', (e) => e.stopPropagation());
-
-function selectPlan(plan, el) {
-  document.querySelectorAll('[data-plan]').forEach((b) => b.classList.remove('selected'));
-  el.classList.add('selected');
-  selectedPlan = plan;
-  $('topupAmount').style.display = plan === 'topup' ? 'block' : 'none';
-  if (plan === 'topup') $('amount').focus();
-  $('pay').style.display = 'block';
-  updatePayLabel();
+function pick(plan) {
+  const card = document.querySelector(`[data-pick="${plan}"]`);
+  if (!card) return;
+  document.querySelectorAll('[data-pick]').forEach((b) => {
+    b.classList.toggle('selected', b === card);
+    b.setAttribute('aria-pressed', b === card ? 'true' : 'false');
+  });
+  document.querySelectorAll('[data-info]').forEach((d) => { d.hidden = d.dataset.info !== plan; });
+  placeDetail(card);
+  pointAt(card);
+  $('msg').textContent = '';
 }
 
-// Из Студии за конкретной песней: сразу предлагаем пополнить на её цену.
+// Панель -- сразу под рядом выбранной карточки: на телефоне карточки в
+// столбик, и подробности не должны оказываться через три карточки от неё
+function placeDetail(card) {
+  const detail = $('detail');
+  $('plans').append(detail);           // сначала в конец: ряды считаются без неё
+  const cards = [...document.querySelectorAll('[data-pick]')];
+  const row = cards.filter((c) => Math.abs(c.offsetTop - card.offsetTop) < 4);
+  const last = row[row.length - 1];
+  last.after(detail);
+}
+
+// Стрелка панели -- под серединой выбранной карточки (и на телефоне, где они в столбик)
+function pointAt(card) {
+  const box = $('detail').getBoundingClientRect();
+  const at = card.getBoundingClientRect();
+  $('detail').style.setProperty('--arrow', `${Math.max(24, Math.min(box.width - 24, at.left + at.width / 2 - box.left))}px`);
+}
+window.addEventListener('resize', () => {
+  const card = document.querySelector('[data-pick].selected');
+  if (card) { placeDetail(card); pointAt(card); }
+});
+
+document.querySelectorAll('[data-pick]').forEach((el) => {
+  el.addEventListener('click', () => pick(el.dataset.pick));
+});
+document.querySelectorAll('[data-plan]').forEach((el) => {
+  el.addEventListener('click', () => buy(el.dataset.plan, el));
+});
+
+const wanted = params.get('plan');
+pick(document.querySelector(`[data-pick="${wanted}"]`) ? wanted : 'studio_month');
+
+// Из Студии за конкретной песней (?need=49): кредитов не хватило --
+// показываем «Докупить кредиты», после оплаты вернём туда же.
 if (need > 0) {
-  ready.then(() => {
-    const tile = document.querySelector('[data-plan="topup"]');
-    if (!tile) return;
-    $('amount').value = Math.max(need - (me.balance || 0), me.topupMin || 0, 1);
-    selectPlan('topup', tile);
-    $('msg').innerHTML = 'После оплаты вернём вас в Студию — всё, что вы заполнили, на месте.';
+  $('credits').classList.add('wanted');
+  $('credits').scrollIntoView({ block: 'center' });
+  $('msg').innerHTML = 'Не хватило кредитов — докупите или оформите «Студию». '
+    + 'После оплаты вернём вас в Студию: всё, что вы заполнили, на месте.';
+}
+
+function buy(plan, button) {
+  pay(button, () => {
+    const form = new FormData();
+    form.append('plan', plan);
+    form.append('next', nextPath);
+    return fetch('/api/subscribe', { method: 'POST', body: form });
   });
 }
 
-function updatePayLabel() {
-  const pay = $('pay');
-  if (selectedPlan === 'topup') {
-    const amount = parseFloat($('amount').value || '0');
-    pay.textContent = amount > 0 ? `Оплатить ${amount} ₽` : 'Оплатить';
-  } else {
-    const tile = document.querySelector(`[data-plan="${selectedPlan}"] b`);
-    pay.textContent = `Оплатить ${tile.textContent}`;
-  }
-}
-
-$('pay').onclick = () => {
-  if (!selectedPlan) return;
-  if (selectedPlan === 'topup') {
-    const amount = parseFloat($('amount').value || '0');
-    if (!amount || amount < me.topupMin || amount > me.topupMax) {
-      $('msg').innerHTML =
-        `<span class="bad">Сумма — от ${me.topupMin} до ${me.topupMax} ₽</span>`;
-      return;
-    }
-    pay(() => {
-      const form = new FormData();
-      form.append('amount', amount);
-      form.append('next', nextPath);
-      return fetch('/api/topup', { method: 'POST', body: form });
-    });
-  } else {
-    pay(() => {
-      const form = new FormData();
-      form.append('plan', selectedPlan);
-      form.append('next', nextPath);
-      return fetch('/api/subscribe', { method: 'POST', body: form });
-    });
-  }
-};
-
 // Общая часть покупки любого из трёх вариантов: проверки доступности,
 // отправка и разбор ответа отличаются только тем, какой запрос слать.
-async function pay(makeRequest) {
-  const button = $('pay');
+async function pay(button, makeRequest) {
   button.classList.add('busy');
   $('msg').textContent = 'Готовлю оплату…';
   await ready;                     // данные могли ещё не прийти

@@ -27,129 +27,94 @@
   <script src="/static/nav.js"></script>
 
   <section class="hero">
-    <h1>Аккорды — бесплатно.<br>Остальное — по вкусу</h1>
-    <p class="lead" id="state">Аккорды любой песни — без оплаты. За регистрацию — {{welcome}} кредитов
-      Студии: {{welcomeWhat}} на пробу.</p>
+    <h1>Простые цены</h1>
+    <p class="lead" id="state">Аккорды — бесплатно. Песни, каверы и всё в Студии — за кредиты:
+      1 кредит ≈ {{creditRub}} ₽. За регистрацию — {{welcome}} кредитов: {{welcomeWhat}} на пробу.</p>
   </section>
 
-  <div class="choices plans4" id="plans" style="margin-bottom:14px">
-    <a class="choice plan" href="/studio">
-      <b>0 ₽ — Бесплатно</b>
-      <small>для знакомства</small>
-      <ul class="plan-list">
-        <li>Аккорды, темп, тональность</li>
-        <li>{{freeSongs}} полных разбора на пробу</li>
-        <li><b>{{welcome}} кредитов</b> за регистрацию</li>
-      </ul>
-    </a>
-    <button class="choice plan" type="button" data-plan="single">
-      <b>{{priceSingle}} ₽ — Один трек</b>
-      <small>разово, без подписки</small>
-      <ul class="plan-list">
-        <li>Партии, табы, MIDI и текст одной песни</li>
-      </ul>
+  <!-- Четыре варианта: нажали -- он подсвечен, а под ним раскрываются подробности
+       в той же подсветке, одним целым (владелец, 30.10: «сам запутался в ценах») -->
+  <div class="choices plans4 pr-plans" id="plans">
+    <button class="choice plan" type="button" data-pick="free">
+      <b>Бесплатно</b><span class="pr-price">0 ₽</span><small>чтобы попробовать</small>
     </button>
-    <button class="choice plan" type="button" data-plan="month">
-      <b>{{price}} ₽ — «Музыкант»</b>
-      <small>на 30 дней</small>
-      <ul class="plan-list">
-        <li>Разборы без лимита</li>
-        <li><b>{{monthCredits}} кредитов</b>: {{monthWhat}}</li>
-      </ul>
+    <button class="choice plan" type="button" data-pick="single">
+      <b>Один трек</b><span class="pr-price">{{priceSingle}} ₽</span><small>разбор одной песни</small>
     </button>
-    <button class="choice plan hot" type="button" data-plan="studio_month">
+    <button class="choice plan" type="button" data-pick="month">
+      <b>«Музыкант»</b><span class="pr-price">{{price}} ₽</span><small>на 30 дней</small>
+    </button>
+    <button class="choice plan hot" type="button" data-pick="studio_month">
       <span class="tag">всё включено</span>
-      <b>{{studioMonth}} ₽ — «Студия»</b>
-      <small>на 30 дней</small>
-      <ul class="plan-list">
-        <li>Разборы без лимита</li>
-        <li><b>{{studioCredits}} кредитов</b>: {{studioWhat}}</li>
-        <li><b>Мультитрек</b>: партии вместе, метроном, темп и тональность</li>
-      </ul>
+      <b>«Студия»</b><span class="pr-price">{{studioMonth}} ₽</span><small>на 30 дней</small>
     </button>
-  </div>
-  <p class="muted" style="margin:0 0 18px">Подписка не продлевается сама. Кредиты не сгорают;
-    если генерация не удалась — вернутся сами.</p>
-
-  <div class="card plan-compare">
-    <h2>Что входит</h2>
-    <div class="plan-scroll">
-      <table>
-        <thead><tr><th></th><th>Бесплатно</th><th>Один трек</th><th>«Музыкант»</th><th>«Студия»</th></tr></thead>
-        <tbody>
-          <tr><th>Цена</th><td>0 ₽</td><td>{{priceSingle}} ₽</td><td>{{price}} ₽ / 30 дней</td><td>{{studioMonth}} ₽ / 30 дней</td></tr>
-          <tr><th>Аккорды, темп, тональность</th><td>✓ до {{chordsPerDay}} в день</td><td>✓</td><td>✓</td><td>✓</td></tr>
-          <tr><th>Партии, табы, MIDI, текст</th><td>{{freeSongs}} песни</td><td>1 трек</td><td>без лимита</td><td>без лимита</td></tr>
-          <tr><th>Кредиты на песни и каверы</th><td>{{welcome}}</td><td>—</td><td>{{monthCredits}}</td><td>{{studioCredits}}</td></tr>
-          <tr><th>Мультитрек</th><td>—</td><td>—</td><td>—</td><td>✓</td></tr>
-        </tbody>
-      </table>
+    <div class="pr-detail" id="detail">
+      <div class="pr-info" data-info="free" hidden>
+        <h2>Бесплатно</h2>
+        <ul class="plan-list">
+          <li>Аккорды, темп и тональность любой песни — до {{chordsPerDay}} в день</li>
+          <li>{{freeSongs}} полных разбора: партии, табы, MIDI и текст</li>
+          <li><b>{{welcome}} кредитов</b> за регистрацию — {{welcomeWhat}}</li>
+        </ul>
+        <a class="pr-go" href="/studio">Начать бесплатно</a>
+      </div>
+      <div class="pr-info" data-info="single" hidden>
+        <h2>Один трек — {{priceSingle}} ₽</h2>
+        <ul class="plan-list">
+          <li>Партии, табы, MIDI и текст одной песни</li>
+          <li>Разово, без подписки</li>
+          <li>Песни и каверы в Студии — за кредиты, их можно докупить ниже</li>
+        </ul>
+        <button class="pr-go" type="button" data-plan="single">Оплатить {{priceSingle}} ₽</button>
+      </div>
+      <div class="pr-info" data-info="month" hidden>
+        <h2>«Музыкант» — {{price}} ₽ на 30 дней</h2>
+        <ul class="plan-list">
+          <li>Разборы песен без лимита: партии, табы, MIDI, текст</li>
+          <li><b>{{monthCredits}} кредитов</b> Студии: {{monthWhat}}</li>
+          <li>Не продлевается сама — списаний без вас не будет</li>
+        </ul>
+        <button class="pr-go" type="button" data-plan="month">Оформить за {{price}} ₽</button>
+      </div>
+      <div class="pr-info" data-info="studio_month" hidden>
+        <h2>«Студия» — {{studioMonth}} ₽ на 30 дней</h2>
+        <ul class="plan-list">
+          <li>Всё из «Музыканта»: разборы без лимита</li>
+          <li><b>{{studioCredits}} кредитов</b>: {{studioWhat}}</li>
+          <li><b>Мультитрек</b>: партии вместе, метроном, темп и тональность, запись голоса и сведение</li>
+          <li>Не продлевается сама — списаний без вас не будет</li>
+        </ul>
+        <button class="pr-go" type="button" data-plan="studio_month">Оформить за {{studioMonth}} ₽</button>
+      </div>
     </div>
+
   </div>
 
-  <h2 style="margin:6px 0 10px">Докупить кредиты</h2>
-  <div class="choices" style="margin-bottom:12px">
-    <button class="choice" type="button" data-plan="studio10">
-      <b>{{studio10}} ₽ — 100 кредитов</b>
-      <small>{{packWhat}}, не сгорают</small>
+  <div class="pr-credits" id="credits">
+    <button class="pr-buy" type="button" data-plan="studio10" id="buyCredits">
+      Докупить кредиты<span>{{packCredits}} кредитов — {{studio10}} ₽</span>
     </button>
+    <p><b>1 кредит ≈ {{creditRub}} ₽.</b> Песня с нуля — {{createCredits}} кредитов (≈ {{createRub}} ₽),
+      кавер — {{coverCredits}}. Кредиты не сгорают, а если генерация не удалась — вернутся сами.</p>
   </div>
-
-  <div class="card credit-table">
-    <h2>Сколько стоит в кредитах</h2>
-    <div class="grid" style="margin-top:12px">
-      <div><b>{{createCredits}}</b> — песня с нуля<div class="muted">две версии, обложка, текст сочиним сами</div></div>
-      <div><b>{{coverCredits}}</b> — кавер в другом стиле<div class="muted">нейросеть перепевает песню целиком</div></div>
-      <div><b>{{continueCredits}}</b> — продолжить свою запись<div class="muted">наиграли куплет — нейросеть допишет дальше</div></div>
-      <div><b>{{extendCredits}}</b> — продлить песню<div class="muted">ещё куплет и припев в том же звуке</div></div>
-      <div><b>{{stemsCredits}}</b> — разложить на партии<div class="muted">вокал, гитара, бас, барабаны отдельно</div></div>
-      <div><b>{{stems12Credits}}</b> — 12 дорожек студийного качества<div class="muted">для песен Студии: бэк-вокал, клавиши, струнные…</div></div>
-      <div><b>{{wavCredits}}</b> — WAV для релиза<div class="muted">несжатый звук для стримингов</div></div>
-      <div><b>{{karaokeCredits}}</b> — суфлёр<div class="muted">текст песни подсвечивается в такт</div></div>
-      <div><b>0</b> — темп, тональность, аккорды<div class="muted">всегда бесплатно</div></div>
-    </div>
-  </div>
-
-  <h2 style="margin:6px 0 10px">Без подписки</h2>
-  <div class="choice" role="button" tabindex="0" data-plan="topup" id="topupChoice" style="margin-bottom:18px">
-    <b>Пополнить баланс</b>
-    <small>любая сумма от {{topupMin}} до {{topupMax}} ₽: разбор трека — {{priceSingle}} ₽,
-      песня — {{studioCreate}} ₽, переделка — {{studioSingle}} ₽. Списывается, когда запускаете</small>
-    <div id="topupAmount" style="display:none;margin-top:10px">
-      <input type="number" id="amount" min="{{topupMin}}" max="{{topupMax}}" step="1"
-             placeholder="Сумма, ₽" style="width:140px">
-    </div>
-  </div>
-  <button id="pay" class="choice" type="button"
-          style="display:none;text-align:center;font-weight:600;margin-bottom:18px">
-    Оплатить
-  </button>
   <p id="msg" class="muted" style="margin:0 0 24px"></p>
-
-  <div class="card">
-    <h2>Что даёт разбор песни</h2>
-    <div class="grid" style="margin-top:12px">
-      <div><b>Аккорды всей песни</b><div class="muted">с тональностью и бегущей лентой</div></div>
-      <div><b>Аппликатуры</b><div class="muted">как ставить каждый аккорд, под ваш строй</div></div>
-      <div><b>Разделение на партии</b><div class="muted">гитара, бас, барабаны, вокал отдельно</div></div>
-      <div><b>Табы и MIDI</b><div class="muted">Guitar Pro, текстовые табы, MIDI-файл</div></div>
-      <div><b>Текст песни</b><div class="muted">распознаётся по вокальной партии</div></div>
-      <div><b>Метроном и замедление</b><div class="muted">по найденным долям, а не по среднему темпу</div></div>
-    </div>
-  </div>
 
   <div class="card">
     <h2>Вопросы</h2>
     <p><b>Подписка продлевается сама?</b><br>
       <span class="muted">Нет. Через 30 дней она просто закончится — списаний без вашего
       участия не будет.</span></p>
+    <p><b>Что такое кредиты?</b><br>
+      <span class="muted">Единая «валюта» Студии: 1 кредит ≈ {{creditRub}} ₽. Сколько кредитов стоит
+      действие, написано прямо на кнопке. Остались рубли на балансе с прошлых пополнений — они
+      по-прежнему тратятся в Студии.</span></p>
     <p><b>Что выгоднее?</b><br>
       <span class="muted">Только подбираете аккорды — ничего не платите. Разобрать пару песен —
       «Один трек». Разбираете часто и иногда делаете песни — «Музыкант». Делаете каверы
       и песни нейросетью, репетируете по дорожкам в мультитреке — «Студия».</span></p>
     <p><b>Что входит в «Студию»?</b><br>
       <span class="muted">Студия песен, мультитрек, запись голоса и сведение — в одной подписке
-      за 799 ₽, оплата российской картой в рублях, без VPN. И всё для музыканта в одном месте:
+      за {{studioMonth}} ₽, оплата российской картой в рублях, без VPN. И всё для музыканта в одном месте:
       аккорды, табы, MIDI, партии, темп и тональность.</span></p>
     <p><b>Если разбор не получился?</b><br>
       <span class="muted">Оплата возвращается или трек восстанавливается на счёт —

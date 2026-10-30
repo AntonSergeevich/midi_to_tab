@@ -191,15 +191,23 @@ function updateStart() {
   // черновик сохранён, после регистрации и оплаты человек вернётся сюда же.
   needPay = !problem && !enough;
   $('start').disabled = Boolean(problem);
-  const price = info.unlimited ? '' : byPack
-    ? ` · ${packCost} ${plural(packCost, 'кредит', 'кредита', 'кредитов')}` : ` · ${rub(rubCost)}`;
+  // Цена -- в кредитах (одна «валюта», 30.10); рубли -- только тем, кто
+  // платит остатком прежнего рублёвого баланса
+  const price = info.unlimited ? '' : !byPack && packCost && info.balance >= rubCost
+    ? ` · ${rub(rubCost)}` : packCost ? ` · ${packCost} ${plural(packCost, 'кредит', 'кредита', 'кредитов')}` : ` · ${rub(rubCost)}`;
   const button = send.all ? 'Переписать все партии' : MODE[mode].button;
   $('start').textContent = needPay ? `Оплатить и ${button.toLowerCase()}${price}` : `${button}${price}`;
   $('trackHint').hidden = !send.all;
   $('msg').innerHTML = problem || (needPay
-    ? (info.registered ? 'Пополните баланс — всё заполненное дождётся вас здесь.'
-      : 'Заведите аккаунт и пополните баланс — всё заполненное дождётся вас здесь.')
+    ? (info.registered ? 'Докупите кредиты — всё заполненное дождётся вас здесь.'
+      : 'Заведите аккаунт и докупите кредиты — всё заполненное дождётся вас здесь.')
     : ['create', 'restyle'].includes(send.mode) ? 'Две версии на выбор, обычно 1–3 минуты.' : 'Обычно пара минут.');
+}
+
+// «15 кредитов» -- а у кого кредитов мало, но есть прежний рублёвый баланс, -- «49 ₽»
+function costText(pack, price) {
+  if (pack && (info.studioCredits >= pack || info.balance < price)) return `${pack} ${plural(pack, 'кредит', 'кредита', 'кредитов')}`;
+  return rub(price);
 }
 
 let needPay = false;
@@ -1965,7 +1973,7 @@ async function act(what, jobId, fileName) {
   if (what === 'minus') {
     // Минус и голос отдельно -- в один клик (раньше: разделить на 6 партий и глушить вокал)
     const service = info.services.stems;
-    const price = info.unlimited ? '' : ` за ${service.pack} кредитов или ${rub(service.price)}`;
+    const price = info.unlimited ? '' : ` за ${costText(service.pack, service.price)}`;
     if (!confirm(`Сделать минус — дорожку без голоса (и голос отдельно)${price}?`)) return;
     form.append('minus', true);
     const response = await fetch(`/api/studio/${jobId}/stems`, { method: 'POST', body: form });
@@ -1979,7 +1987,7 @@ async function act(what, jobId, fileName) {
   if (what === 'split' || what === 'splitpro') {
     const pro = what === 'splitpro';
     const service = pro ? info.services.stems_pro : info.services.stems;
-    const price = info.unlimited ? '' : ` за ${service.pack} кредитов или ${rub(service.price)}`;
+    const price = info.unlimited ? '' : ` за ${costText(service.pack, service.price)}`;
     if (!confirm(pro ? `До 12 партий и MIDI каждой${price}?` : `Разделить эту версию на партии${price}?`)) return;
     form.append('pro', pro);
     const response = await fetch(`/api/studio/${jobId}/stems`, { method: 'POST', body: form });
@@ -2008,7 +2016,7 @@ function askExtend(jobId) {
     const j = info.jobs.find((x) => x.id === jobId) || {};
     const modal = $('extendModal');
     $('extendLyrics').value = '';
-    $('extendOk').textContent = `Продлить · ${info.unlimited ? '' : `${info.services.extend.pack} кредитов или ${rub(info.services.extend.price)}`}`;
+    $('extendOk').textContent = `Продлить · ${info.unlimited ? '' : costText(info.services.extend.pack, info.services.extend.price)}`;
     modal.hidden = false;
     $('extendAi').onclick = async () => {
       $('extendAi').disabled = true;
@@ -2032,7 +2040,7 @@ function askExtend(jobId) {
 
 function askVoice() {
   const modal = $('voiceModal');
-  $('voicePrice').textContent = info.unlimited ? '' : `Стоит ${info.services.voice.pack} кредитов или ${rub(info.services.voice.price)}. Голос хранится у вас, использовать можно сколько угодно.`;
+  $('voicePrice').textContent = info.unlimited ? '' : `Стоит ${costText(info.services.voice.pack, info.services.voice.price)}. Голос хранится у вас, использовать можно сколько угодно.`;
   const sync = () => {
     $('voiceOk').disabled = !$('voiceFile').files[0] || !$('voiceConsent').checked;
   };

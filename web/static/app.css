@@ -1958,3 +1958,33 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
 .ls-cover img { box-shadow: 0 20px 50px -20px rgba(0,0,0,.7); }
 .st-midiall { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .st-midiall .st-linkbtn { align-self: flex-start; }
+
+/* Тарифы (30.10): карточка и её подробности -- одно целое в одной подсветке */
+.pr-plans { margin-bottom: 22px; }
+.pr-plans .choice { cursor: pointer; }
+.pr-plans .choice b { font-size: 16px; margin: 0; }
+.pr-price { display: block; font-size: 26px; font-weight: 800; margin: 6px 0 2px; color: var(--text); }
+.pr-plans .choice.hot .pr-price { color: var(--accent); }
+.pr-plans .choice.selected { border-color: var(--accent); background: rgba(217,154,78,.1);
+  box-shadow: 0 0 0 1px var(--accent) inset, 0 12px 34px -14px rgba(217,154,78,.55); transform: translateY(-2px); }
+.pr-detail { grid-column: 1 / -1; position: relative; margin: 4px 0 10px; padding: 18px 20px; border-radius: 14px;
+  border: 1px solid var(--accent); background: linear-gradient(180deg, rgba(217,154,78,.1), var(--panel) 70%);
+  box-shadow: 0 0 0 1px var(--accent) inset, 0 18px 44px -20px rgba(217,154,78,.5); }
+.pr-detail::before { content: ""; position: absolute; top: -8px; left: var(--arrow, 50%); width: 14px; height: 14px;
+  margin-left: -7px; transform: rotate(45deg); background: #2a2219; border-left: 1px solid var(--accent);
+  border-top: 1px solid var(--accent); transition: left .2s; }
+.pr-detail h2 { margin: 0 0 6px; font-size: 20px; }
+.pr-detail .plan-list { font-size: 15px; gap: 8px; }
+.pr-go { display: inline-flex; margin-top: 14px; padding: 12px 22px; border-radius: 999px; border: 0;
+  background: var(--accent); color: #1a1206; font-weight: 800; font-size: 15px; text-decoration: none; cursor: pointer; }
+.pr-go:hover { filter: brightness(1.08); }
+.pr-go.busy, .pr-buy.busy { opacity: .7; pointer-events: none; }
+.pr-credits { margin: 0 0 10px; padding: 18px 20px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); }
+.pr-credits.wanted { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.pr-buy { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 18px;
+  border-radius: 14px; border: 0; cursor: pointer; background: linear-gradient(135deg, #e8a85a, #c9823a);
+  color: #1a1206; font-size: 22px; font-weight: 800; box-shadow: 0 14px 34px -16px rgba(217,154,78,.8); }
+.pr-buy span { font-size: 14px; font-weight: 600; opacity: .85; }
+.pr-buy:hover { filter: brightness(1.06); }
+.pr-credits p { margin: 12px 0 0; color: var(--muted); line-height: 1.5; }
+.pr-credits p b { color: var(--text); }
