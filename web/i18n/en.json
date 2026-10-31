@@ -2073,5 +2073,8 @@
  "Момент, когда песня готова": "The moment your song is ready",
  "Пока песня готовится, обложка переливается и по ней бежит эквалайзер. Готово — обложка вспыхивает и переворачивается, телефон отвечает щелчком, снизу — «Готово!», а если ничего не играет, песня сразу звучит с припева.": "While the song is being made, its cover shimmers with a running equalizer. When it's ready, the cover flashes and flips, your phone taps back, “Ready!” slides up — and if nothing is playing, the song starts right from the chorus.",
  "Готово!": "Ready!",
- "Открыть трек": "Open track"
+ "Открыть трек": "Open track",
+ "Меньше лишнего": "Less clutter",
+ "Форма стала короче: «Без чего», «Смелый режим», «Продолжить мою запись» и ползунки — под «Тонкие настройки ▾», на кнопке видно, сколько изменено. Темп и тональность у трека — один раз, у версий. Значки в шапке на телефоне — одного вида.": "The form is shorter: “Without”, “Bold mode”, “Continue my recording” and the sliders now live under “Fine settings ▾”, and the button shows how many you changed. Tempo and key appear once, on the versions. Header icons on phones look the same.",
+ "Тонкие настройки": "Fine settings"
 }

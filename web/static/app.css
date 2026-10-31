@@ -2285,3 +2285,34 @@ html[data-nav=out]::view-transition-new(st-list) { animation-name: st-nav-left-i
   .st-cover.st-born, .st-cover.st-born::after, .st-born-art .st-cover { animation: none !important; }
   .st-born-card { transition: none; }
 }
+
+/* Шапка на телефоне -- один вид у всех значков (владелец, 31.10: «убрать
+   лишнее»): одинаковые круги 40×40 с тонкой рамкой; текущий раздел --
+   золотой; язык -- такой же круг. Нажали -- круг чуть вдавливается. */
+@media (max-width: 640px) {
+  .topnav > a:not(.badge), .topnav > .langsw {
+    width: 40px; height: 40px; padding: 0 !important; justify-content: center; align-items: center;
+    display: inline-flex; border-radius: 50%; border: 1px solid var(--border); background: transparent;
+    transition: transform .15s ease, color .2s, background .2s, border-color .2s;
+  }
+  .topnav > a.who { display: inline-flex; background: transparent; }
+  .topnav > a.who::before { position: static; transform: none; }
+  .topnav > .langsw { font-size: 12px; }
+  .topnav > a[aria-current="page"], .topnav .nav-studio[aria-current="page"] {
+    color: var(--accent); background: rgba(217,154,78,.12); border-color: rgba(217,154,78,.5);
+    box-shadow: 0 0 18px -6px rgba(217,154,78,.6);
+  }
+  .topnav > a:not(.badge):active, .topnav > .langsw:active { transform: scale(.92); }
+}
+
+/* «Тонкие настройки ▾» в форме Студии */
+.st-fine { margin: 4px 0 6px; border: 1px solid var(--border); border-radius: 14px; background: rgba(0,0,0,.12);
+  transition: border-color .4s ease, background .4s ease; }
+.st-fine.open { border-color: rgba(217,154,78,.4); background: rgba(217,154,78,.04); }
+.st-fine-btn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 13px 14px; background: none; border: 0;
+  color: var(--text); font: inherit; font-weight: 600; cursor: pointer; text-align: left; }
+.st-fine-btn .st-pl-chev { margin-left: auto; color: var(--muted); }
+.st-fine.open .st-pl-chev { transform: rotate(180deg); }
+.st-fine-count { color: var(--accent); font-weight: 500; font-size: 13px; }
+.st-fine-body { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 12px; }
+.st-fine-body[hidden] { display: none; }

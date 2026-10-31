@@ -163,8 +163,34 @@ function showMode() {
     ? '— у своей записи нейросеть споёт этот текст, без текста выйдет инструментал; у чужой песни слова распознаем сами'
     : mode === 'restyle' && yue2 ? '— необязательно: распознаем сами'
     : mode === 'restyle' && mureka ? '— необязательно' : '';
+  fineSync();
   updateStart();
 }
+
+// «Тонкие настройки ▾»: прячем, когда внутри нечего показать; на кнопке --
+// сколько настроек изменено, чтобы не забыть про них, пока свёрнуто
+const FINE_DEFAULT = { audioKnob: '50', styleKnob: '50', weirdKnob: '30', melodyKnob: '0', yCfg: '1.0', yCreative: '50', yClose: 'melody' };
+function fineSync() {
+  const parts = ['hitOpts', 'yue2Knobs', 'strengthBox'].filter((id) => !$(id).hidden);
+  $('fineBox').hidden = !parts.length;
+  let changed = 0;
+  parts.forEach((id) => {
+    $(id).querySelectorAll('input, select').forEach((el) => {
+      if (el.closest('[hidden]') && el.closest('[hidden]') !== $('fineBody')) return;
+      if (el.type === 'checkbox') changed += el.checked ? 1 : 0;
+      else if (el.type === 'text') changed += el.value.trim() ? 1 : 0;
+      else if (el.id in FINE_DEFAULT) changed += String(el.value) !== FINE_DEFAULT[el.id] && String(Number(el.value)) !== FINE_DEFAULT[el.id] ? 1 : 0;
+    });
+  });
+  $('fineCount').textContent = changed ? `изменено: ${changed}` : '';
+}
+$('fineBtn').addEventListener('click', () => {
+  const open = window.smoothToggle($('fineBody'));
+  $('fineBtn').setAttribute('aria-expanded', String(open));
+  $('fineBox').classList.toggle('open', open);
+  if (window.haptic) window.haptic('tick');
+});
+['input', 'change'].forEach((ev) => $('fineBody').addEventListener(ev, fineSync));
 
 // «Дописать → Все партии»: на деле это переделка с вашим голосом (Mureka
 // пишет новую аранжировку под записанный вокал) -- так и отправляем, и цена её
@@ -680,8 +706,10 @@ function renderDetail(jobs) {
   const j = jobs.find((x) => x.id === openJob);
   if (!j) { closeDetail(); return; }
   const children = jobs.filter((x) => x.from === j.id);
+  // тональность и темп уже стоят у каждой версии -- в шапке не повторяем
+  const keyed = j.status === 'done' && (j.files || []).some((f) => (j.keys || {})[f.name]);
   const meta = [MODE[j.mode] ? MODE[j.mode].title : j.title, j.keepVocals ? 'с вашим голосом' : '',
-    j.bpm ? `${j.bpm} BPM` : '', j.key || ''].filter(Boolean).join(' · ');
+    !keyed && j.bpm ? `${j.bpm} BPM` : '', !keyed ? j.key || '' : ''].filter(Boolean).join(' · ');
   const versions = j.status === 'done' ? j.files.map((f) => `
     <div class="st-version">
       ${playButton(f, j.name)}

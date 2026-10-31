@@ -73,22 +73,6 @@
                   placeholder="Жанр, настроение, инструменты, темп. Например: мощный ню-метал, рваный рифф, скретчи, агрессивный рэп-куплет и мелодичный припев"></textarea>
       </div>
 
-      <div class="st-hitopts" id="hitOpts" hidden>
-        <label class="check st-keep" id="contBox" hidden>
-          <input type="checkbox" id="contRec">
-          <span><b>Продолжить мою запись</b>
-            <small>Не переделывать, а дописать дальше: нейросеть продолжит вашу запись — припев, следующий
-              куплет — в том же темпе и звуке. Вставьте текст продолжения или оставьте пустым — выйдет
-              инструментальное продолжение.</small></span>
-        </label>
-        <label class="st-field">Без чего <small class="muted">— необязательно</small>
-          <input type="text" id="negative" maxlength="200" placeholder="Например: без автотюна, без электроники, без скрима"></label>
-        <label class="check st-keep">
-          <input type="checkbox" id="wild">
-          <span><b>Смелый режим</b>
-            <small>Неожиданные сочетания жанров и аранжировки — для экспериментов.</small></span>
-        </label>
-      </div>
       <label class="check st-keep" id="hitBox" hidden>
         <input type="checkbox" id="useHit" checked>
         <span><b>🧪 Новая нейросеть — проба (видно только вам)</b>
@@ -103,18 +87,6 @@
             мелодии и распознаем слова сами, если вы их не вставили. Лицензия некоммерческая —
             покупателям не показываем.</small></span>
       </label>
-      <div class="st-yue2" id="yue2Knobs" hidden>
-        <label id="yCloseBox">Близость к оригиналу
-          <select id="yClose">
-            <option value="melody">Мелодия оригинала, гармония новая — советуем</option>
-            <option value="full">Мелодия и аккорды оригинала — ближе всего</option>
-            <option value="free">Свободно — только слова и стиль</option>
-          </select></label>
-        <label class="st-knob"><span class="st-knob-head">Сила стиля <output id="yCfgVal">1.0</output></span>
-          <input type="range" id="yCfg" min="0.8" max="1.8" step="0.1" value="1.0"></label>
-        <label class="st-knob"><span class="st-knob-head">Смелость <output id="yCreativeVal">50%</output></span>
-          <input type="range" id="yCreative" min="0" max="100" step="5" value="50"></label>
-      </div>
       <label class="check st-keep" id="proBox" hidden>
         <input type="checkbox" id="stemsPro">
         <span><b>Глубокое разделение + MIDI</b> <em class="st-rec">PRO</em>
@@ -193,16 +165,54 @@
         <label class="check" id="instrumentalBox"><input type="checkbox" id="instrumental"> Без слов — инструментал</label>
       </div>
 
-      <div id="strengthBox" hidden>
-        <div class="knobs">
-          <label class="field knob"><span>Влияние песни <b id="audioVal"></b></span>
-            <input type="range" id="audioKnob" min="0" max="100" value="50"></label>
-          <label class="field knob"><span>Влияние стиля <b id="styleVal"></b></span>
-            <input type="range" id="styleKnob" min="0" max="100" value="50"></label>
-          <label class="field knob"><span>Странность <b id="weirdVal"></b></span>
-            <input type="range" id="weirdKnob" min="0" max="100" value="30"></label>
-          <label class="field knob"><span>Удержание мелодии <b id="melodyVal"></b></span>
-            <input type="range" id="melodyKnob" min="0" max="100" value="0"></label>
+
+      <!-- Тонкие настройки (владелец, 31.10: «убрать лишнее»): на виду -- файл,
+           стиль, текст и большая кнопка; остальное -- под «▾», плавно -->
+      <div class="st-fine" id="fineBox">
+        <button type="button" class="st-fine-btn" id="fineBtn" aria-expanded="false" aria-controls="fineBody">
+          <span>Тонкие настройки</span><small class="st-fine-count" id="fineCount"></small>
+          <span class="st-pl-chev" aria-hidden="true">▾</span></button>
+        <div class="st-fine-body" id="fineBody" hidden>
+        <div class="st-hitopts" id="hitOpts" hidden>
+          <label class="check st-keep" id="contBox" hidden>
+            <input type="checkbox" id="contRec">
+            <span><b>Продолжить мою запись</b>
+              <small>Не переделывать, а дописать дальше: нейросеть продолжит вашу запись — припев, следующий
+                куплет — в том же темпе и звуке. Вставьте текст продолжения или оставьте пустым — выйдет
+                инструментальное продолжение.</small></span>
+          </label>
+          <label class="st-field">Без чего <small class="muted">— необязательно</small>
+            <input type="text" id="negative" maxlength="200" placeholder="Например: без автотюна, без электроники, без скрима"></label>
+          <label class="check st-keep">
+            <input type="checkbox" id="wild">
+            <span><b>Смелый режим</b>
+              <small>Неожиданные сочетания жанров и аранжировки — для экспериментов.</small></span>
+          </label>
+        </div>
+        <div class="st-yue2" id="yue2Knobs" hidden>
+          <label id="yCloseBox">Близость к оригиналу
+            <select id="yClose">
+              <option value="melody">Мелодия оригинала, гармония новая — советуем</option>
+              <option value="full">Мелодия и аккорды оригинала — ближе всего</option>
+              <option value="free">Свободно — только слова и стиль</option>
+            </select></label>
+          <label class="st-knob"><span class="st-knob-head">Сила стиля <output id="yCfgVal">1.0</output></span>
+            <input type="range" id="yCfg" min="0.8" max="1.8" step="0.1" value="1.0"></label>
+          <label class="st-knob"><span class="st-knob-head">Смелость <output id="yCreativeVal">50%</output></span>
+            <input type="range" id="yCreative" min="0" max="100" step="5" value="50"></label>
+        </div>
+        <div id="strengthBox" hidden>
+          <div class="knobs">
+            <label class="field knob"><span>Влияние песни <b id="audioVal"></b></span>
+              <input type="range" id="audioKnob" min="0" max="100" value="50"></label>
+            <label class="field knob"><span>Влияние стиля <b id="styleVal"></b></span>
+              <input type="range" id="styleKnob" min="0" max="100" value="50"></label>
+            <label class="field knob"><span>Странность <b id="weirdVal"></b></span>
+              <input type="range" id="weirdKnob" min="0" max="100" value="30"></label>
+            <label class="field knob"><span>Удержание мелодии <b id="melodyVal"></b></span>
+              <input type="range" id="melodyKnob" min="0" max="100" value="0"></label>
+          </div>
+        </div>
         </div>
       </div>
 
