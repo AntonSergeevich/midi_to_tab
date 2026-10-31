@@ -2346,3 +2346,21 @@ html[data-nav=out]::view-transition-new(st-list) { animation-name: st-nav-left-i
   .st-seg > button:active, .st-favtabs > button:active, .st-info-read:active, .st-pl-new:active, .st-fine-btn:active,
   #modes button:active, .badge:active { transform: none; }
 }
+
+/* Мини-плеер в цвет играющей обложки: свечение слева и тонкая линия
+   сверху, переливаются при смене трека */
+.st-player { --art: rgb(217,154,78); isolation: isolate; }
+.st-player::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: radial-gradient(120% 160% at 0% 100%, var(--art), transparent 62%); opacity: .26;
+  transition: opacity .8s ease; }
+@property --art { syntax: '<color>'; inherits: true; initial-value: rgb(217,154,78); }
+.st-player, .st-pl { transition: --art .9s ease, border-color .4s ease, box-shadow .4s ease; }
+.st-born-card { transition: transform .6s cubic-bezier(.2,.9,.25,1.1), opacity .4s ease, --art .9s ease; }
+.st-player { border-top-color: color-mix(in srgb, var(--art) 45%, var(--border)); }
+/* Плейлист светится своей первой обложкой */
+.st-pl { --art: rgb(217,154,78); }
+.st-pl.open { border-color: color-mix(in srgb, var(--art) 65%, transparent);
+  box-shadow: 0 16px 38px -20px var(--art); }
+.st-pl .st-pl-art { box-shadow: 0 8px 22px -8px var(--art); }
+.st-born-card { border-color: color-mix(in srgb, var(--art, rgb(246,197,132)) 70%, transparent);
+  box-shadow: 0 18px 44px -14px var(--art, rgba(217,154,78,.55)), 0 8px 24px rgba(0,0,0,.5); }

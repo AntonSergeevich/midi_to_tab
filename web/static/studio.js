@@ -763,31 +763,58 @@ function paintArt(j) {
   view.classList.toggle('st-arty', Boolean(j.cover));
   if (!j.cover) { view.style.removeProperty('--art'); view.style.removeProperty('--art-img'); return; }
   view.style.setProperty('--art-img', `url("${j.cover}")`);
-  const apply = (color) => { if (openJob === j.id && color) view.style.setProperty('--art', color); };
-  if (j.cover in artColors) { apply(artColors[j.cover]); return; }
-  const img = new Image();
-  img.onload = () => {
-    try {
-      const side = 32;
-      const canvas = document.createElement('canvas');
-      canvas.width = side; canvas.height = side;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, side, side);
-      const d = ctx.getImageData(0, 0, side, side).data;
-      const px = [];
-      for (let i = 0; i < d.length; i += 4) {
-        const max = Math.max(d[i], d[i + 1], d[i + 2]);
-        const min = Math.min(d[i], d[i + 1], d[i + 2]);
-        px.push([max ? ((max - min) / max) * max : 0, d[i], d[i + 1], d[i + 2]]);
-      }
-      px.sort((a, b) => b[0] - a[0]);
-      const top = px.slice(0, Math.max(8, px.length >> 3));
-      const avg = [1, 2, 3].map((k) => Math.round(top.reduce((sum, p) => sum + p[k], 0) / top.length));
-      artColors[j.cover] = `rgb(${avg.join(',')})`;
-    } catch (error) { artColors[j.cover] = ''; }
-    apply(artColors[j.cover]);
+  artColor(j.cover).then((color) => { if (openJob === j.id && color) view.style.setProperty('--art', color); });
+}
+// Самый сочный цвет обложки (а не средний бурый) -- один на картинку, с кэшем
+function artColor(url) {
+  if (!url) return Promise.resolve('');
+  if (url in artColors) return Promise.resolve(artColors[url]);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onerror = () => resolve('');
+    img.onload = () => {
+      try {
+        const side = 32;
+        const canvas = document.createElement('canvas');
+        canvas.width = side; canvas.height = side;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, side, side);
+        const d = ctx.getImageData(0, 0, side, side).data;
+        const px = [];
+        for (let i = 0; i < d.length; i += 4) {
+          const max = Math.max(d[i], d[i + 1], d[i + 2]);
+          const min = Math.min(d[i], d[i + 1], d[i + 2]);
+          px.push([max ? ((max - min) / max) * max : 0, d[i], d[i + 1], d[i + 2]]);
+        }
+        px.sort((a, b) => b[0] - a[0]);
+        const top = px.slice(0, Math.max(8, px.length >> 3));
+        const avg = [1, 2, 3].map((k) => Math.round(top.reduce((sum, p) => sum + p[k], 0) / top.length));
+        artColors[url] = `rgb(${avg.join(',')})`;
+      } catch (error) { artColors[url] = ''; }
+      resolve(artColors[url]);
+    };
+    img.src = url;
+  });
+}
+
+// Мини-плеер и карточки плейлистов -- в цвет обложки (владелец, 31.10:
+// «цвет обложки делает сервис дороже»): играет песня -- плеер мягко
+// подсвечен её цветом, у плейлиста -- свечение его первой обложки
+function tintPlayer(item) {
+  const set = (color) => {
+    if (queue[qi] !== item) return;
+    ['player', 'born'].forEach((id) => { if ($(id)) $(id).style.setProperty('--art', color || 'rgb(217,154,78)'); });
   };
-  img.src = j.cover;
+  set('');
+  artColor(item.cover).then(set);
+}
+function tintPlaylists() {
+  document.querySelectorAll('.st-pl[data-pl]').forEach((card) => {
+    const id = card.dataset.pl;
+    const first = (itemsOf(id).items || [])[0];
+    if (!first || !first.cover) return;
+    artColor(first.cover).then((color) => { if (color) card.style.setProperty('--art', color); });
+  });
 }
 
 // «О треке» -- справа от версий (на телефоне -- под ними): обложка,
@@ -1376,6 +1403,7 @@ function startTrack(paused, at) {
   ['pPrev', 'pNext', 'fPrev', 'fNext'].forEach((id) => { $(id).disabled = !many; });
   $('fQueue').textContent = playingList ? `${playingList} · ${qi + 1} из ${queue.length}` : '';
   lockScreen(item);
+  tintPlayer(item);
   if (list.lists && !$('listView').hidden) renderPlaylists();    // подсветить, что играет
   $('player').hidden = false;
   playerSpace();
@@ -3088,6 +3116,7 @@ function renderPlaylists() {
     ${!playlists.length ? `<p class="muted">Соберите треки, которые хотите слушать подряд — например, заучить к концерту:
       ⋯ у версии → «Добавить в плейлист». Плейлист играет и с выключенным экраном, «дальше» — с наушников.</p>` : ''}
   </div>`;
+  tintPlaylists();
 }
 
 function itemsOf(id) {

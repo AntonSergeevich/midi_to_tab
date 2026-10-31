@@ -82,6 +82,31 @@
   const clock = (s) => `${Math.floor((s || 0) / 60)}:${String(Math.floor((s || 0) % 60)).padStart(2, '0')}`;
   let at = -1;
   let counted = false;
+  // Сменилась песня -- обложка и размытый фон страницы плавно перетекают
+  // в новую (владелец, 31.10: «вкусно»), без резкой подмены
+  function swapArt(src) {
+    const box = document.getElementById('lpCover');
+    const old = box.querySelector('img');
+    if (old && old.getAttribute('src') === src) return;
+    const img = new Image();
+    img.alt = '';
+    img.onload = () => {
+      box.innerHTML = '';
+      box.appendChild(img);
+      if (img.animate) img.animate([{ opacity: 0, transform: 'scale(.94)' }, { opacity: 1, transform: 'none' }],
+        { duration: 520, easing: 'cubic-bezier(.22,.8,.24,1)' });
+      const bg = document.querySelector('.ls-bg');
+      if (!bg) return;
+      const next = bg.cloneNode(false);
+      next.style.backgroundImage = `url(${src})`;
+      next.style.opacity = '0';
+      next.style.transition = 'opacity 1.2s ease';
+      bg.after(next);
+      requestAnimationFrame(() => requestAnimationFrame(() => { next.style.opacity = ''; }));
+      setTimeout(() => bg.remove(), 1300);
+    };
+    img.src = src;
+  }
   function start(i) {
     if (!rows[i]) return;
     at = i;
@@ -94,7 +119,7 @@
     document.getElementById('lpNow').hidden = false;
     document.getElementById('lpNowTitle').textContent = row.dataset.title;
     document.getElementById('lpNowSub').textContent = row.dataset.sub ? `· ${row.dataset.sub}` : '';
-    if (row.dataset.cover) document.getElementById('lpCover').innerHTML = `<img src="${row.dataset.cover}" alt="">`;
+    if (row.dataset.cover) swapArt(row.dataset.cover);
     if ('mediaSession' in navigator) {
       try {
         navigator.mediaSession.metadata = new MediaMetadata({ title: row.dataset.title, artist: row.dataset.sub || 'NASLUX',
