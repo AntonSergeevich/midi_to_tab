@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15161c">
+<meta name="robots" content="noindex">
+<title>Плейлист «{{TITLE}}» — NASLUX</title>
+<meta name="description" content="{{DESCRIPTION}}">
+<meta property="og:type" content="music.playlist">
+<meta property="og:title" content="{{TITLE}}">
+<meta property="og:description" content="{{DESCRIPTION}}">
+<meta property="og:image" content="{{IMAGE}}">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
+    <nav class="topnav" aria-label="Разделы">
+      <a href="/studio">Студия</a>
+      <a href="/pricing">Тарифы</a>
+      <a href="/account" id="account" class="who">Вход</a>
+      <a href="/pricing" id="access" class="badge" hidden></a>
+    </nav>
+  </header>
+  <script src="/static/nav.js"></script>
+
+  {{BACKDROP}}
+  <!-- Плейлист по ссылке: слушать подряд, скачать песню или все разом -->
+  <main class="ls">
+    <div class="ls-card">
+      <div class="ls-cover" id="lpCover">{{COVER}}</div>
+      <div class="ls-main">
+        <p class="ls-kicker">Плейлист</p>
+        <h1 class="ls-title" data-noi18n>{{TITLE}}</h1>
+        <p class="ls-facts" data-noi18n>{{FACTS}}</p>
+        <p class="lp-now" id="lpNow" hidden><b data-noi18n id="lpNowTitle"></b> <span data-noi18n id="lpNowSub"></span></p>
+        <div class="ls-player">
+          <button type="button" class="lp-step" id="lpPrev" aria-label="Предыдущая"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+          <button type="button" class="play-btn ls-play" id="lsPlay" aria-label="Играть"><svg viewBox="0 0 24 24"><path d="M8.5 5.6v12.8a1 1 0 0 0 1.5.86l10.2-6.4a1 1 0 0 0 0-1.72L10 4.74a1 1 0 0 0-1.5.86z"/></svg></button>
+          <button type="button" class="lp-step" id="lpNext" aria-label="Следующая"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
+          <div class="ls-track">
+            <input type="range" id="lsSeek" data-nohaptic min="0" max="1000" value="0" aria-label="Перемотка">
+            <span class="ls-time"><b id="lsNowT">0:00</b> / <span id="lsTotal">0:00</span></span>
+          </div>
+        </div>
+        <audio id="lsAudio" preload="none"></audio>
+        <div class="ls-actions">
+          <a class="ls-btn" href="{{ZIP}}" download>⬇ Скачать все песни</a>
+          <button type="button" class="ls-btn" id="lsCopy">Скопировать ссылку</button>
+        </div>
+      </div>
+    </div>
+    <ol class="lp-list" id="lpList">{{TRACKS}}</ol>
+    <section class="ls-cta">
+      <h2>Эти песни сделаны в NASLUX</h2>
+      <p class="muted">Песня с нуля нейросетью за минуту, кавер своей записи, партии и мультитрек для репетиций,
+        аккорды и табы к любой песне — бесплатно. Попробуйте: за регистрацию — кредиты на первые песни.</p>
+      <a class="primary-link" href="/studio">Попробовать бесплатно</a>
+    </section>
+  </main>
+
+  <footer class="legal">
+    <a href="/privacy">Политика конфиденциальности</a>
+    <a href="/offer">Оферта</a>
+    <span>© NASLUX</span>
+  </footer>
+</div>
+<script>
+(function () {
+  const audio = document.getElementById('lsAudio');
+  const play = document.getElementById('lsPlay');
+  const seek = document.getElementById('lsSeek');
+  const rows = [...document.querySelectorAll('.lp-track')];
+  const ICON_PLAY = play.innerHTML;
+  const ICON_PAUSE = '<svg viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1.4"/><rect x="13.5" y="5" width="4" height="14" rx="1.4"/></svg>';
+  const clock = (s) => `${Math.floor((s || 0) / 60)}:${String(Math.floor((s || 0) % 60)).padStart(2, '0')}`;
+  let at = -1;
+  let counted = false;
+  function start(i) {
+    if (!rows[i]) return;
+    at = i;
+    const row = rows[i];
+    // прослушивание плейлиста считаем один раз -- с первого запущенного трека
+    audio.src = row.dataset.src + (counted ? '' : '?n=1');
+    counted = true;
+    audio.play();
+    rows.forEach((r) => r.classList.toggle('on', r === row));
+    document.getElementById('lpNow').hidden = false;
+    document.getElementById('lpNowTitle').textContent = row.dataset.title;
+    document.getElementById('lpNowSub').textContent = row.dataset.sub ? `· ${row.dataset.sub}` : '';
+    if (row.dataset.cover) document.getElementById('lpCover').innerHTML = `<img src="${row.dataset.cover}" alt="">`;
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({ title: row.dataset.title, artist: row.dataset.sub || 'NASLUX',
+          album: document.querySelector('.ls-title').textContent,
+          artwork: row.dataset.cover ? [{ src: new URL(row.dataset.cover, location.href).href, sizes: '1024x1024', type: 'image/jpeg' }] : [] });
+      } catch (error) { /* старый браузер */ }
+    }
+  }
+  play.addEventListener('click', () => { if (at < 0) start(0); else if (audio.paused) audio.play(); else audio.pause(); });
+  document.getElementById('lpPrev').addEventListener('click', () => start(Math.max(0, at - 1)));
+  document.getElementById('lpNext').addEventListener('click', () => start(Math.min(rows.length - 1, at + 1)));
+  rows.forEach((row, i) => row.querySelector('.lp-row').addEventListener('click', () => {
+    if (i === at) { if (audio.paused) audio.play(); else audio.pause(); } else start(i);
+  }));
+  audio.addEventListener('ended', () => { if (at < rows.length - 1) start(at + 1); });
+  audio.addEventListener('play', () => { play.innerHTML = ICON_PAUSE; play.classList.add('on'); });
+  audio.addEventListener('pause', () => { play.innerHTML = ICON_PLAY; play.classList.remove('on'); });
+  audio.addEventListener('loadedmetadata', () => { document.getElementById('lsTotal').textContent = clock(audio.duration); });
+  audio.addEventListener('timeupdate', () => {
+    document.getElementById('lsNowT').textContent = clock(audio.currentTime);
+    if (audio.duration && !seek.matches(':active')) seek.value = String(Math.round(audio.currentTime / audio.duration * 1000));
+  });
+  seek.addEventListener('input', () => { if (audio.duration) audio.currentTime = seek.value / 1000 * audio.duration; });
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.setActionHandler('nexttrack', () => start(Math.min(rows.length - 1, at + 1)));
+      navigator.mediaSession.setActionHandler('previoustrack', () => start(Math.max(0, at - 1)));
+    } catch (error) { /* */ }
+  }
+  document.getElementById('lsCopy').addEventListener('click', async (e) => {
+    const url = location.href.split('#')[0];
+    try {
+      if (navigator.share && matchMedia('(pointer: coarse)').matches) await navigator.share({ title: document.title, url });
+      else { await navigator.clipboard.writeText(url); e.target.textContent = 'Ссылка скопирована'; }
+    } catch (error) { /* закрыли окно -- ничего */ }
+  });
+}());
+</script>
+</body>
+</html>

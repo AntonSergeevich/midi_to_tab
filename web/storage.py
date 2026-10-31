@@ -132,6 +132,15 @@ CREATE INDEX IF NOT EXISTS studio_upload_counts_user ON studio_upload_counts(use
 
 -- Ссылка «послушать»: трек (одна версия) по секретной ссылке -- показать
 -- музыкантам, отправить людям. Без входа, только слушать и скачать.
+CREATE TABLE IF NOT EXISTS playlist_shares (
+    token        TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL,
+    playlist_id  TEXT NOT NULL,
+    created_at   REAL NOT NULL,
+    plays        INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (user_id, playlist_id)
+);
+
 CREATE TABLE IF NOT EXISTS shares (
     token        TEXT PRIMARY KEY,
     job_id       TEXT NOT NULL,
@@ -1304,6 +1313,31 @@ class Storage:
         with self._connect() as conn:
             return bool(conn.execute("DELETE FROM shares WHERE token = ? AND user_id = ?",
                                      (token, user_id)).rowcount)
+
+    # Плейлист по ссылке (владелец, 31.10: «кинуть педагогу все мои песни
+    # плейлистом»): ссылка -- на плейлист, а не на снимок, -- добавил трек, и
+    # он уже есть по той же ссылке.
+    def playlist_share_for(self, token: str, user_id: str, playlist_id: str) -> dict:
+        with self._connect() as conn:
+            conn.execute("INSERT OR IGNORE INTO playlist_shares (token, user_id, playlist_id, created_at)"
+                         " VALUES (?, ?, ?, ?)", (token, user_id, playlist_id, time.time()))
+            row = conn.execute("SELECT * FROM playlist_shares WHERE user_id = ? AND playlist_id = ?",
+                               (user_id, playlist_id)).fetchone()
+        return dict(row)
+
+    def playlist_share(self, token: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM playlist_shares WHERE token = ?", (token,)).fetchone()
+        return dict(row) if row else None
+
+    def count_playlist_play(self, token: str) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE playlist_shares SET plays = plays + 1 WHERE token = ?", (token,))
+
+    def delete_playlist_share(self, user_id: str, playlist_id: str) -> bool:
+        with self._connect() as conn:
+            return bool(conn.execute("DELETE FROM playlist_shares WHERE user_id = ? AND playlist_id = ?",
+                                     (user_id, playlist_id)).rowcount)
 
     def voices(self, user_id: str) -> list[dict]:
         with self._connect() as conn:

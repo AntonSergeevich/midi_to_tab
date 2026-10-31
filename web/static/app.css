@@ -2148,3 +2148,25 @@ body.browsing { overflow: hidden; }
 }
 html, body { overflow-x: hidden; }
 @supports (overflow-x: clip) { html, body { overflow-x: clip; } }
+
+/* Плейлист по ссылке (/listen/p/…) */
+.lp-now { margin: 0; font-size: 15px; }
+.lp-now span { color: var(--muted); }
+.lp-step { flex: none; width: 40px; height: 40px; border: 0; border-radius: 50%; background: transparent; color: var(--text); cursor: pointer; }
+.lp-step svg { width: 22px; height: 22px; fill: currentColor; }
+.lp-list { list-style: none; margin: 0; padding: 8px; border-radius: 18px; background: var(--panel); border: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 2px; counter-reset: lp; }
+.lp-track { display: flex; align-items: center; gap: 6px; border-radius: 12px; }
+.lp-track.on { background: rgba(217,154,78,.1); }
+.lp-track.on b { color: var(--accent); }
+.lp-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 8px; border: 0; background: none;
+  color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.lp-art { flex: none; width: 48px; height: 48px; border-radius: 10px; overflow: hidden; background: var(--panel-hi);
+  display: grid; place-items: center; color: var(--accent); }
+.lp-art img { width: 100%; height: 100%; object-fit: cover; }
+.lp-text { min-width: 0; display: flex; flex-direction: column; }
+.lp-text b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-text small { color: var(--muted); font-size: 13px; }
+.lp-dl { flex: none; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); text-decoration: none; }
+@media (hover: hover) { .lp-dl:hover { background: var(--panel-hi); color: var(--accent); } }
+.st-pl-foot { flex-wrap: wrap; gap: 8px 16px; }

@@ -811,7 +811,7 @@
  "Пополните баланс — всё заполненное дождётся вас здесь.": "Top up your balance — everything you filled in will wait for you here.",
  "Пополнить": "Top up",
  "Пополнить баланс": "Top up balance",
- "Попробовать бесплатно": "Try it free",
+ "Попробовать бесплатно": "Try for free",
  "После оплаты вернём вас в Студию — всё, что вы заполнили, на месте.": "After payment we'll bring you back to the Studio — everything you filled in will be in place.",
  "Последнюю дорожку убрать нельзя": "The last track can't be removed",
  "Послушать": "Listen",
@@ -2031,5 +2031,14 @@
  "🎯 Распознать точнее — дольше, 10–15 минут": "🎯 Recognise more accurately: slower, 10–15 minutes",
  "Распознаём точнее… обычно 10–15 минут, страницу можно закрыть": "Recognising more accurately… usually 10–15 minutes, you can close the page",
  "Распознаём точнее — обычно 10–15 минут": "Recognising more accurately, usually 10–15 minutes",
- "Сохранено — текст и свойства будут и в скачанном mp3": "Saved; lyrics and properties will be in the downloaded mp3 too"
+ "Сохранено — текст и свойства будут и в скачанном mp3": "Saved; lyrics and properties will be in the downloaded mp3 too",
+ "Плейлист по ссылке": "Playlist by link",
+ "Отправьте плейлист педагогу, группе или друзьям: по ссылке — обложки, слушать подряд, скачать песню или все разом, без регистрации. Добавили трек — он уже по той же ссылке.": "Send a playlist to your teacher, band or friends: the link shows covers, plays tracks in a row and lets them download one song or all at once, no sign-up needed. Add a track and it appears at the same link.",
+ "Студия → ♫ Плейлисты → значок «Поделиться» на плейлисте": "Studio → ♫ Playlists → «Share» icon on the playlist",
+ "🔗 Поделиться плейлистом": "🔗 Share playlist",
+ "Поделиться плейлистом": "Share playlist",
+ "Плейлист": "Playlist",
+ "⬇ Скачать все песни": "⬇ Download all songs",
+ "Эти песни сделаны в NASLUX": "These songs were made in NASLUX",
+ "Песня с нуля нейросетью за минуту, кавер своей записи, партии и мультитрек для репетиций, аккорды и табы к любой песне — бесплатно. Попробуйте: за регистрацию — кредиты на первые песни.": "A song from scratch with AI in a minute, a cover of your own recording, parts and a multitrack for rehearsals, chords and tabs for any song for free. Try it: you get credits for your first songs when you sign up."
 }

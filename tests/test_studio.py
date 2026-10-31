@@ -3223,3 +3223,40 @@ def test_edited_lyrics_keep_karaoke_timing(studio_app):
     assert [w["w"] for w in words] == ["Место", "дыханья", "твоих", "шагов"]
     assert words[0]["s"] == 0 and words[2]["s"] == 2 and words[2].get("nl") == 1 and words[1]["s"] == 1
     assert client.get("/api/studio").json()["jobs"][0]["lyricsAuto"] == "fast"
+
+
+def test_playlist_shared_by_link(studio_app):
+    """Плейлист по ссылке: без входа -- страница со списком, звук, архив всех
+    песен; каверы чужих песен не попадают; закрыли доступ -- ссылка мертва."""
+    import io
+    import zipfile
+
+    from fastapi.testclient import TestClient
+
+    app_module, client, user, _ = studio_app
+    app_module.storage.add_balance(user.id, 100)
+    ids = []
+    for rights in ("own", "cover"):
+        job_id = _start(client, mode="stems").json()["jobId"]
+        settings = {**app_module.storage.job(job_id).settings, "rights": {"kind": rights}}
+        open(f"{app_module.studio_runner.folder(job_id)}/song.mp3", "wb").write(b"ID3mp3data")
+        app_module.storage.update_job(job_id, status="done", settings=settings, filename=f"Песня {rights}.mp3",
+                                      result={"files": [{"name": "song.mp3", "label": "Оригинал", "seconds": 61}]})
+        ids.append(job_id)
+    client.post("/api/me/playlists", data={"data": json.dumps([{"id": "pl01", "name": "Педагогу", "items": [
+        {"job": j, "file": "song.mp3"} for j in ids]}])})
+    shared = client.post("/api/me/playlists/pl01/share").json()
+    assert shared["tracks"] == 1 and shared["skipped"] == 1 and shared["path"].startswith("/listen/p/")
+    assert client.post("/api/me/playlists/pl01/share").json()["token"] == shared["token"]   # та же ссылка
+
+    stranger = TestClient(app_module.app)
+    page = stranger.get(shared["path"]).text
+    assert "Педагогу" in page and "Песня own" in page and "Песня cover" not in page and "{{" not in page
+    token = shared["token"]
+    assert stranger.get(f"/api/listen/p/{token}/{ids[0]}/song.mp3").content == b"ID3mp3data"
+    assert stranger.get(f"/api/listen/p/{token}/{ids[1]}/song.mp3").status_code == 404
+    names = zipfile.ZipFile(io.BytesIO(stranger.get(f"/api/listen/p/{token}/all.zip").content)).namelist()
+    assert len(names) == 1 and names[0].startswith("01 Песня own")
+
+    assert client.delete("/api/me/playlists/pl01/share").json() == {"ok": True}
+    assert stranger.get(shared["path"]).status_code == 404

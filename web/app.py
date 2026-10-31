@@ -23,6 +23,7 @@ import subprocess
 import urllib.parse
 import shutil
 import sys
+import tempfile
 import threading
 import time
 import zipfile
@@ -33,6 +34,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, Response, Uploa
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 from itsdangerous import BadSignature, URLSafeSerializer
 
 from midi2tab import audiochords, audioin, lyrics as lyrics_mod, separate
@@ -3349,6 +3351,164 @@ def _shared(token: str):
     except HTTPException as error:
         raise HTTPException(404, "Ссылка больше не работает") from error
     return found, job, path
+
+
+# ------------------------------------------------ плейлист по ссылке
+# Владелец, 31.10: «кинуть педагогу по вокалу все мои песни плейлистом --
+# не захочет, скачает, а понравится -- начнёт пользоваться NASLUX». Ссылка
+# /listen/p/<токен>: без входа -- обложки, список, слушать подряд, скачать
+# песню или все архивом, и приглашение в Студию. Ссылка -- на сам плейлист:
+# добавили трек -- он уже по той же ссылке. Каверы чужих песен -- не попадают.
+
+def _playlist_tracks(user_id: str, playlist_id: str) -> tuple[dict | None, list[dict], int]:
+    """Плейлист владельца и его треки, которыми можно делиться; сколько отсеяно."""
+    playlist = next((p for p in storage.prefs(user_id).get("playlists") or [] if p.get("id") == playlist_id), None)
+    if not playlist:
+        return None, [], 0
+    tracks, skipped = [], 0
+    for item in playlist.get("items") or []:
+        job = storage.job(item.get("job", ""))
+        name = item.get("file", "")
+        if not job or job.user_id != user_id or not os.path.isfile(os.path.join(studio_runner.folder(job.id), name)):
+            continue
+        try:
+            _shareable(job, name)
+        except HTTPException:
+            skipped += 1
+            continue
+        found = next((f for f in (job.result or {}).get("files") or [] if f["name"] == name), {})
+        labels = (job.result or {}).get("labels") or {}
+        tracks.append({"job": job, "file": name, "title": Path(job.filename).stem[:120],
+                       "label": labels.get(name) or found.get("label") or "", "seconds": found.get("seconds") or 0,
+                       "cover": os.path.isfile(os.path.join(studio_runner.folder(job.id), "cover.jpg")),
+                       "artist": ((job.settings or {}).get("meta") or {}).get("artist", "")})
+    return playlist, tracks, skipped
+
+
+def _playlist_by_token(token: str):
+    found = storage.playlist_share(token) if re.fullmatch(r"[\w-]{6,40}", token or "") else None
+    playlist, tracks, _ = _playlist_tracks(found["user_id"], found["playlist_id"]) if found else (None, [], 0)
+    if not playlist:
+        raise HTTPException(404, "Ссылка больше не работает: плейлист удалён")
+    return found, playlist, tracks
+
+
+@app.post("/api/me/playlists/{playlist_id}/share")
+def api_playlist_share(playlist_id: str, request: Request):
+    user = current_user(request)
+    playlist, tracks, skipped = _playlist_tracks(user.id, playlist_id)
+    if not playlist:
+        raise HTTPException(404, "Плейлист не найден")
+    if not tracks:
+        raise HTTPException(400, "В плейлисте нет треков, которыми можно поделиться" + (
+            ": каверы чужих песен — только для себя" if skipped else ""))
+    found = storage.playlist_share_for(secrets.token_urlsafe(9), user.id, playlist_id)
+    return {"token": found["token"], "path": f"/listen/p/{found['token']}", "plays": found["plays"],
+            "tracks": len(tracks), "skipped": skipped}
+
+
+@app.delete("/api/me/playlists/{playlist_id}/share")
+def api_playlist_unshare(playlist_id: str, request: Request):
+    user = current_user(request)
+    if not storage.delete_playlist_share(user.id, playlist_id):
+        raise HTTPException(404, "Ссылка не найдена")
+    return {"ok": True}
+
+
+def _playlist_track(token: str, job_id: str, file: str):
+    found, playlist, tracks = _playlist_by_token(token)
+    track = next((t for t in tracks if t["job"].id == job_id and t["file"] == file), None)
+    if not track:
+        raise HTTPException(404, "Такого трека в плейлисте нет")
+    return found, playlist, track
+
+
+@app.get("/listen/p/{token}", response_class=HTMLResponse)
+def listen_playlist_page(token: str, request: Request) -> HTMLResponse:
+    found, playlist, tracks = _playlist_by_token(token)
+    esc = html.escape
+    base = str(request.base_url).rstrip("/")
+    artists = {t["artist"] for t in tracks if t["artist"]}
+    by = artists.pop() if len(artists) == 1 else ""
+    minutes = round(sum(t["seconds"] for t in tracks) / 60)
+    count = len(tracks)
+    word = "песня" if count % 10 == 1 and count % 100 != 11 else (
+        "песни" if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14) else "песен")
+    facts = " · ".join(x for x in (by, f"{count} {word}", f"{minutes} мин" if minutes else "") if x)
+    first_cover = next((t for t in tracks if t["cover"]), None)
+    cover_url = lambda t: f"/api/listen/p/{esc(token)}/{t['job'].id}/cover"  # noqa: E731
+    rows = "".join(
+        f'<li class="lp-track" data-src="/api/listen/p/{esc(token)}/{t["job"].id}/{esc(t["file"])}" '
+        f'data-title="{esc(t["title"])}" data-sub="{esc(t["label"])}" '
+        f'data-cover="{cover_url(t) if t["cover"] else ""}">'
+        f'<button type="button" class="lp-row" aria-label="Слушать">'
+        f'<span class="lp-art">{f"<img src={chr(34)}{cover_url(t)}{chr(34)} alt={chr(34)}{chr(34)} loading={chr(34)}lazy{chr(34)}>" if t["cover"] else "♪"}</span>'
+        f'<span class="lp-text"><b data-noi18n>{esc(t["title"])}</b><small>{esc(t["label"])}'
+        f'{" · " + str(int(t["seconds"]) // 60) + ":" + str(int(t["seconds"]) % 60).zfill(2) if t["seconds"] else ""}</small></span></button>'
+        f'<a class="lp-dl" href="/api/listen/p/{esc(token)}/{t["job"].id}/{esc(t["file"])}?download=1" download '
+        f'aria-label="Скачать mp3">⬇</a></li>' for t in tracks)
+    return page("listen_playlist.html", {
+        "TITLE": esc(playlist.get("name") or "Плейлист"),
+        "FACTS": esc(facts),
+        "DESCRIPTION": esc(f"Плейлист в NASLUX · {facts}"),
+        "IMAGE": esc(f"{base}{cover_url(first_cover)}" if first_cover else f"{base}/static/og.png"),
+        "COVER": f'<img src="{cover_url(first_cover)}" alt="">' if first_cover else '<span aria-hidden="true">♫</span>',
+        "BACKDROP": f'<div class="ls-bg" style="background-image:url({cover_url(first_cover)})" aria-hidden="true"></div>'
+                    if first_cover else "",
+        "ZIP": f"/api/listen/p/{esc(token)}/all.zip",
+        "TRACKS": rows,
+    })
+
+
+@app.get("/api/listen/p/{token}/all.zip")
+def listen_playlist_zip(token: str):
+    """Все песни плейлиста одним архивом -- со свойствами и обложкой в каждом mp3."""
+    found, playlist, tracks = _playlist_by_token(token)
+    temp = tempfile.NamedTemporaryFile(prefix="playlist-", suffix=".zip", delete=False)
+    used = set()
+    with zipfile.ZipFile(temp, "w", zipfile.ZIP_STORED) as archive:
+        for n, t in enumerate(tracks, 1):
+            folder = studio_runner.folder(t["job"].id)
+            meta = (t["job"].settings or {}).get("meta") or {}
+            path = studio.tagged_copy(folder, t["file"], t["title"], meta, (t["job"].result or {}).get("lyrics") or "")
+            name = download_name(f"{n:02d} " + (f"{meta['artist']} — " if meta.get("artist") else "") + t["title"],
+                                 t["label"] if len([x for x in tracks if x["job"].id == t["job"].id]) > 1 else "", ".mp3")
+            while name in used:
+                name = name.replace(".mp3", " (2).mp3")
+            used.add(name)
+            archive.write(path, name)
+    temp.close()
+    return FileResponse(temp.name, media_type="application/zip",
+                        filename=download_name(playlist.get("name") or "Плейлист", "", ".zip"),
+                        background=BackgroundTask(os.remove, temp.name))
+
+
+@app.get("/api/listen/p/{token}/{job_id}/cover")
+def listen_playlist_cover(token: str, job_id: str):
+    found, playlist, tracks = _playlist_by_token(token)
+    if not any(t["job"].id == job_id and t["cover"] for t in tracks):
+        raise HTTPException(404, "Обложки нет")
+    return FileResponse(os.path.join(studio_runner.folder(job_id), "cover.jpg"), media_type="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/api/listen/p/{token}/{job_id}/{file}")
+def listen_playlist_audio(token: str, job_id: str, file: str, request: Request, download: int = 0):
+    found, playlist, track = _playlist_track(token, job_id, file)
+    folder = studio_runner.folder(job_id)
+    path = os.path.join(folder, file)
+    first = request.headers.get("range", "bytes=0-").startswith("bytes=0-")
+    if not download and first and not _is_link_preview_bot(request.headers.get("user-agent", "")) \
+            and track is not None and request.query_params.get("n") == "1":
+        storage.count_playlist_play(token)          # начали слушать плейлист с начала
+    _touch_used(folder)
+    name = None
+    if download:
+        meta = (track["job"].settings or {}).get("meta") or {}
+        path = studio.tagged_copy(folder, file, track["title"], meta, (track["job"].result or {}).get("lyrics") or "")
+        name = download_name((f"{meta['artist']} — " if meta.get("artist") else "") + track["title"], track["label"], ".mp3")
+    return FileResponse(path, media_type="audio/mpeg", filename=name,
+                        content_disposition_type="attachment" if download else "inline")
 
 
 # ------------------------------------------ передать трек музыканту

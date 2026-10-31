@@ -2683,6 +2683,7 @@ function renderPlaylists() {
         <div class="st-row-main"><b data-noi18n>${esc(name)}</b>
           <span class="muted">${items.length} ${plural(items.length, 'трек', 'трека', 'треков')}${minutes ? ` · ${minutes} мин` : ''}</span></div>
         <span class="st-pl-chev" aria-hidden="true">${open ? '▴' : '▾'}</span>
+        ${own ? `<button type="button" class="st-mode-btn" data-plsharelist="${id}" aria-label="Поделиться плейлистом">${ICON.share}</button>` : ''}
         <button type="button" class="st-mode-btn${shuffleOn ? ' on' : ''}" data-plshuffle="${id}"
           aria-pressed="${shuffleOn}" aria-label="${shuffleOn ? 'Перемешать: вкл' : 'Перемешать: выкл'}">${ICON.shuffle}</button>
         <button type="button" class="play-btn" data-plplay="${id}" title="Слушать подряд">${ICON.play}</button>
@@ -2696,7 +2697,8 @@ function renderPlaylists() {
           <button type="button" class="icon-btn" data-pldown="${i}" title="Ниже"${i < items.length - 1 ? '' : ' disabled'}>↓</button>
           <button type="button" class="icon-btn" data-pldel="${i}" title="Убрать из плейлиста">✕</button>` : ''}</div>`).join('')
     : '<p class="muted">Пусто. Добавить трек: ⋯ у версии → «Добавить в плейлист».</p>'}
-        ${own ? `<div class="st-pl-foot"><button type="button" class="st-linkbtn" data-plrename="${id}">Переименовать</button>
+        ${own ? `<div class="st-pl-foot"><button type="button" class="st-linkbtn" data-plsharelist="${id}">🔗 Поделиться плейлистом</button>
+          <button type="button" class="st-linkbtn" data-plrename="${id}">Переименовать</button>
           <button type="button" class="st-linkbtn danger" data-plremove="${id}">Удалить плейлист</button></div>` : ''}</div>` : ''}
     </div>`;
   };
@@ -2773,6 +2775,7 @@ document.addEventListener('click', async (e) => {
     await savePlaylists();
     return;
   }
+  if ((el = t('plsharelist'))) { sharePlaylist(el.dataset.plsharelist); return; }
   if ((el = t('plrename'))) {
     const pl = playlists.find((x) => x.id === el.dataset.plrename);
     const name = pl && prompt('Новое название', pl.name);
@@ -2943,26 +2946,49 @@ function closeShare() {
 async function openShare() {
   const item = queue[qi];
   if (!item || !item.job) return;
-  const mine = { item, url: '', file: null };
+  const form = new FormData();
+  form.append('file', item.file);
+  await openShareFor({
+    item, name: `${item.title}${item.sub ? ` — ${item.sub}` : ''}`,
+    make: () => fetch(`/api/studio/${item.job}/share`, { method: 'POST', body: form }),
+    revoke: (job) => fetch(`/api/share/${encodeURIComponent(job.token)}`, { method: 'DELETE' }),
+    note: (data) => `Послушать можно без входа${data.plays ? ` · прослушиваний: ${data.plays}` : ''}`,
+  });
+}
+// Плейлист по ссылке (владелец, 31.10: «кинуть педагогу все мои песни»):
+// без входа -- слушать подряд, скачать песню или все разом
+async function sharePlaylist(id) {
+  const p = playlists.find((x) => x.id === id);
+  if (!p) return;
+  await openShareFor({
+    item: { title: p.name, sub: '' }, name: `Плейлист «${p.name}»`,
+    make: () => fetch(`/api/me/playlists/${id}/share`, { method: 'POST' }),
+    revoke: () => fetch(`/api/me/playlists/${id}/share`, { method: 'DELETE' }),
+    note: (data) => `${data.tracks} ${plural(data.tracks, 'песня', 'песни', 'песен')} · слушать и скачать без входа`
+      + `${data.plays ? ` · открывали: ${data.plays}` : ''}${data.skipped ? ` · каверы чужих песен (${data.skipped}) не попали` : ''}`,
+  });
+}
+async function openShareFor(target) {
+  const item = target.item;
+  const mine = { item, url: '', file: null, target };
   shareJob = mine;
   $('shIcon').innerHTML = ICON.share;
-  $('shName').textContent = `${item.title}${item.sub ? ` — ${item.sub}` : ''}`;
+  $('shName').textContent = target.name;
   $('shInfo').textContent = 'Готовим ссылку…';
   ['shSend', 'shCopy'].forEach((id) => { $(id).disabled = true; });
   $('shFile').hidden = true;
   $('shareSheet').hidden = false;
   requestAnimationFrame(() => $('shareSheet').classList.add('on'));
-  const form = new FormData();
-  form.append('file', item.file);
-  const r = await fetch(`/api/studio/${item.job}/share`, { method: 'POST', body: form }).catch(() => null);
+  const r = await target.make().catch(() => null);
   const data = r ? await r.json().catch(() => ({})) : {};
   if (shareJob !== mine) return;
   if (!r || !r.ok) { $('shInfo').textContent = data.detail || 'Не получилось сделать ссылку'; return; }
   mine.url = `${location.origin}${data.path}`;
   mine.token = data.token;
-  $('shInfo').innerHTML = `Послушать можно без входа${data.plays ? ` · прослушиваний: ${data.plays}` : ''}
+  $('shInfo').innerHTML = `${esc(target.note(data))}
     · <button type="button" class="st-linkbtn" id="shStop">закрыть доступ</button>`;
   ['shSend', 'shCopy'].forEach((id) => { $(id).disabled = false; });
+  if (!item.url) return;                       // плейлист -- только ссылкой
   // сам файл -- в мессенджер, если телефон умеет делиться файлами
   if (navigator.canShare) {
     const f = await fetch(withTags(item.url)).then((x) => (x.ok ? x.blob() : null)).catch(() => null);
@@ -2981,7 +3007,7 @@ $('shBack').addEventListener('click', closeShare);
 $('shareSheet').addEventListener('click', async (e) => {
   if (e.target === $('shareSheet')) { closeShare(); return; }
   if (e.target.id === 'shStop' && shareJob && shareJob.token) {
-    const r = await fetch(`/api/share/${encodeURIComponent(shareJob.token)}`, { method: 'DELETE' }).catch(() => null);
+    const r = await shareJob.target.revoke(shareJob).catch(() => null);
     closeShare();
     if (r && r.ok) hud(ICON.unlink, 'Доступ закрыт', 'По этой ссылке трек больше не откроется.');
     else toast('Не получилось закрыть доступ');
@@ -2992,7 +3018,7 @@ $('shSend').addEventListener('click', async () => {
   if (!job || !job.url) return;
   try {
     if (navigator.share) {
-      await navigator.share({ title: job.item.title, text: `${job.item.title} — послушать в NASLUX`, url: job.url });
+      await navigator.share({ title: job.item.title, text: `${job.target.name} — послушать в NASLUX`, url: job.url });
       closeShare();
       return;
     }
