@@ -2167,8 +2167,9 @@ function celebrate(j) {
   card.classList.add('on');
   clearTimeout(celebrate.timer);
   celebrate.timer = setTimeout(() => card.classList.remove('on'), 10000);
-  // ничего не играет -- сразу слушаем, с припева
-  if ($('audio').paused && !document.hidden) bornPlay(j, true);
+  // звуковой логотип, затем -- если ничего не играет -- сразу слушаем, с припева
+  const chimed = $('audio').paused && window.nasluxChime && window.nasluxChime();
+  if ($('audio').paused && !document.hidden) setTimeout(() => { if ($('audio').paused) bornPlay(j, true); }, chimed ? 750 : 0);
 }
 function bornPlay(j, auto) {
   const f = j.files[0];

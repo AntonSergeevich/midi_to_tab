@@ -2081,5 +2081,8 @@
  "Окна, меню «⋯» и подсказки не только мягко появляются, но и мягко уходят. Пока грузится список — мерцающие заготовки строк. Кнопки чуть вдавливаются под пальцем, а кредиты после пополнения отсчитываются вверх и подсвечиваются.": "Dialogs, the “⋯” menu and hints now leave as softly as they appear. While the list loads you see shimmering placeholder rows. Buttons press in slightly under your finger, and credits count up with a glow after a top-up.",
  "Цвет обложки — везде": "Cover colour everywhere",
  "Мини-плеер мягко светится цветом играющей песни и перетекает при смене трека; плейлист светится своей обложкой. На странице плейлиста по ссылке обложка и фон плавно перетекают в следующую песню.": "The mini player glows softly in the colour of the playing song and blends into the next one; each playlist glows with its cover. On a shared playlist page the cover and background flow smoothly into the next song.",
- "Плеер, плейлисты, ссылка на плейлист": "Player, playlists, shared playlist link"
+ "Плеер, плейлисты, ссылка на плейлист": "Player, playlists, shared playlist link",
+ "Звук NASLUX": "The NASLUX sound",
+ "Песня готова или пополнили баланс — звучит короткий тёплый колокольчик NASLUX. Без файлов и без задержек; ночью при свёрнутом сайте молчит.": "When a song is ready or your balance is topped up, a short warm NASLUX chime plays. No files, no delay; it stays quiet while the site is in the background.",
+ "Студия, кабинет": "Studio, account"
 }

@@ -208,6 +208,7 @@ window.haptic = (() => {
     cancelAnimationFrame(badge._count);
     badge._count = requestAnimationFrame(step);
     badge.classList.remove('nav-glow'); void badge.offsetWidth; badge.classList.add('nav-glow');
+    if (to.some((n, i) => n > (from[i] || 0)) && window.nasluxChime) window.nasluxChime();   // пополнили -- звучит логотип
   }
 
   function paint(state) {
@@ -637,4 +638,48 @@ window.haptic = (() => {
   }
   const start = () => watch.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['hidden'], attributeOldValue: true });
   if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+})();
+
+// Звуковой логотип NASLUX (владелец, 31.10: «вкусно»): полсекунды тёплого
+// колокольчика -- ре, ля, фа-диез сверху, лёгкое эхо. Звучит в момент
+// радости: песня готова, пополнили баланс. Синтез прямо в браузере, без
+// файла. Выключить: localStorage 'naslux.sound' = 'off'. iPhone даёт звук
+// только после первого касания страницы -- до него логотип молчит.
+window.nasluxChime = (() => {
+  let ctx = null;
+  const Context = window.AudioContext || window.webkitAudioContext;
+  const off = () => { try { return localStorage.getItem('naslux.sound') === 'off'; } catch (error) { return false; } };
+  const unlock = () => {
+    if (!Context) return;
+    if (!ctx) { try { ctx = new Context(); } catch (error) { return; } }
+    if (ctx.state !== 'running') ctx.resume().catch(() => {});
+  };
+  ['touchend', 'pointerup', 'keydown'].forEach((ev) => document.addEventListener(ev, unlock, { capture: true, passive: true }));
+  return () => {
+    if (off() || document.hidden || !ctx || ctx.state !== 'running') return false;
+    const now = ctx.currentTime + 0.02;
+    const out = ctx.createGain();
+    out.gain.value = 0.22;
+    const echo = ctx.createDelay();
+    echo.delayTime.value = 0.16;
+    const back = ctx.createGain();
+    back.gain.value = 0.28;
+    out.connect(ctx.destination);
+    out.connect(echo); echo.connect(back); back.connect(echo); back.connect(ctx.destination);
+    [[587.33, 0], [880, 0.09], [1479.98, 0.18]].forEach(([hz, at], i) => {
+      [['sine', 1], ['triangle', 0.25]].forEach(([type, level]) => {
+        const osc = ctx.createOscillator();
+        const env = ctx.createGain();
+        osc.type = type;
+        osc.frequency.value = hz * (type === 'triangle' ? 2 : 1);
+        env.gain.setValueAtTime(0.0001, now + at);
+        env.gain.exponentialRampToValueAtTime(level * (1 - i * 0.18), now + at + 0.012);
+        env.gain.exponentialRampToValueAtTime(0.0001, now + at + 0.9);
+        osc.connect(env); env.connect(out);
+        osc.start(now + at); osc.stop(now + at + 1);
+      });
+    });
+    setTimeout(() => { try { out.disconnect(); back.disconnect(); echo.disconnect(); } catch (error) { /* */ } }, 2400);
+    return true;
+  };
 })();
