@@ -2316,3 +2316,33 @@ html[data-nav=out]::view-transition-new(st-list) { animation-name: st-nav-left-i
 .st-fine-count { color: var(--accent); font-weight: 500; font-size: 13px; }
 .st-fine-body { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 12px; }
 .st-fine-body[hidden] { display: none; }
+
+/* Пока список грузится -- мерцающие заготовки строк, а не «загрузка…» */
+.st-skel { display: flex; align-items: center; gap: 12px; padding: 12px; }
+.st-skel-cover { width: 52px; height: 52px; border-radius: 10px; flex: none; }
+.st-skel-lines { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.st-skel-lines i { display: block; height: 12px; border-radius: 6px; }
+.st-skel-lines i:first-child { width: 55%; height: 14px; }
+.st-skel-lines i:last-child { width: 80%; }
+.st-skel-cover, .st-skel-lines i {
+  background: linear-gradient(100deg, rgba(255,255,255,.05) 30%, rgba(255,255,255,.12) 50%, rgba(255,255,255,.05) 70%);
+  background-size: 300% 100%; animation: st-skel 1.4s ease-in-out infinite; }
+.st-skel:nth-child(2) * { animation-delay: .12s; }
+.st-skel:nth-child(3) * { animation-delay: .24s; }
+@keyframes st-skel { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+/* Любая кнопка чуть вдавливается под пальцем -- видно, что нажали */
+.primary, .icon-btn, .play-btn, .st-linkbtn, .preset, .st-mode-btn, .st-seg > button, .st-favtabs > button,
+.st-info-read, .st-pl-new, .st-fine-btn, #modes button, .langsw, .badge {
+  transition: transform .16s cubic-bezier(.3,.7,.4,1.4), background-color .2s, border-color .2s, color .2s, box-shadow .2s, opacity .2s; }
+.primary:active:not(:disabled), .icon-btn:active:not(:disabled), .play-btn:active, .st-linkbtn:active, .preset:active:not(:disabled),
+.st-mode-btn:active, .st-seg > button:active, .st-favtabs > button:active, .st-info-read:active, .st-pl-new:active,
+.st-fine-btn:active, #modes button:active, .badge:active { transform: scale(.95); }
+.badge.nav-glow { animation: nav-glow 1.4s ease-out; }
+@keyframes nav-glow { 0% { box-shadow: 0 0 0 0 rgba(246,197,132,.0); } 25% { box-shadow: 0 0 22px 2px rgba(246,197,132,.55); } 100% { box-shadow: 0 0 0 0 rgba(246,197,132,0); } }
+@media (prefers-reduced-motion: reduce) {
+  .st-skel-cover, .st-skel-lines i, .badge.nav-glow { animation: none; }
+  .primary:active, .icon-btn:active, .play-btn:active, .st-linkbtn:active, .preset:active, .st-mode-btn:active,
+  .st-seg > button:active, .st-favtabs > button:active, .st-info-read:active, .st-pl-new:active, .st-fine-btn:active,
+  #modes button:active, .badge:active { transform: none; }
+}

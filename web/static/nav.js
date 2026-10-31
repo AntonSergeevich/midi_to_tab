@@ -180,6 +180,36 @@ window.haptic = (() => {
     return { text: 'Баланс: 0 ₽', pro: false };
   }
 
+  // Деньги и кредиты меняются не скачком, а отсчётом -- пополнили, и видно,
+  // как растёт (владелец, 31.10: «вкусно»); значок при этом мягко светится
+  function countTo(badge, text) {
+    const was = badge.dataset.raw || '';
+    badge.dataset.raw = text;
+    const shape = (t) => t.replace(/\d[\d\s]*/g, '#');
+    const nums = (t) => (t.match(/\d[\d\s]*/g) || []).map((n) => Number(n.replace(/\s/g, '')));
+    const from = nums(was);
+    const to = nums(text);
+    const still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!was || still || document.documentElement.lang === 'en' || shape(was) !== shape(text)
+        || from.every((n, i) => n === to[i])) {
+      cancelAnimationFrame(badge._count);
+      badge.textContent = text;
+      return;
+    }
+    const start = performance.now();
+    const fmt = (n) => n.toLocaleString('ru-RU');
+    const step = (now) => {
+      const k = Math.min(1, (now - start) / 900);
+      const e = 1 - (1 - k) ** 3;
+      let i = 0;
+      badge.textContent = text.replace(/\d[\d\s]*/g, () => { const v = Math.round(from[i] + (to[i] - from[i]) * e); i += 1; return fmt(v); });
+      if (k < 1) badge._count = requestAnimationFrame(step); else badge.textContent = text;
+    };
+    cancelAnimationFrame(badge._count);
+    badge._count = requestAnimationFrame(step);
+    badge.classList.remove('nav-glow'); void badge.offsetWidth; badge.classList.add('nav-glow');
+  }
+
   function paint(state) {
     const account = document.getElementById('account');
     if (account && state.email) {
@@ -189,7 +219,7 @@ window.haptic = (() => {
       account.textContent = 'Вход';
     }
     document.querySelectorAll('header.top .badge').forEach((badge) => {
-      badge.textContent = state.text;
+      countTo(badge, state.text);
       badge.classList.toggle('pro', Boolean(state.pro));
       badge.hidden = false;
     });
@@ -546,4 +576,65 @@ window.haptic = (() => {
     if (d._smooth) { d._smooth = false; return; }
     bodyOf(d).forEach((p) => { p.hidden = true; window.smoothReveal(p, true); });
   }, true);
+})();
+
+// Плавное закрытие окон, меню «⋯» и подсказок: состояние меняется сразу
+// (hidden ставится как раньше -- код и кнопки видят «закрыто»), а глазу
+// показываем копию, которая мягко уходит. Копия не ловит нажатия.
+(() => {
+  const still = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const SEL = '.st-modal, .st-menu, .st-toast, .whats-new, .dl-sheet';
+  const EASE = 'cubic-bezier(.4,0,.6,1)';
+  function ghost(el) {
+    if (still() || !el.animate || !el.isConnected) return;
+    const box = el.getBoundingClientRect();
+    const copy = el.cloneNode(true);
+    const src = el.querySelectorAll('input, textarea, select');
+    copy.querySelectorAll('input, textarea, select').forEach((c, i) => {
+      if (src[i]) { c.value = src[i].value; c.checked = src[i].checked; }
+    });
+    copy.removeAttribute('id');
+    copy.querySelectorAll('[id]').forEach((x) => x.removeAttribute('id'));
+    copy.hidden = false;
+    copy.setAttribute('aria-hidden', 'true');
+    copy.style.pointerEvents = 'none';
+    copy.style.animation = 'none';
+    copy.querySelectorAll('*').forEach((x) => { x.style.animation = 'none'; });
+    const fixed = getComputedStyle(el).position === 'fixed';
+    if (!fixed) {
+      // меню -- absolute внутри своего родителя: ставим копию туда же
+      copy.style.left = el.style.left; copy.style.top = el.style.top;
+    }
+    el.parentNode.insertBefore(copy, el.nextSibling);
+    const isModal = el.classList.contains('st-modal') || el.classList.contains('dl-sheet');
+    const isToast = el.classList.contains('st-toast');
+    const frames = isModal ? [{ opacity: 1 }, { opacity: 0 }]
+      : isToast ? [{ opacity: 1, transform: 'translate(-50%, 0)' }, { opacity: 0, transform: 'translate(-50%, -12px)' }]
+        : [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-4px) scale(.97)' }];
+    const anim = copy.animate(frames, { duration: isModal ? 260 : 200, easing: EASE, fill: 'forwards' });
+    const inner = isModal && copy.firstElementChild;
+    if (inner && inner.animate) inner.animate([{ transform: 'none' }, { transform: 'translateY(16px) scale(.98)' }], { duration: 260, easing: EASE, fill: 'forwards' });
+    anim.onfinish = () => copy.remove();
+    setTimeout(() => copy.remove(), 600);
+    if (!box.width) copy.remove();
+  }
+  const watch = new MutationObserver((list) => {
+    const done = new Set();
+    list.forEach((m) => {
+      const el = m.target;
+      if (!(el instanceof Element) || !el.matches(SEL)) return;
+      if (el._ghostIgnore > 0) { el._ghostIgnore -= 1; return; }   // это мы сами вернули/спрятали
+      if (el.hidden && m.oldValue === null && !done.has(el)) { done.add(el); ghostLater(el); }
+    });
+  });
+  // копию строим, на мгновение вернув видимость (до перерисовки -- глазу не
+  // видно): иначе у спрятанного элемента нет размеров
+  function ghostLater(el) {
+    el._ghostIgnore = 2;
+    el.hidden = false;
+    ghost(el);
+    el.hidden = true;
+  }
+  const start = () => watch.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['hidden'], attributeOldValue: true });
+  if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
 })();

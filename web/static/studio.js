@@ -501,6 +501,7 @@ function matches(j, words) {
 }
 
 function renderList(jobs) {
+  $('jobs').removeAttribute('aria-busy');
   list.jobs = jobs;
   // Разборы (аккорды, табы, MIDI) -- тем же списком «Мои треки»: раньше они
   // жили на отдельной странице, и два раздела с треками путали (10.10).
