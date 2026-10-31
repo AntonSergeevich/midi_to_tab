@@ -1446,7 +1446,7 @@ function freshAudio() {
   }
   return audio;
 }
-const playback = { wanted: false, timer: null, revive: false, later: null };
+const playback = { wanted: false, timer: null, revive: false, later: null, pausedAt: 0, revivedAt: 0 };
 // Новый <audio> -- ТОЛЬКО из касания экрана (tap). Из наушников (AirPods),
 // с экрана блокировки и из таймера iPhone не даёт запустить новый элемент:
 // так и было (владелец, 31.10: «через AirPods не включается; разблокировал
@@ -1456,7 +1456,12 @@ function resume(tap) {
   let audio = $('audio');
   if (!audio.getAttribute('src')) return;
   const fx = window.SoundFX.state;
-  if (tap && (playback.revive || fx === 'interrupted' || fx === 'closed')) {
+  // iPhone: пауза дольше 4 с, а звук идёт через граф эффектов -- после
+  // такой паузы Safari часто «глушит» источник графа, хотя пишет, что всё
+  // работает. Поэтому из касания -- всегда начисто: новый <audio> на том же
+  // месте и свежий граф (эффекты выключены -- звук вообще мимо графа).
+  const long = IOS && fx != null && playback.pausedAt && Date.now() - playback.pausedAt > 4000;
+  if (tap && (playback.revive || long || fx === 'interrupted' || fx === 'closed')) {
     playback.revive = false;
     audio = freshAudio();
   }
@@ -1507,6 +1512,29 @@ function watchPlayback(audio, from, attempt, waits) {
     hud(ICON.play, 'Звук не запустился', 'Нажмите ▶ ещё раз');
   }, 3000);
 }
+// Слушаем, есть ли звук на самом деле: трек играет, а из графа эффектов
+// 4 с подряд идут ровно нули (а не тихое место -- у тихой музыки есть шум)
+// -- источник умер. Начинаем звук заново с того же места; если iPhone не
+// даёт запустить без касания -- ставим паузу и просим нажать ▶.
+function reviveSound() {
+  playback.revivedAt = Date.now();
+  const audio = freshAudio();
+  playback.wanted = true;
+  audio.play().then(syncButtons).catch(() => {
+    playback.revive = true;
+    playback.wanted = false;
+    syncButtons();
+    if (!document.hidden) hud(ICON.play, 'Звук уснул', 'Нажмите ▶ — запустим заново');
+  });
+}
+setInterval(() => {
+  const audio = $('audio');
+  if (!playback.wanted || audio.paused || window.SoundFX.dead < 4000) return;
+  if (audio.duration && audio.duration - audio.currentTime < 6) return;      // тишина в конце трека -- это нормально
+  if (Date.now() - playback.revivedAt < 20000) return;                       // не чаще раза в 20 с
+  reviveSound();
+}, 1000);
+
 // вернулись к телефону (разблокировали) -- разбудить звук и досмотреть
 document.addEventListener('visibilitychange', () => {
   if (document.hidden || !playback.wanted) return;
@@ -2840,7 +2868,7 @@ onAudio('timeupdate', () => {
   const t = Date.now();
   if (t - nowSaved.local > 2000) saveNow(t - nowSaved.server > 30000);
 });
-onAudio('pause', () => saveNow(true));
+onAudio('pause', () => { playback.pausedAt = Date.now(); saveNow(true); });
 // наушникам и экрану блокировки -- честное состояние: иначе нажатие на
 // AirPods iPhone может понять как «пауза» вместо «играть»
 ['play', 'pause'].forEach((ev) => onAudio(ev, () => {

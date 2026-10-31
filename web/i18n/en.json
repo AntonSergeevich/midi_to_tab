@@ -2116,5 +2116,7 @@
  "Порядок треков — перетаскиванием": "Reorder tracks by dragging",
  "В плейлисте зажмите трек на полсекунды — он приподнимется, ведите пальцем, соседи расступятся. На компьютере — тяните за «⠿» справа (или стрелки на клавиатуре). Стрелки ↑↓ убрали — в строке стало свободнее.": "In a playlist, hold a track for half a second — it lifts, drag it and the others make room. On a computer, drag the “⠿” on the right (or use the arrow keys). The ↑↓ buttons are gone, so rows are less cluttered.",
  "Студия → ♫ Плейлисты": "Studio → ♫ Playlists",
- "Перетащить, чтобы поменять порядок": "Drag to reorder"
+ "Перетащить, чтобы поменять порядок": "Drag to reorder",
+ "Звук не пропадает после паузы": "Sound no longer disappears after a pause",
+ "Плеер теперь слышит, есть ли звук на самом деле: если трек идёт, а звука нет, он сам перезапускает звук с того же места. На iPhone ▶ после паузы дольше 4 секунд запускает звук начисто — та самая «тишина после долгой паузы» больше не появляется.": "The player now checks whether there is actual sound: if the track is running but silent, it restarts the sound from the same spot by itself. On iPhone, ▶ after a pause longer than 4 seconds starts the sound fresh — the “silence after a long pause” is gone."
 }

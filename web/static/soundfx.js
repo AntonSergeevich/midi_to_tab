@@ -32,6 +32,8 @@
   let autoTimer = null;
   let orbitTimer = null;
   let loudTimer = null;
+  let deadTimer = null;
+  let dead = 0;            // сколько мс подряд из графа идут ровно нули, пока трек играет
 
   function ensure(element) {
     audio = element || audio;
@@ -73,7 +75,18 @@
       makeup.connect(limiter);
       nodes = { source, input, analyser, filters, spaceIn, spaceOut, makeup, limiter, out, space: [] };
       loudTimer = setInterval(loudnessStep, 400);
-      audio.addEventListener('loadstart', () => { loud = null; avg = null; });   // новый трек -- слушаем заново
+      // Слушаем сам звук, а не слова контекста: на iPhone после паузы,
+      // блокировки или звонка источник графа может отдавать тишину при
+      // ctx.state === 'running' (ошибка Safari). Анализатор -- в цепь с
+      // нулевой громкостью, чтобы браузер его точно обсчитывал.
+      const sink = ctx.createGain();
+      sink.gain.value = 0;
+      analyser.connect(sink);
+      sink.connect(ctx.destination);
+      dead = 0;
+      deadTimer = setInterval(deadStep, 500);
+      audio.addEventListener('loadstart', () => { loud = null; avg = null; dead = 0; });   // новый трек -- слушаем заново
+      audio.addEventListener('play', () => { dead = 0; });
       audio.addEventListener('play', () => { if (ctx.state !== 'running') ctx.resume().catch(() => {}); });
       apply();
       return true;
@@ -177,6 +190,15 @@
   // Выравнивание громкости: средний уровень (RMS) трека -> к −14 дБ
   // (громкость стримингов), только вверх и плавно; паузы не считаем
   let loud = null;
+  function deadStep() {
+    if (!nodes || !audio || audio.paused || ctx.state !== 'running' || audio.currentTime < 1.5) { dead = 0; return; }
+    const data = new Float32Array(nodes.analyser.fftSize);
+    nodes.analyser.getFloatTimeDomainData(data);
+    let peak = 0;
+    for (let i = 0; i < data.length; i += 1) peak = Math.max(peak, Math.abs(data[i]));
+    dead = peak === 0 ? dead + 500 : 0;
+  }
+
   function loudnessStep() {
     if (!nodes || !state.on || audio.paused) return;
     const data = new Float32Array(nodes.analyser.fftSize);
@@ -287,9 +309,9 @@
   // другое приложение), оживить его нельзя -- только начать с нуля.
   // Граф для нового элемента создаст следующее касание (wake).
   function reset(element) {
-    [autoTimer, orbitTimer, loudTimer].forEach(clearInterval);
+    [autoTimer, orbitTimer, loudTimer, deadTimer].forEach(clearInterval);
     if (ctx) ctx.close().catch(() => {});
-    ctx = null; nodes = null; loud = null; avg = null;
+    ctx = null; nodes = null; loud = null; avg = null; dead = 0;
     audio = element;
   }
 
@@ -298,6 +320,8 @@
     attach(element) { audio = element; },
     // состояние звукового контекста: null -- графа нет, звук идёт напрямую
     get state() { return nodes && ctx ? ctx.state : null; },
+    // мс «мёртвой» тишины из графа при играющем треке (0 -- звук идёт или графа нет)
+    get dead() { return nodes ? dead : 0; },
     reset,
     wake,
     ensure,
