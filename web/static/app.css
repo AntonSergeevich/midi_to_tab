@@ -2437,7 +2437,9 @@ html[data-nav=out]::view-transition-new(st-list) { animation-name: st-nav-left-i
   transition: box-shadow .2s ease, background .2s ease; }
 .st-pl-grip { flex: none; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
   border: 0; border-radius: 10px; background: none; color: var(--muted); cursor: grab; touch-action: none; }
-.st-pl-grip svg { width: 18px; height: 18px; fill: currentColor; }
+.st-pl-grip svg { flex: none; width: 22px; height: 22px; fill: currentColor; }
+/* общий стиль кнопок даёт поля -- в узкой «⠿» значок сжимался до нуля */
+.st-pl-grip { padding: 0 !important; min-width: 34px; box-shadow: none; color: rgba(236,238,245,.62); }
 .st-pl-item.st-dragging .st-pl-grip { cursor: grabbing; color: var(--accent); }
 @media (hover: hover) { .st-pl-grip:hover { color: var(--text); background: var(--bg); } }
 .st-pl-grip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
