@@ -2210,3 +2210,25 @@ html, body { overflow-x: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .st-modal:not([hidden]), .st-modal:not([hidden]) .st-modal-box, .st-menu:not([hidden]), .st-toast:not([hidden]) { animation: none; }
 }
+
+/* Переход «список ↔ трек»: обложка перелетает, экраны едут вбок
+   (navMove в studio.js). Остальная страница меняется сразу -- не мелькает. */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+#listView { view-transition-name: st-list; }
+#detailView { view-transition-name: st-detail; }
+::view-transition-group(st-cover) { animation-duration: .55s; animation-timing-function: cubic-bezier(.22,.8,.24,1); z-index: 5; }
+::view-transition-old(st-cover), ::view-transition-new(st-cover) { height: 100%; object-fit: cover; border-radius: 14px; }
+::view-transition-old(st-list), ::view-transition-new(st-list),
+::view-transition-old(st-detail), ::view-transition-new(st-detail) { animation-duration: .45s; animation-timing-function: cubic-bezier(.22,.8,.24,1); }
+html[data-nav=in]::view-transition-old(st-list) { animation-name: st-nav-left-out; }
+html[data-nav=in]::view-transition-new(st-detail) { animation-name: st-nav-right-in; }
+html[data-nav=out]::view-transition-old(st-detail) { animation-name: st-nav-right-out; }
+html[data-nav=out]::view-transition-new(st-list) { animation-name: st-nav-left-in; }
+@keyframes st-nav-left-out { to { opacity: 0; transform: translateX(-16%) scale(.97); } }
+@keyframes st-nav-right-in { from { opacity: 0; transform: translateX(22%); } }
+@keyframes st-nav-right-out { to { opacity: 0; transform: translateX(22%); } }
+@keyframes st-nav-left-in { from { opacity: 0; transform: translateX(-16%) scale(.97); } }
+/* строка трека чуть «вдавливается» под пальцем -- видно, что нажали */
+.st-row { transition: transform .18s ease, background-color .2s ease; }
+.st-row:active { transform: scale(.985); }
+@media (prefers-reduced-motion: reduce) { .st-row { transition: none; } .st-row:active { transform: none; } }

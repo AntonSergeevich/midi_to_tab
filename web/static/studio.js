@@ -985,24 +985,69 @@ document.addEventListener('click', async (e) => {
 
 // Открытый трек -- запись в истории: жест «назад» на телефоне закрывает
 // трек и возвращает к списку на ту же страницу и прокрутку, а не уводит с сайта
-function openDetail(id, push) {
-  if (!openJob) listScroll = window.scrollY;
-  openJob = id;
-  renderDetail(info.jobs);
-  $('listView').hidden = true;
-  $('detailView').hidden = false;
-  if (push) history.pushState({ detail: id }, '');
-  saveList();
-  window.scrollTo({ top: $('detailView').offsetTop - 80, behavior: push ? 'smooth' : 'auto' });
+// Переход «список ↔ трек» (владелец, 31.10: «захожу в трек и выхожу --
+// всё быстро, нет отклика, непонятно, куда переместился»). Как в iOS:
+// обложка из строки списка перелетает и вырастает в большую обложку трека,
+// список уходит влево, трек въезжает справа; «назад» -- обратно, обложка
+// возвращается в свою строку. View Transitions (Safari 18+, Chrome);
+// где их нет -- новый экран мягко въезжает сам. Меньше движения в
+// системе -- без анимации.
+const stillMotion = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+function navMove(dir, id, update, quiet) {
+  if (quiet || stillMotion() || document.hidden) { update(); return; }
+  const rowCover = () => document.querySelector(`#listView [data-open="${id}"] .st-cover`);
+  const bigCover = () => document.querySelector('#detailView .st-dhead .st-cover');
+  if (document.startViewTransition) {
+    const root = document.documentElement;
+    root.dataset.nav = dir;
+    const name = (el, on) => { if (el) el.style.viewTransitionName = on ? 'st-cover' : ''; };
+    name(dir === 'in' ? rowCover() : bigCover(), true);
+    let moved;
+    try {
+      moved = document.startViewTransition(() => {
+        name(dir === 'in' ? rowCover() : bigCover(), false);
+        update();
+        name(dir === 'in' ? bigCover() : rowCover(), true);
+      });
+    } catch (error) { update(); delete root.dataset.nav; return; }
+    moved.finished.finally(() => {
+      name(rowCover(), false); name(bigCover(), false);
+      delete root.dataset.nav;
+    });
+    return;
+  }
+  update();
+  const view = $(dir === 'in' ? 'detailView' : 'listView');
+  if (view.animate) {
+    view.animate([{ opacity: 0, transform: `translateX(${dir === 'in' ? 28 : -28}px)` }, { opacity: 1, transform: 'none' }],
+      { duration: 420, easing: 'cubic-bezier(.22,.8,.24,1)' });
+  }
 }
 
-function closeDetail(fromHistory) {
+function openDetail(id, push, quiet) {
+  if (!openJob) listScroll = window.scrollY;
+  openJob = id;
+  navMove('in', id, () => {
+    renderDetail(info.jobs);
+    $('listView').hidden = true;
+    $('detailView').hidden = false;
+    window.scrollTo({ top: $('detailView').offsetTop - 80, behavior: 'auto' });
+  }, quiet);
+  if (push) history.pushState({ detail: id }, '');
+  saveList();
+}
+
+function closeDetail(fromHistory, quiet) {
   const wasOpen = Boolean(openJob);
+  const id = openJob;
   openJob = null;
-  $('detailView').hidden = true;
-  $('listView').hidden = false;
+  const update = () => {
+    $('detailView').hidden = true;
+    $('listView').hidden = false;
+    if (wasOpen && fromHistory) window.scrollTo({ top: listScroll, behavior: 'auto' });
+  };
+  if (wasOpen && fromHistory) navMove('out', id, update, quiet); else update();
   if (!fromHistory && history.state && history.state.detail) history.back();
-  if (wasOpen && fromHistory) window.scrollTo({ top: listScroll, behavior: 'auto' });
   saveList();
 }
 
@@ -1053,7 +1098,7 @@ async function loadOnce() {
   if (!listRestored) {                 // вернулись на страницу «назад»
     listRestored = true;
     const back = history.state && history.state.detail;
-    if (back && info.jobs.some((j) => j.id === back)) openDetail(back, false);
+    if (back && info.jobs.some((j) => j.id === back)) openDetail(back, false, true);
     else if (listScroll && !location.search) window.scrollTo({ top: listScroll, behavior: 'auto' });
     restoreNow();
   }
@@ -1689,8 +1734,9 @@ document.addEventListener('click', async (e) => {
   const tabs = e.target.closest('[data-tabs]');
   if (tabs) { location.href = `/player/${tabs.dataset.tabs}`; return; }
   const row = e.target.closest('[data-open]');
-  if (row) { openDetail(row.dataset.open, true); return; }
+  if (row) { if (window.haptic) window.haptic('light'); openDetail(row.dataset.open, true); return; }
   if (e.target.closest('#back')) {
+    if (window.haptic) window.haptic('light');
     // «Назад» в карточке = «назад» браузера: та же страница и прокрутка
     if (history.state && history.state.detail) history.back(); else closeDetail(true);
     return;
@@ -2796,11 +2842,12 @@ $('notesClose').addEventListener('click', () => closeNotes(false));
 $('notesX').addEventListener('click', () => closeNotes(false));
 $('notesModal').addEventListener('click', (e) => { if (e.target === $('notesModal')) closeNotes(false); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNotes(false); });
-window.addEventListener('popstate', () => {
+window.addEventListener('popstate', (e) => {
   closeNotes(true);
   const id = history.state && history.state.detail;
-  if (id && id !== openJob && info) openDetail(id, false);
-  else if (!id && openJob) closeDetail(true);
+  const quiet = Boolean(e.hasUAVisualTransition);       // свайп «назад» в Safari -- у браузера своя анимация
+  if (id && id !== openJob && info) openDetail(id, false, quiet);
+  else if (!id && openJob) closeDetail(true, quiet);
 });
 $('notesPrint').addEventListener('click', () => {
   document.body.classList.add('print-notes');
