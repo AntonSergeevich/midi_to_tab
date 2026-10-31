@@ -99,9 +99,15 @@ function cover(j, big) {
   let h = 0;
   for (const ch of j.id) h = (h * 31 + ch.charCodeAt(0)) % 360;
   const art = j.cover ? `<img src="${j.cover}" alt="" loading="lazy">` : '';
-  return `<div class="st-cover${big ? ' big' : ''}" style="background:linear-gradient(135deg,
-    hsl(${h} 70% 45%), hsl(${(h + 60) % 360} 70% 30%))">${art}</div>`;
+  // Песня ещё готовится: обложка «варится» -- переливается, по ней бежит
+  // волна эквалайзера. Список перерисовывается каждые 5 с, поэтому фаза
+  // анимаций -- от часов (--t), а не с нуля: движение не дёргается.
+  const brew = ['queued', 'running'].includes(j.status) && j.mode !== 'upload';
+  const wave = brew ? `<span class="st-brew-wave" aria-hidden="true">${'<i></i>'.repeat(5)}</span>` : '';
+  return `<div class="st-cover${big ? ' big' : ''}${brew ? ' st-brew' : ''}" style="background:linear-gradient(135deg,
+    hsl(${h} 70% 45%), hsl(${(h + 60) % 360} 70% 30%));${brew ? brewClock() : ''}">${art}${wave}</div>`;
 }
+const brewClock = () => `--t:-${(Date.now() % 12000) / 1000}s`;
 
 // ------------------------------------------------------------ левая панель
 
@@ -405,7 +411,7 @@ function statusLine(j) {
     const tick = Math.floor(Date.now() / 7000) + seedOf(j.id);
     return `<span class="muted">${esc(j.stage || 'В очереди')}</span>
       <span class="st-fun">${pick(WAIT, tick)}</span>
-      <div class="bar done"><i style="width:${Math.max(4, j.progress)}%"></i></div>
+      <div class="bar done st-brewbar" style="${brewClock()}"><i style="width:${Math.max(4, j.progress)}%"></i></div>
       <button type="button" class="st-linkbtn st-stop" data-stop="${j.id}">Остановить</button>`;
   }
   const when = new Date(j.at * 1000).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
@@ -1103,6 +1109,7 @@ async function loadOnce() {
     restoreNow();
   }
   updateStart();
+  bornCheck();
   const analyzing = await ensureKeys().catch(() => false);
   const working = (s) => s === 'queued' || s === 'running';
   hitDone();
@@ -1428,6 +1435,12 @@ function syncButtons() {
   const audio = $('audio');
   document.querySelectorAll('[data-play]').forEach((b) => {
     const on = b.dataset.play === playing && !audio.paused;
+    b.classList.toggle('on', on);
+    b.innerHTML = on ? ICON.pause : ICON.play;
+  });
+  document.querySelectorAll('[data-bornplay]').forEach((b) => {
+    const j = info && info.jobs.find((x) => x.id === b.dataset.bornplay);
+    const on = Boolean(j && j.files[0] && playing === j.files[0].url && !audio.paused);
     b.classList.toggle('on', on);
     b.innerHTML = on ? ICON.pause : ICON.play;
   });
@@ -2044,6 +2057,90 @@ function karaokePlay(jobId, fileName) {
   $('full').classList.add('kk-on');      // обложка поменьше -- текст на виду
 }
 const hitSeen = new Set();
+// Момент готовности (владелец, 31.10: «NASLUX должен оставлять ощущение,
+// что его хочется облизнуть, как вкусный десерт»). Песня, которую ждали,
+// готова: обложка вспыхивает и переворачивается, телефон отвечает
+// «успехом», снизу -- карточка «Готово!», и если ничего не играет --
+// песня сразу звучит с припева (около трети длины). Этапы ожидания --
+// лёгкий щелчок на каждой смене.
+const jobSeen = new Map();          // id -> status|stage с прошлого опроса
+function bornCheck() {
+  const first = !jobSeen.size;
+  const born = [];
+  for (const j of info.jobs) {
+    const was = jobSeen.get(j.id);
+    const now = `${j.status}|${j.stage || ''}`;
+    jobSeen.set(j.id, now);
+    if (first || !was || was === now) continue;
+    const [before] = was.split('|');
+    if (['queued', 'running'].includes(before) && j.status === 'done' && ['create', 'restyle', 'enrich'].includes(j.mode)
+        && (j.files || []).length) born.push(j);
+    else if (j.status === 'running' && window.haptic) window.haptic('tick');
+  }
+  if (born.length) celebrate(born[born.length - 1]);
+}
+function celebrate(j) {
+  if (window.haptic) window.haptic('success');
+  const covers = [...document.querySelectorAll(`#listView [data-open="${j.id}"] .st-cover`)];
+  if (openJob === j.id) covers.push(...document.querySelectorAll('#detailView .st-dhead .st-cover'));
+  covers.forEach((c) => {
+    c.classList.remove('st-born');
+    void c.offsetWidth;
+    c.classList.add('st-born');
+    setTimeout(() => c.classList.remove('st-born'), 1600);
+  });
+  const f = j.files[0];
+  const owner = j.from ? info.jobs.find((x) => x.id === j.from) || j : j;
+  let card = $('born');
+  if (!card) {
+    card = document.createElement('div');
+    card.id = 'born';
+    card.className = 'st-born-card';
+    card.setAttribute('role', 'status');
+    document.body.appendChild(card);
+  }
+  card.innerHTML = `<span class="st-born-art">${cover(owner)}</span>
+    <span class="st-row-main"><b>Готово!</b><span class="muted" data-noi18n>${esc(owner.name)} · ${esc(f.label || '')}</span></span>
+    <button type="button" class="play-btn" data-bornplay="${j.id}" aria-label="Слушать">${ICON.play}</button>
+    <button type="button" class="icon-btn" data-bornopen="${j.id}" aria-label="Открыть трек">${ICON.expand}</button>`;
+  card.hidden = false;
+  syncButtons();
+  card.classList.remove('on');
+  void card.offsetWidth;
+  card.classList.add('on');
+  clearTimeout(celebrate.timer);
+  celebrate.timer = setTimeout(() => card.classList.remove('on'), 10000);
+  // ничего не играет -- сразу слушаем, с припева
+  if ($('audio').paused && !document.hidden) bornPlay(j, true);
+}
+function bornPlay(j, auto) {
+  const f = j.files[0];
+  const found = queueFor(f.url);
+  if (!found) return;
+  setQueue(found.items, found.index, null);
+  const at = auto && f.seconds > 40 ? Math.round(f.seconds * 0.3) : 0;
+  startTrack(true, at);
+  if (auto) {
+    // без нажатия iPhone может не дать играть -- тогда ждём ▶ на карточке
+    $('audio').play().then(() => { playback.wanted = true; syncButtons(); }).catch(() => {});
+  } else resume();
+}
+document.addEventListener('click', (e) => {
+  const playIt = e.target.closest('[data-bornplay]');
+  const openIt = e.target.closest('[data-bornopen]');
+  if (!playIt && !openIt) return;
+  const j = info.jobs.find((x) => x.id === (playIt || openIt).dataset[playIt ? 'bornplay' : 'bornopen']);
+  if (!j) return;
+  if (playIt) {
+    const f = j.files[0];
+    if (playing === f.url) togglePlayback(); else bornPlay(j, false);
+    if (window.haptic) window.haptic('light');
+  } else {
+    $('born').classList.remove('on');
+    openDetail(j.id, true);
+  }
+});
+
 function hitDone() {
   // служебная задача закончилась -- сказать, где результат
   const now = new Set(((info && info.hitBusy) || []).filter((b) => ['queued', 'running'].includes(b.status))
