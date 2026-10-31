@@ -633,6 +633,68 @@ function rerender() {
 }
 
 // Название трека -- своё: карандаш у названия (а в карточке -- и само название)
+// Своё название версии или партии (владелец, 01.11: «хочу переименовать
+// Вариант 1 и Вариант 2»): нажали на название или ✎ -- поле на месте,
+// Enter -- сохранить, Esc -- отмена, пусто -- вернуть «Вариант 1».
+function labelLine(jobId, f) {
+  return `<span class="st-titleline"><b data-noi18n data-vlabel="${jobId}" data-vfile="${esc(f.name)}"
+    title="Нажмите, чтобы переименовать">${esc(f.label)}</b><button type="button" class="st-rename"
+    data-vlabelbtn="${jobId}" data-vfile="${esc(f.name)}" title="Переименовать версию" aria-label="Переименовать версию">${ICON.pencil}</button></span>`;
+}
+function startLabel(jobId, file) {
+  const title = document.querySelector(`#detailView [data-vlabel="${jobId}"][data-vfile="${CSS.escape(file)}"]`);
+  const j = info && info.jobs.find((x) => x.id === jobId);
+  const f = j && (j.files || []).find((x) => x.name === file);
+  if (!title || !f) return;
+  const before = f.label;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'st-rename-input st-label-input';
+  input.value = before;
+  input.maxLength = 40;
+  input.placeholder = f.origLabel || 'Вариант';
+  input.setAttribute('aria-label', 'Название версии');
+  input.dataset.noi18n = '';
+  title.closest('.st-titleline').replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = async (keep) => {
+    if (done) return;
+    done = true;
+    const label = input.value.trim().replace(/\s+/g, ' ');
+    if (!keep || label === before) { rerender(); return; }
+    const orig = f.origLabel || before;
+    f.label = label || orig;
+    if (label && !f.origLabel) f.origLabel = before;
+    queue.forEach((x) => { if (x.url === f.url) x.sub = f.label; });       // плеер и очередь -- с новым названием
+    if (queue[qi] && queue[qi].url === f.url) { $('playerSub').textContent = f.label; $('fSub').textContent = f.label; }
+    rerender();
+    if (window.haptic) window.haptic('light');
+    const form = new FormData();
+    form.append('file', file);
+    form.append('label', label);
+    const answer = await fetch(`/api/studio/${jobId}/label`, { method: 'POST', body: form }).catch(() => null);
+    if (!answer || !answer.ok) {
+      f.label = before;
+      rerender();
+      toast('Не получилось переименовать — проверьте интернет');
+    }
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    if (e.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
+  input.addEventListener('click', (e) => e.stopPropagation());
+}
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-vlabelbtn], #detailView [data-vlabel]');
+  if (!el) return;
+  e.stopPropagation();
+  startLabel(el.dataset.vlabelbtn || el.dataset.vlabel, el.dataset.vfile);
+}, true);
+
 function renameButton(j) {
   return `<button type="button" class="st-rename" data-renamebtn="${j.id}" title="Переименовать"
     aria-label="Переименовать">${ICON.pencil}</button>`;
@@ -777,7 +839,7 @@ function renderDetail(jobs) {
   const versions = j.status === 'done' ? j.files.map((f) => `
     <div class="st-version">
       ${playButton(f, j.name)}
-      <div class="st-row-main"><b>${esc(f.label)}</b>
+      <div class="st-row-main">${labelLine(j.id, f)}
         <span class="muted">${time(f.seconds)}${keyOf(j, f.name)}</span></div>
       <a class="icon-btn st-mixbtn" href="/studio/mix/${j.id}?file=${encodeURIComponent(f.name)}"
         title="Открыть в мультитреке: дорожки, метроном, заглушить лишнее">${ICON.mix}<span>Мультитрек</span></a>
@@ -1069,7 +1131,7 @@ function stemRow(c, f, title) {
   const ready = (c.midi || []).find((m) => m.name === `${stem}.mid`);
   const busy = (c.midiBusy || []).includes(f.name);
   return `<div class="st-version small">${playButton(f, title)}
-    <div class="st-row-main"><b>${esc(f.label)}</b>${busy ? '<span class="muted">переводим в ноты…</span>' : ''}</div>
+    <div class="st-row-main">${labelLine(c.id, f)}${busy ? '<span class="muted">переводим в ноты…</span>' : ''}</div>
     ${ready ? `<a class="icon-btn" href="${ready.url}" download title="Скачать MIDI этой партии">MIDI</a>` : ''}
     <a class="icon-btn" href="${withTags(f.url)}" download title="Скачать дорожку">${ICON.download}</a>
     <button type="button" class="icon-btn" data-menu="${c.id}" data-file="${esc(f.name)}"

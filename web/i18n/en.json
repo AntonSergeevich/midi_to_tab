@@ -2107,5 +2107,10 @@
  "Группа играет": "A band is playing",
  "Группа и диджей": "A band and a DJ",
  "Диджей у вертушек": "A DJ at the decks",
- "Пианист играет": "A pianist is playing"
+ "Пианист играет": "A pianist is playing",
+ "Свои названия версий": "Name your versions",
+ "«Вариант 1» и «Вариант 2» можно переименовать: нажмите на название или ✎ — например, «Тяжёлый, с припевом». Так же — партии после разделения. Пусто — вернётся прежнее название. Новое название видно в плеере, плейлистах и в имени скачанного файла.": "“Version 1” and “Version 2” can be renamed: tap the name or ✎ — e.g. “Heavy, with chorus”. Same for stems after splitting. Leave it empty to restore the original name. The new name shows in the player, playlists and the downloaded file name.",
+ "Студия → трек → Версии": "Studio → track → Versions",
+ "Переименовать версию": "Rename version",
+ "Название версии": "Version name"
 }
