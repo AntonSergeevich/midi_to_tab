@@ -3050,7 +3050,7 @@ function effectsChanged(t) {
   render();
   save();
 }
-$('fxAdd').addEventListener('click', () => { $('fxTypes').hidden = !$('fxTypes').hidden; haptic('light'); });
+$('fxAdd').addEventListener('click', () => { window.smoothToggle($('fxTypes')); haptic('light'); });
 $('fxEffects').addEventListener('click', (e) => {
   const t = tracks[fxLane];
   if (!t) return;

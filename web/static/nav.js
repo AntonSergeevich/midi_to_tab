@@ -473,3 +473,77 @@ window.haptic = (() => {
     }
   }, true);
 })();
+
+// Плавное раскрытие (владелец, 31.10: «плейлисты появляются резко -- не
+// наслаждаешься процессом, не смакуешь»). reveal(el, true/false) --
+// блок вырастает из нуля по высоте и проявляется, сворачивается обратно
+// так же; длительность -- от высоты (короткий -- быстрее). Кто просит
+// меньше движения (настройка системы) -- без анимации.
+(() => {
+  const EASE = 'cubic-bezier(.22,.8,.24,1)';
+  const still = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const box = (el) => {
+    const cs = getComputedStyle(el);
+    return { paddingTop: cs.paddingTop, paddingBottom: cs.paddingBottom, marginTop: cs.marginTop,
+      marginBottom: cs.marginBottom, borderTopWidth: cs.borderTopWidth, borderBottomWidth: cs.borderBottomWidth };
+  };
+  const flat = { paddingTop: '0px', paddingBottom: '0px', marginTop: '0px', marginBottom: '0px',
+    borderTopWidth: '0px', borderBottomWidth: '0px' };
+  const ms = (h) => Math.round(Math.min(560, 300 + h * 0.35));
+  window.smoothReveal = (el, show, done) => {
+    if (!el) return;
+    if (el._reveal) { el._reveal.cancel(); el._reveal = null; }
+    if (show && !el.hidden && !el._hiding) { if (done) done(); return; }
+    if (!show && el.hidden) { if (done) done(); return; }
+    el._hiding = !show;
+    if (still() || !el.animate) {
+      el.hidden = !show; el._hiding = false;
+      if (done) done();
+      return;
+    }
+    el.hidden = false;
+    const full = { ...box(el), height: `${el.scrollHeight}px`, opacity: 1, transform: 'none' };
+    const none = { ...flat, height: '0px', opacity: 0, transform: 'translateY(-6px)' };
+    el.style.overflow = 'hidden';
+    const anim = el.animate(show ? [none, full] : [{ ...full, height: `${el.offsetHeight}px` }, none],
+      { duration: ms(el.scrollHeight) * (show ? 1 : 0.8), easing: EASE });
+    el._reveal = anim;
+    anim.onfinish = () => {
+      el.style.overflow = '';
+      el._reveal = null;
+      if (!show) el.hidden = true;
+      el._hiding = false;
+      if (done) done();
+    };
+  };
+  window.smoothToggle = (el) => { const show = el.hidden || el._hiding; window.smoothReveal(el, show); return show; };
+
+  // Вопросы-раскрывашки (<details>) на любой странице -- тоже плавно
+  const bodyOf = (d) => [...d.children].filter((c) => c.localName !== 'summary');
+  document.addEventListener('click', (e) => {
+    const summary = e.target.closest && e.target.closest('summary');
+    const d = summary && summary.parentElement;
+    if (!d || d.localName !== 'details' || d.dataset.instant != null || still()) return;
+    e.preventDefault();
+    const parts = bodyOf(d);
+    if (d.open) {
+      let left = parts.length;
+      if (!left) { d.open = false; return; }
+      parts.forEach((p) => window.smoothReveal(p, false, () => {
+        left -= 1;
+        if (!left) { d.open = false; parts.forEach((x) => { x.hidden = false; }); }
+      }));
+    } else {
+      d._smooth = true;
+      d.open = true;
+      parts.forEach((p) => { p.hidden = true; window.smoothReveal(p, true); });
+    }
+  }, true);
+  // открыли не нажатием (из кода, по якорю) -- проявить
+  document.addEventListener('toggle', (e) => {
+    const d = e.target;
+    if (!(d && d.localName === 'details') || !d.open || still()) return;
+    if (d._smooth) { d._smooth = false; return; }
+    bodyOf(d).forEach((p) => { p.hidden = true; window.smoothReveal(p, true); });
+  }, true);
+})();

@@ -1858,6 +1858,7 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
   background: rgba(217,154,78,.06); color: var(--accent); font-weight: 600; cursor: pointer; }
 .mx-fxadd:disabled { opacity: .45; cursor: not-allowed; }
 .mx-fxtypes { margin-top: 10px; }
+.mx-fxtypes[hidden] { display: none; }
 
 /* Страница «вам передали трек» (/take/<токен>) */
 .tk { max-width: 620px; margin: 28px auto 0; }
@@ -2007,7 +2008,19 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
 .st-pl-new { align-self: flex-start; padding: 10px 16px; border-radius: 999px; border: 1px dashed var(--accent);
   background: rgba(217,154,78,.08); color: var(--accent); font-weight: 700; cursor: pointer; }
 .st-pl { border: 1px solid var(--border); border-radius: 14px; background: var(--panel-hi); overflow: hidden; }
-.st-pl.open { border-color: rgba(217,154,78,.6); }
+.st-pl { transition: border-color .4s ease, box-shadow .4s ease; }
+.st-pl.open { border-color: rgba(217,154,78,.6); box-shadow: 0 14px 34px -22px rgba(217,154,78,.55); }
+.st-pl-chev { display: inline-block; transition: transform .45s cubic-bezier(.22,.8,.24,1); }
+.st-pl.open .st-pl-chev { transform: rotate(180deg); }
+/* раскрытый плейлист: строки проявляются по очереди -- как карточки в Яндекс Музыке */
+.st-pl-items.enter .st-pl-item { animation: st-pl-in .45s cubic-bezier(.22,.8,.24,1) both; }
+.st-pl-items.enter .st-pl-item:nth-child(2) { animation-delay: .04s; }
+.st-pl-items.enter .st-pl-item:nth-child(3) { animation-delay: .08s; }
+.st-pl-items.enter .st-pl-item:nth-child(4) { animation-delay: .12s; }
+.st-pl-items.enter .st-pl-item:nth-child(5) { animation-delay: .16s; }
+.st-pl-items.enter .st-pl-item:nth-child(n+6) { animation-delay: .2s; }
+@keyframes st-pl-in { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { .st-pl-items.enter .st-pl-item, .st-pl-chev { animation: none; transition: none; } }
 .st-pl-head { display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
 .st-pl-art { flex: none; width: 52px; height: 52px; border-radius: 10px; box-shadow: 0 8px 20px -10px rgba(0,0,0,.7); }
 .st-pl-head .st-row-main { min-width: 0; }
@@ -2182,3 +2195,18 @@ html, body { overflow-x: hidden; }
 .st-parts-zip { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0 2px; }
 .st-parts-zip svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
 .st-parts .st-info-read { margin-top: 6px; }
+
+/* Появление окон и меню -- мягко (владелец, 31.10: «появляются резко,
+   не наслаждаешься процессом»): окно поднимается и проявляется, меню «⋯»
+   раскрывается от кнопки, подсказка опускается сверху */
+.st-modal:not([hidden]) { animation: st-fade .3s ease both; }
+.st-modal:not([hidden]) .st-modal-box { animation: st-rise .45s cubic-bezier(.22,.8,.24,1) both; }
+.st-menu:not([hidden]) { animation: st-pop .28s cubic-bezier(.22,.8,.24,1) both; transform-origin: top right; }
+.st-toast:not([hidden]) { animation: st-drop .38s cubic-bezier(.22,.8,.24,1) both; }
+@keyframes st-fade { from { opacity: 0; } }
+@keyframes st-rise { from { opacity: 0; transform: translateY(22px) scale(.97); } }
+@keyframes st-pop { from { opacity: 0; transform: translateY(-6px) scale(.96); } }
+@keyframes st-drop { from { opacity: 0; transform: translate(-50%, -14px); } }
+@media (prefers-reduced-motion: reduce) {
+  .st-modal:not([hidden]), .st-modal:not([hidden]) .st-modal-box, .st-menu:not([hidden]), .st-toast:not([hidden]) { animation: none; }
+}

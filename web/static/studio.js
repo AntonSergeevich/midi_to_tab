@@ -927,6 +927,14 @@ document.addEventListener('click', (e) => {
   if (!tab) return;
   partsTab[tab.dataset.job] = tab.dataset.partstab;
   renderDetail(info.jobs);
+  // новая вкладка проявляется, а не выскакивает
+  const panel = document.querySelector(`[data-partstab][data-job="${tab.dataset.job}"]`);
+  const box = panel && panel.closest('.st-parts');
+  if (box && box.animate) {
+    [...box.children].filter((c) => !c.classList.contains('st-seg')).forEach((c, i) => c.animate(
+      [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
+      { duration: 380, delay: i * 50, easing: 'cubic-bezier(.22,.8,.24,1)', fill: 'backwards' }));
+  }
   if (window.haptic) window.haptic('tick');
 });
 
@@ -1553,8 +1561,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && $('lyricsWrap').classList.contains('full')) lyricsFull(false);
 });
 $('lyricsAi').addEventListener('click', () => {
-  $('aiBox').hidden = !$('aiBox').hidden;
-  if (!$('aiBox').hidden) $('aiPrompt').focus();
+  if (window.smoothToggle($('aiBox'))) $('aiPrompt').focus({ preventScroll: true });
 });
 $('aiGo').addEventListener('click', async () => {
   const prompt = $('aiPrompt').value.trim();
@@ -2694,9 +2701,9 @@ $('fNext').addEventListener('click', () => step(1));
 ['pOpen', 'pExpand'].forEach((id) => $(id).addEventListener('click', () => fullPlayer(true)));
 $('fClose').addEventListener('click', () => fullPlayer(false));
 $('fLyricsBtn').addEventListener('click', () => {
-  $('fLyrics').hidden = !$('fLyrics').hidden;
-  $('fLyricsEdit').hidden = $('fLyrics').hidden || !(queue[qi] && queue[qi].owner);
-  $('full').classList.toggle('kk-on', !$('fLyrics').hidden && Boolean($('fLyrics')._kk));
+  const show = window.smoothToggle($('fLyrics'));
+  $('fLyricsEdit').hidden = !show || !(queue[qi] && queue[qi].owner);
+  $('full').classList.toggle('kk-on', show && Boolean($('fLyrics')._kk));
 });
 
 // Громкость. На iPhone громкость <audio> из скрипта не меняется, поэтому
@@ -2876,18 +2883,18 @@ function renderPlaylists() {
       .find((f) => f.name === x.file) || {}).seconds || 0, 0) / 60);
     const art = (items[0] ? items[0].art : coverStyle(null)).replace(/"/g, "'");   // внутри style="…"
     const open = plOpen === id;
-    return `<div class="st-pl${open ? ' open' : ''}">
+    return `<div class="st-pl${open ? ' open' : ''}" data-pl="${id}">
       <div class="st-pl-head" data-pltoggle="${id}" role="button" aria-expanded="${open}">
         <span class="st-pl-art" style="background:${art.startsWith('url') ? `${art} center/cover` : art}"></span>
         <div class="st-row-main"><b data-noi18n>${esc(name)}</b>
           <span class="muted">${items.length} ${plural(items.length, 'трек', 'трека', 'треков')}${minutes ? ` · ${minutes} мин` : ''}</span></div>
-        <span class="st-pl-chev" aria-hidden="true">${open ? '▴' : '▾'}</span>
+        <span class="st-pl-chev" aria-hidden="true">▾</span>
         ${own ? `<button type="button" class="st-mode-btn" data-plsharelist="${id}" aria-label="Поделиться плейлистом">${ICON.share}</button>` : ''}
         <button type="button" class="st-mode-btn${shuffleOn ? ' on' : ''}" data-plshuffle="${id}"
           aria-pressed="${shuffleOn}" aria-label="${shuffleOn ? 'Перемешать: вкл' : 'Перемешать: выкл'}">${ICON.shuffle}</button>
         <button type="button" class="play-btn" data-plplay="${id}" title="Слушать подряд">${ICON.play}</button>
       </div>
-      ${open ? `<div class="st-pl-items">${items.length ? items.map((x, i) => `
+      ${`<div class="st-pl-items"${open ? '' : ' hidden'}>${items.length ? items.map((x, i) => `
         <div class="st-pl-item${playingList === name && queue[qi] && queue[qi].url === x.url ? ' now' : ''}">
           <button type="button" class="st-pl-track" data-plat="${id}:${i}" title="Слушать с этого трека">
             <span class="st-pl-n">${i + 1}</span>
@@ -2898,7 +2905,7 @@ function renderPlaylists() {
     : '<p class="muted">Пусто. Добавить трек: ⋯ у версии → «Добавить в плейлист».</p>'}
         ${own ? `<div class="st-pl-foot"><button type="button" class="st-linkbtn" data-plsharelist="${id}">🔗 Поделиться плейлистом</button>
           <button type="button" class="st-linkbtn" data-plrename="${id}">Переименовать</button>
-          <button type="button" class="st-linkbtn danger" data-plremove="${id}">Удалить плейлист</button></div>` : ''}</div>` : ''}
+          <button type="button" class="st-linkbtn danger" data-plremove="${id}">Удалить плейлист</button></div>` : ''}</div>`}
     </div>`;
   };
   $('jobs').innerHTML = `<div class="st-pls">
@@ -2949,8 +2956,32 @@ document.addEventListener('click', async (e) => {
   }
   // нажали на карточку (не на кнопку) -- раскрыть/свернуть треки
   if ((el = t('pltoggle')) && !e.target.closest('button')) {
-    plOpen = plOpen === el.dataset.pltoggle ? '' : el.dataset.pltoggle;
-    renderPlaylists();
+    // плавно (владелец, 31.10: «появляются резко, не смакуешь»): прежний
+    // сворачивается, этот раскрывается -- без перерисовки списка
+    const id = el.dataset.pltoggle;
+    const was = plOpen && document.querySelector(`.st-pl[data-pl="${plOpen}"]`);
+    plOpen = plOpen === id ? '' : id;
+    if (was) {
+      was.classList.remove('open');
+      was.querySelector('.st-pl-head').setAttribute('aria-expanded', 'false');
+      window.smoothReveal(was.querySelector('.st-pl-items'), false);
+    }
+    const card = plOpen && document.querySelector(`.st-pl[data-pl="${plOpen}"]`);
+    if (card) {
+      card.classList.add('open');
+      card.querySelector('.st-pl-head').setAttribute('aria-expanded', 'true');
+      const list = card.querySelector('.st-pl-items');
+      list.classList.add('enter');                       // строки проявляются по очереди -- только при раскрытии
+      setTimeout(() => list.classList.remove('enter'), 900);
+      window.smoothReveal(list, true, () => {
+        // низ плейлиста не под плеером: мягко докрутить, но шапку не уводить за край
+        const box = card.getBoundingClientRect();
+        const bottom = innerHeight - ($('player').hidden ? 0 : $('player').offsetHeight) - 16;
+        const by = Math.min(box.bottom - bottom, box.top - 70);
+        if (by > 0) window.scrollBy({ top: by, behavior: 'smooth' });
+      });
+    }
+    if (window.haptic) window.haptic('tick');
     return;
   }
   if (t('plnew')) {
@@ -3090,8 +3121,7 @@ $('fAddPl').addEventListener('click', () => { const item = queue[qi]; if (item &
 window.SoundFX.attach($('audio'));
 window.SoundFX.bind($('fxPanel'));
 $('fFx').addEventListener('click', () => {
-  $('fxPanel').hidden = !$('fxPanel').hidden;
-  if (!$('fxPanel').hidden) $('fxPanel').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  if (window.smoothToggle($('fxPanel'))) setTimeout(() => $('fxPanel').scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 320);
 });
 $('fxPanel').addEventListener('click', () => setTimeout(modeButtons));
 onAudio('play', modeButtons);

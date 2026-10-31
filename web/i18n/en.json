@@ -2064,5 +2064,8 @@
  "Нажмите ▶ ещё раз": "Tap ▶ once more",
  "Плеер помнит место": "The player remembers your spot",
  "Закрыли сайт, телефон долго лежал или открыли Студию на компьютере — плеер на том же треке и той же секунде, в той же очереди. Нажмите ▶ — и дальше.": "Closed the site, left the phone for hours or opened the Studio on your computer — the player is on the same track, the same second, the same queue. Tap ▶ and carry on.",
- "Плеер Студии, на любом устройстве": "Studio player, on any device"
+ "Плеер Студии, на любом устройстве": "Studio player, on any device",
+ "Всё раскрывается плавно": "Everything opens smoothly",
+ "Плейлисты разворачиваются и сворачиваются мягко, строки проявляются по очереди; так же — окна, меню «⋯», «Звук» и текст в плеере, вопросы на главной, вкладки «Дорожки / Минус и голос».": "Playlists unfold and fold softly, rows fade in one by one; the same goes for dialogs, the “⋯” menu, “Sound” and lyrics in the player, questions on the home page and the “Stems / Backing and vocals” tabs.",
+ "Весь сайт": "The whole site"
 }
