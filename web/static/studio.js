@@ -3436,7 +3436,9 @@ async function plDragEnd() {
   d.justDropped = Date.now();
   item.style.transition = 'transform .22s cubic-bezier(.22,.8,.24,1)';
   item.style.transform = `translateY(${(d.to - d.from) * d.step}px)`;
-  if (window.haptic) window.haptic('drop');
+  // трек встал на место -- ощутимый щелчок (владелец, 01.11). Палец: щёлкаем
+  // в touchend -- iPhone даёт вибро только из настоящего «отпустил палец»
+  if (!d.touch && window.haptic) window.haptic('medium');
   const p = playlists.find((x) => x.id === plOpen);
   await new Promise((r) => setTimeout(r, 230));
   if (p && d.to !== d.from) {
@@ -3476,10 +3478,13 @@ document.addEventListener('pointermove', (e) => {
   plPointerY = e.clientY;
   plDragMove(e.pageY);
 });
-['pointerup', 'pointercancel'].forEach((ev) => document.addEventListener(ev, () => {
+['pointerup', 'pointercancel'].forEach((ev) => document.addEventListener(ev, (e) => {
   clearTimeout(plDrag.timer); plDrag.pending = null;
-  if (plDrag.item) plDragEnd();
+  if (plDrag.item) { plDrag.touch = e.pointerType === 'touch'; plDragEnd(); }
 }));
+document.addEventListener('touchend', () => {
+  if (plDrag.item || Date.now() - plDrag.justDropped < 300) { if (window.haptic) window.haptic('medium'); }
+}, true);
 // пока тащим -- страница не прокручивается пальцем и не всплывает меню iPhone
 document.addEventListener('touchmove', (e) => { if (plDrag.item) e.preventDefault(); }, { passive: false });
 document.addEventListener('contextmenu', (e) => { if (plDrag.item || plDrag.pending) e.preventDefault(); });
