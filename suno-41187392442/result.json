@@ -1,0 +1,62 @@
+{
+ "id": 56989626,
+ "organization_id": 756697,
+ "network": "suno",
+ "status": "success",
+ "response_type": "audio",
+ "cost": 17,
+ "progress": 100,
+ "runtime": 85.79,
+ "result": [
+  "https://gen-api.storage.yandexcloud.net/input_files/1793437750_6ae5b036b4b97.mp3",
+  "https://gen-api.storage.yandexcloud.net/input_files/1793437752_6ae5b0386da99.mp3",
+  {
+   "audio_url": "https://gen-api.storage.yandexcloud.net/input_files/1793437750_6ae5b036b4b97.mp3",
+   "image": "https://gen-api.storage.yandexcloud.net/input_files/1793437751_6ae5b0379a031.jpeg",
+   "audio_id": "b763f8f4-bf97-4db9-8214-c9b46ed6e3f6",
+   "task_id": "f1a3799e698e55c9dd501ae1591fd6f9"
+  },
+  {
+   "audio_url": "https://gen-api.storage.yandexcloud.net/input_files/1793437752_6ae5b0386da99.mp3",
+   "image": "https://gen-api.storage.yandexcloud.net/input_files/1793437753_6ae5b0392eb40.jpeg",
+   "audio_id": "2082c509-08c6-4332-85a5-e8e2474c1099",
+   "task_id": "f1a3799e698e55c9dd501ae1591fd6f9"
+  }
+ ],
+ "full_response": [
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793437750_6ae5b036b4b97.mp3"
+  },
+  {
+   "url": "https://gen-api.storage.yandexcloud.net/input_files/1793437752_6ae5b0386da99.mp3"
+  },
+  {
+   "audio_url": "https://gen-api.storage.yandexcloud.net/input_files/1793437750_6ae5b036b4b97.mp3",
+   "image": "https://gen-api.storage.yandexcloud.net/input_files/1793437751_6ae5b0379a031.jpeg",
+   "audio_id": "b763f8f4-bf97-4db9-8214-c9b46ed6e3f6",
+   "task_id": "f1a3799e698e55c9dd501ae1591fd6f9"
+  },
+  {
+   "audio_url": "https://gen-api.storage.yandexcloud.net/input_files/1793437752_6ae5b0386da99.mp3",
+   "image": "https://gen-api.storage.yandexcloud.net/input_files/1793437753_6ae5b0392eb40.jpeg",
+   "audio_id": "2082c509-08c6-4332-85a5-e8e2474c1099",
+   "task_id": "f1a3799e698e55c9dd501ae1591fd6f9"
+  }
+ ],
+ "parameters": {
+  "mv": "chirp-hawk",
+  "tags": "aggressive Russian rap rock, trap metal, male and female vocals duet, aggressive raw male rap verses, powerful soaring female vocals in chorus, hard hitting 808 kicks, distorted 808 bass, heavy drop-tuned electric guitars, explosive drops, intense, high energy, energetic, 140 bpm, faithful recreation of the uploaded recording, same arrangement, same tempo, same key, same structure",
+  "task": "cover",
+  "model": "v6",
+  "title": "Проба: точная копия для разделения",
+  "prompt": "[Intro]\nЭй! Наслукс! Громче!\n\n[Verse]\nБит качает, стены дрожат, я на старте,\nСто идей в голове — ни одной на карте,\nХватит ждать, хватит думать, что «потом» и «не время»,\nЖму на кнопку — и ломаю это тихое бремя!\nБочка бьёт по груди, бас взрывает колонки,\nМой куплет как ракета, мой голос — на кромке,\nЭто не чужой трек, это мой огонь —\nВся студия в кармане, весь мир — на ладонь!\n\n[Pre-Chorus]\nСлышишь, как растёт этот гул внутри?\nРаз, два — дыши, три — смотри!\n\n[Chorus]\nНаслукс! Взрыв! Это наш звук!\nБит из нейросети — а сердце из рук!\nНаслукс! Громче, сильней!\nПой своим голосом — и будь собой в ней!\n\n[Verse]\nРазложил по дорожкам: бас, гитара, барабаны,\nСверху мой вокал — и никакого обмана,\nСкинул бэнду ссылку — через час уже в деле,\nМы за вечер сделали, что не могли за недели!\nЭто драйв, это скорость, это шторм и гроза,\nНе смотри на других — посмотри мне в глаза,\nЯ не копия, нет, я — оригинал,\nМой звук — это мой личный сигнал!\n\n[Pre-Chorus]\nСлышишь, как растёт этот гул внутри?\nРаз, два — дыши, три — смотри!\n\n[Chorus]\nНаслукс! Взрыв! Это наш звук!\nБит из нейросети — а сердце из рук!\nНаслукс! Громче, сильней!\nПой своим голосом — и будь собой в ней!\n\n[Outro]\nНаслукс! Наслукс! Это наш звук!",
+  "upload_url": "https://gen-api.storage.yandexcloud.net/input_files/1793437666_6ae5afe2e7333.mp3",
+  "custom_mode": true,
+  "audio_weight": 1,
+  "instrumental": false,
+  "style_weight": 0,
+  "translate_input": false,
+  "weirdness_constraint": 0
+ },
+ "timestamp": 1793437667
+}
