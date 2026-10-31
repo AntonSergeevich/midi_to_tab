@@ -2364,3 +2364,24 @@ html[data-nav=out]::view-transition-new(st-list) { animation-name: st-nav-left-i
 .st-pl .st-pl-art { box-shadow: 0 8px 22px -8px var(--art); }
 .st-born-card { border-color: color-mix(in srgb, var(--art, rgb(246,197,132)) 70%, transparent);
   box-shadow: 0 18px 44px -14px var(--art, rgba(217,154,78,.55)), 0 8px 24px rgba(0,0,0,.5); }
+
+/* Приветствие с идеей стиля */
+.st-hello { margin: 0 0 12px; font-size: 14px; color: var(--muted); line-height: 1.5;
+  animation: st-hello-in .7s cubic-bezier(.22,.8,.24,1) both; }
+.st-hello-idea { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); cursor: pointer;
+  text-decoration: underline dotted; text-underline-offset: 3px; text-align: left; }
+@keyframes st-hello-in { from { opacity: 0; transform: translateY(-6px); } }
+/* Пустой список -- приглашение */
+.st-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 28px 16px 22px; }
+.st-empty b { font-size: 18px; }
+.st-empty .muted { max-width: 320px; }
+.st-empty .primary { margin-top: 6px; }
+.st-empty-art { width: 76px; height: 76px; border-radius: 22px; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 30% 30%, rgba(246,197,132,.35), rgba(217,154,78,.08) 70%);
+  box-shadow: 0 14px 40px -16px rgba(217,154,78,.7); animation: st-empty-float 4s ease-in-out infinite; }
+.st-empty-art svg { width: 40px; height: 40px; fill: none; stroke: #f6c584; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+@keyframes st-empty-float { 50% { transform: translateY(-5px); } }
+/* Конфетти на вехах */
+.st-born-card { overflow: visible; }
+.st-confetti { position: absolute; left: 34px; top: 50%; width: 7px; height: 11px; border-radius: 2px; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .st-hello, .st-empty-art { animation: none; } }

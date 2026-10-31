@@ -2084,5 +2084,18 @@
  "Плеер, плейлисты, ссылка на плейлист": "Player, playlists, shared playlist link",
  "Звук NASLUX": "The NASLUX sound",
  "Песня готова или пополнили баланс — звучит короткий тёплый колокольчик NASLUX. Без файлов и без задержек; ночью при свёрнутом сайте молчит.": "When a song is ready or your balance is topped up, a short warm NASLUX chime plays. No files, no delay; it stays quiet while the site is in the background.",
- "Студия, кабинет": "Studio, account"
+ "Студия, кабинет": "Studio, account",
+ "Маленькие радости": "Little joys",
+ "Студия здоровается по времени суток и подкидывает идею стиля — нажали, и она в поле «Стиль». Первая, пятая, десятая песня — конфетти и поздравление. Первый плейлист — подсказка, как добавить треки. Пустой список — приглашение «Создать первую песню».": "The Studio greets you by time of day and suggests a style idea — tap it and it lands in the “Style” field. Your first, fifth, tenth song get confetti and congratulations. Your first playlist gets a tip on adding tracks. An empty list invites you to “Create your first song”.",
+ "Здесь будут ваши песни": "Your songs will live here",
+ "Опишите стиль, вставьте текст и нажмите «Создать» — первая песня будет через пару минут.": "Describe a style, paste lyrics and tap “Create” — your first song will be ready in a couple of minutes.",
+ "Создать первую песню": "Create your first song",
+ "Первый плейлист!": "First playlist!",
+ "Треки — через ⋯ → «Добавить в плейлист»": "Add tracks via ⋯ → “Add to playlist”",
+ "Первая песня в NASLUX!": "Your first song in NASLUX!",
+ "Пятая песня — уже мини-альбом": "Fifth song — that's an EP",
+ "10 песен — это альбом!": "10 songs — that's an album!",
+ "25 песен — у вас дискография": "25 songs — you have a discography",
+ "50 песен — настоящий автор": "50 songs — a true songwriter",
+ "100 песен — легенда NASLUX": "100 songs — a NASLUX legend"
 }

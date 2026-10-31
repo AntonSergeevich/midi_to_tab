@@ -529,7 +529,11 @@ function renderList(jobs) {
   if (!top.length) {
     $('jobs').innerHTML = pool.length
       ? `<p class="muted">Ничего не нашлось по «${esc(list.query)}».</p>`
-      : '<p class="muted">Здесь появятся ваши песни.</p>';
+      : `<div class="st-empty">
+          <span class="st-empty-art" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M24 46V16l26-6v30"/><circle cx="17" cy="46" r="7"/><circle cx="43" cy="40" r="7"/></svg></span>
+          <b>Здесь будут ваши песни</b>
+          <span class="muted">Опишите стиль, вставьте текст и нажмите «Создать» — первая песня будет через пару минут.</span>
+          <button type="button" class="primary" data-firstsong="1">Создать первую песню</button></div>`;
     return;
   }
   const shown = top.slice(list.page * PER_PAGE, (list.page + 1) * PER_PAGE);
@@ -2114,6 +2118,69 @@ function karaokePlay(jobId, fileName) {
   $('full').classList.add('kk-on');      // обложка поменьше -- текст на виду
 }
 const hitSeen = new Set();
+// Маленькие радости (владелец, 31.10: «ощущение, что сервис хочется
+// облизнуть»). Приветствие по времени суток с идеей стиля -- нажали, и
+// идея в поле «Стиль»; вехи: первая, пятая, десятая песня...; первый
+// плейлист; пустой список -- приглашение, а не серая строка.
+const HELLO = [
+  [5, 'Доброе утро', ['бодрый поп-рок к утреннему кофе', 'светлый акустический фолк, гитара и хлопки']],
+  [11, 'Добрый день', ['драйвовый инди-рок с ярким припевом', 'фанк с живым басом и духовыми']],
+  [17, 'Добрый вечер', ['тёплый соул, живые клавиши и бархатный вокал', 'лиричная рок-баллада с нарастанием']],
+  [23, 'Доброй ночи', ['тихая баллада под фортепиано', 'лоу-фай для ночного города, мягкий бит']],
+];
+function hello() {
+  if ((document.documentElement.lang || 'ru').startsWith('en')) return;     // приветствие -- живой русский текст
+  const hour = new Date().getHours();
+  const slot = HELLO.filter(([from]) => hour >= from).pop() || HELLO[3];
+  const idea = slot[2][new Date().getDate() % slot[2].length];
+  $('hello').innerHTML = `${slot[1]}! Как насчёт — <button type="button" class="st-hello-idea" data-hello="${esc(idea)}">${esc(idea)}</button>?`;
+  $('hello').hidden = false;
+}
+hello();
+document.addEventListener('click', (e) => {
+  const idea = e.target.closest('[data-hello]');
+  if (idea) {
+    if (mode !== 'create' && mode !== 'restyle') { mode = 'create'; showMode(); }
+    $('prompt').value = idea.dataset.hello;
+    $('prompt').dispatchEvent(new Event('input', { bubbles: true }));
+    $('prompt').animate([{ boxShadow: '0 0 0 0 rgba(246,197,132,.0)' }, { boxShadow: '0 0 0 3px rgba(246,197,132,.6)' }, { boxShadow: '0 0 0 0 rgba(246,197,132,0)' }], { duration: 900 });
+    if (window.haptic) window.haptic('light');
+    return;
+  }
+  if (e.target.closest('[data-firstsong]')) {
+    if (mode !== 'create') { mode = 'create'; showMode(); }
+    $('panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(() => $('prompt').focus({ preventScroll: true }), 500);
+  }
+});
+const MILESTONES = { 1: 'Первая песня в NASLUX!', 5: 'Пятая песня — уже мини-альбом', 10: '10 песен — это альбом!',
+  25: '25 песен — у вас дискография', 50: '50 песен — настоящий автор', 100: '100 песен — легенда NASLUX' };
+function milestone() {
+  const songs = info.jobs.filter((x) => x.status === 'done' && ['create', 'restyle', 'enrich'].includes(x.mode)).length;
+  if (!MILESTONES[songs]) return '';
+  let seen = [];
+  try { seen = JSON.parse(localStorage.getItem('naslux.milestones') || '[]'); } catch (error) { /* */ }
+  if (seen.includes(songs)) return '';
+  seen.push(songs);
+  try { localStorage.setItem('naslux.milestones', JSON.stringify(seen)); } catch (error) { /* */ }
+  return MILESTONES[songs];
+}
+function confetti(box) {
+  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const colors = ['#f6c584', '#d99a4e', '#ff6fb5', '#7aa8ff', '#ffffff'];
+  for (let i = 0; i < 26; i += 1) {
+    const bit = document.createElement('i');
+    bit.className = 'st-confetti';
+    bit.style.background = colors[i % colors.length];
+    box.appendChild(bit);
+    const angle = (Math.PI * 2 * i) / 26 + Math.random() * 0.3;
+    const dist = 60 + Math.random() * 90;
+    bit.animate([{ transform: 'translate(0,0) rotate(0deg)', opacity: 1 },
+      { transform: `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist - 40}px) rotate(${Math.random() * 540}deg)`, opacity: 0 }],
+    { duration: 1100 + Math.random() * 500, easing: 'cubic-bezier(.15,.7,.3,1)', fill: 'forwards' }).onfinish = () => bit.remove();
+  }
+}
+
 // Момент готовности (владелец, 31.10: «NASLUX должен оставлять ощущение,
 // что его хочется облизнуть, как вкусный десерт»). Песня, которую ждали,
 // готова: обложка вспыхивает и переворачивается, телефон отвечает
@@ -2156,8 +2223,9 @@ function celebrate(j) {
     card.setAttribute('role', 'status');
     document.body.appendChild(card);
   }
+  const big = milestone();
   card.innerHTML = `<span class="st-born-art">${cover(owner)}</span>
-    <span class="st-row-main"><b>Готово!</b><span class="muted" data-noi18n>${esc(owner.name)} · ${esc(f.label || '')}</span></span>
+    <span class="st-row-main"><b>${big ? esc(big) : 'Готово!'}</b><span class="muted" data-noi18n>${esc(owner.name)} · ${esc(f.label || '')}</span></span>
     <button type="button" class="play-btn" data-bornplay="${j.id}" aria-label="Слушать">${ICON.play}</button>
     <button type="button" class="icon-btn" data-bornopen="${j.id}" aria-label="Открыть трек">${ICON.expand}</button>`;
   card.hidden = false;
@@ -2165,6 +2233,7 @@ function celebrate(j) {
   card.classList.remove('on');
   void card.offsetWidth;
   card.classList.add('on');
+  if (big) setTimeout(() => confetti(card), 250);
   clearTimeout(celebrate.timer);
   celebrate.timer = setTimeout(() => card.classList.remove('on'), 10000);
   // звуковой логотип, затем -- если ничего не играет -- сразу слушаем, с припева
@@ -3192,6 +3261,7 @@ document.addEventListener('click', async (e) => {
     if (!name || !name.trim()) return;
     playlists.push({ id: Math.random().toString(36).slice(2, 10), name: name.trim(), items: [] });
     await savePlaylists();
+    if (playlists.length === 1) hud(ICON.list, 'Первый плейлист!', 'Треки — через ⋯ → «Добавить в плейлист»');
     plOpen = playlists[playlists.length - 1].id;
     renderPlaylists();
     return;
