@@ -3281,3 +3281,27 @@ def test_stitched_version_is_split_by_us_not_by_the_network(studio_app, monkeypa
     assert files["create_1.mp3"]["hit"] is True
     answer = client.post(f"/api/studio/{job_id}/hit/hitminus", data={"file": "extend_1.mp3"})
     assert answer.status_code == 409 and "продлённой" in answer.json()["detail"]
+
+
+def test_parts_zip_names_tracks_by_song_and_part(studio_app):
+    """«Все дорожки одним архивом»: имена -- «Песня — Вокал.mp3», не vocals.mp3."""
+    import io
+    import zipfile
+
+    app_module, client, user, _ = studio_app
+    app_module.storage.add_balance(user.id, 100)
+    parent = _start(client, mode="stems").json()["jobId"]
+    app_module.storage.update_job(parent, status="done", filename="Тишина.mp3")
+    child = _start(client, mode="stems").json()["jobId"]
+    folder = app_module.studio_runner.folder(child)
+    for name in ("vocals.mp3", "backing.mp3"):
+        open(f"{folder}/{name}", "wb").write(b"mp3")
+    app_module.storage.update_job(child, status="done", settings={
+        **app_module.storage.job(child).settings, "from": parent, "parts": "minus"}, result={"files": [
+            {"name": "vocals.mp3", "label": "Голос"}, {"name": "backing.mp3", "label": "Минус"}]})
+    answer = client.get(f"/api/studio/{child}/parts.zip")
+    names = sorted(zipfile.ZipFile(io.BytesIO(answer.content)).namelist())
+    assert names == ["Тишина — Голос.mp3", "Тишина — Минус.mp3"]
+    assert "%D0%9C%D0%B8%D0%BD%D1%83%D1%81" in answer.headers["content-disposition"]   # «Минус и голос»
+    kid = next(j for j in client.get("/api/studio").json()["jobs"] if j["id"] == child)
+    assert kid["parts"] == "minus"

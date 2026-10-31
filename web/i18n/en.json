@@ -872,7 +872,7 @@
  "Разделение на партии чище": "Cleaner stem separation",
  "Разделение — самый долгий шаг. Трек останется в «Моих треках».": "Separation is the longest step. The track will stay in “My tracks”.",
  "Разделить": "Split",
- "Разделить на дорожки": "Split into stems",
+ "Разделить на дорожки": "Split into tracks",
  "Разделить на партии": "Split into stems",
  "Разделить не удалось": "Couldn't split",
  "Разделить песню на дорожки": "Split a song into stems",
@@ -1852,7 +1852,7 @@
  "Продлить, «Без чего» и смелый режим": "Extend, “Without” and bold mode",
  "Продлить можно любую песню Студии. В форме — поле «Без чего» (без автотюна, без электроники) и смелый режим для неожиданных сочетаний жанров.": "Any Studio song can be extended. The form has a “Without” field (no autotune, no electronics) and a bold mode for unexpected genre blends.",
  "Минус и голос": "Backing and vocals",
- "Разделить на 12 дорожек": "Split into 12 stems",
+ "Разделить на 12 дорожек": "Split into 12 tracks",
  "Минус и голос студийного качества": "Studio-quality backing track and vocals",
  "сейчас нет свободной видеокарты — попробуйте через 10–15 минут": "no free GPU right now — please try again in 10–15 minutes",
  "Делим своим разделением": "Splitting with our own separation",
@@ -2044,5 +2044,13 @@
  "«Минус и голос» в мультитреке": "«Backing and vocals» in the multitrack",
  "Рядом с «Разделить на дорожки» — «Минус и голос». Песни новой нейросети она же и разделяет — в студийном качестве; ваши записи и продлённые версии — наш разделитель, по всей песне.": "Next to «Split into tracks» there is now «Backing and vocals». Songs by the new AI are split by the same AI in studio quality; your recordings and extended versions are split by our separator, across the whole song.",
  "Мультитрек → блок «Разложить трек на дорожки»": "Multitrack → «Split the track» block",
- "У продлённой версии нейросеть хранит только продолжение — разделите её обычным «Разделить на дорожки» или «Минус и голос»": "For an extended version the AI only keeps the continuation; split it with the regular «Split into tracks» or «Backing and vocals»"
+ "У продлённой версии нейросеть хранит только продолжение — разделите её обычным «Разделить на дорожки» или «Минус и голос»": "For an extended version the AI only keeps the continuation; split it with the regular «Split into tracks» or «Backing and vocals»",
+ "Дорожки": "Tracks",
+ "Все дорожки одним архивом": "All tracks as one archive",
+ "Минус и голос одним архивом": "Backing and vocals as one archive",
+ "Сделать минус и голос": "Make backing and vocals",
+ "Дорожки или минус": "Tracks or backing",
+ "Дорожки и минус — в одном окне": "Tracks and backing in one panel",
+ "На странице трека — переключатель «Дорожки / Минус и голос»: нажали — показались. У каждой дорожки — скачать, и всё одним архивом.": "The track page has a «Tracks / Backing and vocals» switch: tap it and they appear. Each track can be downloaded, or all of them as one archive.",
+ "Студия → трек → под версиями": "Studio → track → below the versions"
 }

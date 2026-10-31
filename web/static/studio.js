@@ -689,7 +689,8 @@ function renderDetail(jobs) {
         ${j.mode === 'stems' ? stemData(j, f) : ''}
         title="Что сделать">${ICON.more}</button>
     </div>`).join('') : `<div class="st-version"><div class="st-row-main">${statusLine(j)}</div></div>`;
-  const parts = children.map((c) => `
+  const parts = partsPanel(j, children.filter((c) => c.mode === 'stems'))
+    + children.filter((c) => c.mode !== 'stems').map((c) => `
     <div class="st-sub"><div class="st-label">${esc(c.title)}</div>
       ${c.status === 'done' ? c.files.map((f) => stemRow(c, f, `${j.name}: ${f.label}`)).join('')
         + midiList(c) + (c.mode === 'notes' ? sheetBlock(c) + midiRows(c) : '') : `<div class="st-version"><div class="st-row-main">${statusLine(c)}</div></div>`}
@@ -886,6 +887,49 @@ function sheetBlock(j) {
   return chords || notes ? `<div class="st-sheet">${notes}${chords}</div>` : '';
 }
 
+// Дорожки и «минус и голос» -- одно окно с переключателем сверху (владелец,
+// 31.10: «не листать, а кликнуть -- и показались дорожки»). В каждой вкладке --
+// её дорожки, «скачать всё одним архивом»; ещё не делали -- кнопка сделать.
+const partsTab = {};
+function partsPanel(j, kids) {
+  if (j.mode === 'stems' || j.mode === 'voice' || j.status !== 'done' || !(j.files || []).length) return '';
+  const of = { stems: kids.filter((c) => c.parts !== 'minus'), minus: kids.filter((c) => c.parts === 'minus') };
+  const tab = partsTab[j.id] || (!of.stems.length && of.minus.length ? 'minus' : 'stems');
+  const file = (j.files.find((f) => f.name === infoFile) || j.files[0]);
+  const versions = new Set(kids.map((c) => c.sourceFile)).size > 1;
+  const label = (c) => {
+    const src = (j.files.find((f) => f.name === c.sourceFile) || {}).label;
+    return versions && src ? ` · ${src}` : '';
+  };
+  const body = of[tab].map((c) => `<div class="st-parts-set">
+      ${of[tab].length > 1 || versions ? `<div class="st-label">${esc(c.title)}${esc(label(c))}</div>` : ''}
+      ${c.status === 'done' ? c.files.map((f) => stemRow(c, f, `${j.name}: ${f.label}`)).join('')
+        + `<a class="st-linkbtn st-parts-zip" href="/api/studio/${c.id}/parts.zip" download>${ICON.download}
+          ${tab === 'minus' ? 'Минус и голос одним архивом' : 'Все дорожки одним архивом'}</a>`
+        + (tab === 'stems' ? midiList(c) : '')
+    : `<div class="st-version"><div class="st-row-main">${statusLine(c)}</div></div>`}</div>`).join('');
+  const service = info.services[file.hit ? (tab === 'minus' ? 'hitminus' : 'stems12') : 'stems'] || info.services.stems;
+  const price = info.unlimited ? '' : ` · ${service.pack} ${plural(service.pack, 'кредит', 'кредита', 'кредитов')}`;
+  const start = `<button type="button" class="st-info-read" data-act="${tab === 'minus' ? 'minus' : 'split'}"
+      data-job="${j.id}" data-file="${esc(file.name)}">${tab === 'minus' ? 'Сделать минус и голос'
+    : file.hit ? 'Разделить на 12 дорожек' : 'Разделить на дорожки'}${price}</button>`;
+  return `<div class="st-sub st-parts">
+    <div class="st-seg" role="tablist" aria-label="Дорожки или минус">
+      <button type="button" role="tab" data-partstab="stems" data-job="${j.id}" aria-selected="${tab === 'stems'}">Дорожки</button>
+      <button type="button" role="tab" data-partstab="minus" data-job="${j.id}" aria-selected="${tab === 'minus'}">Минус и голос</button>
+    </div>
+    ${body || start}
+    ${body && !of[tab].some((c) => c.sourceFile === file.name) ? start : ''}
+  </div>`;
+}
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-partstab]');
+  if (!tab) return;
+  partsTab[tab.dataset.job] = tab.dataset.partstab;
+  renderDetail(info.jobs);
+  if (window.haptic) window.haptic('tick');
+});
+
 // Партия: MIDI -- по кнопке в ⋯ (наша расшифровка нот), статус -- прямо в строке
 function stemRow(c, f, title) {
   const stem = f.name.replace(/\.[^.]+$/, '');
@@ -894,6 +938,7 @@ function stemRow(c, f, title) {
   return `<div class="st-version small">${playButton(f, title)}
     <div class="st-row-main"><b>${esc(f.label)}</b>${busy ? '<span class="muted">переводим в ноты…</span>' : ''}</div>
     ${ready ? `<a class="icon-btn" href="${ready.url}" download title="Скачать MIDI этой партии">MIDI</a>` : ''}
+    <a class="icon-btn" href="${withTags(f.url)}" download title="Скачать дорожку">${ICON.download}</a>
     <button type="button" class="icon-btn" data-menu="${c.id}" data-file="${esc(f.name)}"
       data-url="${f.url}" data-stem="${c.mode === 'stems' ? 1 : ''}" data-midi="${ready ? ready.url : ''}"
       data-busy="${busy ? 1 : ''}" title="Что сделать">${ICON.more}</button>

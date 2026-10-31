@@ -1989,6 +1989,7 @@ def _studio_job_payload(job) -> dict:
         "sourceFile": settings.get("sourceFile", ""),
         "files": files,
         "from": settings.get("from"),
+        "parts": settings.get("parts", ""),          # minus -- «минус и голос», иначе -- все партии
         "keepVocals": bool(settings.get("keepVocals")),
         "style": (settings.get("input") or {}).get("prompt", ""),
         "voice": settings.get("voice", ""),
@@ -2702,6 +2703,31 @@ def api_studio_midi_zip(job_id: str, request: Request):
             archive.write(os.path.join(folder, m["name"]), download_name(job.filename, m.get("label") or m["name"], ".mid"))
     return Response(buffer.getvalue(), media_type="application/zip", headers={
         "Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(download_name(job.filename, "MIDI", ".zip"))})
+
+
+@app.get("/api/studio/{job_id}/parts.zip")
+def api_studio_parts_zip(job_id: str, request: Request):
+    """Все дорожки разделения (или минус и голос) одним архивом -- с понятными
+    именами: «Песня — Вокал.mp3»."""
+    user = current_user(request)
+    job = storage.job(job_id)
+    if not job or job.user_id != user.id or job.status != "done":
+        raise HTTPException(404, "Готовая работа не найдена")
+    folder = studio_runner.folder(job_id)
+    found = [f for f in (job.result or {}).get("files") or [] if os.path.isfile(os.path.join(folder, f["name"]))]
+    if not found:
+        raise HTTPException(404, "Файлов уже нет")
+    parent = storage.job((job.settings or {}).get("from") or "") or job
+    labels = (job.result or {}).get("labels") or {}
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as archive:
+        for f in found:
+            archive.write(os.path.join(folder, f["name"]),
+                          download_name(parent.filename, labels.get(f["name"]) or f.get("label") or f["name"],
+                                        Path(f["name"]).suffix or ".mp3"))
+    what = "Минус и голос" if (job.settings or {}).get("parts") == "minus" else "Дорожки"
+    return Response(buffer.getvalue(), media_type="application/zip", headers={
+        "Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(download_name(parent.filename, what, ".zip"))})
 
 
 @app.get("/studio/mix/{job_id}", response_class=HTMLResponse)

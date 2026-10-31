@@ -2170,3 +2170,15 @@ html, body { overflow-x: hidden; }
 .lp-dl { flex: none; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); text-decoration: none; }
 @media (hover: hover) { .lp-dl:hover { background: var(--panel-hi); color: var(--accent); } }
 .st-pl-foot { flex-wrap: wrap; gap: 8px 16px; }
+
+/* Дорожки / минус и голос -- одно окно с переключателем */
+.st-parts { border: 1px solid var(--border); border-radius: 14px; padding: 10px; background: var(--bg); }
+.st-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin-bottom: 10px; border-radius: 999px;
+  background: var(--panel-hi); border: 1px solid var(--border); }
+.st-seg button { padding: 9px 10px; border: 0; border-radius: 999px; background: transparent; color: var(--muted);
+  font-weight: 700; font-size: 14px; cursor: pointer; transition: background .2s, color .2s; }
+.st-seg button[aria-selected="true"] { background: var(--accent); color: #1a1206; }
+.st-parts-set + .st-parts-set { margin-top: 10px; }
+.st-parts-zip { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0 2px; }
+.st-parts-zip svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+.st-parts .st-info-read { margin-top: 6px; }
