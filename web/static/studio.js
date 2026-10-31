@@ -109,6 +109,64 @@ function cover(j, big) {
 }
 const brewClock = () => `--t:-${(Date.now() % 12000) / 1000}s`;
 
+// Сцена, пока песня готовится (владелец, 31.10: «анимацию -- рок-группа
+// играет или диджей скретчит, в зависимости от стиля, минималистично»).
+// Тонкие золотые линии: рок -- певец, гитарист, барабанщик; электроника и
+// хип-хоп -- диджей у вертушек; ню-метал и всё со скретчами -- гитарист,
+// диджей и барабанщик; баллады, джаз, акустика -- пианист. Ритм -- 120 в
+// минуту, фаза -- от часов (--t), перерисовка списка движение не рвёт.
+const SCENE_DJ = /(dj|диджей|скретч|scratch|хип-?хоп|hip-?hop|рэп|rap\b|trap|трэп|техно|techno|house|хаус|edm|электрон|electro|dubstep|дабстеп|drum ?(and|&|n) ?bass|dnb|lo-?fi|лоу-?фай|synthwave|синтвейв|phonk|фонк|диско|disco|808|бит\b|beat)/i;
+const SCENE_ROCK = /(рок|rock|метал|metal|панк|punk|гранж|grunge|core\b|кор\b|гитар|guitar|барабан|drums|инди|indie|блюз|blues|фанк|funk|riff|рифф)/i;
+const SCENE_PIANO = /(баллад|ballad|фортепиан|пиано|piano|рояль|акусти|acoustic|фолк|folk|джаз|jazz|классик|classical|соул|soul|романс|бард|lullab|колыбел)/i;
+function sceneKind(j) {
+  const text = `${j.style || ''} ${j.title || ''}`;
+  const dj = SCENE_DJ.test(text);
+  const rock = SCENE_ROCK.test(text);
+  if (dj && rock) return 'nu';
+  if (dj) return 'dj';
+  if (SCENE_PIANO.test(text) && !rock) return 'piano';
+  return 'band';
+}
+const o = (x, y) => `transform-origin:${x}px ${y}px`;
+const FIG = {
+  singer: (x) => `<g class="sc-bob"><circle cx="${x}" cy="14" r="5"/></g>
+    <path d="M${x} 19v21M${x} 40l-6 18M${x} 40l6 18"/><path class="sc-sway" style="${o(x, 23)}" d="M${x} 23l9 -3"/>
+    <path d="M${x + 11} 22v36M${x + 5} 58h12"/><circle cx="${x + 10}" cy="19" r="2.2" class="sc-fill"/>
+    <text class="sc-note" x="${x + 16}" y="14">♪</text><text class="sc-note sc-note2" x="${x + 20}" y="20">♫</text>`,
+  guitar: (x) => `<g class="sc-bob sc-late"><circle cx="${x}" cy="14" r="5"/></g>
+    <path d="M${x} 19v21M${x} 40l-7 18M${x} 40l7 18"/>
+    <ellipse cx="${x + 3}" cy="35" rx="7.5" ry="5" transform="rotate(-22 ${x + 3} 35)"/><path d="M${x + 9} 31l15 -9"/>
+    <path d="M${x} 23l17 3"/><path class="sc-strum" style="${o(x, 23)}" d="M${x} 23l2 12"/>`,
+  drums: (x) => `<g class="sc-bob"><circle cx="${x}" cy="18" r="5"/></g>
+    <path d="M${x} 23v17M${x} 40l-8 4v14M${x} 40l8 4"/>
+    <circle cx="${x + 15}" cy="50" r="8.5"/><ellipse cx="${x - 15}" cy="40" rx="8" ry="2.6" class="sc-snare"/>
+    <path d="M${x - 15} 42v16M${x + 27} 22v36"/><path class="sc-cymbal" style="${o(x + 27, 22)}" d="M${x + 19} 23.5l16 -3"/>
+    <path class="sc-stick" style="${o(x, 26)}" d="M${x} 26l-13 9"/><path class="sc-stick sc-alt" style="${o(x, 26)}" d="M${x} 26l18 -3"/>`,
+  dj: (x) => `<g class="sc-bob"><circle cx="${x}" cy="11" r="5"/><path d="M${x - 6} 10a6 6 0 0 1 12 0"/></g>
+    <path d="M${x} 16v18"/><path d="M${x - 30} 40h60M${x - 26} 40v18M${x + 26} 40v18"/>
+    <circle cx="${x - 14}" cy="35" r="8"/><path class="sc-spin" style="${o(x - 14, 35)}" d="M${x - 14} 35v-7"/>
+    <circle cx="${x + 14}" cy="35" r="8"/><path class="sc-spin sc-slow" style="${o(x + 14, 35)}" d="M${x + 14} 35v-7"/>
+    <path class="sc-scratch" style="${o(x, 20)}" d="M${x} 20l-12 13"/><path class="sc-fader" style="${o(x, 20)}" d="M${x} 20l7 13"/>
+    <path class="sc-wave" d="M${x + 34} 26a10 10 0 0 1 0 14"/><path class="sc-wave sc-wave2" d="M${x + 39} 22a16 16 0 0 1 0 22"/>`,
+  piano: (x) => `<g class="sc-bob"><circle cx="${x}" cy="12" r="5"/></g><path d="M${x} 17v14"/>
+    <path d="M${x - 34} 32h68v9h-68zM${x - 30} 41v17M${x + 30} 41v17"/>
+    ${[0, 1, 2, 3, 4, 5, 6].map((k) => `<rect class="sc-key" style="animation-delay:calc(var(--t,0s) + ${k * 0.25}s)" x="${x - 30 + k * 8.6}" y="34" width="6" height="5" rx="1"/>`).join('')}
+    <path class="sc-hand" d="M${x} 21l-13 11"/><path class="sc-hand sc-alt" d="M${x} 21l13 11"/>
+    <text class="sc-note" x="${x + 26}" y="22">♪</text><text class="sc-note sc-note2" x="${x + 33}" y="16">♫</text>`,
+};
+const SCENES = {
+  band: [['singer', 44], ['guitar', 118], ['drums', 192]],
+  nu: [['guitar', 40], ['dj', 120], ['drums', 196]],
+  dj: [['dj', 120]],
+  piano: [['piano', 120]],
+};
+function stageScene(j) {
+  const kind = sceneKind(j);
+  return `<svg class="st-stage st-stage-${kind}" viewBox="0 0 240 64" role="img" aria-label="${
+    { band: 'Группа играет', nu: 'Группа и диджей', dj: 'Диджей у вертушек', piano: 'Пианист играет' }[kind]}" style="${brewClock()}">
+    <path class="sc-floor" d="M6 58.5h228"/>${SCENES[kind].map(([fig, x]) => FIG[fig](x)).join('')}</svg>`;
+}
+
 // ------------------------------------------------------------ левая панель
 
 function knobText() {
@@ -437,6 +495,7 @@ function statusLine(j) {
     const tick = Math.floor(Date.now() / 7000) + seedOf(j.id);
     return `<span class="muted">${esc(j.stage || 'В очереди')}</span>
       <span class="st-fun">${pick(WAIT, tick)}</span>
+      ${j.mode !== 'upload' ? stageScene(j) : ''}
       <div class="bar done st-brewbar" style="${brewClock()}"><i style="width:${Math.max(4, j.progress)}%"></i></div>
       <button type="button" class="st-linkbtn st-stop" data-stop="${j.id}">Остановить</button>`;
   }
@@ -1269,7 +1328,7 @@ function queueFor(url) {
 function play(url, title, sub) {
   const audio = $('audio');
   if (playing === url) {
-    togglePlayback();
+    togglePlayback(true);
     return;
   }
   const found = queueFor(url);
@@ -1325,36 +1384,60 @@ function freshAudio() {
   }
   return audio;
 }
-const playback = { wanted: false, timer: null, revive: false };
-// gesture: вызвано из нажатия -- можно будить эффекты; сторож зовёт без
-// нажатия, и тогда новый звук идёт напрямую, а эффекты вернёт следующее
-// касание (созданный не из касания контекст на iPhone молчит)
-function resume(again) {
+const playback = { wanted: false, timer: null, revive: false, later: null };
+// Новый <audio> -- ТОЛЬКО из касания экрана (tap). Из наушников (AirPods),
+// с экрана блокировки и из таймера iPhone не даёт запустить новый элемент:
+// так и было (владелец, 31.10: «через AirPods не включается; разблокировал
+// -- перестаёт играть и включается без звука»). Там -- тот же элемент:
+// разбудить звук и play(), как раньше.
+function resume(tap) {
   let audio = $('audio');
   if (!audio.getAttribute('src')) return;
   const fx = window.SoundFX.state;
-  if (again || playback.revive || fx === 'interrupted' || fx === 'closed') {
+  if (tap && (playback.revive || fx === 'interrupted' || fx === 'closed')) {
     playback.revive = false;
     audio = freshAudio();
   }
-  if (!again) window.SoundFX.wake();
+  window.SoundFX.wake();
   playback.wanted = true;
   audio.play().catch(() => {});
-  watchPlayback(audio, audio.currentTime, again ? 2 : 1, 0);
+  watchPlayback(audio, audio.currentTime, 1, 0);
 }
+// тот же элемент, то же место -- заново загрузить файл (оборвалась загрузка)
+function reloadAudio(audio) {
+  const at = audio.currentTime;
+  audio.src = (audio.getAttribute('src') || '').split('#')[0];
+  if (at > 0) audio.addEventListener('loadedmetadata', () => { audio.currentTime = at; }, { once: true });
+  audio.play().catch(() => {});
+}
+// Сторож: через 3 с после ▶ время должно идти, а звук эффектов -- звучать.
+// Экран заблокирован -- не трогаем ничего, проверим, когда вернутся.
+// Сам он элемент не меняет: только будит звук и перезагружает файл; если
+// не помогло -- просит нажать ▶ (то нажатие начнёт с нуля).
 function watchPlayback(audio, from, attempt, waits) {
   clearTimeout(playback.timer);
+  playback.later = null;
   playback.timer = setTimeout(() => {
     if (!playback.wanted || audio !== $('audio')) return;
+    if (document.hidden) { playback.later = () => watchPlayback(audio, audio.currentTime, attempt, 0); return; }
     const fx = window.SoundFX.state;
     const moving = !audio.paused && Math.abs(audio.currentTime - from) > 0.3;
     if (moving && (fx == null || fx === 'running')) return;
+    if (moving) {                                  // время идёт, а звук эффектов уснул
+      window.SoundFX.wake();
+      if (attempt < 2) { watchPlayback(audio, audio.currentTime, 2, 0); return; }
+      playback.revive = true;
+      pausePlayback();
+      syncButtons();
+      hud(ICON.play, 'Звук уснул', 'Нажмите ▶ — запустим заново');
+      return;
+    }
     // медленная сеть: файл ещё грузится -- ждём, но не дольше 12 с
-    if (!moving && !audio.paused && audio.networkState === 2 && audio.readyState < 3 && waits < 3) {
+    if (!audio.paused && audio.networkState === 2 && audio.readyState < 3 && waits < 3) {
       watchPlayback(audio, from, attempt, waits + 1);
       return;
     }
-    if (attempt < 2) { resume(true); return; }
+    if (attempt < 2) { reloadAudio(audio); watchPlayback(audio, audio.currentTime, 2, 0); return; }
     playback.revive = true;                      // следующее ▶ -- сразу с нуля
     playback.wanted = false;
     audio.pause();
@@ -1362,13 +1445,20 @@ function watchPlayback(audio, from, attempt, waits) {
     hud(ICON.play, 'Звук не запустился', 'Нажмите ▶ ещё раз');
   }, 3000);
 }
+// вернулись к телефону (разблокировали) -- разбудить звук и досмотреть
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !playback.wanted) return;
+  window.SoundFX.wake();
+  if (playback.later) { const run = playback.later; playback.later = null; run(); }
+});
 function pausePlayback() {
   playback.wanted = false;
   clearTimeout(playback.timer);
+  playback.later = null;
   $('audio').pause();
 }
-function togglePlayback() {
-  if ($('audio').paused) resume(); else pausePlayback();
+function togglePlayback(tap) {
+  if ($('audio').paused) resume(tap === true); else pausePlayback();
 }
 
 function startTrack(paused, at) {
@@ -1438,7 +1528,7 @@ function lockScreen(item) {
 }
 if ('mediaSession' in navigator) {
   const on = (action, handler) => { try { navigator.mediaSession.setActionHandler(action, handler); } catch (error) { /* */ } };
-  on('play', () => resume());
+  on('play', () => resume(false));
   on('pause', () => pausePlayback());
   on('previoustrack', () => { if ($('audio').currentTime > 4 || queue.length < 2) $('audio').currentTime = 0; else step(-1); });
   on('nexttrack', () => step(1));
@@ -2260,7 +2350,7 @@ document.addEventListener('click', (e) => {
   if (!j) return;
   if (playIt) {
     const f = j.files[0];
-    if (playing === f.url) togglePlayback(); else bornPlay(j, false);
+    if (playing === f.url) togglePlayback(true); else bornPlay(j, false);
     if (window.haptic) window.haptic('light');
   } else {
     $('born').classList.remove('on');
@@ -2651,7 +2741,7 @@ function afterPayment(restored) {
   setTimeout(wait, 2000);
 }
 
-['playerToggle', 'fToggle'].forEach((id) => $(id).addEventListener('click', togglePlayback));
+['playerToggle', 'fToggle'].forEach((id) => $(id).addEventListener('click', () => togglePlayback(true)));
 
 // Память места (владелец, 31.10: «Яндекс Музыка помнит место, даже когда
 // приложение закрылось или долго стоит»). Что играло -- очередь, номер,
@@ -2689,6 +2779,11 @@ onAudio('timeupdate', () => {
   if (t - nowSaved.local > 2000) saveNow(t - nowSaved.server > 30000);
 });
 onAudio('pause', () => saveNow(true));
+// наушникам и экрану блокировки -- честное состояние: иначе нажатие на
+// AirPods iPhone может понять как «пауза» вместо «играть»
+['play', 'pause'].forEach((ev) => onAudio(ev, () => {
+  try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = ev === 'play' ? 'playing' : 'paused'; } catch (error) { /* */ }
+}));
 onAudio('seeked', () => saveNow(false));
 document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(true, true); });
 window.addEventListener('pagehide', () => saveNow(true, true));

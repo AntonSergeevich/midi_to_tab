@@ -2385,3 +2385,45 @@ html[data-nav=out]::view-transition-new(st-list) { animation-name: st-nav-left-i
 .st-born-card { overflow: visible; }
 .st-confetti { position: absolute; left: 34px; top: 50%; width: 7px; height: 11px; border-radius: 2px; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .st-hello, .st-empty-art { animation: none; } }
+
+/* Сцена, пока песня готовится (studio.js: stageScene) -- линии NASLUX */
+.st-stage { display: block; width: 100%; max-width: 300px; height: auto; margin: 6px 0 4px; overflow: visible;
+  fill: none; stroke: #f6c584; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px rgba(246,197,132,.35)); }
+.st-stage .sc-floor { stroke: rgba(246,197,132,.25); stroke-width: 1; }
+.st-stage .sc-fill { fill: #f6c584; }
+.st-stage text { fill: #f6c584; stroke: none; font-size: 9px; }
+.sc-bob { animation: sc-bob .5s ease-in-out infinite alternate; }
+.sc-strum { animation: sc-strum .25s ease-in-out infinite alternate; }
+.sc-sway { animation: sc-sway 1s ease-in-out infinite alternate; }
+.sc-stick { animation: sc-stick .25s ease-in infinite alternate; }
+.sc-stick.sc-alt { animation-name: sc-stick2; }
+.sc-cymbal { animation: sc-cymbal .5s ease-out infinite; }
+.sc-snare { animation: sc-hit .5s ease-out infinite; }
+.sc-spin { animation: sc-spin 1s linear infinite; }
+.sc-spin.sc-slow { animation-duration: 2s; }
+.sc-scratch { animation: sc-scratch .25s ease-in-out infinite alternate; }
+.sc-fader { animation: sc-fader .5s steps(2) infinite; }
+.sc-wave { animation: sc-wave 1s ease-out infinite; }
+.sc-key { fill: rgba(246,197,132,.15); stroke: none; animation: sc-key 2s steps(1) infinite; }
+.sc-hand { animation: sc-press .25s ease-in-out infinite alternate; }
+.sc-note { animation: sc-note 2s ease-out infinite; }
+@keyframes sc-bob { to { transform: translateY(2px); } }
+@keyframes sc-strum { from { transform: rotate(-16deg); } to { transform: rotate(18deg); } }
+@keyframes sc-sway { from { transform: rotate(-6deg); } to { transform: rotate(6deg); } }
+@keyframes sc-stick { from { transform: rotate(-18deg); } to { transform: rotate(14deg); } }
+@keyframes sc-stick2 { from { transform: rotate(10deg); } to { transform: rotate(-14deg); } }
+@keyframes sc-cymbal { 0% { transform: rotate(10deg); } 40% { transform: rotate(-4deg); } 100% { transform: rotate(0); } }
+@keyframes sc-hit { 0% { stroke: #fff; stroke-width: 2.6; } 100% { stroke: #f6c584; stroke-width: 1.8; } }
+@keyframes sc-spin { to { transform: rotate(360deg); } }
+@keyframes sc-scratch { from { transform: rotate(-14deg); } to { transform: rotate(10deg); } }
+@keyframes sc-fader { 50% { transform: rotate(-12deg); } }
+@keyframes sc-wave { 0% { opacity: 0; transform: translateX(-4px); } 30% { opacity: 1; } 100% { opacity: 0; transform: translateX(4px); } }
+@keyframes sc-key { 0%, 12% { fill: #f6c584; } 13%, 100% { fill: rgba(246,197,132,.15); } }
+@keyframes sc-press { from { transform: translateY(0); } to { transform: translateY(1.6px); } }
+@keyframes sc-note { 0% { opacity: 0; transform: translateY(4px); } 30% { opacity: 1; } 100% { opacity: 0; transform: translateY(-10px); } }
+.st-stage * { animation-delay: var(--t, 0s); }
+.st-stage .sc-late, .st-stage .sc-stick.sc-alt, .st-stage .sc-hand.sc-alt { animation-delay: calc(var(--t, 0s) - .25s); }
+.st-stage .sc-wave2 { animation-delay: calc(var(--t, 0s) - .5s); }
+.st-stage .sc-note2 { animation-delay: calc(var(--t, 0s) - 1s); }
+@media (prefers-reduced-motion: reduce) { .st-stage * { animation: none !important; } }
