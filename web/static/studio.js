@@ -1148,7 +1148,7 @@ function queueFor(url) {
 function play(url, title, sub) {
   const audio = $('audio');
   if (playing === url) {
-    if (audio.paused) audio.play(); else audio.pause();
+    togglePlayback();
     return;
   }
   const found = queueFor(url);
@@ -1171,6 +1171,85 @@ function setQueue(items, start, name) {
   }
 }
 
+// Пуск и пауза (владелец, 31.10: «останавливаю трек, запускаю заново --
+// не играет, уже не первый раз»). Причины две, и обе лечим:
+//  - iPhone «роняет» звуковой контекст эффектов после паузы, блокировки
+//    или звонка: элемент играет, а звука нет. Контекст тогда не оживить,
+//    только начать с нуля -- новый <audio> на том же месте трека;
+//  - после долгой паузы обрывается загрузка файла: play() молчит, время
+//    стоит. Перезагружаем файл с того же места.
+// Сторож через 3 с проверяет, что время пошло и контекст звучит; не
+// пошло -- пробуем ещё раз, а если и так никак -- просим нажать ▶ (на
+// iPhone новый звук запускается только из касания).
+const audioEvents = [];
+function onAudio(ev, handler) {
+  audioEvents.push([ev, handler]);
+  $('audio').addEventListener(ev, handler);
+}
+function freshAudio() {
+  const old = $('audio');
+  const at = old.currentTime;
+  const src = old.getAttribute('src');
+  const audio = old.cloneNode(false);
+  old.pause();
+  old.removeAttribute('src');
+  try { old.load(); } catch (error) { /* */ }
+  old.replaceWith(audio);
+  audioEvents.forEach(([ev, handler]) => audio.addEventListener(ev, handler));
+  window.SoundFX.reset(audio);
+  if (!IOS) audio.volume = old.volume;
+  if (src) {
+    audio.src = src;
+    if (at > 0) audio.addEventListener('loadedmetadata', () => { audio.currentTime = at; }, { once: true });
+  }
+  return audio;
+}
+const playback = { wanted: false, timer: null, revive: false };
+// gesture: вызвано из нажатия -- можно будить эффекты; сторож зовёт без
+// нажатия, и тогда новый звук идёт напрямую, а эффекты вернёт следующее
+// касание (созданный не из касания контекст на iPhone молчит)
+function resume(again) {
+  let audio = $('audio');
+  if (!audio.getAttribute('src')) return;
+  const fx = window.SoundFX.state;
+  if (again || playback.revive || fx === 'interrupted' || fx === 'closed') {
+    playback.revive = false;
+    audio = freshAudio();
+  }
+  if (!again) window.SoundFX.wake();
+  playback.wanted = true;
+  audio.play().catch(() => {});
+  watchPlayback(audio, audio.currentTime, again ? 2 : 1, 0);
+}
+function watchPlayback(audio, from, attempt, waits) {
+  clearTimeout(playback.timer);
+  playback.timer = setTimeout(() => {
+    if (!playback.wanted || audio !== $('audio')) return;
+    const fx = window.SoundFX.state;
+    const moving = !audio.paused && Math.abs(audio.currentTime - from) > 0.3;
+    if (moving && (fx == null || fx === 'running')) return;
+    // медленная сеть: файл ещё грузится -- ждём, но не дольше 12 с
+    if (!moving && !audio.paused && audio.networkState === 2 && audio.readyState < 3 && waits < 3) {
+      watchPlayback(audio, from, attempt, waits + 1);
+      return;
+    }
+    if (attempt < 2) { resume(true); return; }
+    playback.revive = true;                      // следующее ▶ -- сразу с нуля
+    playback.wanted = false;
+    audio.pause();
+    syncButtons();
+    hud(ICON.play, 'Звук не запустился', 'Нажмите ▶ ещё раз');
+  }, 3000);
+}
+function pausePlayback() {
+  playback.wanted = false;
+  clearTimeout(playback.timer);
+  $('audio').pause();
+}
+function togglePlayback() {
+  if ($('audio').paused) resume(); else pausePlayback();
+}
+
 function startTrack() {
   const item = queue[qi];
   if (!item) return;
@@ -1178,7 +1257,7 @@ function startTrack() {
   playing = item.url;
   audio.src = item.url;
   if (Number($('fVolume').value) !== 100) setVolume(Number($('fVolume').value));
-  audio.play();
+  resume();
   $('playerTitle').textContent = item.title;
   $('playerSub').textContent = item.sub;
   $('fTitle').textContent = item.title;
@@ -1233,8 +1312,8 @@ function lockScreen(item) {
 }
 if ('mediaSession' in navigator) {
   const on = (action, handler) => { try { navigator.mediaSession.setActionHandler(action, handler); } catch (error) { /* */ } };
-  on('play', () => $('audio').play());
-  on('pause', () => $('audio').pause());
+  on('play', () => resume());
+  on('pause', () => pausePlayback());
   on('previoustrack', () => { if ($('audio').currentTime > 4 || queue.length < 2) $('audio').currentTime = 0; else step(-1); });
   on('nexttrack', () => step(1));
   on('seekbackward', () => { $('audio').currentTime = Math.max(0, $('audio').currentTime - 10); });
@@ -2290,19 +2369,16 @@ function afterPayment(restored) {
   setTimeout(wait, 2000);
 }
 
-['playerToggle', 'fToggle'].forEach((id) => $(id).addEventListener('click', () => {
-  const audio = $('audio');
-  if (audio.paused) audio.play(); else audio.pause();
-}));
-['play', 'pause'].forEach((ev) => $('audio').addEventListener(ev, syncButtons));
+['playerToggle', 'fToggle'].forEach((id) => $(id).addEventListener('click', togglePlayback));
+['play', 'pause'].forEach((ev) => onAudio(ev, syncButtons));
 // Конец трека: «повтор одного» -- заново (заучивать), дальше по очереди,
 // «повтор всех» -- с начала очереди по кругу
-$('audio').addEventListener('ended', () => {
-  if (repeatMode === 'one') { $('audio').currentTime = 0; $('audio').play(); return; }
+onAudio('ended', () => {
+  if (repeatMode === 'one') { $('audio').currentTime = 0; resume(); return; }
   if (qi < queue.length - 1) step(1);
   else if (repeatMode === 'all' && queue.length) { qi = 0; startTrack(); } else syncButtons();
 });
-['timeupdate', 'loadedmetadata'].forEach((ev) => $('audio').addEventListener(ev, syncTime));
+['timeupdate', 'loadedmetadata'].forEach((ev) => onAudio(ev, syncTime));
 // Полоса над нижним плеером -- ползунок: клик, перетаскивание (мышь и
 // палец), стрелки с клавиатуры; над полосой -- время, куда перемотаем
 function seekFrac(e) {
@@ -2940,7 +3016,7 @@ $('fFx').addEventListener('click', () => {
   if (!$('fxPanel').hidden) $('fxPanel').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 });
 $('fxPanel').addEventListener('click', () => setTimeout(modeButtons));
-$('audio').addEventListener('play', modeButtons);
+onAudio('play', modeButtons);
 modeButtons();
 
 // Перемотка пальцем в полноэкранном плеере (владелец, 30.10: «назад очень

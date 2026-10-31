@@ -31,6 +31,7 @@
   let volume = 1;
   let autoTimer = null;
   let orbitTimer = null;
+  let loudTimer = null;
 
   function ensure(element) {
     audio = element || audio;
@@ -71,7 +72,7 @@
       out.connect(ctx.destination);
       makeup.connect(limiter);
       nodes = { source, input, analyser, filters, spaceIn, spaceOut, makeup, limiter, out, space: [] };
-      setInterval(loudnessStep, 400);
+      loudTimer = setInterval(loudnessStep, 400);
       audio.addEventListener('loadstart', () => { loud = null; avg = null; });   // новый трек -- слушаем заново
       audio.addEventListener('play', () => { if (ctx.state !== 'running') ctx.resume().catch(() => {}); });
       apply();
@@ -281,9 +282,23 @@
     if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
   }
 
+  // Новый <audio> взамен старого: созданный граф навсегда привязан к своему
+  // элементу, и если iPhone «уронил» звуковой контекст (пауза, звонок,
+  // другое приложение), оживить его нельзя -- только начать с нуля.
+  // Граф для нового элемента создаст следующее касание (wake).
+  function reset(element) {
+    [autoTimer, orbitTimer, loudTimer].forEach(clearInterval);
+    if (ctx) ctx.close().catch(() => {});
+    ctx = null; nodes = null; loud = null; avg = null;
+    audio = element;
+  }
+
   window.SoundFX = {
     debug: () => (nodes ? { makeup: nodes.makeup.gain.value, loud, state: ctx.state } : null),
     attach(element) { audio = element; },
+    // состояние звукового контекста: null -- графа нет, звук идёт напрямую
+    get state() { return nodes && ctx ? ctx.state : null; },
+    reset,
     wake,
     ensure,
     bind,

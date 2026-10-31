@@ -2056,5 +2056,10 @@
  "Вопрос по сервису": "A question about the service",
  "Отвечаем в течение 10 дней, обычно — быстрее.": "We reply within 10 days, usually sooner.",
  "Читаем каждое — лучшие идеи попадают в обновления.": "We read every one; the best ideas make it into updates.",
- "Ваш вопрос, идея или что случилось": "Your question, idea or what happened"
+ "Ваш вопрос, идея или что случилось": "Your question, idea or what happened",
+ "Пауза — и снова играет": "Pause, play — and it plays",
+ "Поставили трек на паузу, нажали ▶ — звук идёт всегда. Если телефон «уронил» звук (блокировка, звонок, долгая пауза), плеер сам перезапустит его с того же места.": "Pause a track, tap ▶ — the sound always comes back. If the phone dropped the audio (screen lock, a call, a long pause), the player restarts it from the same spot by itself.",
+ "Плеер Студии": "Studio player",
+ "Звук не запустился": "Sound didn't start",
+ "Нажмите ▶ ещё раз": "Tap ▶ once more"
 }
