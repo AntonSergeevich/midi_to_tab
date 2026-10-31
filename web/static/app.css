@@ -2427,3 +2427,18 @@ html[data-nav=out]::view-transition-new(st-list) { animation-name: st-nav-left-i
 .st-stage .sc-wave2 { animation-delay: calc(var(--t, 0s) - .5s); }
 .st-stage .sc-note2 { animation-delay: calc(var(--t, 0s) - 1s); }
 @media (prefers-reduced-motion: reduce) { .st-stage * { animation: none !important; } }
+
+/* Перетаскивание треков в плейлисте */
+.st-pl-item { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; background: var(--panel-hi); }
+.st-pl-item.st-shift { transition: transform .22s cubic-bezier(.22,.8,.24,1); }
+.st-pl-item.st-dragging { position: relative; z-index: 6; border-radius: 12px; border-bottom-color: transparent;
+  background: color-mix(in srgb, var(--art, #d99a4e) 14%, var(--panel-hi));
+  box-shadow: 0 16px 34px -12px rgba(0,0,0,.7), 0 0 0 1px color-mix(in srgb, var(--art, #d99a4e) 55%, transparent);
+  transition: box-shadow .2s ease, background .2s ease; }
+.st-pl-grip { flex: none; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 10px; background: none; color: var(--muted); cursor: grab; touch-action: none; }
+.st-pl-grip svg { width: 18px; height: 18px; fill: currentColor; }
+.st-pl-item.st-dragging .st-pl-grip { cursor: grabbing; color: var(--accent); }
+@media (hover: hover) { .st-pl-grip:hover { color: var(--text); background: var(--bg); } }
+.st-pl-grip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+body.st-noselect, body.st-noselect * { cursor: grabbing !important; -webkit-user-select: none; user-select: none; }

@@ -3323,12 +3323,14 @@ function renderPlaylists() {
         <button type="button" class="play-btn" data-plplay="${id}" title="Слушать подряд">${ICON.play}</button>
       </div>
       ${`<div class="st-pl-items"${open ? '' : ' hidden'}>${items.length ? items.map((x, i) => `
-        <div class="st-pl-item${playingList === name && queue[qi] && queue[qi].url === x.url ? ' now' : ''}">
+        <div class="st-pl-item${playingList === name && queue[qi] && queue[qi].url === x.url ? ' now' : ''}"${own ? ` data-plidx="${i}"` : ''}>
           <button type="button" class="st-pl-track" data-plat="${id}:${i}" title="Слушать с этого трека">
             <span class="st-pl-n">${i + 1}</span>
             <span class="st-row-main"><b data-noi18n>${esc(x.title)}</b><span class="muted">${esc(x.sub || '')}</span></span></button>
-          ${own ? `<button type="button" class="icon-btn" data-plup="${i}" title="Выше"${i ? '' : ' disabled'}>↑</button>
-          <button type="button" class="icon-btn" data-pldown="${i}" title="Ниже"${i < items.length - 1 ? '' : ' disabled'}>↓</button>
+          ${own ? `<button type="button" class="st-pl-grip" data-plgrip="${i}" title="Перетащить, чтобы поменять порядок"
+            aria-label="Переставить «${esc(x.title)}»: стрелки вверх и вниз"><svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/>
+            <circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></button>
           <button type="button" class="icon-btn" data-pldel="${i}" title="Убрать из плейлиста">✕</button>` : ''}</div>`).join('')
     : '<p class="muted">Пусто. Добавить трек: ⋯ у версии → «Добавить в плейлист».</p>'}
         ${own ? `<div class="st-pl-foot"><button type="button" class="st-linkbtn" data-plsharelist="${id}">🔗 Поделиться плейлистом</button>
@@ -3345,6 +3347,133 @@ function renderPlaylists() {
   </div>`;
   tintPlaylists();
 }
+
+// Порядок треков в плейлисте -- перетаскиванием (владелец, 01.11: «зажать
+// трек и удержать в мобильном, а на компьютере -- подумать»). Телефон:
+// зажали строку на полсекунды -- она приподнимается (щелчок), ведём пальцем,
+// соседи расступаются. Компьютер: тянем за «⠿» справа. С клавиатуры --
+// стрелки на «⠿». Отпустили -- порядок сохраняется в профиле.
+const plDrag = { item: null, pending: null, timer: 0, from: 0, to: 0, step: 0, mids: [], startY: 0, items: [], scroll: 0, justDropped: 0 };
+function plMove(p, from, to) {
+  const shown = p.items.filter((it) => {
+    const j = info.jobs.find((x) => x.id === it.job);
+    return j && (j.files || []).some((f) => f.name === it.file);
+  });
+  const rest = p.items.filter((it) => !shown.includes(it));
+  const [moved] = shown.splice(from, 1);
+  shown.splice(to, 0, moved);
+  p.items = [...shown, ...rest];
+}
+function plDragStart(item, pageY) {
+  const list = item.parentElement;
+  plDrag.items = [...list.querySelectorAll('.st-pl-item[data-plidx]')];
+  plDrag.from = plDrag.items.indexOf(item);
+  plDrag.to = plDrag.from;
+  const rects = plDrag.items.map((x) => x.getBoundingClientRect());
+  plDrag.mids = rects.map((r) => r.top + scrollY + r.height / 2);
+  plDrag.step = rects.length > 1 ? Math.abs(rects[1].top - rects[0].top) : rects[0].height;
+  plDrag.startY = pageY;
+  plDrag.item = item;
+  item.classList.add('st-dragging');
+  plDrag.items.forEach((x) => { if (x !== item) x.classList.add('st-shift'); });
+  document.body.classList.add('st-noselect');
+  if (window.haptic) window.haptic('pick');
+  plAutoScroll();
+}
+function plDragMove(pageY) {
+  const d = plDrag;
+  const dy = pageY - d.startY;
+  d.item.style.transform = `translateY(${dy}px) scale(1.03)`;
+  const center = d.mids[d.from] + dy;
+  let to = d.from;
+  d.mids.forEach((mid, i) => {
+    if (i < d.from && center < mid) to = Math.min(to, i);
+    if (i > d.from && center > mid) to = Math.max(to, i);
+  });
+  if (to !== d.to && window.haptic) window.haptic('tick');
+  d.to = to;
+  d.items.forEach((x, i) => {
+    if (x === d.item) return;
+    const shift = d.from < i && i <= to ? -d.step : to <= i && i < d.from ? d.step : 0;
+    x.style.transform = shift ? `translateY(${shift}px)` : '';
+  });
+}
+async function plDragEnd() {
+  const d = plDrag;
+  const item = d.item;
+  d.item = null;
+  cancelAnimationFrame(d.scroll);
+  document.body.classList.remove('st-noselect');
+  if (!item) return;
+  d.justDropped = Date.now();
+  item.style.transition = 'transform .22s cubic-bezier(.22,.8,.24,1)';
+  item.style.transform = `translateY(${(d.to - d.from) * d.step}px)`;
+  if (window.haptic) window.haptic('drop');
+  const p = playlists.find((x) => x.id === plOpen);
+  await new Promise((r) => setTimeout(r, 230));
+  if (p && d.to !== d.from) {
+    plMove(p, d.from, d.to);
+    renderPlaylists();
+    await savePlaylists();
+  } else renderPlaylists();
+}
+// у края экрана -- список сам едет, чтобы дотащить до верха или низа
+let plPointerY = 0;
+function plAutoScroll() {
+  if (!plDrag.item) return;
+  const bottom = innerHeight - ($('player').hidden ? 0 : $('player').offsetHeight);
+  const speed = plPointerY < 90 ? -(90 - plPointerY) / 6 : plPointerY > bottom - 70 ? (plPointerY - bottom + 70) / 6 : 0;
+  if (speed) { scrollBy(0, speed); plDragMove(plPointerY + scrollY); }
+  plDrag.scroll = requestAnimationFrame(plAutoScroll);
+}
+document.addEventListener('pointerdown', (e) => {
+  const item = e.target.closest('.st-pl-item[data-plidx]');
+  if (!item || plDrag.item) return;
+  const grip = e.target.closest('[data-plgrip]');
+  if (grip) { e.preventDefault(); plPointerY = e.clientY; plDragStart(item, e.pageY); return; }
+  if (e.pointerType === 'mouse' || e.target.closest('.icon-btn')) return;
+  clearTimeout(plDrag.timer);
+  plDrag.pending = { item, x: e.clientX, y: e.clientY };
+  plDrag.timer = setTimeout(() => {
+    const p = plDrag.pending;
+    plDrag.pending = null;
+    if (p) { plPointerY = p.y; plDragStart(p.item, p.y + scrollY); }
+  }, 420);
+});
+document.addEventListener('pointermove', (e) => {
+  if (plDrag.pending && Math.hypot(e.clientX - plDrag.pending.x, e.clientY - plDrag.pending.y) > 8) {
+    clearTimeout(plDrag.timer); plDrag.pending = null;          // это прокрутка, а не перетаскивание
+  }
+  if (!plDrag.item) return;
+  plPointerY = e.clientY;
+  plDragMove(e.pageY);
+});
+['pointerup', 'pointercancel'].forEach((ev) => document.addEventListener(ev, () => {
+  clearTimeout(plDrag.timer); plDrag.pending = null;
+  if (plDrag.item) plDragEnd();
+}));
+// пока тащим -- страница не прокручивается пальцем и не всплывает меню iPhone
+document.addEventListener('touchmove', (e) => { if (plDrag.item) e.preventDefault(); }, { passive: false });
+document.addEventListener('contextmenu', (e) => { if (plDrag.item || plDrag.pending) e.preventDefault(); });
+// отпустили -- это не нажатие «слушать»
+document.addEventListener('click', (e) => {
+  if (Date.now() - plDrag.justDropped < 400 && e.target.closest('.st-pl-items')) { e.stopPropagation(); e.preventDefault(); }
+}, true);
+document.addEventListener('keydown', async (e) => {
+  const grip = e.target.closest && e.target.closest('[data-plgrip]');
+  if (!grip || !['ArrowUp', 'ArrowDown'].includes(e.key)) return;
+  e.preventDefault();
+  const p = playlists.find((x) => x.id === plOpen);
+  const from = Number(grip.dataset.plgrip);
+  const count = grip.closest('.st-pl-items').querySelectorAll('[data-plidx]').length;
+  const to = Math.max(0, Math.min(count - 1, from + (e.key === 'ArrowUp' ? -1 : 1)));
+  if (!p || to === from) return;
+  plMove(p, from, to);
+  renderPlaylists();
+  const again = document.querySelector(`.st-pl[data-pl="${plOpen}"] [data-plgrip="${to}"]`);
+  if (again) again.focus();
+  await savePlaylists();
+});
 
 function itemsOf(id) {
   if (id === 'fav') return { items: favItems(), name: 'Избранное' };
@@ -3424,13 +3553,8 @@ document.addEventListener('click', async (e) => {
     return;
   }
   const p = playlists.find((x) => x.id === plOpen);
-  if (p && ((el = t('plup')) || (el = t('pldown')) || (el = t('pldel')))) {
-    const at = visibleIndex(p, Number(el.dataset.plup || el.dataset.pldown || el.dataset.pldel));
-    if (el.dataset.pldel != null) p.items.splice(at, 1);
-    else {
-      const to = visibleIndex(p, Number(el.dataset.plup || el.dataset.pldown) + (el.dataset.plup != null ? -1 : 1));
-      [p.items[at], p.items[to]] = [p.items[to], p.items[at]];
-    }
+  if (p && (el = t('pldel'))) {
+    p.items.splice(visibleIndex(p, Number(el.dataset.pldel)), 1);
     renderPlaylists();
     await savePlaylists();
     return;

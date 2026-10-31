@@ -2112,5 +2112,9 @@
  "«Вариант 1» и «Вариант 2» можно переименовать: нажмите на название или ✎ — например, «Тяжёлый, с припевом». Так же — партии после разделения. Пусто — вернётся прежнее название. Новое название видно в плеере, плейлистах и в имени скачанного файла.": "“Version 1” and “Version 2” can be renamed: tap the name or ✎ — e.g. “Heavy, with chorus”. Same for stems after splitting. Leave it empty to restore the original name. The new name shows in the player, playlists and the downloaded file name.",
  "Студия → трек → Версии": "Studio → track → Versions",
  "Переименовать версию": "Rename version",
- "Название версии": "Version name"
+ "Название версии": "Version name",
+ "Порядок треков — перетаскиванием": "Reorder tracks by dragging",
+ "В плейлисте зажмите трек на полсекунды — он приподнимется, ведите пальцем, соседи расступятся. На компьютере — тяните за «⠿» справа (или стрелки на клавиатуре). Стрелки ↑↓ убрали — в строке стало свободнее.": "In a playlist, hold a track for half a second — it lifts, drag it and the others make room. On a computer, drag the “⠿” on the right (or use the arrow keys). The ↑↓ buttons are gone, so rows are less cluttered.",
+ "Студия → ♫ Плейлисты": "Studio → ♫ Playlists",
+ "Перетащить, чтобы поменять порядок": "Drag to reorder"
 }
