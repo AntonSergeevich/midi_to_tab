@@ -286,6 +286,21 @@ def guess_key(chroma) -> tuple[int, bool]:
     return best
 
 
+def _is_harmonic_minor(np, chroma, key: tuple[int, bool]) -> bool:
+    """
+    Минор бывает натуральный, а бывает гармонический -- с поднятой седьмой
+    ступенью и мажорной доминантой. Решать это за песню нельзя: у одной
+    доминанта мажорная, у другой минорная, и ошибка стоит целого аккорда
+    в круге. Смотрим, что в записи громче: поднятая седьмая или натуральная.
+    """
+    tonic, is_major = key
+    if is_major or chroma is None:
+        return False
+    energy = np.asarray(chroma).mean(axis=1)
+    raised, natural = energy[(tonic + 11) % 12], energy[(tonic + 10) % 12]
+    return raised > natural * 0.8
+
+
 def key_penalties(names, key: tuple[int, bool], chroma=None,
                   strength: float = KEY_PENALTY):
     """Штраф каждому шаблону за ноты, которых в тональности нет."""
@@ -293,16 +308,8 @@ def key_penalties(names, key: tuple[int, bool], chroma=None,
 
     tonic, is_major = key
     scale = {(tonic + step) % 12 for step in (MAJOR_SCALE if is_major else MINOR_SCALE)}
-    if not is_major and chroma is not None:
-        # Минор бывает натуральный, а бывает гармонический -- с поднятой
-        # седьмой ступенью и мажорной доминантой. Решать это за песню
-        # нельзя: у одной доминанта мажорная, у другой минорная, и
-        # ошибка стоит целого аккорда в круге. Смотрим, что в записи
-        # громче: поднятая седьмая или натуральная.
-        energy = np.asarray(chroma).mean(axis=1)
-        raised, natural = energy[(tonic + 11) % 12], energy[(tonic + 10) % 12]
-        if raised > natural * 0.8:
-            scale.add((tonic + 11) % 12)
+    if _is_harmonic_minor(np, chroma, key):
+        scale.add((tonic + 11) % 12)
 
     penalties = []
     for name in names:
@@ -569,6 +576,7 @@ def detect_from_audio(
     # состоит из своих семи ступеней, и чужая нота в аккорде означает либо
     # отклонение (редко), либо ошибку разбора (обычно).
     key = key_from_roots(np, root_weight, *edges)
+    harmonic_minor = _is_harmonic_minor(np, bar_chroma, key)
     penalties = penalties + key_penalties(names, key, bar_chroma)
     if progress:
         progress(f"Тональность: {key_name(key)}")
@@ -576,7 +584,7 @@ def detect_from_audio(
     if picked is None:
         picked = _vocabulary(
             np, names, vectors, penalties, roots, qualities, bar_chroma,
-            vocabulary, key, root_path,
+            vocabulary, key, root_path, harmonic_minor,
         )
     if not picked:
         chords = rough
@@ -771,7 +779,7 @@ def _root_pass(np, vectors, roots, qualities, bars):
 
 
 def _vocabulary(np, names, vectors, penalties, roots, qualities, bars, limit,
-                key, root_pass=None):
+                key, root_pass=None, is_harmonic_minor: bool = False):
     """
     Собрать круг аккордов песни: сначала основные тоны, потом качества.
 
@@ -813,13 +821,14 @@ def _vocabulary(np, names, vectors, penalties, roots, qualities, bars, limit,
         norm = np.linalg.norm(profile) or 1.0
         picked.append(
             _pick_quality(np, names, vectors, penalties, roots, qualities,
-                          int(roots[template]), profile / norm, key)
+                          int(roots[template]), profile / norm, key,
+                          is_harmonic_minor)
         )
     return sorted(set(picked))
 
 
 def _pick_quality(np, names, vectors, penalties, roots, qualities,
-                  root: int, profile, key) -> int:
+                  root: int, profile, key, is_harmonic_minor: bool = False) -> int:
     """
     Мажор или минор -- решается ладом там, где терцию не слышно.
 
@@ -840,6 +849,10 @@ def _pick_quality(np, names, vectors, penalties, roots, qualities,
     tonic, is_major = key
     table = DIATONIC_MAJOR if is_major else DIATONIC_MINOR
     expected = table.get((root - tonic) % 12)
+    if is_harmonic_minor and not is_major and (root - tonic) % 12 == 7:
+        # Поднятая седьмая ступень делает доминанту (V) мажорной, а не
+        # минорной (v), как в натуральном миноре -- см. _is_harmonic_minor.
+        expected = ""
 
     # Сначала -- прямой вопрос к терции. Выводить качество из тональности
     # можно лишь тогда, когда терции не слышно; а если она слышна, лад

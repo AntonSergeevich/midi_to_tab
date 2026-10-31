@@ -641,6 +641,42 @@ def test_raised_leading_tone_expects_a_diminished_triad():
     assert picked == "C#dim"
 
 
+def test_harmonic_minor_dominant_expects_major_not_minor():
+    """
+    В гармоническом миноре доминанта (V ступень) мажорная, а не минорная,
+    как в натуральном миноре.
+
+    DIATONIC_MINOR сам по себе всегда ждёт минор на пятой ступени (v) --
+    это верно для натурального минора, но не для гармонического: там
+    поднятая седьмая делает доминантовое трезвучие мажорным (V), обычное
+    дело в русской и западной популярной песне. Запись уже решает, какой
+    это минор (см. test_harmonic_minor_is_decided_by_the_music) -- этот
+    флаг и должен переключать ожидание на пятой ступени, когда терция в
+    записи не слышна и решает лад.
+    """
+    np = pytest.importorskip("numpy")
+
+    from midi2tab.audiochords import _pick_quality, _templates
+
+    names, vectors, penalties, roots, qualities = _templates()
+    key = (2, False)                       # ре минор
+    root = 9                                # ля: пятая ступень (доминанта)
+
+    profile = np.zeros(12)
+    profile[root] = 1.0                     # только тоника аккорда, терции не слышно
+    profile = profile / np.linalg.norm(profile)
+
+    natural = names[_pick_quality(np, names, vectors, penalties, roots,
+                                  qualities, root, profile, key,
+                                  is_harmonic_minor=False)]
+    assert natural == "Am"
+
+    harmonic = names[_pick_quality(np, names, vectors, penalties, roots,
+                                   qualities, root, profile, key,
+                                   is_harmonic_minor=True)]
+    assert harmonic == "A"
+
+
 def test_power_chords_are_never_a_label():
     """
     Квинт-аккорд -- не название гармонии.
