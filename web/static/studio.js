@@ -1047,6 +1047,7 @@ async function loadOnce() {
     const back = history.state && history.state.detail;
     if (back && info.jobs.some((j) => j.id === back)) openDetail(back, false);
     else if (listScroll && !location.search) window.scrollTo({ top: listScroll, behavior: 'auto' });
+    restoreNow();
   }
   updateStart();
   const analyzing = await ensureKeys().catch(() => false);
@@ -1189,7 +1190,7 @@ function onAudio(ev, handler) {
 function freshAudio() {
   const old = $('audio');
   const at = old.currentTime;
-  const src = old.getAttribute('src');
+  const src = (old.getAttribute('src') || '').split('#')[0];
   const audio = old.cloneNode(false);
   old.pause();
   old.removeAttribute('src');
@@ -1250,14 +1251,17 @@ function togglePlayback() {
   if ($('audio').paused) resume(); else pausePlayback();
 }
 
-function startTrack() {
+function startTrack(paused, at) {
   const item = queue[qi];
   if (!item) return;
   const audio = $('audio');
   playing = item.url;
-  audio.src = item.url;
+  // с места: #t= -- браузер сам начнёт с этой секунды (iPhone грузит файл
+  // только по ▶), loadedmetadata -- подстраховка для остальных
+  audio.src = at > 0 ? `${item.url}#t=${at}` : item.url;
+  if (at > 0) audio.addEventListener('loadedmetadata', () => { if (audio.currentTime < at - 1) audio.currentTime = at; }, { once: true });
   if (Number($('fVolume').value) !== 100) setVolume(Number($('fVolume').value));
-  resume();
+  if (paused) { playback.wanted = false; restoredAt = at || 0; } else { restoredAt = 0; resume(); }
   $('playerTitle').textContent = item.title;
   $('playerSub').textContent = item.sub;
   $('fTitle').textContent = item.title;
@@ -1287,6 +1291,7 @@ function startTrack() {
   $('player').hidden = false;
   playerSpace();
   syncButtons();
+  if (!paused) saveNow(true);
 }
 
 // Полоска плеера внизу не должна закрывать кнопку «Создать / Переделать»:
@@ -2370,6 +2375,79 @@ function afterPayment(restored) {
 }
 
 ['playerToggle', 'fToggle'].forEach((id) => $(id).addEventListener('click', togglePlayback));
+
+// Память места (владелец, 31.10: «Яндекс Музыка помнит место, даже когда
+// приложение закрылось или долго стоит»). Что играло -- очередь, номер,
+// секунда, плейлист -- пишем в браузер (сразу, раз в 2 с) и в профиль
+// (раз в 30 с, на паузе, при сворачивании -- для другого устройства).
+// Открыли Студию снова -- плеер на том же треке и той же секунде, на
+// паузе: ▶ -- и дальше. Свежее из двух (браузер или профиль) побеждает.
+const NOW_KEY = 'naslux.now';
+let restoredAt = 0;                  // восстановили на паузе: до ▶ время -- отсюда
+const nowSaved = { local: 0, server: 0 };
+function nowState() {
+  const item = queue[qi];
+  if (!item || queue.some((x) => !x.job)) return null;
+  const audio = $('audio');
+  const t = audio.currentTime || restoredAt;
+  const near = audio.duration && audio.duration - t < 5;          // дослушали -- в следующий раз с начала
+  return { q: queue.slice(0, 300).map((x) => [x.job, x.file]), i: Math.min(qi, 299),
+    t: near ? 0 : Math.round(t * 10) / 10, list: playingList, at: Date.now() };
+}
+function saveNow(server, beacon) {
+  const now = nowState();
+  if (!now) return;
+  try { localStorage.setItem(NOW_KEY, JSON.stringify(now)); } catch (error) { /* инкогнито */ }
+  nowSaved.local = now.at;
+  if (!server) return;
+  nowSaved.server = now.at;
+  const form = new FormData();
+  form.append('data', JSON.stringify(now));
+  if (beacon && navigator.sendBeacon) navigator.sendBeacon('/api/me/nowplaying', form);
+  else fetch('/api/me/nowplaying', { method: 'POST', body: form, keepalive: true }).catch(() => {});
+}
+onAudio('timeupdate', () => {
+  if ($('audio').paused) return;
+  const t = Date.now();
+  if (t - nowSaved.local > 2000) saveNow(t - nowSaved.server > 30000);
+});
+onAudio('pause', () => saveNow(true));
+onAudio('seeked', () => saveNow(false));
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(true, true); });
+window.addEventListener('pagehide', () => saveNow(true, true));
+
+async function restoreNow() {
+  if (playing) return;                                    // уже что-то включили
+  let local = null;
+  try { local = JSON.parse(localStorage.getItem(NOW_KEY) || 'null'); } catch (error) { /* */ }
+  const r = await fetch('/api/me/nowplaying').catch(() => null);
+  const server = r && r.ok ? (await r.json()).now : null;
+  const now = [local, server].filter((x) => x && Array.isArray(x.q))
+    .sort((a, b) => (b.at || 0) - (a.at || 0))[0];
+  if (!now || playing || !info) return;
+  const items = [];
+  let index = -1;
+  now.q.forEach(([job, file], k) => {
+    const j = info.jobs.find((x) => x.id === job);
+    const f = j && (j.files || []).find((x) => x.name === file);
+    if (!f) return;
+    if (k === now.i) index = items.length;
+    items.push(queueItem(j, f));
+  });
+  if (index < 0) return;                                  // трек удалили -- нечего вспоминать
+  baseQueue = items;
+  queue = items;
+  qi = index;
+  playingList = now.list || null;
+  startTrack(true, now.t > 0 ? now.t : 0);
+  if (now.t > 0) showRestoredTime(now.t);
+}
+// до ▶ браузер iPhone не знает длину файла -- время показываем сами
+function showRestoredTime(t) {
+  if ($('audio').duration) return;
+  $('pTime').textContent = time(t) || '0:00';
+  $('fCur').textContent = time(t) || '0:00';
+}
 ['play', 'pause'].forEach((ev) => onAudio(ev, syncButtons));
 // Конец трека: «повтор одного» -- заново (заучивать), дальше по очереди,
 // «повтор всех» -- с начала очереди по кругу

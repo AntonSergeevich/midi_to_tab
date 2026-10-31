@@ -3207,6 +3207,23 @@ def test_playlists_are_saved_cleaned_and_shared_across_devices(studio_app):
     assert client.post("/api/me/playlists", data={"data": "{oops"}).status_code == 400
 
 
+def test_player_remembers_position_across_devices(studio_app):
+    """Плеер помнит, что играло и с какой секунды: сохранили на телефоне --
+    компьютер видит то же; старое сохранение не затирает новое; мусор -- 400."""
+    app_module, client, user, _ = studio_app
+    job = "b" * 32
+    now = {"q": [[job, "create_1.mp3"], [job, "create_2.mp3"]], "i": 1, "t": 83.47, "list": "  Заучить ", "at": 2000}
+    saved = client.post("/api/me/nowplaying", data={"data": json.dumps(now)}).json()["now"]
+    assert saved == {"q": now["q"], "i": 1, "t": 83.5, "list": "Заучить", "at": 2000}
+    assert client.get("/api/me/nowplaying").json()["now"] == saved
+    older = client.post("/api/me/nowplaying", data={"data": json.dumps({**now, "t": 5, "at": 1000})}).json()["now"]
+    assert older["t"] == 83.5
+    for bad in ({**now, "i": 5}, {**now, "q": [["x", "a.mp3"]]}, {**now, "q": [[job, "../etc/passwd"]]}, []):
+        assert client.post("/api/me/nowplaying", data={"data": json.dumps(bad)}).status_code == 400
+    client.post("/api/me/playlists", data={"data": json.dumps([{"id": "pl01", "name": "A", "items": []}])})
+    assert client.get("/api/me/nowplaying").json()["now"]["t"] == 83.5      # плейлисты не стёрли место
+
+
 def test_edited_lyrics_keep_karaoke_timing(studio_app):
     """Исправили распознанный текст -- суфлёр показывает исправленные слова
     с таймингами распознанных (совпавшие -- их время, новые -- между ними)."""

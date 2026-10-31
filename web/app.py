@@ -3939,9 +3939,63 @@ def api_playlists_save(request: Request, data: str = Form(...)):
     except ValueError as error:
         raise HTTPException(400, "Не получилось прочитать плейлисты") from error
     playlists = _clean_playlists(raw)
-    prefs = storage.prefs(user.id)
-    storage.set_prefs(user.id, {**prefs, "playlists": playlists})
+    with PREFS_LOCK:
+        prefs = storage.prefs(user.id)
+        storage.set_prefs(user.id, {**prefs, "playlists": playlists})
     return {"playlists": playlists}
+
+
+# Что играло и с какой секунды (владелец, 31.10: «Яндекс Музыка помнит
+# место, даже когда приложение закрылось»): очередь -- ссылками на версии
+# (job, file), номер в очереди, секунда, плейлист. Открыли Студию на другом
+# устройстве -- плеер на том же месте. Профиль переписывается целиком,
+# поэтому все правки профиля -- под одним замком.
+PREFS_LOCK = threading.Lock()
+NOW_QUEUE = 300
+
+
+def _clean_now(raw) -> dict:
+    if not isinstance(raw, dict):
+        raise HTTPException(400, "Не получилось прочитать, что играло")
+    queue = []
+    for entry in (raw.get("q") or [])[:NOW_QUEUE]:
+        if not (isinstance(entry, list) and len(entry) == 2):
+            raise HTTPException(400, "Очередь -- парами «трек, файл»")
+        job, file = str(entry[0]), studio.safe_file_name(str(entry[1]))
+        if not (re.fullmatch(r"[0-9a-f]{32}", job) and file):
+            raise HTTPException(400, "Очередь -- парами «трек, файл»")
+        queue.append([job, file])
+    try:
+        index, at, moment = int(raw.get("i") or 0), float(raw.get("t") or 0), int(raw.get("at") or 0)
+    except (TypeError, ValueError) as error:
+        raise HTTPException(400, "Не получилось прочитать, что играло") from error
+    if not queue or not 0 <= index < len(queue):
+        raise HTTPException(400, "Нет трека")
+    name = " ".join(str(raw.get("list") or "").split())[:60] or None
+    return {"q": queue, "i": index, "t": round(max(0.0, min(at, 86400.0)), 1), "list": name,
+            "at": min(moment, int(time.time() * 1000) + 60_000) if moment > 0 else int(time.time() * 1000)}
+
+
+@app.get("/api/me/nowplaying")
+def api_nowplaying(request: Request):
+    user = current_user(request)
+    return {"now": storage.prefs(user.id).get("nowPlaying")}
+
+
+@app.post("/api/me/nowplaying")
+def api_nowplaying_save(request: Request, data: str = Form(...)):
+    user = current_user(request)
+    try:
+        now = _clean_now(json.loads(data[:60_000]))
+    except ValueError as error:
+        raise HTTPException(400, "Не получилось прочитать, что играло") from error
+    with PREFS_LOCK:
+        prefs = storage.prefs(user.id)
+        old = prefs.get("nowPlaying") or {}
+        if (old.get("at") or 0) > now["at"]:          # другое устройство сохранило позже -- его и оставим
+            return {"ok": True, "now": old}
+        storage.set_prefs(user.id, {**prefs, "nowPlaying": now})
+    return {"ok": True, "now": now}
 
 
 # Личная среда: свои названия дорожек, свои стили -- то, что человек вводил
@@ -3954,15 +4008,16 @@ def api_me_prefs(request: Request, key: str = Form(...), add: str = Form(""), re
     if key not in PREF_LISTS:
         raise HTTPException(400, "Неизвестная настройка")
     user = current_user(request)
-    prefs = storage.prefs(user.id)
-    items = [x for x in prefs.get(key) or [] if isinstance(x, str)]
-    add = " ".join(add.split())[:60]
-    if remove:
-        items = [x for x in items if x.lower() != remove.strip().lower()]
-    if add:
-        items = [add] + [x for x in items if x.lower() != add.lower()]   # свежее -- первым
-    prefs[key] = items[:PREF_LISTS[key]]
-    storage.set_prefs(user.id, prefs)
+    with PREFS_LOCK:
+        prefs = storage.prefs(user.id)
+        items = [x for x in prefs.get(key) or [] if isinstance(x, str)]
+        add = " ".join(add.split())[:60]
+        if remove:
+            items = [x for x in items if x.lower() != remove.strip().lower()]
+        if add:
+            items = [add] + [x for x in items if x.lower() != add.lower()]   # свежее -- первым
+        prefs[key] = items[:PREF_LISTS[key]]
+        storage.set_prefs(user.id, prefs)
     return {"ok": True, key: prefs[key]}
 
 

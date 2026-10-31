@@ -2061,5 +2061,8 @@
  "Поставили трек на паузу, нажали ▶ — звук идёт всегда. Если телефон «уронил» звук (блокировка, звонок, долгая пауза), плеер сам перезапустит его с того же места.": "Pause a track, tap ▶ — the sound always comes back. If the phone dropped the audio (screen lock, a call, a long pause), the player restarts it from the same spot by itself.",
  "Плеер Студии": "Studio player",
  "Звук не запустился": "Sound didn't start",
- "Нажмите ▶ ещё раз": "Tap ▶ once more"
+ "Нажмите ▶ ещё раз": "Tap ▶ once more",
+ "Плеер помнит место": "The player remembers your spot",
+ "Закрыли сайт, телефон долго лежал или открыли Студию на компьютере — плеер на том же треке и той же секунде, в той же очереди. Нажмите ▶ — и дальше.": "Closed the site, left the phone for hours or opened the Studio on your computer — the player is on the same track, the same second, the same queue. Tap ▶ and carry on.",
+ "Плеер Студии, на любом устройстве": "Studio player, on any device"
 }
