@@ -1015,6 +1015,12 @@ def audio_length(path: str) -> float:
         return 0.0
 
 
+def stitched(f: dict) -> bool:
+    """Версия -- склейка начала с продолжением от нейросети (у неё самой --
+    только продолжение). Старые склейки -- без отметки, узнаём по имени."""
+    return bool(f.get("stitched") or (f.get("sunoId") and str(f.get("name", "")).startswith(("extend_", "continue_"))))
+
+
 def stitch(head: str, at: float, tail: str) -> None:
     """Начало записи до секунды at + присланное продолжение -> на место tail
     (нейросеть отдаёт только новый кусок, пробы 29.10)."""
@@ -2255,10 +2261,14 @@ class StudioRunner:
             name = f"{prefix}_{number}.mp3"
             path = os.path.join(folder, name)
             genapi.download(track["url"], path)
-            if head and remote.get("at") and os.path.isfile(head):
+            stitched = bool(head and remote.get("at") and os.path.isfile(head))
+            if stitched:
                 # нейросеть присылает только новый кусок -- приклеиваем начало
                 stitch(head, float(remote["at"]), path)
             files.append({"name": name, "label": label_of(prefix, name), "seconds": audio_seconds(path),
+                          # склейка: у нейросети -- только новый кусок, её разделение,
+                          # WAV и суфлёр были бы без начала песни -- для них наш путь
+                          **({"stitched": True} if stitched else {}),
                           **({"sunoId": track["id"]} if track["id"] else {}),
                           **({"sunoTask": track["task"]} if track.get("task") else {})})
             image = image or track.get("image", "")

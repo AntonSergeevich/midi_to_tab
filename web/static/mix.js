@@ -1173,28 +1173,36 @@ function showSplit(splitting) {
   $('splitBox').hidden = false;
   const s = info.services.stems;
   const pro = info.services.stems_pro;
-  const price = (x) => (info.unlimited ? '' : ` · ${x.pack} кредитов или ${x.price} ₽`);
-  // песня новой нейросети -- её же разделение: сразу 12 дорожек, без очереди на нашу видеокарту
+  const credits = (n) => `${n} ${plural(n, 'кредит', 'кредита', 'кредитов')}`;
+  const price = (x) => (info.unlimited || !x ? '' : ` · ${credits(x.pack)}`);
+  // песня новой нейросети -- её же разделение (12 дорожек, минус и голос) студийного
+  // качества; загруженная запись -- наше: нейросеть разделяет только свои песни
   $('splitGo').textContent = version12 ? `Разделить на 12 дорожек${price(info.services.stems12)}`
     : `Разделить на дорожки${price(s)}`;
+  $('splitMinus').textContent = `Минус и голос${price(version12 ? info.services.hitminus : s)}`;
+  $('splitMinus').hidden = false;
   $('splitPro').hidden = info.restyleEngine !== 'mureka' || version12;
   $('splitPro').textContent = `До 12 дорожек + MIDI${price(pro)}`;
   if (splitting) waitSplit(splitting);
   $('splitGo').onclick = () => split(false);
   $('splitPro').onclick = () => split(true);
+  $('splitMinus').onclick = () => split(false, true);
 }
 
-async function split(pro) {
-  if (edited()) { splitGlued(pro); return; }
+async function split(pro, minus = false) {
+  if (edited()) { splitGlued(pro, minus); return; }
   const form = new FormData();
   form.append('file', file);
   form.append('pro', pro);
+  form.append('minus', minus);
   $('splitGo').disabled = true;
+  $('splitMinus').disabled = true;
   $('splitPro').disabled = true;
   const response = await fetch(`/api/studio/${jobId}/stems`, { method: 'POST', body: form });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     $('splitGo').disabled = false;
+    $('splitMinus').disabled = false;
     $('splitPro').disabled = false;
     if (response.status === 402) {
       note(`${esc(data.detail || 'Не хватает на балансе')} <a href="/pricing?next=${encodeURIComponent(location.pathname + location.search)}">Пополнить</a>`);
@@ -1205,13 +1213,15 @@ async function split(pro) {
 }
 
 // Склейку -- отдельным треком «… (склейка)», и уже его -- на дорожки
-async function splitGlued(pro) {
+async function splitGlued(pro, minus = false) {
   if (!tracks.some((t) => audible(t) && t.clips.length)) { toast('Всё заглушено — раскладывать нечего'); return; }
   $('splitGo').disabled = true;
+  $('splitMinus').disabled = true;
   $('splitPro').disabled = true;
   const fail = (text) => {
     note(esc(text));
     $('splitGo').disabled = false;
+    $('splitMinus').disabled = false;
     $('splitPro').disabled = false;
   };
   try {
@@ -1238,6 +1248,7 @@ async function splitGlued(pro) {
     const ask = new FormData();
     ask.append('file', glued.files[0].name);
     ask.append('pro', pro);
+    ask.append('minus', minus);
     const response = await fetch(`/api/studio/${glued.id}/stems`, { method: 'POST', body: ask });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -1245,6 +1256,7 @@ async function splitGlued(pro) {
         note(`${esc(data.detail || 'Не хватает на балансе')} Склейка сохранена в Студии — разделите её оттуда после пополнения. `
           + `<a href="/pricing?next=${encodeURIComponent(`/studio/mix/${glued.id}`)}">Пополнить</a>`);
         $('splitGo').disabled = false;
+        $('splitMinus').disabled = false;
         $('splitPro').disabled = false;
         return;
       }
@@ -1267,11 +1279,13 @@ function splitProgress(stage, pct) {
   $('splitBar').hidden = false;
   $('splitFill').style.width = `${Math.max(4, Math.min(100, pct || 0))}%`;
   $('splitGo').textContent = pct ? `Раскладываем… ${pct}%` : 'Раскладываем…';
+  $('splitMinus').hidden = true;                 // пока идёт -- одна кнопка с ходом
 }
 
 async function waitSplit(splitting) {
   splitBusy = true;
   $('splitGo').disabled = true;
+  $('splitMinus').disabled = true;
   $('splitPro').disabled = true;
   $('splitStop').hidden = false;
   $('splitStop').disabled = false;
@@ -1301,8 +1315,10 @@ async function waitSplit(splitting) {
       $('splitText').textContent = text;
       $('splitBar').hidden = true;
       $('splitGo').textContent = 'Попробовать ещё раз';
+      $('splitMinus').hidden = false;
       splitBusy = false;
       $('splitGo').disabled = false;
+      $('splitMinus').disabled = false;
       $('splitPro').disabled = false;
       return;
     }

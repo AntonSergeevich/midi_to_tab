@@ -684,7 +684,7 @@ function renderDetail(jobs) {
       <a class="icon-btn st-mixbtn" href="/studio/mix/${j.id}?file=${encodeURIComponent(f.name)}"
         title="Открыть в мультитреке: дорожки, метроном, заглушить лишнее">${ICON.mix}<span>Мультитрек</span></a>
       <button type="button" class="icon-btn" data-menu="${j.id}" data-file="${esc(f.name)}"
-        data-url="${f.url}" data-split-ok="${j.mode !== 'stems' ? 1 : ''}" data-extend="${f.mid || f.hit ? 1 : ''}"
+        data-url="${f.url}" data-split-ok="${j.mode !== 'stems' ? 1 : ''}" data-extend="${f.mid || f.hit || f.ext ? 1 : ''}"
         data-hit="${f.hit ? 1 : ''}" data-wav="${f.wav || ''}" data-karaoke="${f.karaoke ? 1 : ''}"
         ${j.mode === 'stems' ? stemData(j, f) : ''}
         title="Что сделать">${ICON.more}</button>

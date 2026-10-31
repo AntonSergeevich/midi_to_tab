@@ -3260,3 +3260,24 @@ def test_playlist_shared_by_link(studio_app):
 
     assert client.delete("/api/me/playlists/pl01/share").json() == {"ok": True}
     assert stranger.get(shared["path"]).status_code == 404
+
+
+def test_stitched_version_is_split_by_us_not_by_the_network(studio_app, monkeypatch):
+    """Продлённая версия -- склейка начала с продолжением: у нейросети только
+    продолжение, её разделение было бы без начала песни. Такие версии -- нашим
+    разделением; «12 дорожек», WAV, суфлёр -- отказ с объяснением."""
+    app_module, client, user, _ = studio_app
+    app_module.storage.add_balance(user.id, 300)
+    job_id = _start(client, mode="stems").json()["jobId"]
+    folder = app_module.studio_runner.folder(job_id)
+    for name in ("extend_1.mp3", "create_1.mp3"):
+        open(f"{folder}/{name}", "wb").write(b"mp3")
+    app_module.storage.update_job(job_id, status="done", settings={
+        **app_module.storage.job(job_id).settings, "mode": "create"}, result={"files": [
+            {"name": "extend_1.mp3", "label": "Продолжение 1", "sunoId": "a1", "sunoTask": "t1"},
+            {"name": "create_1.mp3", "label": "Вариант 1", "sunoId": "a2", "sunoTask": "t2"}]})
+    files = {f["name"]: f for f in client.get("/api/studio").json()["jobs"][0]["files"]}
+    assert "hit" not in files["extend_1.mp3"] and files["extend_1.mp3"]["ext"] is True
+    assert files["create_1.mp3"]["hit"] is True
+    answer = client.post(f"/api/studio/{job_id}/hit/hitminus", data={"file": "extend_1.mp3"})
+    assert answer.status_code == 409 and "продлённой" in answer.json()["detail"]

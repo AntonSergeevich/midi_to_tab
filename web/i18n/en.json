@@ -1851,7 +1851,7 @@
  "Студия → «⋯» у версии · Мультитрек → «12 дорожек»": "Studio → version “⋯” · Multitrack → “12 stems”",
  "Продлить, «Без чего» и смелый режим": "Extend, “Without” and bold mode",
  "Продлить можно любую песню Студии. В форме — поле «Без чего» (без автотюна, без электроники) и смелый режим для неожиданных сочетаний жанров.": "Any Studio song can be extended. The form has a “Without” field (no autotune, no electronics) and a bold mode for unexpected genre blends.",
- "Минус и голос": "Backing track and vocals",
+ "Минус и голос": "Backing and vocals",
  "Разделить на 12 дорожек": "Split into 12 stems",
  "Минус и голос студийного качества": "Studio-quality backing track and vocals",
  "сейчас нет свободной видеокарты — попробуйте через 10–15 минут": "no free GPU right now — please try again in 10–15 minutes",
@@ -2040,5 +2040,9 @@
  "Плейлист": "Playlist",
  "⬇ Скачать все песни": "⬇ Download all songs",
  "Эти песни сделаны в NASLUX": "These songs were made in NASLUX",
- "Песня с нуля нейросетью за минуту, кавер своей записи, партии и мультитрек для репетиций, аккорды и табы к любой песне — бесплатно. Попробуйте: за регистрацию — кредиты на первые песни.": "A song from scratch with AI in a minute, a cover of your own recording, parts and a multitrack for rehearsals, chords and tabs for any song for free. Try it: you get credits for your first songs when you sign up."
+ "Песня с нуля нейросетью за минуту, кавер своей записи, партии и мультитрек для репетиций, аккорды и табы к любой песне — бесплатно. Попробуйте: за регистрацию — кредиты на первые песни.": "A song from scratch with AI in a minute, a cover of your own recording, parts and a multitrack for rehearsals, chords and tabs for any song for free. Try it: you get credits for your first songs when you sign up.",
+ "«Минус и голос» в мультитреке": "«Backing and vocals» in the multitrack",
+ "Рядом с «Разделить на дорожки» — «Минус и голос». Песни новой нейросети она же и разделяет — в студийном качестве; ваши записи и продлённые версии — наш разделитель, по всей песне.": "Next to «Split into tracks» there is now «Backing and vocals». Songs by the new AI are split by the same AI in studio quality; your recordings and extended versions are split by our separator, across the whole song.",
+ "Мультитрек → блок «Разложить трек на дорожки»": "Multitrack → «Split the track» block",
+ "У продлённой версии нейросеть хранит только продолжение — разделите её обычным «Разделить на дорожки» или «Минус и голос»": "For an extended version the AI only keeps the continuation; split it with the regular «Split into tracks» or «Backing and vocals»"
 }

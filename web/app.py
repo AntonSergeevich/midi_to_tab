@@ -1964,7 +1964,9 @@ def _studio_job_payload(job) -> dict:
     wavs, karaoke = result.get("wav") or {}, result.get("karaoke") or {}
     files = [{**{k: v for k, v in f.items() if k not in ("sunoId", "sunoTask")},
               # версия новой нейросети: 12 дорожек, WAV, суфлёр, продление
-              **({"hit": True} if f.get("sunoId") and f.get("sunoTask") else {}),
+              **({"hit": True} if f.get("sunoId") and f.get("sunoTask") and not studio.stitched(f) else {}),
+              # продлённая склейка: продлевать дальше можно, остальное -- нашим путём
+              **({"ext": True} if f.get("sunoId") and studio.stitched(f) else {}),
               **({"wav": f"/api/studio/file/{job.id}/{wavs[f['name']]}"} if f["name"] in wavs
                  and os.path.isfile(os.path.join(folder, wavs[f["name"]])) else {}),
               **({"karaoke": True} if f["name"] in karaoke else {}),
@@ -2311,7 +2313,7 @@ def api_studio_split_result(job_id: str, request: Request, file: str = Form(""),
         raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
     # Песня новой нейросети -- её же разделением (владелец, 29.10): без нашей
     # видеокарты, чище и сразу 12 дорожек; минус -- «минус и голос»
-    if files[0].get("sunoId") and files[0].get("sunoTask") and studio.suno_open(user):
+    if files[0].get("sunoId") and files[0].get("sunoTask") and not studio.stitched(files[0]) and studio.suno_open(user):
         return _hit_child(request, user, parent, files[0], "hitminus" if minus else "stems12", "stems", {})
     ready, why = studio.available()
     if not ready:
@@ -3017,6 +3019,9 @@ def api_studio_hit(job_id: str, kind: str, request: Request, file: str = Form(""
     chosen = next((f for f in (parent.result or {}).get("files") or [] if f["name"] == file), None)
     if not chosen or not chosen.get("sunoId") or not chosen.get("sunoTask"):
         raise HTTPException(409, "Это доступно для песен, сделанных в Студии новой нейросетью")
+    if studio.stitched(chosen):
+        raise HTTPException(409, "У продлённой версии нейросеть хранит только продолжение — "
+                                 "разделите её обычным «Разделить на дорожки» или «Минус и голос»")
     if not os.path.isfile(os.path.join(studio_runner.folder(job_id), chosen["name"])):
         raise HTTPException(409, "Файлы этой работы уже удалены по сроку хранения")
     done = (parent.result or {}).get({"wav": "wav", "karaoke": "karaoke"}.get(kind, ""), {}) or {}
