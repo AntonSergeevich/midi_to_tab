@@ -1529,7 +1529,9 @@ function reviveSound() {
 }
 setInterval(() => {
   const audio = $('audio');
-  if (!playback.wanted || audio.paused || window.SoundFX.dead < 4000) return;
+  // экран заблокирован -- элемент не трогаем: iPhone убирает плеер с экрана
+  // блокировки, когда исчезает игравший <audio>
+  if (document.hidden || !playback.wanted || audio.paused || window.SoundFX.dead < 4000) return;
   if (audio.duration && audio.duration - audio.currentTime < 6) return;      // тишина в конце трека -- это нормально
   if (Date.now() - playback.revivedAt < 20000) return;                       // не чаще раза в 20 с
   reviveSound();
@@ -3171,7 +3173,9 @@ $('fLyricsBtn').addEventListener('click', () => {
 //  - на остальных устройствах -- обычная громкость <audio>.
 const IOS = /iP(hone|ad|od)/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-const IOS_VOLUME = IOS && 'audioSession' in navigator;
+// громкость через Web Audio на iPhone больше не берём (см. soundfx.js):
+// там громкость -- кнопками телефона, как у всех музыкальных приложений
+const IOS_VOLUME = false;
 if (IOS && !IOS_VOLUME) $('fVolume').closest('.st-full-volume').style.display = 'none';
 function setVolume(percent) {
   const level = Math.max(0, Math.min(1, percent / 100));

@@ -21,7 +21,19 @@
   const SPACES = { off: 'Обычно', wide: 'Объём', hall: 'Зал', orbit: '8D' };
   const KEY = 'naslux.fx';
 
+  // iPhone и iPad: звук -- только напрямую, без Web Audio (владелец, 01.11:
+  // «заблокировал, остановил, запустил -- не играет, потом плеер пропал»).
+  // Safari усыпляет звуковой контекст при заблокированном экране, а разбудить
+  // его можно только касанием экрана -- «играть» с экрана блокировки или
+  // AirPods касанием не считается, и трек, пропущенный через эффекты, играет
+  // тишину. Подключённый к контексту <audio> из него уже не вывести. Поэтому
+  // на iOS граф не создаётся вовсе -- плеер работает как системный.
+  const IOS = /iP(hone|ad|od)/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const state = { on: false, eq: 'auto', manual: [0, 0, 0, 0, 0, 0, 0], space: 'wide' };
+  // звук сайта -- «музыка», как у музыкальных приложений: играет в беззвучном
+  // режиме, на экране блокировки и в фоне (Safari 16.4+)
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (error) { /* старый Safari */ }
   try { Object.assign(state, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (error) { /* нет хранилища */ }
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (error) { /* */ } };
 
@@ -37,6 +49,7 @@
 
   function ensure(element) {
     audio = element || audio;
+    if (IOS) return false;
     if (nodes || !audio) return Boolean(nodes);
     const Context = window.AudioContext || window.webkitAudioContext;
     if (!Context) return false;
@@ -255,6 +268,12 @@
   function panel(box) {
     const chips = (items, current, attr) => Object.entries(items).map(([k, v]) =>
       `<button type="button" class="fx-chip${k === current ? ' on' : ''}" data-${attr}="${k}">${typeof v === 'string' ? v : v.title}</button>`).join('');
+    if (IOS) {
+      box.innerHTML = `<p class="fx-note fx-ios"><b>На iPhone звук идёт напрямую — как в музыкальных приложениях.</b>
+        Эквалайзер и объёмный звук Safari обрывает при заблокированном экране и запуске с AirPods, поэтому на
+        iPhone мы их не включаем: надёжность важнее. На компьютере и Android эффекты работают.</p>`;
+      return;
+    }
     box.innerHTML = `
       <label class="fx-switch"><input type="checkbox" id="fxOn"${state.on ? ' checked' : ''}>
         <span>Эффекты звука</span></label>
@@ -268,7 +287,7 @@
     : state.eq === 'vocal' ? 'Голос впереди — удобно заучивать слова.' : ''}</p>
         <div class="fx-label">Пространство</div>
         <div class="fx-chips">${chips(SPACES, state.space, 'fxspace')}</div>
-        <p class="fx-note">С эффектами тихие треки звучат громче — без хрипа. Лучше всего в наушниках. Если при заблокированном экране звук прервётся — выключите эффекты.</p>
+        <p class="fx-note">С эффектами тихие треки звучат громче — без хрипа. Лучше всего в наушниках.</p>
       </div>`;
   }
 
@@ -300,6 +319,7 @@
   // Разбудить звук -- вызывать из нажатия: граф создаётся (если эффекты
   // включены) и контекст запускается в том же касании, иначе iPhone молчит
   function wake() {
+    if (IOS) return;
     if (!nodes && state.on && audio) ensure();
     if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
   }
@@ -326,7 +346,8 @@
     wake,
     ensure,
     bind,
-    get on() { return state.on; },
+    get on() { return !IOS && state.on; },
+    ios: IOS,
     // громкость: через граф, если он есть (iPhone), иначе -- false
     setVolume(level) { volume = level; if (nodes) { nodes.out.gain.value = level; return true; } return false; },
   };

@@ -2118,5 +2118,9 @@
  "Студия → ♫ Плейлисты": "Studio → ♫ Playlists",
  "Перетащить, чтобы поменять порядок": "Drag to reorder",
  "Звук не пропадает после паузы": "Sound no longer disappears after a pause",
- "Плеер теперь слышит, есть ли звук на самом деле: если трек идёт, а звука нет, он сам перезапускает звук с того же места. На iPhone ▶ после паузы дольше 4 секунд запускает звук начисто — та самая «тишина после долгой паузы» больше не появляется.": "The player now checks whether there is actual sound: if the track is running but silent, it restarts the sound from the same spot by itself. On iPhone, ▶ after a pause longer than 4 seconds starts the sound fresh — the “silence after a long pause” is gone."
+ "Плеер теперь слышит, есть ли звук на самом деле: если трек идёт, а звука нет, он сам перезапускает звук с того же места. На iPhone ▶ после паузы дольше 4 секунд запускает звук начисто — та самая «тишина после долгой паузы» больше не появляется.": "The player now checks whether there is actual sound: if the track is running but silent, it restarts the sound from the same spot by itself. On iPhone, ▶ after a pause longer than 4 seconds starts the sound fresh — the “silence after a long pause” is gone.",
+ "iPhone: плеер как в музыкальных приложениях": "iPhone: the player works like a music app",
+ "На iPhone и iPad звук теперь идёт напрямую, через системный плеер: пауза и «играть» с экрана блокировки и AirPods работают, плеер не пропадает с экрана блокировки. Эквалайзер и объёмный звук на iPhone выключены — Safari обрывает их при заблокированном экране; на компьютере и Android они работают.": "On iPhone and iPad the sound now goes straight through the system player: pause and play from the lock screen and AirPods work, and the player stays on the lock screen. The equaliser and spatial sound are off on iPhone — Safari cuts them off when the screen is locked; on computers and Android they work.",
+ "Плеер Студии на iPhone": "Studio player on iPhone",
+ "На iPhone звук идёт напрямую — как в музыкальных приложениях.": "On iPhone the sound goes direct — like in music apps."
 }

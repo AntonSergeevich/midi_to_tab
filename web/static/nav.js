@@ -647,17 +647,26 @@ window.haptic = (() => {
 // только после первого касания страницы -- до него логотип молчит.
 window.nasluxChime = (() => {
   let ctx = null;
-  const Context = window.AudioContext || window.webkitAudioContext;
+  // iPhone/iPad: никакого Web Audio рядом с плеером -- живой звуковой контекст
+  // спорит с плеером за звук и экран блокировки (владелец, 01.11). Там
+  // логотип молчит. Остальным -- контекст спит, пока не нужен.
+  const IOS = /iP(hone|ad|od)/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const Context = IOS ? null : window.AudioContext || window.webkitAudioContext;
   const off = () => { try { return localStorage.getItem('naslux.sound') === 'off'; } catch (error) { return false; } };
+  let nap = 0;
+  const sleep = () => { clearTimeout(nap); nap = setTimeout(() => { if (ctx && ctx.state === 'running') ctx.suspend().catch(() => {}); }, 2600); };
   const unlock = () => {
-    if (!Context) return;
-    if (!ctx) { try { ctx = new Context(); } catch (error) { return; } }
-    if (ctx.state !== 'running') ctx.resume().catch(() => {});
+    if (!Context || ctx) return;
+    try { ctx = new Context(); } catch (error) { return; }
+    ctx.resume().then(sleep).catch(() => {});
   };
   ['touchend', 'pointerup', 'keydown'].forEach((ev) => document.addEventListener(ev, unlock, { capture: true, passive: true }));
   return () => {
-    if (off() || document.hidden || !ctx || ctx.state !== 'running') return false;
-    const now = ctx.currentTime + 0.02;
+    if (off() || document.hidden || !ctx || ctx.state === 'closed') return false;
+    if (ctx.state !== 'running') ctx.resume().catch(() => {});
+    sleep();
+    const now = ctx.currentTime + 0.05;
     const out = ctx.createGain();
     out.gain.value = 0.22;
     const echo = ctx.createDelay();
