@@ -2444,3 +2444,9 @@ html[data-nav=out]::view-transition-new(st-list) { animation-name: st-nav-left-i
 @media (hover: hover) { .st-pl-grip:hover { color: var(--text); background: var(--bg); } }
 .st-pl-grip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 body.st-noselect, body.st-noselect * { cursor: grabbing !important; -webkit-user-select: none; user-select: none; }
+
+/* Журнал плеера */
+.st-plog { max-width: 680px; }
+.st-plog-text { margin: 0; max-height: 52vh; overflow: auto; padding: 10px; border-radius: 10px; background: var(--bg);
+  border: 1px solid var(--border); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap;
+  word-break: break-word; -webkit-user-select: text; user-select: text; }

@@ -271,7 +271,9 @@
     if (IOS) {
       box.innerHTML = `<p class="fx-note fx-ios"><b>На iPhone звук идёт напрямую — как в музыкальных приложениях.</b>
         Эквалайзер и объёмный звук Safari обрывает при заблокированном экране и запуске с AirPods, поэтому на
-        iPhone мы их не включаем: надёжность важнее. На компьютере и Android эффекты работают.</p>`;
+        iPhone мы их не включаем: надёжность важнее. На компьютере и Android эффекты работают.</p>
+        <p class="fx-note"><button type="button" class="st-linkbtn" data-playerlog="1">Журнал плеера</button>
+        — если трек не запускается, повторите это и пришлите журнал в поддержку.</p>`;
       return;
     }
     box.innerHTML = `
@@ -288,6 +290,7 @@
         <div class="fx-label">Пространство</div>
         <div class="fx-chips">${chips(SPACES, state.space, 'fxspace')}</div>
         <p class="fx-note">С эффектами тихие треки звучат громче — без хрипа. Лучше всего в наушниках.</p>
+        <p class="fx-note"><button type="button" class="st-linkbtn" data-playerlog="1">Журнал плеера</button></p>
       </div>`;
   }
 

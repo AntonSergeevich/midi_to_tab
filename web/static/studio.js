@@ -1423,6 +1423,50 @@ function setQueue(items, start, name) {
 // Сторож через 3 с проверяет, что время пошло и контекст звучит; не
 // пошло -- пробуем ещё раз, а если и так никак -- просим нажать ▶ (на
 // iPhone новый звук запускается только из касания).
+// Журнал плеера (владелец, 01.11: «всё то же -- давай другой подход»).
+// Три исправления вслепую не попали, поэтому плеер записывает, что
+// происходит на самом деле: команды экрана блокировки и AirPods, ответы
+// iPhone на play() (отказ и его причина), зависания сети, ошибки файла,
+// сворачивание и перезагрузку страницы, состояние звуковой сессии.
+// Хранится в телефоне (переживает перезапуск страницы), 400 записей.
+// Открыть: «🎚 Звук» → «Журнал плеера» или адрес /studio#playerlog.
+const PLOG_KEY = 'naslux.plog';
+function plog(what, extra) {
+  try {
+    const a = $('audio');
+    const t = new Date();
+    const stamp = `${t.toLocaleTimeString('ru-RU')}.${String(t.getMilliseconds()).padStart(3, '0')}`;
+    const state = a ? `t=${a.currentTime.toFixed(1)} ${a.paused ? 'пауза' : 'идёт'} rs=${a.readyState} ns=${a.networkState}` : '';
+    const sess = navigator.audioSession ? ` as=${navigator.audioSession.state || '?'}` : '';
+    const line = `${stamp} ${document.hidden ? '[скрыта]' : '[видна]'} ${what}${extra ? ` (${extra})` : ''} · ${state}${sess}`;
+    const log = JSON.parse(localStorage.getItem(PLOG_KEY) || '[]');
+    log.push(line);
+    localStorage.setItem(PLOG_KEY, JSON.stringify(log.slice(-400)));
+  } catch (error) { /* без хранилища -- без журнала */ }
+}
+plog('страница загружена', `${navigator.standalone ? 'приложение с экрана «Домой»' : 'браузер'} · ${navigator.userAgent.replace(/^Mozilla\/5\.0 /, '').slice(0, 90)}`);
+document.addEventListener('visibilitychange', () => plog(document.hidden ? 'страница скрыта' : 'страница видна'));
+window.addEventListener('pagehide', (e) => plog('pagehide', e.persisted ? 'в кэш' : 'выгрузка'));
+window.addEventListener('pageshow', (e) => plog('pageshow', e.persisted ? 'из кэша' : 'новая'));
+window.addEventListener('focus', () => plog('фокус'));
+window.addEventListener('blur', () => plog('потеря фокуса'));
+try { if (navigator.audioSession) navigator.audioSession.addEventListener('statechange', () => plog('звуковая сессия', navigator.audioSession.state)); } catch (error) { /* */ }
+const PLOG_EVENTS = ['loadstart', 'loadedmetadata', 'canplay', 'play', 'playing', 'pause', 'waiting', 'stalled', 'suspend',
+  'emptied', 'abort', 'ended', 'seeking', 'seeked', 'ratechange'];
+function plogAudio(el) {
+  PLOG_EVENTS.forEach((ev) => el.addEventListener(ev, () => plog(`audio:${ev}`)));
+  el.addEventListener('error', () => plog('audio:ОШИБКА', el.error ? `код ${el.error.code} ${el.error.message || ''}` : ''));
+}
+// play() с записью ответа iPhone: выполнил или отказал (и почему)
+function playLogged(el, why) {
+  plog(`play() ← ${why}`);
+  const started = el.play();
+  if (started && started.then) {
+    started.then(() => plog('play() выполнен', why)).catch((error) => plog('play() ОТКАЗ', `${why}: ${error.name} ${error.message || ''}`.slice(0, 160)));
+  }
+  return started;
+}
+
 const audioEvents = [];
 function onAudio(ev, handler) {
   audioEvents.push([ev, handler]);
@@ -1438,6 +1482,8 @@ function freshAudio() {
   try { old.load(); } catch (error) { /* */ }
   old.replaceWith(audio);
   audioEvents.forEach(([ev, handler]) => audio.addEventListener(ev, handler));
+  plogAudio(audio);
+  plog('новый <audio>', `с ${at.toFixed(1)} с`);
   window.SoundFX.reset(audio);
   if (!IOS) audio.volume = old.volume;
   if (src) {
@@ -1467,7 +1513,7 @@ function resume(tap) {
   }
   window.SoundFX.wake();
   playback.wanted = true;
-  audio.play().catch(() => {});
+  playLogged(audio, tap ? 'касание' : 'наушники/экран блокировки/код').catch(() => {});
   watchPlayback(audio, audio.currentTime, 1, 0);
 }
 // тот же элемент, то же место -- заново загрузить файл (оборвалась загрузка)
@@ -1475,7 +1521,8 @@ function reloadAudio(audio) {
   const at = audio.currentTime;
   audio.src = (audio.getAttribute('src') || '').split('#')[0];
   if (at > 0) audio.addEventListener('loadedmetadata', () => { audio.currentTime = at; }, { once: true });
-  audio.play().catch(() => {});
+  plog('перезагрузка файла', `с ${at.toFixed(1)} с`);
+  playLogged(audio, 'после перезагрузки файла').catch(() => {});
 }
 // Сторож: через 3 с после ▶ время должно идти, а звук эффектов -- звучать.
 // Экран заблокирован -- не трогаем ничего, проверим, когда вернутся.
@@ -1539,8 +1586,8 @@ setInterval(() => {
 
 // вернулись к телефону (разблокировали) -- разбудить звук и досмотреть
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden || !playback.wanted) return;
-  window.SoundFX.wake();
+  if (document.hidden) return;
+  if (playback.wanted) window.SoundFX.wake();
   if (playback.later) { const run = playback.later; playback.later = null; run(); }
 });
 function pausePlayback() {
@@ -1620,8 +1667,9 @@ function lockScreen(item) {
 }
 if ('mediaSession' in navigator) {
   const on = (action, handler) => { try { navigator.mediaSession.setActionHandler(action, handler); } catch (error) { /* */ } };
-  on('play', () => resume(false));
-  on('pause', () => pausePlayback());
+  on('play', () => { plog('КОМАНДА «играть»', 'экран блокировки / AirPods'); resume(false); });
+  on('pause', () => { plog('КОМАНДА «пауза»', 'экран блокировки / AirPods'); pausePlayback(); });
+  on('stop', () => { plog('КОМАНДА «стоп»'); pausePlayback(); });
   on('previoustrack', () => { if ($('audio').currentTime > 4 || queue.length < 2) $('audio').currentTime = 0; else step(-1); });
   on('nexttrack', () => step(1));
   on('seekbackward', () => { $('audio').currentTime = Math.max(0, $('audio').currentTime - 10); });
@@ -2833,7 +2881,66 @@ function afterPayment(restored) {
   setTimeout(wait, 2000);
 }
 
-['playerToggle', 'fToggle'].forEach((id) => $(id).addEventListener('click', () => togglePlayback(true)));
+['playerToggle', 'fToggle'].forEach((id) => $(id).addEventListener('click', () => { plog('нажали ▶/⏸ на экране'); togglePlayback(true); }));
+plogAudio($('audio'));
+// Ошибка файла (оборвалась сеть, сервер обновлялся) раньше молча убивала
+// плеер: элемент в ошибке не играет больше никогда. Теперь -- тот же
+// элемент заново загружает файл на том же месте; страница скрыта --
+// сделаем, когда вернутся (элемент при заблокированном экране не трогаем).
+onAudio('error', () => {
+  const a = $('audio');
+  if (!a.getAttribute('src')) return;
+  const fix = () => {
+    if (playback.wanted) { reloadAudio(a); return; }
+    const at = a.currentTime;
+    a.src = (a.getAttribute('src') || '').split('#')[0];
+    if (at > 0) a.addEventListener('loadedmetadata', () => { a.currentTime = at; }, { once: true });
+    plog('файл загружен заново после ошибки', `с ${at.toFixed(1)} с`);
+  };
+  if (document.hidden) { playback.later = fix; return; }
+  if (Date.now() - (playback.errAt || 0) < 15000) return;
+  playback.errAt = Date.now();
+  fix();
+});
+
+// Просмотр журнала: окно с текстом, «Копировать» -- и прислать в чат
+function showPlayerLog() {
+  let log = [];
+  try { log = JSON.parse(localStorage.getItem(PLOG_KEY) || '[]'); } catch (error) { /* */ }
+  let box = $('plogModal');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'st-modal';
+    box.id = 'plogModal';
+    box.innerHTML = `<div class="st-modal-box st-plog" role="dialog" aria-modal="true" aria-labelledby="plogTitle">
+      <h3 id="plogTitle">Журнал плеера</h3>
+      <p class="muted">Что происходило с плеером — для разбора проблем. Нажмите «Копировать» и пришлите текст в поддержку.</p>
+      <pre class="st-plog-text" id="plogText" data-noi18n></pre>
+      <div class="st-modal-actions">
+        <button type="button" class="st-linkbtn danger" id="plogClear">Очистить</button>
+        <button type="button" class="st-linkbtn" id="plogCopy">Копировать</button>
+        <button type="button" class="primary" id="plogClose">Закрыть</button></div></div>`;
+    document.body.appendChild(box);
+    box.addEventListener('click', async (e) => {
+      if (e.target === box || e.target.id === 'plogClose') { box.hidden = true; if (location.hash === '#playerlog') history.replaceState(history.state, '', location.pathname + location.search); }
+      if (e.target.id === 'plogClear') { try { localStorage.removeItem(PLOG_KEY); } catch (error) { /* */ } $('plogText').textContent = ''; }
+      if (e.target.id === 'plogCopy') {
+        const text = $('plogText').textContent;
+        try { await navigator.clipboard.writeText(text); hud(ICON.link, 'Журнал скопирован', 'Вставьте его в чат'); } catch (error) {
+          const range = document.createRange(); range.selectNodeContents($('plogText'));
+          const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+          toast('Текст выделен — нажмите «Скопировать»');
+        }
+      }
+    });
+  }
+  $('plogText').textContent = log.length ? log.join('\n') : 'Пока пусто — включите трек и повторите то, что не работает.';
+  box.hidden = false;
+  requestAnimationFrame(() => { $('plogText').scrollTop = $('plogText').scrollHeight; });
+}
+document.addEventListener('click', (e) => { if (e.target.closest('[data-playerlog]')) { e.preventDefault(); showPlayerLog(); } });
+if (location.hash === '#playerlog') setTimeout(showPlayerLog, 600);
+window.addEventListener('hashchange', () => { if (location.hash === '#playerlog') showPlayerLog(); });
 
 // Память места (владелец, 31.10: «Яндекс Музыка помнит место, даже когда
 // приложение закрылось или долго стоит»). Что играло -- очередь, номер,
