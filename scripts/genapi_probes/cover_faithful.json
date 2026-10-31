@@ -1,0 +1,14 @@
+{
+ "params": {
+  "task": "cover",
+  "custom_mode": true,
+  "instrumental": false,
+  "upload_url": "https://raw.githubusercontent.com/AntonSergeevich/midi_to_tab/test-results/yue2-40840975383/831001_yue2_1.mp3",
+  "title": "Проба: точная копия для разделения",
+  "tags": "aggressive Russian rap rock, trap metal, male and female vocals duet, aggressive raw male rap verses, powerful soaring female vocals in chorus, hard hitting 808 kicks, distorted 808 bass, heavy drop-tuned electric guitars, explosive drops, intense, high energy, energetic, 140 bpm, faithful recreation of the uploaded recording, same arrangement, same tempo, same key, same structure",
+  "prompt": "[Intro]\nЭй! Наслукс! Громче!\n\n[Verse]\nБит качает, стены дрожат, я на старте,\nСто идей в голове — ни одной на карте,\nХватит ждать, хватит думать, что «потом» и «не время»,\nЖму на кнопку — и ломаю это тихое бремя!\nБочка бьёт по груди, бас взрывает колонки,\nМой куплет как ракета, мой голос — на кромке,\nЭто не чужой трек, это мой огонь —\nВся студия в кармане, весь мир — на ладонь!\n\n[Pre-Chorus]\nСлышишь, как растёт этот гул внутри?\nРаз, два — дыши, три — смотри!\n\n[Chorus]\nНаслукс! Взрыв! Это наш звук!\nБит из нейросети — а сердце из рук!\nНаслукс! Громче, сильней!\nПой своим голосом — и будь собой в ней!\n\n[Verse]\nРазложил по дорожкам: бас, гитара, барабаны,\nСверху мой вокал — и никакого обмана,\nСкинул бэнду ссылку — через час уже в деле,\nМы за вечер сделали, что не могли за недели!\nЭто драйв, это скорость, это шторм и гроза,\nНе смотри на других — посмотри мне в глаза,\nЯ не копия, нет, я — оригинал,\nМой звук — это мой личный сигнал!\n\n[Pre-Chorus]\nСлышишь, как растёт этот гул внутри?\nРаз, два — дыши, три — смотри!\n\n[Chorus]\nНаслукс! Взрыв! Это наш звук!\nБит из нейросети — а сердце из рук!\nНаслукс! Громче, сильней!\nПой своим голосом — и будь собой в ней!\n\n[Outro]\nНаслукс! Наслукс! Это наш звук!",
+  "audio_weight": 1.0,
+  "style_weight": 0.0,
+  "weirdness_constraint": 0.0
+ }
+}
