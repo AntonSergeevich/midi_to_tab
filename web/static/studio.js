@@ -1669,11 +1669,14 @@ if ('mediaSession' in navigator) {
   const on = (action, handler) => { try { navigator.mediaSession.setActionHandler(action, handler); } catch (error) { /* */ } };
   on('play', () => { plog('КОМАНДА «играть»', 'экран блокировки / AirPods'); resume(false); });
   on('pause', () => { plog('КОМАНДА «пауза»', 'экран блокировки / AirPods'); pausePlayback(); });
-  on('stop', () => { plog('КОМАНДА «стоп»'); pausePlayback(); });
+
   on('previoustrack', () => { if ($('audio').currentTime > 4 || queue.length < 2) $('audio').currentTime = 0; else step(-1); });
   on('nexttrack', () => step(1));
-  on('seekbackward', () => { $('audio').currentTime = Math.max(0, $('audio').currentTime - 10); });
-  on('seekforward', () => { $('audio').currentTime += 10; });
+  // «±10 секунд» не задаём: iPhone тогда ставит их на экран блокировки
+  // ВМЕСТО «предыдущая / следующая» (владелец, 01.11: «исчезли кнопки
+  // следующей и предыдущей песни»). Перемотка -- ползунком.
+  on('seekbackward', null);
+  on('seekforward', null);
   on('seekto', (e) => { if (e.seekTime != null) $('audio').currentTime = e.seekTime; });
 }
 
