@@ -52,7 +52,6 @@
         <audio id="lsAudio" preload="none"></audio>
         <div class="ls-actions">
           <a class="ls-btn" href="{{ZIP}}" download>⬇ Скачать все песни</a>
-          <a class="ls-btn" href="{{PODCAST}}" data-feed="{{FEED}}" id="lpPodcast">🎧 Слушать в «Подкастах»</a>
           <button type="button" class="ls-btn" id="lsCopy">Скопировать ссылку</button>
         </div>
       </div>
@@ -107,16 +106,6 @@
       setTimeout(() => bg.remove(), 1300);
     };
     img.src = src;
-  }
-  // «Подкасты»: на iPhone/Mac ссылка podcast:// сама откроет приложение и
-  // подпишет; на остальных -- копируем адрес ленты для любого подкаст-плеера
-  const pod = document.getElementById('lpPodcast');
-  if (pod && !/iP(hone|ad|od)|Macintosh/.test(navigator.userAgent)) {
-    pod.addEventListener('click', async (e) => {
-      e.preventDefault();
-      try { await navigator.clipboard.writeText(pod.dataset.feed); pod.textContent = '✓ Ссылка на ленту скопирована — добавьте в подкаст-плеер'; }
-      catch (error) { prompt('Ссылка на ленту для подкаст-плеера', pod.dataset.feed); }
-    });
   }
   function start(i) {
     if (!rows[i]) return;

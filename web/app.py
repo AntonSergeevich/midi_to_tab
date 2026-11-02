@@ -3487,57 +3487,8 @@ def listen_playlist_page(token: str, request: Request) -> HTMLResponse:
         "BACKDROP": f'<div class="ls-bg" style="background-image:url({cover_url(first_cover)})" aria-hidden="true"></div>'
                     if first_cover else "",
         "ZIP": f"/api/listen/p/{esc(token)}/all.zip",
-        "PODCAST": f"podcast://{request.url.netloc}/listen/p/{esc(token)}/feed.xml",
-        "FEED": f"{base}/listen/p/{esc(token)}/feed.xml",
         "TRACKS": rows,
     })
-
-
-# Плейлист как подкаст (владелец, 01.11: «на iPhone не могу нормально
-# слушать» -- Safari не держит звук сайта на заблокированном экране, а своё
-# приложение -- это App Store за $99). Приложение «Подкасты» -- системный
-# плеер Apple: фон, экран блокировки, AirPods, «следующая/предыдущая»,
-# офлайн. Подписка по ссылке на эту ленту: порядок -- как в плейлисте
-# (itunes:type serial + номера), в каталог Apple не попадает (itunes:block).
-def _tracks_word(n: int) -> str:
-    return "трек" if n % 10 == 1 and n % 100 != 11 else (
-        "трека" if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14) else "треков")
-
-
-@app.get("/listen/p/{token}/feed.xml")
-def listen_playlist_feed(token: str, request: Request):
-    from email.utils import formatdate
-    found, playlist, tracks = _playlist_by_token(token)
-    esc = html.escape
-    base = str(request.base_url).rstrip("/")
-    artists = {t["artist"] for t in tracks if t["artist"]}
-    by = artists.pop() if len(artists) == 1 else "NASLUX"
-    cover = lambda t: f"{base}/api/listen/p/{esc(token)}/{t['job'].id}/cover"  # noqa: E731
-    first = next((t for t in tracks if t["cover"]), None)
-    start = float(found.get("created_at") or 1_700_000_000)
-    items = []
-    for i, t in enumerate(tracks):
-        path = os.path.join(studio_runner.folder(t["job"].id), t["file"])
-        size = os.path.getsize(path) if os.path.isfile(path) else 0
-        title = t["title"] + (f" — {t['label']}" if t["label"] and len([x for x in tracks if x["job"].id == t["job"].id]) > 1 else "")
-        items.append(
-            f"<item><title>{esc(title)}</title><guid isPermaLink=\"false\">{esc(t['job'].id)}/{esc(t['file'])}</guid>"
-            f"<enclosure url=\"{base}/api/listen/p/{esc(token)}/{esc(t['job'].id)}/{esc(t['file'])}\" length=\"{size}\" type=\"audio/mpeg\"/>"
-            f"<pubDate>{formatdate(start + i * 60, usegmt=True)}</pubDate><itunes:episode>{i + 1}</itunes:episode>"
-            f"<itunes:episodeType>full</itunes:episodeType><itunes:duration>{int(t['seconds'] or 0)}</itunes:duration>"
-            + (f"<itunes:image href=\"{cover(t)}\"/>" if t["cover"] else "") + "</item>")
-    image = cover(first) if first else f"{base}/static/apple-touch-icon.png"
-    body = ('<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">'
-            f"<channel><title>{esc(playlist.get('name') or 'Плейлист')}</title>"
-            f"<link>{base}/listen/p/{esc(token)}</link><language>ru</language>"
-            f"<description>Плейлист в NASLUX · {len(tracks)} {_tracks_word(len(tracks))}</description>"
-            f"<itunes:author>{esc(by)}</itunes:author><itunes:type>serial</itunes:type>"
-            f"<itunes:image href=\"{image}\"/><image><url>{image}</url><title>{esc(playlist.get('name') or 'Плейлист')}</title>"
-            f"<link>{base}/listen/p/{esc(token)}</link></image>"
-            "<itunes:explicit>false</itunes:explicit><itunes:block>Yes</itunes:block>"
-            + "".join(items) + "</channel></rss>")
-    return Response(body, media_type="application/rss+xml; charset=utf-8", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/listen/p/{token}/all.zip")

@@ -3907,7 +3907,6 @@ async function openShareFor(target) {
   $('shInfo').textContent = 'Готовим ссылку…';
   ['shSend', 'shCopy'].forEach((id) => { $(id).disabled = true; });
   $('shFile').hidden = true;
-  $('shPodcast').hidden = true;
   $('shareSheet').hidden = false;
   requestAnimationFrame(() => $('shareSheet').classList.add('on'));
   const r = await target.make().catch(() => null);
@@ -3919,13 +3918,6 @@ async function openShareFor(target) {
   $('shInfo').innerHTML = `${esc(target.note(data))}
     · <button type="button" class="st-linkbtn" id="shStop">закрыть доступ</button>`;
   ['shSend', 'shCopy'].forEach((id) => { $(id).disabled = false; });
-  // Плейлист -- ещё и подкастом: системный плеер iPhone «Подкасты» играет в
-  // фоне, с экрана блокировки и AirPods (сайт этого на iPhone не может)
-  if (/^\/listen\/p\//.test(data.path || '')) {
-    $('shPodcast').href = `podcast://${location.host}${data.path}/feed.xml`;
-    $('shPodcast').dataset.feed = `${location.origin}${data.path}/feed.xml`;
-    $('shPodcast').hidden = false;
-  }
   if (!item.url) return;                       // плейлист -- только ссылкой
   // сам файл -- в мессенджер, если телефон умеет делиться файлами
   if (navigator.canShare) {
@@ -3941,12 +3933,6 @@ async function openShareFor(target) {
   }
 }
 $('fShare').addEventListener('click', openShare);
-$('shPodcast').addEventListener('click', async (e) => {
-  if (IOS || /Macintosh/.test(navigator.userAgent)) return;        // podcast:// откроет «Подкасты» сам
-  e.preventDefault();
-  try { await navigator.clipboard.writeText($('shPodcast').dataset.feed); hud(ICON.link, 'Ссылка на ленту скопирована', 'Добавьте её в подкаст-плеер'); }
-  catch (error) { prompt('Ссылка на ленту для подкаст-плеера', $('shPodcast').dataset.feed); }
-});
 $('shBack').addEventListener('click', closeShare);
 $('shareSheet').addEventListener('click', async (e) => {
   if (e.target === $('shareSheet')) { closeShare(); return; }
