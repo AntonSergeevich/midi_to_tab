@@ -2128,5 +2128,13 @@
  "Очистить": "Clear",
  "Журнал скопирован": "Log copied",
  "Вставьте его в чат": "Paste it into the chat",
- "— если трек не запускается, повторите это и пришлите журнал в поддержку.": "— if a track won't start, repeat it and send the log to support."
+ "— если трек не запускается, повторите это и пришлите журнал в поддержку.": "— if a track won't start, repeat it and send the log to support.",
+ "Плейлист — в «Подкастах» iPhone": "Playlists in iPhone Podcasts",
+ "Поделиться плейлистом → «🎧 Слушать в «Подкастах»»: плейлист станет вашим каналом в системном приложении «Подкасты». Играет в фоне и на заблокированном экране, «следующая» с AirPods, можно скачать песни и слушать без интернета. Порядок — как в плейлисте; добавили трек — он появится и там. В каталог Apple канал не попадает.": "Share a playlist → “🎧 Listen in Podcasts”: the playlist becomes your own show in Apple's Podcasts app. It plays in the background and on the lock screen, “next” works from AirPods, and you can download songs to listen offline. The order follows the playlist; add a track and it appears there too. The show is not listed in Apple's directory.",
+ "Студия → ♫ Плейлисты → «Поделиться»; страница плейлиста по ссылке": "Studio → ♫ Playlists → “Share”; the shared playlist page",
+ "🎧 Слушать в «Подкастах» iPhone": "🎧 Listen in iPhone Podcasts",
+ "🎧 Слушать в «Подкастах»": "🎧 Listen in Podcasts",
+ "Ссылка на ленту скопирована": "Feed link copied",
+ "Добавьте её в подкаст-плеер": "Add it to your podcast app",
+ "Ссылка на ленту для подкаст-плеера": "Feed link for a podcast app"
 }

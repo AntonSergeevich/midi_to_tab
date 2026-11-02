@@ -3224,6 +3224,39 @@ def test_player_remembers_position_across_devices(studio_app):
     assert client.get("/api/me/nowplaying").json()["now"]["t"] == 83.5      # плейлисты не стёрли место
 
 
+def test_playlist_podcast_feed_keeps_order(studio_app):
+    """Плейлист по ссылке -- ещё и лента подкаста для «Подкастов» iPhone:
+    треки в порядке плейлиста (serial + номера), mp3 по ссылке, не в каталог."""
+    import xml.etree.ElementTree as ET
+    app_module, client, user, _ = studio_app
+    app_module.storage.add_balance(user.id, 100)
+    job_id = _start(client, mode="stems").json()["jobId"]
+    folder = app_module.studio_runner.folder(job_id)
+    for name in ("create_1.mp3", "create_2.mp3"):
+        open(os.path.join(folder, name), "wb").write(b"ID3" + b"\0" * 100)
+    settings = {**app_module.storage.job(job_id).settings, "rights": {"kind": "own"}}
+    app_module.storage.update_job(job_id, status="done", settings=settings, filename="Тишина.mp3", result={
+        "files": [{"name": "create_1.mp3", "label": "Вариант 1", "seconds": 61}, {"name": "create_2.mp3", "label": "Вариант 2", "seconds": 62}]})
+    client.post("/api/me/playlists", data={"data": json.dumps([{"id": "pl01", "name": "Группа", "items": [
+        {"job": job_id, "file": "create_2.mp3"}, {"job": job_id, "file": "create_1.mp3"}]}])})
+    token = client.post("/api/me/playlists/pl01/share").json()["token"]
+    page = client.get(f"/listen/p/{token}").text
+    assert f"podcast://" in page and f"/listen/p/{token}/feed.xml" in page
+    feed = client.get(f"/listen/p/{token}/feed.xml")
+    assert feed.status_code == 200 and "rss" in feed.headers["content-type"]
+    root = ET.fromstring(feed.content)
+    ns = {"itunes": "http://www.itunes.com/dtds/podcast-1.0.dtd"}
+    channel = root.find("channel")
+    assert channel.find("title").text == "Группа" and channel.find("itunes:type", ns).text == "serial"
+    assert channel.find("itunes:block", ns).text == "Yes"
+    items = channel.findall("item")
+    assert [i.find("enclosure").get("url").rsplit("/", 1)[1] for i in items] == ["create_2.mp3", "create_1.mp3"]
+    assert [i.find("itunes:episode", ns).text for i in items] == ["1", "2"]
+    assert items[0].find("enclosure").get("length") == "103" and items[0].find("itunes:duration", ns).text == "62"
+    assert client.get(items[0].find("enclosure").get("url").split("testserver", 1)[-1]).status_code == 200
+    assert client.get("/listen/p/nope123/feed.xml").status_code == 404
+
+
 def test_edited_lyrics_keep_karaoke_timing(studio_app):
     """Исправили распознанный текст -- суфлёр показывает исправленные слова
     с таймингами распознанных (совпавшие -- их время, новые -- между ними)."""
