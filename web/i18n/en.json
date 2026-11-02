@@ -2128,5 +2128,7 @@
  "Очистить": "Clear",
  "Журнал скопирован": "Log copied",
  "Вставьте его в чат": "Paste it into the chat",
- "— если трек не запускается, повторите это и пришлите журнал в поддержку.": "— if a track won't start, repeat it and send the log to support."
+ "— если трек не запускается, повторите это и пришлите журнал в поддержку.": "— if a track won't start, repeat it and send the log to support.",
+ "iPhone: пауза на заблокированном экране": "iPhone: pausing on the lock screen",
+ "Поставили на паузу при заблокированном экране — NASLUX держит вкладку живой до 10 минут: «играть» с экрана блокировки и AirPods продолжает трек с того же места, а экран блокировки не забирает другое приложение.": "Pause on a locked screen and NASLUX keeps the tab alive for up to 10 minutes: “play” from the lock screen or AirPods resumes the track from the same spot, and another app doesn't take over the lock screen."
 }

@@ -1467,6 +1467,58 @@ function playLogged(el, why) {
   return started;
 }
 
+// «Держатель» паузы на iPhone (владелец, 02.11: «надо в самом сайте»).
+// Пока сайт на паузе в фоне, iPhone через ~30 с замораживает вкладку: она
+// ничего не играет. Замороженной вкладке «играть» с экрана блокировки и
+// AirPods уже не доходит, а экран блокировки забирает другое приложение
+// (у владельца -- Яндекс Музыка). Поэтому на время паузы в фоне играем
+// неслышную дорожку (−90 дБ, по кругу): вкладка живая, «играть» доходит,
+// трек продолжается с того же места. Не дольше 10 минут после паузы --
+// батарея; только iPhone/iPad. Разрешение играть держатель получает от
+// первого касания ▶ (iPhone пускает звук только из касания).
+const holder = { el: null, on: false, timer: 0, primed: false };
+function holderEl() {
+  if (!holder.el) {
+    holder.el = new Audio('/static/silence.mp3');
+    holder.el.loop = true;
+    holder.el.preload = 'auto';
+    holder.el.setAttribute('playsinline', '');
+  }
+  return holder.el;
+}
+// из касания: «разрешить» держателю звук на будущее -- миг и пауза
+function holderPrime() {
+  if (!IOS || holder.primed) return;
+  holder.primed = true;
+  const el = holderEl();
+  const started = el.play();
+  if (started && started.then) started.then(() => { if (!holder.on) el.pause(); plog('держатель готов'); }).catch((e) => { holder.primed = false; plog('держатель: нет разрешения', e.name); });
+}
+function holderStart(why) {
+  const a = $('audio');
+  if (!IOS || holder.on || !a.getAttribute('src') || !a.paused) return;
+  if (!playback.pausedAt || Date.now() - playback.pausedAt > 10 * 60 * 1000) return;
+  holder.on = true;
+  const el = holderEl();
+  const started = el.play();
+  if (started && started.then) {
+    started.then(() => plog('держатель играет', why)).catch((e) => { holder.on = false; plog('держатель ОТКАЗ', `${why}: ${e.name}`); });
+  }
+  try { navigator.mediaSession.playbackState = 'paused'; } catch (error) { /* */ }
+  clearTimeout(holder.timer);
+  holder.timer = setTimeout(() => holderStop('10 минут паузы'), 10 * 60 * 1000 - (Date.now() - playback.pausedAt));
+}
+function holderStop(why) {
+  clearTimeout(holder.timer);
+  if (!holder.on) return;
+  holder.on = false;
+  if (holder.el) holder.el.pause();
+  plog('держатель снят', why);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { if ($('audio').paused) holderStart('свернули на паузе'); } else holderStop('страница видна');
+});
+
 const audioEvents = [];
 function onAudio(ev, handler) {
   audioEvents.push([ev, handler]);
@@ -1667,8 +1719,14 @@ function lockScreen(item) {
 }
 if ('mediaSession' in navigator) {
   const on = (action, handler) => { try { navigator.mediaSession.setActionHandler(action, handler); } catch (error) { /* */ } };
-  on('play', () => { plog('КОМАНДА «играть»', 'экран блокировки / AirPods'); resume(false); });
-  on('pause', () => { plog('КОМАНДА «пауза»', 'экран блокировки / AirPods'); pausePlayback(); });
+  on('play', () => { plog('КОМАНДА «играть»', 'экран блокировки / AirPods'); holderStop('команда «играть»'); resume(false); });
+  on('pause', () => {
+    // играет держатель -- iPhone считает, что «идёт», и показывает ⏸; нажали
+    // его (или AirPods) на паузе -- значит, хотят слушать
+    if (holder.on) { plog('КОМАНДА «пауза» на паузе → играть'); holderStop('команда'); resume(false); return; }
+    plog('КОМАНДА «пауза»', 'экран блокировки / AirPods');
+    pausePlayback();
+  });
 
   on('previoustrack', () => { if ($('audio').currentTime > 4 || queue.length < 2) $('audio').currentTime = 0; else step(-1); });
   on('nexttrack', () => step(1));
@@ -2884,7 +2942,9 @@ function afterPayment(restored) {
   setTimeout(wait, 2000);
 }
 
-['playerToggle', 'fToggle'].forEach((id) => $(id).addEventListener('click', () => { plog('нажали ▶/⏸ на экране'); togglePlayback(true); }));
+['playerToggle', 'fToggle'].forEach((id) => $(id).addEventListener('click', () => { plog('нажали ▶/⏸ на экране'); holderPrime(); togglePlayback(true); }));
+// любое касание «слушать» в списках -- тоже даёт держателю разрешение
+document.addEventListener('click', (e) => { if (e.target.closest('[data-play], [data-plplay], [data-plat], [data-bornplay]')) holderPrime(); }, true);
 plogAudio($('audio'));
 // Ошибка файла (оборвалась сеть, сервер обновлялся) раньше молча убивала
 // плеер: элемент в ошибке не играет больше никогда. Теперь -- тот же
@@ -2980,7 +3040,12 @@ onAudio('timeupdate', () => {
   const t = Date.now();
   if (t - nowSaved.local > 2000) saveNow(t - nowSaved.server > 30000);
 });
-onAudio('pause', () => { playback.pausedAt = Date.now(); saveNow(true); });
+onAudio('pause', () => {
+  playback.pausedAt = Date.now();
+  saveNow(true);
+  if (document.hidden) setTimeout(() => holderStart('пауза в фоне'), 0);
+});
+onAudio('play', () => holderStop('трек играет'));
 // наушникам и экрану блокировки -- честное состояние: иначе нажатие на
 // AirPods iPhone может понять как «пауза» вместо «играть»
 ['play', 'pause'].forEach((ev) => onAudio(ev, () => {
