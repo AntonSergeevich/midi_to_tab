@@ -55,7 +55,11 @@ def retime(data, beats, meter=4, downbeat=None):
     pm = pretty_midi.PrettyMIDI(io.BytesIO(data))
     ppq = 480
     b = np.array(beats, dtype=float)
-    first, last = b[1] - b[0], b[-1] - b[-2]
+    # max(..., 1e-3) -- защита от повторяющихся соседних долей (first/last=0
+    # роняет np.arange ниже делением на ноль); из текущего конвейера доли не
+    # приходят такими (beatnet.steady уже отбрасывает слишком близкие), но
+    # beats -- входной параметр, и поломанный источник не должен крашить job
+    first, last = max(b[1] - b[0], 1e-3), max(b[-1] - b[-2], 1e-3)
     # Доли до первой и после последней -- тем же шагом, чтобы покрыть все ноты
     end = max([n.end for i in pm.instruments for n in i.notes] + [b[-1]]) + 2 * last
     head = np.arange(b[0] - first, -first, -first)[::-1] if b[0] > 0 else np.array([])

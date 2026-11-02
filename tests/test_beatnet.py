@@ -131,6 +131,27 @@ def test_retime_puts_midi_beats_and_bars_on_the_song_grid():
     assert np.allclose(sorted(n.start for n in out.instruments[0].notes), starts, atol=0.002)
 
 
+def test_retime_survives_duplicate_adjacent_beats():
+    """beats -- входной параметр (может прийти извне, не только из нашего
+    детектора); повторяющаяся соседняя доля даёт first/last=0, и np.arange
+    с шагом 0 падал ValueError'ом (воспроизведено до фикса). Сейчас -- не
+    падает, просто не расширяет сетку этим нулевым шагом."""
+    import io
+
+    import pretty_midi
+
+    from midi2tab import beatgrid
+
+    song = pretty_midi.PrettyMIDI(initial_tempo=120)
+    piano = pretty_midi.Instrument(0)
+    piano.notes = [pretty_midi.Note(100, 60, 0.1, 0.4)]
+    song.instruments.append(piano)
+    raw = io.BytesIO()
+    song.write(raw)
+    out = beatgrid.retime(raw.getvalue(), [1.0, 1.0, 2.0, 3.0])
+    assert out
+
+
 def test_beatgrid_retime_matches_the_yue2_copy():
     """midi2tab/beatgrid.retime существует в двух местах: сам beatgrid.py
     (использует сайт, см. web/studio.py:_align_midi) и его буквальная копия в
