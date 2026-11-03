@@ -17,7 +17,12 @@ audio = ["onnxruntime>=1.16", "librosa>=0.10", "mir_eval>=0.6", "resampy>=0.4", 
 # в приложение без реального сервера. Без него добрая половина тестов не
 # падает по делу, а падает на импорте ("requires the httpx2 package"),
 # и это легко принять за нерабочий тестовый файл, а не нехватку зависимости.
-dev = ["pytest>=7.0", "httpx>=0.23"]
+# runpod -- не нужен приложению (сам воркер живёт в своём GPU-образе), только
+# tests/test_worker_handler.py: без него весь файл пропускает себя целиком
+# (pytest.importorskip("runpod")), и test_restyle_rejects_unsupported_engine_*
+# / test_restyle_accepts_known_engines_* никогда не запускались в CI -- только
+# вручную, при случайном локальном наличии пакета.
+dev = ["pytest>=7.0", "httpx>=0.23", "runpod>=1.6"]
 
 [project.scripts]
 midi2tab = "midi2tab.cli:main"
