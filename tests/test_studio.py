@@ -2918,6 +2918,66 @@ def test_hit_functions_wav_karaoke_stems_extend(studio_app, monkeypatch, tmp_pat
     assert st.user(user.id).studio_credits == 55
 
 
+def test_hit_wav_survives_a_true_concurrent_race(studio_app, monkeypatch):
+    """"WAV для релиза"/"Суфлёр"/"12 дорожек" (api_studio_hit -> _hit_child)
+    шлют fetch без подтверждающего диалога и без disabled на клике
+    (web/static/studio.js::hitAction) -- обычный двойной клик или две
+    вкладки доходят до сервера почти одновременно. "Уже в очереди" и
+    списание денег -- проверка-потом-действие: без общего лока оба запроса
+    видели бы "в очереди ещё нет" и оба списали бы кредиты за одну и ту же
+    дорожку -- та же форма гонки, что уже была найдена и исправлена для
+    /tabs (_studio_tabs_lock, test_tabs_from_the_same_studio_file_survives_a_true_concurrent_race)."""
+    import threading
+
+    app_module, client, user, submitted = studio_app
+    genapi, st = app_module.genapi, app_module.storage
+    monkeypatch.setenv("GENAPI_API_KEY", "ga-" + "x" * 30)
+    st.add_studio_credits(user.id, 100)
+    song = _hit_song(app_module, user)
+    monkeypatch.setattr(genapi, "call", lambda m, p, b=None, timeout=60: {"request_id": 1} if m == "POST" else {})
+    # Сам разговор с воркером (studio_runner.submit) -- не часть проверяемой
+    # гонки, и реально его запускать тут не нужно.
+    monkeypatch.setattr(app_module.studio_runner, "submit", lambda jid, worker_input: None)
+
+    real_lookup = st.studio_jobs
+    entered_first = threading.Event()
+    release_first = threading.Event()
+    calls: list[None] = []
+
+    def paced_lookup(user_id):
+        calls.append(None)
+        if len(calls) == 1:
+            entered_first.set()
+            release_first.wait(timeout=5)
+        return real_lookup(user_id)
+
+    monkeypatch.setattr(st, "studio_jobs", paced_lookup)
+
+    results: dict[str, object] = {}
+
+    def attempt(name: str) -> None:
+        results[name] = client.post(f"/api/studio/{song}/hit/wav", data={"file": "create_1.mp3"})
+
+    first = threading.Thread(target=attempt, args=("first",))
+    first.start()
+    assert entered_first.wait(timeout=5), "первый поток не дошёл до проверки \"уже в очереди\""
+
+    second = threading.Thread(target=attempt, args=("second",))
+    second.start()
+    # Второй поток обязан застать лок занятым и ждать -- не проехать мимо
+    # первого, который ещё не создал задание.
+    second.join(timeout=0.3)
+    assert second.is_alive(), "второй поток не стал ждать -- лока нет или он не тот"
+
+    release_first.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert results["first"].status_code == 200 and results["second"].status_code == 200
+    assert results["first"].json()["jobId"] == results["second"].json()["jobId"]
+    assert st.user(user.id).studio_credits == 90          # одна задача WAV -- 10 кредитов, не 20
+
+
 def test_continue_own_recording(studio_app, monkeypatch):
     """«Продолжить мою запись»: только своя музыка, upload_extend с конца
     записи по ссылке .mp3; результат -- запись + продолжение."""

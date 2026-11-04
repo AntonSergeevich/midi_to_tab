@@ -2993,30 +2993,58 @@ def api_studio_extend(job_id: str, request: Request, file: str = Form(""), lyric
     return {"jobId": job.id}
 
 
+_hit_lock = threading.Lock()
+
+
+def _hit_busy(user_id: str, parent_id: str, mode: str, file: str, kind: str) -> str | None:
+    """Id уже поставленной в очередь задачи на то же самое у той же дорожки,
+    если она есть -- используется внутри _hit_child, под замком (ниже)."""
+    for job in storage.studio_jobs(user_id):
+        settings = job.settings or {}
+        if (settings.get("from") == parent_id and settings.get("mode") == mode
+                and settings.get("sourceFile") == file and job.status in ("queued", "running")
+                and (settings.get("parts") == "minus") == (kind == "hitminus")):
+            return job.id
+    return None
+
+
 def _hit_child(request: Request, user, parent, chosen: dict, kind: str, mode: str, task_input: dict,
                copy_source: bool = False):
     """Служебная или дочерняя задача новой нейросети по версии трека: цена --
-    из SERVICES[kind], деньги -- как у любой работы Студии (вернутся при сбое)."""
+    из SERVICES[kind], деньги -- как у любой работы Студии (вернутся при сбое).
+
+    Проверка "такая уже в очереди" и создание новой со списанием денег --
+    проверка-потом-действие: без общего лока два почти одновременных запроса
+    (кнопки "WAV для релиза"/"Суфлёр"/"12 дорожек" шлют fetch без
+    подтверждающего диалога и без disabled на клике -- см. hitAction в
+    studio.js, так что обычный двойной клик или две вкладки доходят до
+    сервера одновременно) оба увидели бы "в очереди ещё нет" и оба списали
+    бы деньги за одну и ту же дорожку -- та же форма гонки, что уже была
+    найдена и исправлена для /tabs (_studio_tabs_lock)."""
     service = studio.SERVICES[kind]
     user = storage.user(user.id)
     if not studio.suno_open(user):
         raise HTTPException(503, f"{service.title} сейчас недоступно — попробуйте позже")
-    if not user.unlimited and user.studio_credits < studio.credit_cost(kind) and user.balance < service.price:
-        raise HTTPException(402, f"{service.title} стоит {studio.credit_cost(kind)} кредитов или "
-                                 f"{service.price:.0f} ₽ — пополните баланс на странице тарифов.")
-    job = storage.create_job(user.id, parent.filename, {
-        "kind": "studio", "mode": mode, "title": service.title, "from": parent.id,
-        "variant": chosen.get("label", ""), "sourceFile": chosen["name"], "charged": 0, "engine": "suno",
-        **({"parts": "12"} if kind == "stems12" else {"parts": "minus"} if kind == "hitminus" else {})})
-    folder = studio_runner.folder(job.id)
-    os.makedirs(folder, exist_ok=True)
-    if copy_source:
-        shutil.copyfile(os.path.join(studio_runner.folder(parent.id), chosen["name"]),
-                        os.path.join(folder, "source.mp3"))
-    _studio_charge_and_submit(request, user, job.id, service, folder,
-                              {"mode": mode, "cost_key": kind, "file": chosen["name"],
-                               "audio_id": chosen["sunoId"], "task_id": chosen.get("sunoTask", ""),
-                               **({"parts": "minus"} if kind == "hitminus" else {}), **task_input})
+    with _hit_lock:
+        busy = _hit_busy(user.id, parent.id, mode, chosen["name"], kind)
+        if busy:
+            return {"jobId": busy}
+        if not user.unlimited and user.studio_credits < studio.credit_cost(kind) and user.balance < service.price:
+            raise HTTPException(402, f"{service.title} стоит {studio.credit_cost(kind)} кредитов или "
+                                     f"{service.price:.0f} ₽ — пополните баланс на странице тарифов.")
+        job = storage.create_job(user.id, parent.filename, {
+            "kind": "studio", "mode": mode, "title": service.title, "from": parent.id,
+            "variant": chosen.get("label", ""), "sourceFile": chosen["name"], "charged": 0, "engine": "suno",
+            **({"parts": "12"} if kind == "stems12" else {"parts": "minus"} if kind == "hitminus" else {})})
+        folder = studio_runner.folder(job.id)
+        os.makedirs(folder, exist_ok=True)
+        if copy_source:
+            shutil.copyfile(os.path.join(studio_runner.folder(parent.id), chosen["name"]),
+                            os.path.join(folder, "source.mp3"))
+        _studio_charge_and_submit(request, user, job.id, service, folder,
+                                  {"mode": mode, "cost_key": kind, "file": chosen["name"],
+                                   "audio_id": chosen["sunoId"], "task_id": chosen.get("sunoTask", ""),
+                                   **({"parts": "minus"} if kind == "hitminus" else {}), **task_input})
     return {"jobId": job.id}
 
 
@@ -3053,12 +3081,10 @@ def api_studio_hit(job_id: str, kind: str, request: Request, file: str = Form(""
     done = (parent.result or {}).get({"wav": "wav", "karaoke": "karaoke"}.get(kind, ""), {}) or {}
     if kind in ("wav", "karaoke") and chosen["name"] in done:
         return {"ready": True}
-    busy = [c for c in storage.studio_jobs(user.id) if (c.settings or {}).get("from") == job_id
-            and c.settings.get("mode") == HIT_KINDS[kind] and c.settings.get("sourceFile") == chosen["name"]
-            and c.status in ("queued", "running")
-            and (c.settings.get("parts") == "minus") == (kind == "hitminus")]
-    if busy:
-        return {"jobId": busy[0].id}
+    # "Уже в очереди" и списание денег -- внутри _hit_child, под одним общим
+    # локом (_hit_lock): здесь отдельной такой же проверки нет специально,
+    # чтобы не было двух версий одной защиты от гонки, рассинхронизирующихся
+    # при будущей правке одной из них.
     return _hit_child(request, user, parent, chosen, kind, HIT_KINDS[kind], {})
 
 
