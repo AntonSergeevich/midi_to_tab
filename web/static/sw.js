@@ -107,7 +107,9 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (request.method !== 'GET') {
-    if (/^\/api\/auth\/(login|logout|register)/.test(url.pathname)) event.waitUntil(forgetUser());
+    // reset -- восстановление пароля тоже входит человека (attach_cookie
+    // в api_reset), не только вход/выход/регистрация
+    if (/^\/api\/auth\/(login|logout|register|reset)/.test(url.pathname)) event.waitUntil(forgetUser());
     return;
   }
   // Вход через Яндекс/VK возвращается сюда по GET, не по POST -- тот же

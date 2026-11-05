@@ -2128,6 +2128,19 @@ def test_service_worker_forgets_previous_user_after_oauth_callback(studio_app):
         "GET .../callback (OAuth) должен звать forgetUser(), как login/logout/register")
 
 
+def test_service_worker_forgets_previous_user_after_password_reset(studio_app):
+    """sw.js: восстановление пароля (POST /api/auth/reset) тоже входит
+    человека -- api_reset в web/app.py зовёт attach_cookie() точно как
+    api_login(), так что чужой человек на общем устройстве может сменить
+    того, кто был в куке. Раньше под сброс памяти (forgetUser) попадали
+    только login/logout/register -- reset был упущен, и чужие треки в
+    DATA/PAGES/AUDIO могли ненадолго утечь тому, кто восстановил пароль."""
+    app_module, client, user, submitted = studio_app
+    sw = client.get("/sw.js").text
+    assert "/^\\/api\\/auth\\/(login|logout|register|reset)/" in sw, (
+        "POST /api/auth/reset должен звать forgetUser(), как login/logout/register")
+
+
 def test_rename_track_and_label_tracks(studio_app):
     """Своё название трека в списке и дорожек мультитрека; пустое -- как было."""
     app_module, client, user, submitted = studio_app
