@@ -320,6 +320,67 @@ def test_split_finished_restyle_into_stems(studio_app):
     assert listed[child]["title"].endswith("новая версия")
 
 
+def test_split_stems_survives_a_true_concurrent_race(studio_app, monkeypatch):
+    """«Разделить» (api_studio_split_result) шлёт fetch сразу после своего
+    confirm() в studio.js -- тот блокирует один браузерный поток, но не
+    защищает от второй вкладки/телефона с тем же confirm() почти
+    одновременно. "Уже делится" и создание нового платного задания --
+    проверка-потом-действие: без общего лока оба запроса видели бы "ещё не
+    делили" до того, как первый создаст задание, и оба списали бы деньги за
+    один и тот же файл -- та же гонка, что уже была найдена и исправлена для
+    /tabs (_studio_tabs_lock) и hit/wav/12-дорожек (_hit_lock)."""
+    import threading
+
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_balance(user.id, 300)
+    job_id = _start(client).json()["jobId"]
+    with open(f"{app_module.studio_runner.folder(job_id)}/restyle.mp3", "wb") as f:
+        f.write(b"new-version")
+    app_module.storage.update_job(job_id, status="done", result={
+        "files": [{"name": "restyle.mp3", "label": "Новая версия"}]})
+    monkeypatch.setattr(app_module.studio_runner, "submit", lambda jid, worker_input: None)
+    after_restyle = app_module.storage.user(user.id).balance
+
+    real_lookup = app_module.storage.studio_jobs
+    entered_first = threading.Event()
+    release_first = threading.Event()
+    calls: list[None] = []
+
+    def paced_lookup(user_id):
+        calls.append(None)
+        if len(calls) == 1:
+            entered_first.set()
+            release_first.wait(timeout=5)
+        return real_lookup(user_id)
+
+    monkeypatch.setattr(app_module.storage, "studio_jobs", paced_lookup)
+
+    results: dict[str, object] = {}
+
+    def attempt(name: str) -> None:
+        results[name] = client.post(f"/api/studio/{job_id}/stems")
+
+    first = threading.Thread(target=attempt, args=("first",))
+    first.start()
+    assert entered_first.wait(timeout=5), "первый поток не дошёл до проверки \"уже делится\""
+
+    second = threading.Thread(target=attempt, args=("second",))
+    second.start()
+    # Второй поток обязан застать лок занятым и ждать -- не проехать мимо
+    # первого, который ещё не создал задание.
+    second.join(timeout=0.3)
+    assert second.is_alive(), "второй поток не стал ждать -- лока нет или он не тот"
+
+    release_first.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert results["first"].status_code == 200 and results["second"].status_code == 200
+    assert results["first"].json()["jobId"] == results["second"].json()["jobId"]
+    spent = after_restyle - app_module.storage.user(user.id).balance
+    assert spent == pytest.approx(app_module.studio.SERVICES["stems"].price)   # одно разделение, не два
+
+
 def test_studio_pack_is_credited_spent_first_and_refunded(studio_app, monkeypatch):
     """Кредиты: зачисляются по оплате, тратятся раньше баланса, при сбое возвращаются."""
     app_module, client, user, submitted = studio_app
