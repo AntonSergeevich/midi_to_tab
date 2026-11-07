@@ -381,6 +381,67 @@ def test_split_stems_survives_a_true_concurrent_race(studio_app, monkeypatch):
     assert spent == pytest.approx(app_module.studio.SERVICES["stems"].price)   # одно разделение, не два
 
 
+def test_extend_survives_a_true_concurrent_race(studio_app, monkeypatch):
+    """«Продлить песню» (api_studio_extend, движок Mureka) шлёт fetch без
+    подтверждающего диалога. "Уже продлевается" и создание нового платного
+    задания -- проверка-потом-действие: без общего лока оба запроса видели
+    бы "ещё не продлевали" до того, как первый создаст задание, и оба
+    списали бы деньги за одну и ту же версию -- та же гонка, что уже была
+    найдена и исправлена для /stems (_split_lock) и /tabs
+    (_studio_tabs_lock). Продление песен новой нейросети (Suno, через
+    _hit_extend) уже было защищено тем же _hit_lock -- только движок Mureka
+    оставался вовсе без защиты."""
+    import threading
+
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_balance(user.id, 300)
+    job_id = _start(client).json()["jobId"]
+    app_module.storage.update_job(job_id, status="done", result={
+        "files": [{"name": "song.mp3", "label": "Версия 1", "mid": "mureka-song-1", "ms": 90000}]})
+    monkeypatch.setattr(app_module.studio_runner, "submit", lambda jid, worker_input: None)
+    before = app_module.storage.user(user.id).balance
+
+    real_lookup = app_module.storage.studio_jobs
+    entered_first = threading.Event()
+    release_first = threading.Event()
+    calls: list[None] = []
+
+    def paced_lookup(user_id):
+        calls.append(None)
+        if len(calls) == 1:
+            entered_first.set()
+            release_first.wait(timeout=5)
+        return real_lookup(user_id)
+
+    monkeypatch.setattr(app_module.storage, "studio_jobs", paced_lookup)
+
+    results: dict[str, object] = {}
+
+    def attempt(name: str) -> None:
+        results[name] = client.post(f"/api/studio/{job_id}/extend",
+                                    data={"file": "song.mp3", "lyrics": "[Verse]\nДальше"})
+
+    first = threading.Thread(target=attempt, args=("first",))
+    first.start()
+    assert entered_first.wait(timeout=5), "первый поток не дошёл до проверки \"уже продлевается\""
+
+    second = threading.Thread(target=attempt, args=("second",))
+    second.start()
+    # Второй поток обязан застать лок занятым и ждать -- не проехать мимо
+    # первого, который ещё не создал задание.
+    second.join(timeout=0.3)
+    assert second.is_alive(), "второй поток не стал ждать -- лока нет или он не тот"
+
+    release_first.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert results["first"].status_code == 200 and results["second"].status_code == 200
+    assert results["first"].json()["jobId"] == results["second"].json()["jobId"]
+    spent = before - app_module.storage.user(user.id).balance
+    assert spent == pytest.approx(app_module.studio.SERVICES["extend"].price)   # одно продление, не два
+
+
 def test_studio_pack_is_credited_spent_first_and_refunded(studio_app, monkeypatch):
     """Кредиты: зачисляются по оплате, тратятся раньше баланса, при сбое возвращаются."""
     app_module, client, user, submitted = studio_app

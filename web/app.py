@@ -2985,6 +2985,21 @@ def api_studio_lyrics_extend(request: Request, lyrics: str = Form(...)):
     return {"lyrics": answer.get("lyrics", "")}
 
 
+_extend_lock = threading.Lock()
+
+
+def _extend_busy(user_id: str, parent_id: str, file: str) -> str | None:
+    """Id уже поставленного в очередь продолжения (Mureka song/extend) той же
+    версии, если оно есть -- используется внутри api_studio_extend, под
+    замком (ниже)."""
+    for job in storage.studio_jobs(user_id):
+        settings = job.settings or {}
+        if (settings.get("from") == parent_id and settings.get("mode") == "extend"
+                and settings.get("sourceFile") == file and job.status in ("queued", "running")):
+            return job.id
+    return None
+
+
 @app.post("/api/studio/{job_id}/extend")
 def api_studio_extend(job_id: str, request: Request, file: str = Form(""), lyrics: str = Form("")):
     """Продлить готовую песню Студии: Mureka song/extend с конца версии."""
@@ -3003,19 +3018,31 @@ def api_studio_extend(job_id: str, request: Request, file: str = Form(""), lyric
     if not lyrics.strip():
         raise HTTPException(400, "Напишите или сочините текст продолжения")
     service = studio.SERVICES["extend"]
-    user = storage.user(user.id)
-    if not user.unlimited and user.studio_credits < studio.credit_cost("extend") \
-            and user.balance < service.price:
-        raise HTTPException(402, f"{service.title} стоит {studio.credit_cost('extend')} кредитов или "
-                                 f"{service.price:.0f} ₽ — пополните баланс на странице тарифов.")
-    job = storage.create_job(user.id, parent.filename, {
-        "kind": "studio", "mode": "extend", "title": service.title, "from": job_id,
-        "variant": chosen.get("label", ""), "charged": 0, "engine": "mureka"})
-    folder = studio_runner.folder(job.id)
-    os.makedirs(folder, exist_ok=True)
-    _studio_charge_and_submit(request, user, job.id, service, folder, {
-        "mode": "extend", "song_id": chosen["mid"], "extend_at": chosen.get("ms") or 0,
-        "lyrics": lyrics.strip()[:3000]})
+    # Кнопка «Продлить песню» шлёт fetch без общего лока: вторая вкладка или
+    # телефон с тем же треком почти одновременно проходит ту же проверку
+    # "хватает ли денег" по тому же устаревшему снимку и тоже создаёт платное
+    # задание -- та же гонка проверка-потом-действие, что уже была найдена и
+    # исправлена для /tabs (_studio_tabs_lock), /stems (_split_lock) и
+    # hit/wav/karaoke/12-дорожек (_hit_lock); продление песни новой
+    # нейросетью (_hit_extend выше) уже защищено тем же _hit_lock -- здесь,
+    # для движка Mureka, такой же защиты не было вовсе.
+    with _extend_lock:
+        busy = _extend_busy(user.id, job_id, file)
+        if busy:
+            return {"jobId": busy}
+        user = storage.user(user.id)
+        if not user.unlimited and user.studio_credits < studio.credit_cost("extend") \
+                and user.balance < service.price:
+            raise HTTPException(402, f"{service.title} стоит {studio.credit_cost('extend')} кредитов или "
+                                     f"{service.price:.0f} ₽ — пополните баланс на странице тарифов.")
+        job = storage.create_job(user.id, parent.filename, {
+            "kind": "studio", "mode": "extend", "title": service.title, "from": job_id,
+            "variant": chosen.get("label", ""), "sourceFile": file, "charged": 0, "engine": "mureka"})
+        folder = studio_runner.folder(job.id)
+        os.makedirs(folder, exist_ok=True)
+        _studio_charge_and_submit(request, user, job.id, service, folder, {
+            "mode": "extend", "song_id": chosen["mid"], "extend_at": chosen.get("ms") or 0,
+            "lyrics": lyrics.strip()[:3000]})
     return {"jobId": job.id}
 
 
