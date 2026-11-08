@@ -3154,6 +3154,36 @@ def api_studio_karaoke(job_id: str, request: Request, file: str = ""):
     return {"words": words}
 
 
+_voice_lock = threading.Lock()
+# Окно, в котором чужое "в очереди" голосовое задание считается ТЕМ ЖЕ
+# сабмитом формы, а не намеренно вторым, другим голосом. У extend/stems/hit
+# дедуп точный -- тот же файл-источник и тот же режим, поэтому им окно не
+# нужно: повтор остаётся повтором сколько угодно долго. У добровольной
+# записи голоса такого ключа нет (дубль формы и "хочу добавить второй,
+# другой голос" выглядят для сервера одинаково -- оба просто "voice"-задание
+# этого человека), поэтому дедуп по одному "есть голосовое в очереди" без
+# ограничения по времени рисковал бы тихо проглотить второй, настоящий
+# голос, если человек отправил его через 2 минуты, пока первый ещё в
+# обработке (клонирование у Mureka не мгновенно). Секунд пять с запасом
+# покрывают гонку "fetch без лока, вторая вкладка/повтор почти в тот же
+# момент" (ровно то, для чего и заводился лок), но не задевают следующий
+# осознанный сабмит чуть позже.
+_VOICE_BUSY_WINDOW = 5.0
+
+
+def _voice_busy(user_id: str) -> str | None:
+    """Id уже поставленного в очередь/выполняющегося добавления голоса в
+    последние _VOICE_BUSY_WINDOW секунд, если оно есть -- используется
+    внутри api_studio_voice, под замком (ниже)."""
+    cutoff = time.time() - _VOICE_BUSY_WINDOW
+    for job in storage.studio_jobs(user_id):
+        settings = job.settings or {}
+        if (settings.get("mode") == "voice" and job.status in ("queued", "running")
+                and job.created_at >= cutoff):
+            return job.id
+    return None
+
+
 @app.post("/api/studio/voice")
 async def api_studio_voice(request: Request, file: UploadFile = File(...), name: str = Form("Мой голос"),
                            consent: bool = Form(False)):
@@ -3164,23 +3194,48 @@ async def api_studio_voice(request: Request, file: UploadFile = File(...), name:
         raise HTTPException(503, "Свой голос скоро появится — ждём, пока Mureka откроет клонирование")
     if not consent:
         raise HTTPException(400, "Подтвердите, что это ваш голос или у вас есть согласие его владельца")
-    if len(storage.voices(user.id)) >= 5:
-        raise HTTPException(409, "Голосов уже пять — удалите ненужный")
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED or suffix in (".mid", ".midi"):
         raise HTTPException(400, "Нужна запись голоса: mp3, wav, m4a, ogg, flac")
-    service = studio.SERVICES["voice"]
-    if not user.unlimited and user.studio_credits < studio.credit_cost("voice") \
-            and user.balance < service.price:
-        raise HTTPException(402, f"{service.title} стоит {studio.credit_cost('voice')} кредитов или "
-                                 f"{service.price:.0f} ₽ — пополните баланс на странице тарифов.")
-    job = storage.create_job(user.id, name.strip()[:40] or "Мой голос", {
-        "kind": "studio", "mode": "voice", "title": service.title, "charged": 0, "engine": "mureka",
-        "voiceName": name.strip()[:40] or "Мой голос",
-        "consent": {"at": time.time(), "ip": request.client.host if request.client else "",
-                    "text": "мой голос или есть согласие владельца"}})
-    folder = studio_runner.folder(job.id)
-    os.makedirs(folder, exist_ok=True)
+    # Кнопка отключается на клиенте перед отправкой (studio.js), но два
+    # запроса всё равно могут прийти почти одновременно -- вторая вкладка,
+    # телефон, повтор после обрыва сети. Без общего лока оба запроса читали
+    # бы один и тот же устаревший снимок баланса и счётчика голосов
+    # (storage.voices) и оба создавали бы платное задание: та же гонка
+    # проверка-потом-действие, что уже была найдена и исправлена для
+    # extend/stems/tabs/hit-wav-karaoke-12-дорожек -- здесь были и двойное
+    # списание, и обход лимита "голосов не больше пяти" одним и тем же
+    # устаревшим прочтением storage.voices().
+    #
+    # Лок не держим во время await ниже (чтение загружаемого файла):
+    # эндпоинт асинхронный, в отличие от extend/stems/tabs/hit (там обычные
+    # def, и FastAPI сам уводит их в отдельный поток, так что обычный
+    # threading.Lock там безопасен). Здесь всё выполняется в одном потоке
+    # цикла событий -- захват обычного лока внутри await заблокировал бы
+    # этот единственный поток навечно, если бы второй запрос успел дойти
+    # до своего "with _voice_lock" раньше, чем первый освободит лок после
+    # чтения файла. Задание создаётся со статусом "queued" ДО освобождения
+    # лока -- этого достаточно, чтобы второй запрос увидел его "занятым":
+    # сама загрузка и списание могут идти уже без лока.
+    with _voice_lock:
+        busy = _voice_busy(user.id)
+        if busy:
+            return {"jobId": busy}
+        if len(storage.voices(user.id)) >= 5:
+            raise HTTPException(409, "Голосов уже пять — удалите ненужный")
+        service = studio.SERVICES["voice"]
+        if not user.unlimited and user.studio_credits < studio.credit_cost("voice") \
+                and user.balance < service.price:
+            raise HTTPException(402, f"{service.title} стоит {studio.credit_cost('voice')} кредитов или "
+                                     f"{service.price:.0f} ₽ — пополните баланс на странице тарифов.")
+        job = storage.create_job(user.id, name.strip()[:40] or "Мой голос", {
+            "kind": "studio", "mode": "voice", "title": service.title, "charged": 0, "engine": "mureka",
+            "voiceName": name.strip()[:40] or "Мой голос",
+            "consent": {"at": time.time(), "ip": request.client.host if request.client else "",
+                        "text": "мой голос или есть согласие владельца"}})
+        folder = studio_runner.folder(job.id)
+        os.makedirs(folder, exist_ok=True)
+
     size, limit = 0, 30 * 1024 * 1024
     with open(os.path.join(folder, f"source{suffix}"), "wb") as out:
         while chunk := await file.read(1024 * 1024):

@@ -442,6 +442,95 @@ def test_extend_survives_a_true_concurrent_race(studio_app, monkeypatch):
     assert spent == pytest.approx(app_module.studio.SERVICES["extend"].price)   # одно продление, не два
 
 
+def test_voice_add_survives_a_true_concurrent_race(studio_app, monkeypatch):
+    """«Мой голос» (api_studio_voice) -- асинхронный эндпоинт (поток читает
+    загружаемый файл), в отличие от /extend, /stems, /tabs, hit-wav-karaoke
+    (обычные def, их уводит в поток сам FastAPI). У него своя гонка: форма
+    шлётся без общего лока, и вторая вкладка/телефон с тем же человеком
+    почти одновременно проходит ту же проверку "сколько голосов уже
+    записано" и "хватает ли денег" по тому же устаревшему снимку -- и тоже
+    создаёт платное задание. Эмпирически проверено (findings в коммите):
+    без лока два параллельных запроса списывают дважды и заводят два
+    голоса; с локом -- одно задание, одно списание."""
+    import threading
+
+    app_module, client, user, submitted = studio_app
+    _mureka_env(monkeypatch)
+    monkeypatch.setenv("NASLUX_VOICE_CLONE", "1")
+    app_module.storage.add_balance(user.id, 300)
+    before = app_module.storage.user(user.id).balance
+
+    real_lookup = app_module.storage.studio_jobs
+    entered_first = threading.Event()
+    release_first = threading.Event()
+    calls: list[None] = []
+
+    def paced_lookup(user_id):
+        calls.append(None)
+        if len(calls) == 1:
+            entered_first.set()
+            release_first.wait(timeout=5)
+        return real_lookup(user_id)
+
+    monkeypatch.setattr(app_module.storage, "studio_jobs", paced_lookup)
+
+    results: dict[str, object] = {}
+
+    def attempt(name: str) -> None:
+        results[name] = client.post(
+            "/api/studio/voice", data={"name": "Антон", "consent": "true"},
+            files={"file": (f"me-{name}.mp3", b"ID3voice", "audio/mpeg")})
+
+    first = threading.Thread(target=attempt, args=("first",))
+    first.start()
+    assert entered_first.wait(timeout=5), "первый поток не дошёл до проверки \"уже записывается\""
+
+    second = threading.Thread(target=attempt, args=("second",))
+    second.start()
+    # Второй поток обязан застать лок занятым и ждать -- не проехать мимо
+    # первого, который ещё не создал задание.
+    second.join(timeout=0.3)
+    assert second.is_alive(), "второй поток не стал ждать -- лока нет или он не тот"
+
+    release_first.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert results["first"].status_code == 200 and results["second"].status_code == 200
+    assert results["first"].json()["jobId"] == results["second"].json()["jobId"]
+    spent = before - app_module.storage.user(user.id).balance
+    assert spent == pytest.approx(app_module.studio.SERVICES["voice"].price)   # одна запись, не две
+
+
+def test_voice_add_does_not_block_a_second_different_voice_once_window_passes(studio_app, monkeypatch):
+    """Дедуп в _voice_busy -- по времени (_VOICE_BUSY_WINDOW), а не "любое
+    голосовое задание в очереди": иначе второй, НАСТОЯЩИЙ голос, отправленный
+    пока первый ещё обрабатывается (клонирование у Mureka не мгновенно),
+    тихо подменялся бы заданием первого -- человек решил бы, что добавил
+    второй голос, а на деле получил бы id первого и так и остался бы с
+    одним голосом в списке. За окном дедупликации -- это уже новое,
+    отдельное платное задание, как и должно быть."""
+    app_module, client, user, submitted = studio_app
+    _mureka_env(monkeypatch)
+    monkeypatch.setenv("NASLUX_VOICE_CLONE", "1")
+    app_module.storage.add_balance(user.id, 300)
+    before = app_module.storage.user(user.id).balance
+
+    first = client.post("/api/studio/voice", data={"name": "Антон", "consent": "true"},
+                        files={"file": ("me-1.mp3", b"ID3voice", "audio/mpeg")}).json()["jobId"]
+    # Первый всё ещё "queued" (submit в фикстуре -- заглушка), но вышел из
+    # окна дедупликации -- как если бы прошло несколько секунд.
+    job = app_module.storage.job(first)
+    app_module.storage.update_job(first, created_at=job.created_at - app_module._VOICE_BUSY_WINDOW - 0.1)
+
+    second = client.post("/api/studio/voice", data={"name": "Мария", "consent": "true"},
+                         files={"file": ("me-2.mp3", b"ID3voice2", "audio/mpeg")}).json()["jobId"]
+
+    assert second != first
+    spent = before - app_module.storage.user(user.id).balance
+    assert spent == pytest.approx(2 * app_module.studio.SERVICES["voice"].price)   # два голоса, два списания
+
+
 def test_studio_pack_is_credited_spent_first_and_refunded(studio_app, monkeypatch):
     """Кредиты: зачисляются по оплате, тратятся раньше баланса, при сбое возвращаются."""
     app_module, client, user, submitted = studio_app
