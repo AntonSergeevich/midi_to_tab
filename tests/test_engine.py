@@ -281,6 +281,28 @@ def test_quiet_harmonics_are_removed_loud_octaves_kept():
     assert pitches == [52, 55, 67]
 
 
+def test_ghost_detected_even_when_its_onset_comes_before_the_real_note():
+    """
+    Обертон физически одновременен с настоящей нотой -- но модель слышит
+    начало ноты с дрожанием в обе стороны, и призрак может оказаться
+    распознан на тик-два РАНЬШЕ настоящей ноты, не только позже.
+
+    Тот же интервал, та же громкость и то же окно, что в
+    test_quiet_harmonics_are_removed_loud_octaves_kept выше -- только
+    порядок onset-ов обратный (призрак первым). Если чистка смотрит
+    только назад по списку, этот случай пропускается молча.
+    """
+    from midi2tab import cleanup
+
+    notes = [
+        NoteEvent(0, 20, 76, 20),    # E6 призрак, начался первым (+12, тише)
+        NoteEvent(4, 24, 64, 100),   # E5 сыграно, началось на 4 тика позже
+    ]
+    cleaned, report = cleanup.clean(notes)
+    assert report.removed_ghosts == 1
+    assert [n.pitch for n in cleaned] == [64]
+
+
 def test_cleanup_can_be_switched_off():
     from midi2tab import cleanup
 

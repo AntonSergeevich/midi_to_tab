@@ -83,6 +83,20 @@ def clean(
                 if _is_ghost(note, base, cfg):
                     ghost = True
                     break
+            # Обертон физически одновременен с настоящей нотой, а не
+            # обязательно позже неё: дрожание модели в определении начала
+            # ноты (onset) идёт в обе стороны. Цикл выше смотрит только
+            # назад по списку (меньший onset), и призрак, чьё распознанное
+            # начало на тик-два ОПЕРЕДИЛО настоящую ноту, никогда не
+            # попадал в сравнение с ней и доживал до табов как лишняя нота.
+            if not ghost:
+                for j in range(i + 1, len(result)):
+                    base = result[j]
+                    if base.onset - note.onset > cfg.ghost_onset_window:
+                        break
+                    if _is_ghost(note, base, cfg):
+                        ghost = True
+                        break
             if ghost:
                 report.removed_ghosts += 1
             else:
