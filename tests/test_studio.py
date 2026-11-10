@@ -79,6 +79,104 @@ def test_start_refuses_without_money_and_keeps_balance(studio_app):
     assert app_module.storage.user(user.id).balance == pytest.approx(1)
 
 
+def test_start_survives_a_true_concurrent_race(studio_app, monkeypatch):
+    """api_studio_start (/api/studio -- создать песню, переделать, дописать
+    партию, продолжить) проверяла баланс и создавала платное задание без
+    общего лока, как и соседние ручки до своих фиксов (/extend, /stems,
+    hit-wav-karaoke-12-дорожек, «Мой голос»): кнопка «Начать» дизейблится на
+    клике, но вторая вкладка/телефон с тем же человеком почти одновременно
+    проходит ту же проверку "хватает ли денег" по тому же устаревшему
+    снимку и тоже создаёт платное задание. Тот же рецепт настоящей гонки
+    через два потока с управляемой паузой в storage.studio_jobs (читает её
+    _studio_start_busy), что у test_voice_add_survives_a_true_concurrent_race:
+    оба запроса получают один jobId, списано один раз, не два."""
+    import threading
+
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_balance(user.id, 300)
+    before = app_module.storage.user(user.id).balance
+
+    real_lookup = app_module.storage.studio_jobs
+    entered_first = threading.Event()
+    release_first = threading.Event()
+    calls: list[None] = []
+
+    def paced_lookup(user_id):
+        calls.append(None)
+        if len(calls) == 1:
+            entered_first.set()
+            release_first.wait(timeout=5)
+        return real_lookup(user_id)
+
+    monkeypatch.setattr(app_module.storage, "studio_jobs", paced_lookup)
+
+    results: dict[str, object] = {}
+
+    def attempt(name: str) -> None:
+        results[name] = _start(client, mode="restyle", prompt="металл")
+
+    first = threading.Thread(target=attempt, args=("first",))
+    first.start()
+    assert entered_first.wait(timeout=5), "первый поток не дошёл до проверки \"уже запущено\""
+
+    second = threading.Thread(target=attempt, args=("second",))
+    second.start()
+    # Второй поток обязан застать лок занятым и ждать -- не проехать мимо
+    # первого, который ещё не создал задание.
+    second.join(timeout=0.3)
+    assert second.is_alive(), "второй поток не стал ждать -- лока нет или он не тот"
+
+    release_first.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert results["first"].status_code == 200 and results["second"].status_code == 200
+    assert results["first"].json()["jobId"] == results["second"].json()["jobId"]
+    spent = before - app_module.storage.user(user.id).balance
+    assert spent == pytest.approx(app_module.studio.SERVICES["restyle"].price)   # одна переделка, не две
+
+
+def test_start_does_not_block_a_second_identical_run_once_window_passes(studio_app):
+    """Дедуп в _studio_start_busy -- по времени (_STUDIO_START_BUSY_WINDOW),
+    а не "любой запуск этого режима с тем же отпечатком формы в очереди":
+    иначе повторный, НАСТОЯЩИЙ запуск с теми же параметрами (человек решил
+    пересоздать точно такую же переделку), отправленный спустя время, тихо
+    подменялся бы заданием первого. За окном дедупликации -- это уже новое,
+    отдельное платное задание, даже с тем же отпечатком формы."""
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_balance(user.id, 300)
+    before = app_module.storage.user(user.id).balance
+
+    first = _start(client, mode="restyle", prompt="металл").json()["jobId"]
+    job = app_module.storage.job(first)
+    app_module.storage.update_job(first, created_at=job.created_at - app_module._STUDIO_START_BUSY_WINDOW - 0.1)
+
+    second = _start(client, mode="restyle", prompt="металл").json()["jobId"]
+
+    assert second != first
+    spent = before - app_module.storage.user(user.id).balance
+    assert spent == pytest.approx(2 * app_module.studio.SERVICES["restyle"].price)   # два запуска, два списания
+
+
+def test_start_does_not_block_a_second_different_run_within_the_window(studio_app):
+    """Отпечаток формы (start_sig) -- вторая часть дедупа: запуск того же
+    режима с ДРУГИМИ параметрами (другой стиль) в то же окно времени --
+    заведомо другое намеренное действие (как в
+    test_suno_for_everyone_own_songs_suno_others_yue2, где подряд идут
+    restyle с разными rights), и должен заводить своё платное задание, а не
+    тихо подменяться первым."""
+    app_module, client, user, submitted = studio_app
+    app_module.storage.add_balance(user.id, 300)
+    before = app_module.storage.user(user.id).balance
+
+    first = _start(client, mode="restyle", prompt="металл").json()["jobId"]
+    second = _start(client, mode="restyle", prompt="джаз").json()["jobId"]
+
+    assert second != first
+    spent = before - app_module.storage.user(user.id).balance
+    assert spent == pytest.approx(2 * app_module.studio.SERVICES["restyle"].price)   # два запуска, два списания
+
+
 def test_unlimited_user_is_not_charged(studio_app):
     app_module, client, user, submitted = studio_app
     app_module.storage.set_flags(user.id, unlimited=True)

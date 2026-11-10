@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import html
 import io
 import json
@@ -2082,6 +2083,46 @@ def api_studio(request: Request):
     return response
 
 
+_studio_start_lock = threading.Lock()
+# Та же гонка проверка-потом-действие, что уже чинилась для /extend, /stems
+# (как переделки существующей, так и разделения свежей загрузки, через этот
+# же эндпоинт), hit/wav/karaoke/12-дорожек и «Мой голос»: кнопка «Начать» в
+# studio.js дизейблится на клике (сам fetch -- без общего лока), но вторая
+# вкладка, телефон или повтор после обрыва сети всё равно проходят проверку
+# баланса по тому же устаревшему снимку и создают второе платное задание.
+#
+# Дедуп -- по времени (как у "Моего голоса", _VOICE_BUSY_WINDOW) И по
+# содержимому формы (start_sig ниже), а не просто "этот режим уже в очереди":
+# естественного ключа вроде "тот же файл-источник" здесь нет -- "создать
+# песню" и "переделать в стиль" не идемпотентны, и один и тот же человек
+# вправе запустить два РАЗНЫХ платных задания одного режима подряд (другой
+# файл, другой стиль, другие права на музыку). Дедуп только по режиму без
+# содержимого ловил бы и эти намеренно разные запуски -- что и произошло при
+# первой версии фикса: четыре существующих теста (например
+# test_suno_for_everyone_own_songs_suno_others_yue2, где подряд идут
+# restyle с rights="own" и restyle с rights="cover" -- заведомо два разных
+# платных задания) стали падать, потому что второй вызов тихо возвращал id
+# первого вместо нового задания. start_sig -- отпечаток параметров формы
+# (имя файла, режим, стиль, права, крутилки и т.п.): совпадают оба признака
+# (режим И отпечаток) -- тот же сабмит; отпечаток другой -- разные запросы,
+# даже в то же окно времени.
+_STUDIO_START_BUSY_WINDOW = 5.0
+
+
+def _studio_start_busy(user_id: str, mode: str, start_sig: str) -> str | None:
+    """Id уже поставленного в очередь/выполняющегося запуска с тем же
+    режимом и отпечатком формы (start_sig) в последние
+    _STUDIO_START_BUSY_WINDOW секунд, если есть -- используется внутри
+    api_studio_start, под замком (ниже)."""
+    cutoff = time.time() - _STUDIO_START_BUSY_WINDOW
+    for job in storage.studio_jobs(user_id):
+        settings = job.settings or {}
+        if (settings.get("mode") == mode and settings.get("_startSig") == start_sig
+                and job.status in ("queued", "running") and job.created_at >= cutoff):
+            return job.id
+    return None
+
+
 @app.post("/api/studio")
 async def api_studio_start(
     request: Request,
@@ -2202,29 +2243,50 @@ async def api_studio_start(
         # У ACE-Step нет переключателя голоса -- просим словами в стиле
         style = ", ".join(p for p in (style, studio.VOICES[voice][1]) if p)[:1024]
     cost_key = "stems_pro" if pro else mode
-    by_pack = user.studio_credits >= studio.credit_cost(cost_key, keep_vocals) > 0
-    if not user.unlimited and not by_pack and user.balance < service.price:
-        raise HTTPException(402, f"{service.title} стоит {service.price:.0f} ₽, на балансе "
-                                 f"{user.balance:.0f} ₽. Пополните баланс или возьмите пакет "
-                                 "генераций на странице тарифов.")
+    # Отпечаток содержимого формы -- см. docstring _studio_start_lock выше:
+    # дедуп ниже должен ловить дубль ОДНОГО И ТОГО ЖЕ сабмита, а не любые два
+    # запуска одного режима подряд.
+    start_sig = hashlib.sha256(repr((
+        title.strip()[:80], style, lyrics.strip()[:5000], audio_influence, style_influence,
+        weirdness, melody, track, voice, keep_vocals, again, againFile, rights, reference, pro,
+        engine, closeness, cfg_scale, creativity, negative.strip()[:200], wild, at,
+        file.filename if file else None,
+    )).encode()).hexdigest()
+    # Лок не держим во время await ниже (чтение загружаемого файла) -- см.
+    # docstring _studio_start_lock и тот же приём у api_studio_voice:
+    # эндпоинт асинхронный, захват обычного threading.Lock внутри await
+    # заблокировал бы единственный поток цикла событий навечно. Задание
+    # создаётся со статусом "queued" ДО освобождения лока -- этого достаточно,
+    # чтобы второй запрос увидел его "занятым"; загрузка файла и списание
+    # (_studio_charge_and_submit) идут уже без лока.
+    with _studio_start_lock:
+        busy = _studio_start_busy(user.id, mode, start_sig)
+        if busy:
+            return {"jobId": busy}
+        user = storage.user(user.id)
+        by_pack = user.studio_credits >= studio.credit_cost(cost_key, keep_vocals) > 0
+        if not user.unlimited and not by_pack and user.balance < service.price:
+            raise HTTPException(402, f"{service.title} стоит {service.price:.0f} ₽, на балансе "
+                                     f"{user.balance:.0f} ₽. Пополните баланс или возьмите пакет "
+                                     "генераций на странице тарифов.")
 
-    clamp = lambda v: max(0.0, min(1.0, float(v)))  # noqa: E731
-    knobs = {"audio_influence": clamp(audio_influence),
-             "style_influence": clamp(style_influence), "weirdness": clamp(weirdness)}
-    voice = voice if voice in studio.VOICES or vocal_id else ""
-    settings = {"kind": "studio", "mode": mode, "title": service.title, "preset": preset,
-                **knobs, "track": track, "charged": 0, "engine": engine, "voice": voice,
-                "keepVocals": keep_vocals,
-                **({"rights": {"kind": rights, "at": time.time(),
-                               "ip": request.client.host if request.client else ""}}
-                   if mode != "create" or reference else {}),
-                **({"reference": True} if reference else {})}
-    if mode == "create":   # у песни с нуля файл -- лишь образец стиля, имя -- название
-        name = title.strip()[:80] or "Новая песня"
-    else:
-        name = (file.filename if file else "") or (storage.job(again).filename if again_source else "") \
-            or title.strip()[:80] or studio.PRESETS.get(preset, ("Песня",))[0]
-    job = storage.create_job(user.id, name, settings)
+        clamp = lambda v: max(0.0, min(1.0, float(v)))  # noqa: E731
+        knobs = {"audio_influence": clamp(audio_influence),
+                 "style_influence": clamp(style_influence), "weirdness": clamp(weirdness)}
+        voice = voice if voice in studio.VOICES or vocal_id else ""
+        settings = {"kind": "studio", "mode": mode, "title": service.title, "preset": preset,
+                    **knobs, "track": track, "charged": 0, "engine": engine, "voice": voice,
+                    "keepVocals": keep_vocals, "_startSig": start_sig,
+                    **({"rights": {"kind": rights, "at": time.time(),
+                                   "ip": request.client.host if request.client else ""}}
+                       if mode != "create" or reference else {}),
+                    **({"reference": True} if reference else {})}
+        if mode == "create":   # у песни с нуля файл -- лишь образец стиля, имя -- название
+            name = title.strip()[:80] or "Новая песня"
+        else:
+            name = (file.filename if file else "") or (storage.job(again).filename if again_source else "") \
+                or title.strip()[:80] or studio.PRESETS.get(preset, ("Песня",))[0]
+        job = storage.create_job(user.id, name, settings)
     folder = studio_runner.folder(job.id)
     os.makedirs(folder, exist_ok=True)
     source = os.path.join(folder, f"source{suffix}")
