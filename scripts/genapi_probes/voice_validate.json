@@ -1,0 +1,9 @@
+{
+ "params": {
+  "task": "voice_validate",
+  "upload_url": "https://raw.githubusercontent.com/AntonSergeevich/midi_to_tab/test-results/suno-40856365599/suno_2.mp3",
+  "vocal_start_s": 26,
+  "vocal_end_s": 46,
+  "language": "ru"
+ }
+}
