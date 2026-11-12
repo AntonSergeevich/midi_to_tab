@@ -222,3 +222,47 @@ def test_playlist_is_deleted_from_the_menu_in_its_header(live_mixer):
             assert errors == []
         finally:
             browser.close()
+
+
+def test_concert_songs_are_prepared_in_the_mixer_and_switch_instantly(live_mixer):
+    """12.11, владелец: «на концерте нужно быстрое переключение между
+    мультитреками». Песня сводится в мультитреке («🎤 В концерт») и ложится
+    в память телефона; /concert играет её сразу, ⏭ и стрелка (педаль) --
+    следующая встаёт на старт."""
+    app_module, user, job, port = live_mixer
+    base_url = f"http://127.0.0.1:{port}"
+    with sync_playwright() as pw:
+        executable = _chromium_executable(pw)
+        try:
+            browser = pw.chromium.launch(executable_path=executable,
+                                         args=["--no-sandbox", "--autoplay-policy=no-user-gesture-required"])
+        except Exception as error:
+            pytest.skip(f"браузер playwright не поднялся: {error}")
+        try:
+            context = browser.new_context(viewport={"width": 390, "height": 800})
+            context.add_cookies([{"name": "uid", "value": app_module.signer.dumps(user.id), "url": base_url}])
+            page = context.new_page()
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            for name in ("vocals.mp3", "drums.mp3"):
+                page.goto(f"{base_url}/studio/mix/{job.id}?file={name}", wait_until="networkidle")
+                page.wait_for_function("typeof tracks !== 'undefined' && tracks.length > 0")
+                page.locator("#exportMix").click()
+                page.locator("#exportConcert").click()
+                page.wait_for_function("(document.getElementById('toast').textContent || '').includes('в концерт')", timeout=20000)
+            saved = page.evaluate("JSON.parse(localStorage.getItem('naslux.concert'))")
+            assert len(saved) == 2 and saved[0]["seconds"] >= 1
+            page.goto(f"{base_url}/concert", wait_until="networkidle")
+            page.locator(".cc-item").nth(1).wait_for(state="visible", timeout=5000)
+            first = page.locator("#ccNow").text_content()
+            page.locator("#ccPlay").click()
+            page.wait_for_function("document.getElementById('ccPlay').textContent === '⏸'", timeout=5000)
+            page.locator("#ccNextBtn").click()
+            page.wait_for_function(f"document.getElementById('ccNow').textContent !== {first!r}", timeout=3000)
+            assert page.locator("#ccPlay").text_content() == "▶"       # следующая ждёт ▶
+            page.keyboard.press("ArrowLeft")                             # педаль: назад
+            page.wait_for_function(f"document.getElementById('ccNow').textContent === {first!r}", timeout=3000)
+            assert page.locator("#ccPos").text_content() == "Песня 1 из 2"
+            assert errors == []
+        finally:
+            browser.close()

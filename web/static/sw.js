@@ -11,7 +11,8 @@ const PAGES = `naslux-pages-${VERSION}`;
 const STATIC = `naslux-static-${VERSION}`;
 const DATA = `naslux-data-${VERSION}`;
 const AUDIO = 'naslux-audio-v1';          // общий с мультитреком (mix.js)
-const KEEP = [PAGES, STATIC, DATA, AUDIO];
+const CONCERT = 'naslux-concert-v1';      // песни, сведённые «В концерт» (mix.js, /concert)
+const KEEP = [PAGES, STATIC, DATA, AUDIO, CONCERT];
 const WAIT = 4000;                        // столько ждём сеть, потом -- память
 
 // Чужое и личное не храним: вход, оплата, админка, служебное

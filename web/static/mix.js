@@ -110,9 +110,9 @@ let shifted = null;       // открытая сдвинутая версия (�
 
 // ---------------------------------------------------------------- утилиты
 
-function toast(text, ms = 4500) {
+function toast(text, ms = 4500, html = false) {
   const t = $('toast');
-  t.textContent = text;
+  if (html) t.innerHTML = text; else t.textContent = text;
   t.hidden = false;
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => { t.hidden = true; }, ms);
@@ -3448,6 +3448,42 @@ $('exportMix').addEventListener('click', () => {
   $('exportLoud').checked = mixing.on;
   $('exportSheet').hidden = false;
 });
+// «В концерт» (владелец, 12.11: «на концерте нужно быстрое переключение
+// между мультитреками»): песня сводится один раз -- дома, -- и ложится в
+// память телефона одним файлом. На странице /concert она включается сразу,
+// без интернета и без раскладывания дорожек (это и есть долгая загрузка).
+const CONCERT_CACHE = 'naslux-concert-v1';
+const CONCERT_LIST = 'naslux.concert';
+$('exportConcert').addEventListener('click', async () => {
+  $('exportSheet').hidden = true;
+  $('exportLoop').checked = false;                 // на концерт -- песня целиком
+  $('exportMix').disabled = true;
+  toast('Готовим песню к концерту…', 60000);
+  try {
+    if (!window.caches) throw new Error('браузер не умеет хранить звук');
+    const { rendered } = await renderMix();
+    const id = `${jobId}:${file}`;
+    const version = job.files.length > 1 ? ((job.files.find((f) => f.name === file) || {}).label || '') : '';
+    const title = `${job.name.replace(/\.[^.]+$/, '')}${version ? ` — ${version}` : ''}`;
+    const cache = await caches.open(CONCERT_CACHE);
+    await cache.put(`/concert/audio/${encodeURIComponent(id)}.wav`,
+      new Response(wav(rendered), { headers: { 'Content-Type': 'audio/wav' } }));
+    let list = [];
+    try { list = JSON.parse(localStorage.getItem(CONCERT_LIST) || '[]'); } catch (error) { list = []; }
+    const entry = { id, job: jobId, file, title, seconds: Math.round(rendered.duration),
+      metro: $('exportMetro').checked, count: $('exportCount').checked, made: Date.now() };
+    const at = list.findIndex((x) => x.id === id);
+    if (at >= 0) list[at] = entry; else list.push(entry);
+    localStorage.setItem(CONCERT_LIST, JSON.stringify(list));
+    // память не вытирается сама, пока человек не согласен
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    toast(`${at >= 0 ? 'Обновлено' : 'Добавлено'} в концерт: ${esc(title)}. <a href="/concert">Открыть концерт →</a>`, 8000, true);
+  } catch (error) {
+    toast(`Не получилось подготовить к концерту: ${error.message || error}`, 7000);
+  }
+  $('exportMix').disabled = false;
+});
+
 // Сохранить микс треком в Студии: слушать в плеере, делиться ссылкой,
 // показать музыкантам -- как шаблон песни
 $('exportSave').addEventListener('click', async () => {

@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0e12">
+<meta name="robots" content="noindex">
+<title>Концерт — NASLUX</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  .cc { max-width: 720px; margin: 0 auto; padding-bottom: 40px; }
+  .cc-stage { position: sticky; top: 0; z-index: 5; background: var(--bg, #0d0e12); padding: 12px 0 14px; }
+  .cc-now { font-size: clamp(26px, 6vw, 40px); font-weight: 800; line-height: 1.15; margin: 4px 0 2px; }
+  .cc-next { font-size: 18px; min-height: 1.4em; }
+  .cc-bar { position: relative; height: 18px; border-radius: 9px; background: rgba(255,255,255,.08); margin: 14px 0 6px; cursor: pointer; touch-action: none; }
+  .cc-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 9px; background: var(--accent, #d99a4e); width: 0; }
+  .cc-time { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; opacity: .75; }
+  .cc-ctrl { display: flex; gap: 14px; align-items: center; justify-content: center; margin-top: 12px; }
+  .cc-ctrl button { border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
+  .cc-skip { width: 72px; height: 72px; font-size: 28px; }
+  .cc-play { width: 108px; height: 108px; font-size: 44px; background: var(--accent, #d99a4e); color: #15110a; border: 0; }
+  .cc-play.on { background: #f0b46a; }
+  .cc-list { list-style: none; padding: 0; margin: 10px 0; }
+  .cc-item { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--border, #2a2c36); border-radius: 14px; margin: 8px 0; }
+  .cc-item.cur { border-color: var(--accent, #d99a4e); background: rgba(217,154,78,.10); }
+  .cc-item.gone { opacity: .5; }
+  .cc-pick { flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: inherit; font: inherit; padding: 4px 0; cursor: pointer; }
+  .cc-pick b { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    font-size: 18px; line-height: 1.25; word-break: break-word; }
+  .cc-n { font-size: 20px; font-weight: 800; width: 28px; text-align: center; opacity: .7; }
+  .cc-small { width: 34px; height: 34px; border-radius: 9px; flex: none; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 15px; }
+  .cc-item { gap: 6px; }
+  .cc-help { font-size: 14px; }
+  .cc-empty { padding: 24px; border: 1px dashed var(--border, #2a2c36); border-radius: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
+    <nav class="topnav" aria-label="Разделы">
+      <a href="/studio">Студия</a>
+      <a href="/account" id="account" class="who">Вход</a>
+    </nav>
+  </header>
+  <script src="/static/nav.js"></script>
+
+  <main class="cc" data-noi18n>
+    <section class="cc-stage" id="stage" hidden>
+      <div class="muted" id="ccPos"></div>
+      <div class="cc-now" id="ccNow"></div>
+      <div class="cc-next muted" id="ccNext"></div>
+      <div class="cc-bar" id="ccBar"><i id="ccFill"></i></div>
+      <div class="cc-time"><span id="ccAt">0:00</span><span id="ccLeft">0:00</span></div>
+      <div class="cc-ctrl">
+        <button type="button" class="cc-skip" id="ccPrev" aria-label="Предыдущая песня">⏮</button>
+        <button type="button" class="cc-play" id="ccPlay" aria-label="Играть">▶</button>
+        <button type="button" class="cc-skip" id="ccNextBtn" aria-label="Следующая песня">⏭</button>
+      </div>
+    </section>
+
+    <h1 id="ccTitle">Концерт</h1>
+    <p class="cc-help muted" id="ccHelp">Песни сведены заранее и лежат в памяти телефона: включаются сразу и без интернета.
+      Кончилась песня — следующая встаёт на старт и ждёт ▶. Педаль или клавиатура: пробел — играть/пауза, стрелки — песни.</p>
+    <ol class="cc-list" id="ccList"></ol>
+    <div class="cc-empty muted" id="ccEmpty" hidden>
+      Здесь пока пусто. Откройте песню в мультитреке, настройте, что звучит (громкость, заглушённые партии, метроном),
+      затем «Скачать микс» → <b>🎤 В концерт</b>. Песня сведётся один раз и появится здесь.
+      <p><a href="/studio">Перейти в Студию →</a></p>
+    </div>
+  </main>
+</div>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const CACHE = 'naslux-concert-v1';
+  const LIST = 'naslux.concert';
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const clock = (s) => { s = Math.max(0, Math.round(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  const audioUrl = (id) => `/concert/audio/${encodeURIComponent(id)}.wav`;
+
+  let songs = [];
+  let cur = 0;
+  const players = new Map();      // id -> {el, url}: текущая и соседние -- уже в памяти, старт без задержки
+  let wake = null;
+  const missing = new Set();      // песни, которых нет в памяти (стёрлась, другой телефон)
+
+  function load() {
+    try { songs = JSON.parse(localStorage.getItem(LIST) || '[]'); } catch (e) { songs = []; }
+    if (!Array.isArray(songs)) songs = [];
+  }
+  function store() { try { localStorage.setItem(LIST, JSON.stringify(songs)); } catch (e) { /* */ } }
+
+  async function player(song) {
+    if (!song) return null;
+    if (players.has(song.id)) return players.get(song.id);
+    const entry = { el: null, url: '', missing: false, ready: null };
+    players.set(song.id, entry);
+    entry.ready = (async () => {
+      try {
+        const cache = await caches.open(CACHE);
+        const saved = await cache.match(audioUrl(song.id));
+        if (!saved) { entry.missing = true; return entry; }
+        entry.url = URL.createObjectURL(await saved.blob());
+        const el = new Audio();
+        el.preload = 'auto';
+        el.setAttribute('playsinline', '');
+        el.src = entry.url;
+        el.load();
+        el.addEventListener('timeupdate', () => { if (songs[cur] && songs[cur].id === song.id) progress(); });
+        el.addEventListener('ended', () => { if (songs[cur] && songs[cur].id === song.id) ended(); });
+        el.addEventListener('play', draw);
+        el.addEventListener('pause', draw);
+        entry.el = el;
+      } catch (e) { entry.missing = true; }
+      return entry;
+    })();
+    await entry.ready;
+    return entry;
+  }
+  // в памяти держим только текущую и соседние: длинный сет-лист не съест память телефона
+  function keepNear() {
+    const near = new Set([songs[cur - 1], songs[cur], songs[cur + 1]].filter(Boolean).map((s) => s.id));
+    for (const [id, p] of players) {
+      if (near.has(id)) continue;
+      if (p.el) { p.el.pause(); p.el.removeAttribute('src'); p.el.load(); }
+      if (p.url) URL.revokeObjectURL(p.url);
+      players.delete(id);
+    }
+    near.forEach((id) => player(songs.find((s) => s.id === id)));
+  }
+  const now = () => { const p = songs[cur] && players.get(songs[cur].id); return p && p.el; };
+
+  async function choose(i, play) {
+    if (!songs.length) return;
+    const was = now();
+    if (was) { was.pause(); }
+    cur = Math.max(0, Math.min(songs.length - 1, i));
+    const p = await player(songs[cur]);
+    if (p.el) { try { p.el.currentTime = 0; } catch (e) { /* */ } }
+    keepNear();
+    draw();
+    if (play) toggle(true);
+    if (navigator.vibrate) navigator.vibrate(15);
+  }
+  async function toggle(force) {
+    const p = songs[cur] && await player(songs[cur]);
+    if (!p || !p.el) { draw(); return; }
+    if (force === true || p.el.paused) {
+      try { await p.el.play(); } catch (e) { /* без касания iPhone не даст -- нажмут ▶ */ }
+      lockScreenOn();
+    } else p.el.pause();
+    draw();
+  }
+  function ended() {
+    // кончилась -- следующая встаёт на старт и ждёт ▶ (между песнями -- слово артиста)
+    if (cur < songs.length - 1) choose(cur + 1, false); else draw();
+  }
+  function progress() {
+    const el = now();
+    const d = (el && el.duration) || (songs[cur] && songs[cur].seconds) || 0;
+    const t = (el && el.currentTime) || 0;
+    $('ccFill').style.width = d ? `${(t / d) * 100}%` : '0';
+    $('ccAt').textContent = clock(t);
+    $('ccLeft').textContent = `−${clock(d - t)}`;
+  }
+  function draw() {
+    const empty = !songs.length;
+    $('ccEmpty').hidden = !empty;
+    $('stage').hidden = empty;
+    const song = songs[cur];
+    const p = song && players.get(song.id);
+    if (song) {
+      $('ccPos').textContent = `Песня ${cur + 1} из ${songs.length}`;
+      $('ccNow').textContent = song.title;
+      const next = songs[cur + 1];
+      $('ccNext').textContent = next ? `Дальше: ${next.title}` : 'Это последняя песня';
+      const playing = p && p.el && !p.el.paused;
+      $('ccPlay').textContent = playing ? '⏸' : '▶';
+      $('ccPlay').classList.toggle('on', Boolean(playing));
+      $('ccPlay').setAttribute('aria-label', playing ? 'Пауза' : 'Играть');
+      progress();
+    }
+    $('ccList').innerHTML = songs.map((s, i) => {
+      const gone = missing.has(s.id) || (players.has(s.id) && players.get(s.id).missing);
+      return `<li class="cc-item${i === cur ? ' cur' : ''}${gone ? ' gone' : ''}">
+        <span class="cc-n">${i + 1}</span>
+        <button type="button" class="cc-pick" data-pick="${i}"><b>${esc(s.title)}</b>
+          <span class="muted">${clock(s.seconds)}${s.metro ? ' · с метрономом' : ''}${s.count ? ' · отсчёт' : ''}${gone ? ' · нет в памяти — подготовьте заново' : ''}</span></button>
+        <button type="button" class="cc-small" data-up="${i}" aria-label="Выше" ${i ? '' : 'disabled'}>↑</button>
+        <button type="button" class="cc-small" data-down="${i}" aria-label="Ниже" ${i < songs.length - 1 ? '' : 'disabled'}>↓</button>
+        <a class="cc-small icon-btn" href="/studio/mix/${encodeURIComponent(s.job)}?file=${encodeURIComponent(s.file)}" title="Открыть в мультитреке: поправить и подготовить заново" aria-label="Открыть в мультитреке">✎</a>
+        <button type="button" class="cc-small" data-del="${i}" aria-label="Убрать из концерта">✕</button>
+      </li>`;
+    }).join('');
+  }
+
+  function lockScreenOn() {
+    if ('wakeLock' in navigator && !wake) {
+      navigator.wakeLock.request('screen').then((w) => { wake = w; w.addEventListener('release', () => { wake = null; }); }).catch(() => {});
+    }
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && songs.length) lockScreenOn(); });
+
+  $('ccPlay').addEventListener('click', () => toggle());
+  $('ccPrev').addEventListener('click', () => choose(cur - 1, false));
+  $('ccNextBtn').addEventListener('click', () => choose(cur + 1, false));
+  $('ccBar').addEventListener('pointerdown', (e) => {
+    const el = now();
+    if (!el || !el.duration) return;
+    const box = $('ccBar').getBoundingClientRect();
+    el.currentTime = Math.max(0, Math.min(1, (e.clientX - box.left) / box.width)) * el.duration;
+    progress();
+  });
+  $('ccList').addEventListener('click', async (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.pick !== undefined) { choose(Number(b.dataset.pick), false); return; }
+    const move = (from, to) => {
+      const curId = songs[cur] && songs[cur].id;
+      const [x] = songs.splice(from, 1);
+      songs.splice(to, 0, x);
+      cur = Math.max(0, songs.findIndex((s) => s.id === curId));
+      store(); keepNear(); draw();
+    };
+    if (b.dataset.up !== undefined) move(Number(b.dataset.up), Number(b.dataset.up) - 1);
+    if (b.dataset.down !== undefined) move(Number(b.dataset.down), Number(b.dataset.down) + 1);
+    if (b.dataset.del !== undefined) {
+      const i = Number(b.dataset.del);
+      if (!confirm(`Убрать «${songs[i].title}» из концерта? В мультитреке песня останется.`)) return;
+      const [gone] = songs.splice(i, 1);
+      const p = players.get(gone.id);
+      if (p && p.el) p.el.pause();
+      players.delete(gone.id);
+      caches.open(CACHE).then((c) => c.delete(audioUrl(gone.id))).catch(() => {});
+      if (cur >= songs.length) cur = Math.max(0, songs.length - 1);
+      store(); keepNear(); draw();
+    }
+  });
+  // педаль (Bluetooth-педали шлют стрелки / PageUp-PageDown) и клавиатура
+  document.addEventListener('keydown', (e) => {
+    if (e.target.closest && e.target.closest('input, textarea')) return;
+    if (e.code === 'Space' || e.key === 'Enter') { e.preventDefault(); toggle(); }
+    else if (['ArrowRight', 'ArrowDown', 'PageDown'].includes(e.key)) { e.preventDefault(); choose(cur + 1, false); }
+    else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.key)) { e.preventDefault(); choose(cur - 1, false); }
+  });
+  if ('mediaSession' in navigator) {
+    const on = (a, h) => { try { navigator.mediaSession.setActionHandler(a, h); } catch (e) { /* */ } };
+    on('play', () => toggle(true));
+    on('pause', () => { const el = now(); if (el) el.pause(); });
+    on('nexttrack', () => choose(cur + 1, false));
+    on('previoustrack', () => choose(cur - 1, false));
+  }
+
+  load();
+  draw();
+  if (songs.length) choose(0, false);
+  // что есть в памяти телефона -- проверяем без загрузки самих песен
+  if (window.caches) {
+    caches.open(CACHE).then(async (c) => {
+      for (const s of songs) if (!(await c.match(audioUrl(s.id)))) missing.add(s.id);
+      draw();
+    }).catch(() => {});
+  }
+}());
+</script>
+</body>
+</html>

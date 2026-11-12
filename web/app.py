@@ -3003,6 +3003,13 @@ async def _voice_save(user_id: str, file: UploadFile, name: str) -> float:
         os.remove(raw)
 
 
+@app.get("/concert", response_class=HTMLResponse)
+def concert_page() -> HTMLResponse:
+    """Концерт: песни, сведённые заранее в мультитреке («🎤 В концерт»), --
+    из памяти телефона, переключение мгновенное, без интернета."""
+    return page("concert.html")
+
+
 @app.get("/voice", response_class=HTMLResponse)
 def voice_page() -> HTMLResponse:
     return page("voice.html")
