@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Свой голос — NASLUX</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  .vc { max-width: 600px; margin: 0 auto; }
+  .vc-step { border: 1px solid var(--line, #2a2c36); border-radius: 14px; padding: 14px 16px; margin: 12px 0; }
+  .vc-step[hidden] { display: none; }
+  .vc-step h2 { font-size: 1.05rem; margin: 0 0 6px; }
+  .vc-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .vc-btn { min-height: 46px; padding: 0 18px; border-radius: 12px; font-size: 1rem; }
+  .vc-rec { color: #fff; background: #c0392b; border-color: #c0392b; }
+  .vc-phrase { font-size: 1.35rem; line-height: 1.4; padding: 14px; border-radius: 12px;
+    background: rgba(229, 160, 75, .12); margin: 10px 0; }
+  .vc-state { min-height: 1.4em; }
+  .vc-err { color: #ff7b72; }
+  .vc textarea, .vc input[type=text] { width: 100%; box-sizing: border-box; }
+  .vc textarea { min-height: 160px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a href="/" class="brand"><img src="/static/logo.svg" alt="" width="76" height="24"><span>NASLUX</span></a>
+    <nav class="topnav" aria-label="Разделы">
+      <a href="/studio">Студия</a>
+      <a href="/account" id="account" class="who">Вход</a>
+    </nav>
+  </header>
+  <script src="/static/nav.js"></script>
+
+  <main class="vc">
+    <h1>Свой голос</h1>
+    <p class="muted">Нейросеть запомнит ваш голос и споёт им любую песню. Три шага, пара минут.</p>
+    <p class="vc-state" id="vcState"></p>
+
+    <section class="vc-step" id="vcClosed" hidden>
+      <p>Функция пока в пробе. Войдите в аккаунт владельца.</p>
+    </section>
+
+    <section class="vc-step" id="vcSample" hidden>
+      <h2>1. Спойте 15–30 секунд</h2>
+      <p>Любую песню, своим обычным голосом, без музыки на фоне — в тихой комнате,
+        телефон в 20–30 см от лица. Чем чище голос, тем точнее копия.</p>
+      <div class="vc-row">
+        <button type="button" class="vc-btn" id="vcSampleRec">● Записать</button>
+        <label class="vc-btn btn-ghost" style="display:inline-flex;align-items:center;cursor:pointer">
+          или выбрать файл<input type="file" accept="audio/*" id="vcSampleFile" hidden></label>
+        <span class="muted" id="vcSampleTime"></span>
+      </div>
+    </section>
+
+    <section class="vc-step" id="vcPhrase" hidden>
+      <h2>2. Прочитайте вслух эту фразу</h2>
+      <p class="muted">Это защита: нейросеть сверяет, что голос ваш, а не чужой.</p>
+      <div class="vc-phrase" id="vcPhraseText"></div>
+      <div class="vc-row">
+        <button type="button" class="vc-btn" id="vcPhraseRec">● Записать фразу</button>
+        <label class="vc-btn btn-ghost" style="display:inline-flex;align-items:center;cursor:pointer">
+          или файл<input type="file" accept="audio/*" id="vcPhraseFile" hidden></label>
+        <span class="muted" id="vcPhraseTime"></span>
+      </div>
+    </section>
+
+    <section class="vc-step" id="vcReady" hidden>
+      <h2>3. Голос готов — споём?</h2>
+      <p><input type="text" id="vcTitle" placeholder="Название песни"></p>
+      <p><input type="text" id="vcStyle" placeholder="Стиль: например, лирический рок, гитара, медленно"></p>
+      <p><textarea id="vcLyrics" placeholder="Текст песни: [Verse] … [Chorus] …"></textarea></p>
+      <div class="vc-row">
+        <button type="button" class="vc-btn btn" id="vcSing">Спеть моим голосом</button>
+        <a href="/studio" class="muted">Песня появится в Студии</a>
+      </div>
+    </section>
+
+    <p class="vc-row"><button type="button" class="vc-btn btn-ghost" id="vcReset" hidden>Начать заново</button></p>
+  </main>
+</div>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  let state = {}, timer = 0, recorder = null, chunks = [], started = 0, ticker = 0;
+
+  function show(id, on) { $(id).hidden = !on; }
+  function say(text, bad) { $('vcState').textContent = text || ''; $('vcState').className = 'vc-state' + (bad ? ' vc-err' : ''); }
+
+  function draw() {
+    const st = state.stage || 'none';
+    show('vcClosed', !state.allowed);
+    show('vcSample', state.allowed && ['none', 'checking'].includes(st) || (st === 'error' && state.step === 'sample'));
+    show('vcPhrase', state.allowed && (['phrase', 'creating'].includes(st) || (st === 'error' && state.step === 'phrase')));
+    show('vcReady', state.allowed && st === 'ready');
+    show('vcReset', state.allowed && st !== 'none');
+    $('vcPhraseText').textContent = state.phrase || '';
+    const busy = st === 'checking' || st === 'creating';
+    ['vcSampleRec', 'vcSampleFile', 'vcPhraseRec', 'vcPhraseFile'].forEach((id) => { $(id).disabled = busy; });
+    if (st === 'checking') say('Слушаем образец… около полуминуты');
+    else if (st === 'creating') say('Создаём ваш голос… до пары минут');
+    else if (st === 'error') say('Не получилось: ' + (state.error || 'ошибка') + '. Попробуйте ещё раз.', true);
+    else if (st === 'ready') say('Голос готов ✓');
+    else say('');
+    clearTimeout(timer);
+    if (busy) timer = setTimeout(load, 3000);
+  }
+
+  async function load() {
+    try { state = await (await fetch('/api/voice', { cache: 'no-store' })).json(); } catch (e) { state = {}; }
+    draw();
+  }
+
+  async function send(url, blob, name) {
+    const form = new FormData();
+    form.append('file', blob, name);
+    say('Отправляем запись…');
+    const r = await fetch(url, { method: 'POST', body: form });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { say(j.detail || 'Не получилось отправить запись', true); return; }
+    state = { ...state, ...j };
+    draw();
+  }
+
+  function recordInto(button, timeLabel, url, minSeconds) {
+    return async () => {
+      if (recorder) { recorder.stop(); return; }
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      } catch (e) { say('Нет доступа к микрофону — разрешите его в настройках браузера', true); return; }
+      chunks = [];
+      recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (ev) => { if (ev.data.size) chunks.push(ev.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        clearInterval(ticker);
+        const seconds = (Date.now() - started) / 1000;
+        const type = recorder.mimeType || 'audio/webm';
+        recorder = null;
+        button.textContent = button.dataset.label;
+        button.classList.remove('vc-rec');
+        if (seconds < minSeconds) { say(`Получилось ${seconds.toFixed(0)} с — нужно хотя бы ${minSeconds} с`, true); return; }
+        send(url, new Blob(chunks, { type }), 'record.' + (type.includes('mp4') ? 'm4a' : 'webm'));
+      };
+      started = Date.now();
+      recorder.start(1000);
+      button.dataset.label = button.dataset.label || button.textContent;
+      button.textContent = '■ Стоп';
+      button.classList.add('vc-rec');
+      ticker = setInterval(() => { timeLabel.textContent = ((Date.now() - started) / 1000).toFixed(0) + ' с'; }, 250);
+    };
+  }
+
+  $('vcSampleRec').addEventListener('click', recordInto($('vcSampleRec'), $('vcSampleTime'), '/api/voice/sample', 10));
+  $('vcPhraseRec').addEventListener('click', recordInto($('vcPhraseRec'), $('vcPhraseTime'), '/api/voice/phrase', 2));
+  $('vcSampleFile').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) send('/api/voice/sample', f, f.name); e.target.value = ''; });
+  $('vcPhraseFile').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) send('/api/voice/phrase', f, f.name); e.target.value = ''; });
+  $('vcReset').addEventListener('click', async () => {
+    if (!confirm('Начать заново? Готовый голос забудется.')) return;
+    state = { ...state, ...(await (await fetch('/api/voice/reset', { method: 'POST' })).json()) };
+    draw();
+  });
+  $('vcSing').addEventListener('click', async () => {
+    const form = new FormData();
+    form.append('mode', 'create');
+    form.append('engine', 'hit');
+    form.append('my_voice', 'true');
+    form.append('title', $('vcTitle').value || 'Моим голосом');
+    form.append('prompt', $('vcStyle').value);
+    form.append('lyrics', $('vcLyrics').value);
+    if (!$('vcLyrics').value.trim()) { say('Напишите текст — без слов петь нечего', true); return; }
+    $('vcSing').disabled = true;
+    say('Запускаем песню…');
+    const r = await fetch('/api/studio', { method: 'POST', body: form });
+    const j = await r.json().catch(() => ({}));
+    $('vcSing').disabled = false;
+    if (!r.ok) { say(j.detail || 'Не получилось запустить', true); return; }
+    say('Песня пишется — откройте Студию, она там первой.');
+    setTimeout(() => { location.href = '/studio'; }, 1500);
+  });
+  load();
+}());
+</script>
+</body>
+</html>

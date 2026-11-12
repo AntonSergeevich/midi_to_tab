@@ -3750,3 +3750,54 @@ def test_lyrics_prompt_is_cut_on_a_word():
     text = genapi.lyrics_prompt("слово " * 60)
     assert len(text) <= 200 and text.endswith("слово")
     assert genapi.lyrics_prompt("  коротко \n и ясно ") == "коротко и ясно"
+
+
+def test_own_voice_sample_phrase_then_song_with_persona(studio_app, monkeypatch, tmp_path):
+    """Свой голос (проба владельца): образец -> фраза -> голос -> песня этим голосом."""
+    import subprocess
+    import time as _time
+
+    app_module, client, user, submitted = studio_app
+    genapi, own = app_module.genapi, app_module.own_voice
+    monkeypatch.setenv("GENAPI_API_KEY", "ga-test")
+    app_module.storage.register(user.id, "owner@example.com", app_module.auth.hash_password("пароль-владельца-1"))
+    assert client.get("/api/voice").json()["allowed"] is False           # не владелец -- закрыто
+    assert client.post("/api/voice/sample", files={"file": ("a.wav", b"x")}).status_code == 403
+    app_module.storage.set_flags(user.id, unlimited=True)
+    monkeypatch.setattr(own, "run_later", lambda target, *args: target(*args))   # без потоков
+    asked = []
+    monkeypatch.setattr(genapi, "start", lambda network, params: asked.append(params) or f"r{len(asked)}")
+
+    def wait(rid, **kwargs):
+        if rid == "r1":
+            return {"status": "success", "result": [{"task_id": "t1", "validate_info": "Сердце поёт", "status": "wait_validating"}]}
+        return {"status": "success", "result": [{"voice_id": "v-42"}]}
+
+    monkeypatch.setattr(genapi, "wait", wait)
+    wav = tmp_path / "s.wav"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=12", str(wav)], check=True)
+    short = tmp_path / "short.wav"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=3", str(short)], check=True)
+    assert client.post("/api/voice/sample", files={"file": ("s.wav", short.read_bytes())}).status_code == 400
+    got = client.post("/api/voice/sample", files={"file": ("s.wav", wav.read_bytes())})
+    assert got.status_code == 200, got.text
+    state = client.get("/api/voice").json()
+    assert state["stage"] == "phrase" and state["phrase"] == "Сердце поёт"
+    first = asked[0]
+    assert first["task"] == "voice_validate" and first["upload_url"].endswith("/sample.mp3") and first["vocal_end_s"] >= 11
+    # ссылку на запись GenAPI забирает без куки, по подписи
+    path = first["upload_url"].split("://", 1)[1].split("/", 1)[1]
+    assert client.get("/" + path).status_code == 200
+    assert client.get("/" + path.replace("sample.mp3", "phrase.mp3")).status_code == 403
+    assert client.post("/api/voice/phrase", files={"file": ("p.wav", wav.read_bytes())}).status_code == 200
+    assert asked[1]["task"] == "voice_create" and asked[1]["task_id"] == "t1"
+    assert client.get("/api/voice").json()["ready"] is True
+    started = client.post("/api/studio", data={"mode": "create", "engine": "hit", "my_voice": "true",
+                                               "prompt": "рок", "lyrics": "[Verse]\nПою сам"})
+    assert started.status_code == 200, started.text
+    task_input = submitted[-1][1]
+    assert task_input["persona_id"] == "v-42"
+    job = app_module.storage.job(started.json()["jobId"])
+    params = app_module.studio_runner._hit_params(job, "create", task_input, "")
+    assert params["persona_id"] == "v-42" and params["persona_model"] == "voice_persona" and params["task"] == "generate"
+    assert _time.time() - own.load(user.id)["updated"] < 60

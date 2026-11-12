@@ -43,6 +43,7 @@ from midi2tab.timing import GRIDS
 from midi2tab.tuning import TUNINGS
 
 from . import auth, billing, genapi, llm, mailer, oauth, releases, seo, studio, support
+from . import voice as own_voice
 from . import jobs as jobs_module
 from .jobs import JobRunner
 from .storage import Storage
@@ -474,6 +475,7 @@ def api_health(request: Request):
                                  for j in storage.unfinished_studio_jobs() if (j.settings or {}).get("engine") == "suno"][:10],
                         **storage.suno_usage(time.time() - 30 * 86400)},
         "распознавание_слов": _lyrics_health(),
+        "runpod_ключ": studio.runpod_key_check(),
         "тексты_песен": (f"ИИ-шлюз Beget ({llm.model()})" if llm_up() else
                          "GenAPI (шлюз недавно не ответил)" if llm.ready() and genapi.ready() else
                          "GenAPI" if genapi.ready() else "Mureka" if studio.mureka_key() else "выключено"),
@@ -2153,6 +2155,7 @@ async def api_studio_start(
     negative: str = Form(""),
     wild: bool = Form(False),
     at: float = Form(0.0),
+    my_voice: bool = Form(False),
 ):
     user = current_user(request)
     ready, why = studio.available()
@@ -2317,6 +2320,9 @@ async def api_studio_start(
         # Новая нейросеть: «без чего», смелый режим, с какой секунды продолжить
         **({"negative": negative.strip()[:200], "wild": bool(wild), "at": max(0.0, float(at))}
            if engine == "suno" else {}),
+        # Свой голос (проба владельца, /voice): песню поёт голос человека
+        **({"persona_id": own_voice.voice_id(user.id)}
+           if engine == "suno" and my_voice and mode == "create" and own_voice.voice_id(user.id) else {}),
         # Настройки YuE2: близость к оригиналу, сила стиля, смелость
         **({"closeness": closeness if closeness in ("full", "melody", "free") else "melody",
             "cfg_scale": max(0.8, min(1.8, float(cfg_scale))), "creativity": clamp(creativity)}
@@ -2957,6 +2963,97 @@ def api_studio_mp3_source(job_id: str, e: int, s: str):
 
 
 _lyrics_calls: dict[str, list[float]] = {}
+
+
+# ----------------------------------------------------------- свой голос (проба владельца)
+
+VOICE_FILES = ("sample.mp3", "phrase.mp3")
+
+
+def _voice_user(request: Request):
+    user = current_user(request)
+    if not (user.registered and studio.suno_open(user) and user.unlimited):
+        raise HTTPException(403, "Свой голос пока в пробе — скоро откроем для всех")
+    return user
+
+
+def _voice_link(request: Request, user_id: str, name: str) -> str:
+    """Подписанная ссылка на запись с .mp3 на конце -- её забирает GenAPI."""
+    expires = int(time.time()) + 3 * 3600
+    base = str(request.base_url).rstrip("/")
+    return f"{base}/api/voice/file/{user_id}/{expires}/{studio.sign(SECRET, user_id, 'voice-' + name, expires)}/{name}"
+
+
+async def _voice_save(user_id: str, file: UploadFile, name: str) -> float:
+    raw = os.path.join(own_voice.folder(user_id), "upload.tmp")
+    size = 0
+    with open(raw, "wb") as out:
+        while chunk := await file.read(1 << 20):
+            size += len(chunk)
+            if size > 40 * 1024 * 1024:
+                raise HTTPException(413, "Запись больше 40 МБ — сделайте короче")
+            out.write(chunk)
+    try:
+        return await asyncio.to_thread(own_voice.to_mp3, raw, os.path.join(own_voice.folder(user_id), name))
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    finally:
+        os.remove(raw)
+
+
+@app.get("/voice", response_class=HTMLResponse)
+def voice_page() -> HTMLResponse:
+    return page("voice.html")
+
+
+@app.get("/api/voice")
+def api_voice(request: Request):
+    user = current_user(request)
+    allowed = user.registered and studio.suno_open(user) and user.unlimited
+    return {"allowed": bool(allowed), **(own_voice.public(own_voice.load(user.id)) if allowed else {})}
+
+
+@app.post("/api/voice/sample")
+async def api_voice_sample(request: Request, file: UploadFile = File(...)):
+    """Шаг 1: образец пения -> фраза, которую надо прочитать вслух."""
+    user = _voice_user(request)
+    if own_voice.load(user.id).get("stage") in ("checking", "creating"):
+        raise HTTPException(409, "Предыдущая запись ещё проверяется")
+    seconds = await _voice_save(user.id, file, "sample.mp3")
+    if seconds < own_voice.SAMPLE_MIN:
+        raise HTTPException(400, f"Запись {seconds:.0f} с — нужно хотя бы {own_voice.SAMPLE_MIN:.0f} с пения")
+    own_voice.save(user.id, {"stage": "checking"})
+    own_voice.run_later(own_voice.check_sample, user.id, _voice_link(request, user.id, "sample.mp3"), seconds)
+    return own_voice.public(own_voice.load(user.id))
+
+
+@app.post("/api/voice/phrase")
+async def api_voice_phrase(request: Request, file: UploadFile = File(...)):
+    """Шаг 2: та же фраза голосом человека -> готовый голос."""
+    user = _voice_user(request)
+    state = own_voice.load(user.id)
+    if not state.get("task_id") or state.get("stage") not in ("phrase", "error"):
+        raise HTTPException(409, "Сначала запишите образец пения")
+    await _voice_save(user.id, file, "phrase.mp3")
+    own_voice.save(user.id, {**state, "stage": "creating", "error": ""})
+    own_voice.run_later(own_voice.create_voice, user.id, _voice_link(request, user.id, "phrase.mp3"))
+    return own_voice.public(own_voice.load(user.id))
+
+
+@app.post("/api/voice/reset")
+def api_voice_reset(request: Request):
+    user = _voice_user(request)
+    return own_voice.public(own_voice.save(user.id, {"stage": "none"}))
+
+
+@app.get("/api/voice/file/{user_id}/{e}/{s}/{name}")
+def api_voice_file(user_id: str, e: int, s: str, name: str):
+    if name not in VOICE_FILES or not studio.check_link(SECRET, user_id, "voice-" + name, e, s):
+        raise HTTPException(403, "Ссылка недействительна")
+    path = os.path.join(own_voice.folder(user_id), name)
+    if not os.path.isfile(path):
+        raise HTTPException(404, "Записи нет")
+    return FileResponse(path, media_type="audio/mpeg")
 
 
 _llm_down_until = 0.0

@@ -385,6 +385,28 @@ def api_key() -> str:
     return os.environ.get("RUNPOD_API_KEY", "")
 
 
+def runpod_key_check() -> str:
+    """Подходит ли ключ RunPod с сервера для запуска задач, а не только для
+    чтения: отмена несуществующей задачи -- запись, которая ничего не меняет.
+    12.11 на новом сервере стоял ключ «только чтение»: health отвечал, а
+    разделение падало с 401."""
+    if not api_key():
+        return "ключа нет"
+    try:
+        call("POST", f"{RUNPOD_API}/{endpoint_id()}/cancel/naslux-key-check", {}, timeout=20)
+    except RuntimeError as error:
+        text = str(error)
+        if "ответил 401" in text or "ответил 403" in text:
+            return ("не подходит: " + text[:80] + " -- нужен ключ с правами Read/Write "
+                    "(или All), без ограничения по эндпоинтам")
+        if "ответил 404" in text or "ответил 400" in text:
+            return "работает"
+        return "не проверен: " + text[:120]
+    except (OSError, ValueError) as error:
+        return f"не проверен: {type(error).__name__}"
+    return "работает"
+
+
 def mureka_key() -> str:
     return os.environ.get("MUREKA_API_KEY", "")
 
@@ -2210,7 +2232,12 @@ class StudioRunner:
                     "audio_id": task_input["audio_id"], "task_id": task_input["task_id"],
                     **({"separation_type": "separate_vocal" if task_input.get("parts") == "minus" else "split_stem"}
                        if mode == "stems" else {})}
-        return genapi.suno_params("generate", **common)
+        params = genapi.suno_params("generate", **common)
+        if task_input.get("persona_id"):
+            from . import voice
+            params.update(persona_id=task_input["persona_id"], persona_model=voice.PERSONA_MODEL)
+            params.pop("vocal_gender", None)
+        return params
 
     def _hit_collect(self, job, mode: str, state: dict, folder: str, task_input: dict, remote: dict) -> dict:
         """Ответ GenAPI -> файлы и результат задачи."""
