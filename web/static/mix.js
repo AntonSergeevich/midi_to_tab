@@ -56,6 +56,7 @@ let picks = new Set();
 // непонятно»); выделение -- по кнопке-переключателю «Выделить»
 let montage = true;
 let selectMode = false;
+let hoverEdge = null;      // кусок, у края которого стоит мышь -- ручка подсвечена
 let clipboard = null;     // скопированное: {items: [{src, rel, trimStart, trimEnd}]}
 const undoStack = [];
 let duration = 0;
@@ -660,6 +661,38 @@ function snapOffset(clip, offset, width) {
     });
   });
   return Math.max(-clip.trimStart, offset + (best || 0));
+}
+
+// Край при обрезке прилипает к тактам и к краям других кусков (12 пикселей),
+// Alt -- без прилипания. Возвращает [секунда на ленте, прилип ли].
+function snapEdge(clip, at, width, free) {
+  if (free) return [at, false];
+  const limit = (12 / width) * viewLen();
+  let best = null;
+  const edges = [0];
+  tracks.forEach((t) => t.clips.forEach((o) => { if (o !== clip) edges.push(clipStart(o), clipEnd(o)); }));
+  beats.forEach((b) => { if (downbeats.has(b.toFixed(2))) edges.push(b); });
+  edges.forEach((edge) => {
+    if (Math.abs(edge - at) < limit && (best === null || Math.abs(edge - at) < Math.abs(best - at))) best = edge;
+  });
+  return best === null ? [at, false] : [best, true];
+}
+
+// Край куска под курсором: 'trimStart' / 'trimEnd' и сам кусок. Зона --
+// 14 пикселей мышью и 24 пальцем, и больше внутрь куска, чем наружу:
+// у дорожки с 0:00 левый край прижат к краю окна.
+function edgeAt(lane, sec, px, touch) {
+  const reach = touch ? 24 : 14;
+  let found = null;
+  let bestDist = Infinity;
+  for (const c of lane.clips) {
+    const a = px(clipStart(c)) - px(sec);          // >0 -- край правее курсора
+    const b = px(clipEnd(c)) - px(sec);
+    // левый край: внутрь куска (курсор правее края) -- полная зона, наружу -- треть
+    if (a <= reach / 3 && a >= -reach && Math.abs(a) < bestDist) { found = [c, 'trimStart']; bestDist = Math.abs(a); }
+    if (b >= -reach / 3 && b <= reach && Math.abs(b) < bestDist) { found = [c, 'trimEnd']; bestDist = Math.abs(b); }
+  }
+  return found;
 }
 
 function clipAt(lane, sec) {
@@ -1653,9 +1686,16 @@ function drawTrack(t, i) {
       g.fillRect(0, 0, x(a), h);
       g.fillRect(x(b), 0, w - x(b), h);
     }
-    // края -- ручки обрезки
-    g.fillStyle = '#d99a4e';
-    [a, b].forEach((edge) => g.fillRect(Math.round(x(edge)) - 2 * dpr, 8 * dpr, 4 * dpr, h - 16 * dpr));
+    // края -- ручки обрезки: внутри куска (у дорожки с 0:00 левая видна
+    // целиком), с насечками -- видно, что за них берутся
+    const hw = 7 * dpr;
+    [[a, 0], [b, -hw]].forEach(([edge, shift]) => {
+      const left = Math.round(x(edge)) + shift;
+      g.fillStyle = mine || hoverEdge === clip ? '#f0b46a' : 'rgba(217,154,78,.85)';
+      g.fillRect(left, 6 * dpr, hw, h - 12 * dpr);
+      g.fillStyle = 'rgba(20,16,10,.55)';
+      [-3, 0, 3].forEach((dy) => g.fillRect(left + 2 * dpr, h / 2 + dy * dpr - 0.5 * dpr, hw - 4 * dpr, dpr));
+    });
     if (mine || (montage && t.clips.length > 1)) {
       g.strokeStyle = mine ? 'rgba(246,197,132,.95)' : 'rgba(255,255,255,.18)';
       g.lineWidth = (mine ? 2 : 1) * dpr;
@@ -1956,6 +1996,21 @@ function secAt(e, el) {
   return Math.max(0, Math.min(duration, viewStart + Math.max(0, Math.min(1, (e.clientX - box.left) / box.width)) * viewLen()));
 }
 
+// Мышь над краем куска -- курсор «⟷» и подсвеченная ручка: видно, что край тянется
+document.addEventListener('pointermove', (e) => {
+  if (e.pointerType !== 'mouse' || e.buttons) return;
+  const wave = e.target.closest && e.target.closest('[data-wave]');
+  let found = null;
+  if (wave && duration && !selectMode) {
+    const lane = tracks[Number(wave.dataset.wave)];
+    const width = wave.getBoundingClientRect().width;
+    if (lane) found = edgeAt(lane, secAt(e, wave), (s) => toX(s, width), false);
+    wave.style.cursor = found ? 'ew-resize' : (montage && lane && clipAt(lane, secAt(e, wave)) ? 'grab' : '');
+  }
+  const clip = found ? found[0] : null;
+  if (clip !== hoverEdge) { hoverEdge = clip; redraw(); }
+});
+
 // Курсор (белая полоса) можно взять мышью и перетащить в нужное место
 $('playhead').addEventListener('pointerdown', (e) => {
   if (!duration) return;
@@ -2044,14 +2099,11 @@ document.addEventListener('pointerdown', (e) => {
     const sec = secAt(e, wave);
     const width = wave.getBoundingClientRect().width;
     const px = (x) => toX(x, width);
-    const reach = e.pointerType === 'touch' ? 18 : 10;
     // кусок под пальцем: сначала края (обрезка), потом тело (сдвиг в «Монтаже»)
     let clip = null;
     let grab = null;
-    for (const c of lane.clips) {
-      if (Math.abs(px(sec) - px(clipStart(c))) < reach) { clip = c; grab = 'trimStart'; break; }
-      if (Math.abs(px(sec) - px(clipEnd(c))) < reach) { clip = c; grab = 'trimEnd'; break; }
-    }
+    const edge = edgeAt(lane, sec, px, e.pointerType === 'touch');
+    if (edge) [clip, grab] = edge;
     let holdMove = null;
     if (!clip) {
       clip = clipAt(lane, sec) || null;
@@ -2114,10 +2166,15 @@ document.addEventListener('pointerdown', (e) => {
         return;
       }
       if (grab) {
-        if (!moved) { remember(); moved = true; }
-        const x = Math.max(0, secAt(ev, wave) - clip.offset);
+        if (!moved && Math.abs(ev.clientX - x0) < 3) return;
+        if (!moved) { remember(); moved = true; haptic('pick'); }
+        const [at, snapped] = snapEdge(clip, secAt(ev, wave), width, ev.altKey);
+        const x = Math.max(0, at - clip.offset);
         if (grab === 'trimStart') clip.trimStart = Math.max(0, Math.min(x, clip.trimEnd - 0.1));
         else clip.trimEnd = Math.min(clip.src.buffer.duration, Math.max(x, clip.trimStart + 0.1));
+        if (snapped && !wasSnapped) haptic('tick');
+        wasSnapped = snapped;
+        wave.style.cursor = 'ew-resize';
         drawTrack(lane, index);
         return;
       }

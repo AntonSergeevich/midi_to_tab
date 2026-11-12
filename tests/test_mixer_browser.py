@@ -139,3 +139,49 @@ def test_mouse_click_on_mute_or_solo_toggles_the_button_not_the_track_selection(
             assert errors == []
         finally:
             browser.close()
+
+
+def test_dragging_a_clip_edge_with_the_mouse_trims_the_track(live_mixer):
+    """12.11, просьба владельца: потянул за край дорожки -- она обрезалась.
+    Над краем курсор «⟷», левый край ловится и у дорожки, что начинается
+    с 0:00 (прижат к краю окна), правый -- так же."""
+    app_module, user, job, port = live_mixer
+    base_url = f"http://127.0.0.1:{port}"
+    with sync_playwright() as pw:
+        executable = _chromium_executable(pw)
+        try:
+            browser = pw.chromium.launch(executable_path=executable, args=["--no-sandbox"])
+        except Exception as error:
+            pytest.skip(f"браузер playwright не поднялся: {error}")
+        try:
+            context = browser.new_context(viewport={"width": 1300, "height": 800})
+            context.add_cookies([{"name": "uid", "value": app_module.signer.dumps(user.id), "url": base_url}])
+            page = context.new_page()
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"{base_url}/studio/mix/{job.id}", wait_until="networkidle")
+            wave = page.locator('[data-wave="0"]')
+            wave.wait_for(state="visible", timeout=8000)
+            page.wait_for_function("typeof tracks !== 'undefined' && tracks[0] && tracks[0].clips.length > 0")
+            box = wave.bounding_box()
+            y = box["y"] + box["height"] / 2
+
+            page.mouse.move(box["x"] + 5, y)                       # у самого левого края, внутри куска
+            assert wave.evaluate("el => el.style.cursor") == "ew-resize"
+            page.mouse.down()
+            page.mouse.move(box["x"] + box["width"] * 0.3, y, steps=8)
+            page.mouse.up()
+            start = page.evaluate("tracks[0].clips[0].trimStart")
+            assert 0.2 < start < 0.4, start
+
+            right = box["x"] + box["width"] - 4                      # правый край -- тянем влево
+            page.mouse.move(right, y)
+            assert wave.evaluate("el => el.style.cursor") == "ew-resize"
+            page.mouse.down()
+            page.mouse.move(box["x"] + box["width"] * 0.7, y, steps=8)
+            page.mouse.up()
+            end = page.evaluate("tracks[0].clips[0].trimEnd")
+            assert 0.6 < end < 0.8, end
+            assert errors == []
+        finally:
+            browser.close()
