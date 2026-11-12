@@ -232,12 +232,19 @@
     if (b.dataset.del !== undefined) {
       const i = Number(b.dataset.del);
       if (!confirm(`Убрать «${songs[i].title}» из концерта? В мультитреке песня останется.`)) return;
+      const curId = songs[cur] && songs[cur].id;
       const [gone] = songs.splice(i, 1);
       const p = players.get(gone.id);
       if (p && p.el) p.el.pause();
       players.delete(gone.id);
       caches.open(CACHE).then((c) => c.delete(audioUrl(gone.id))).catch(() => {});
-      if (cur >= songs.length) cur = Math.max(0, songs.length - 1);
+      // убрали не текущую песню -- найти её по id (она могла сдвинуться на
+      // соседний индекс), а не держать старый номер: иначе после удаления
+      // песни ПЕРЕД текущей "сейчас играет" начинал показывать соседнюю --
+      // тихая подмена посреди концерта, когда ведущий убирает уже
+      // отыгранный номер из сет-листа на ходу
+      cur = gone.id === curId ? Math.min(i, songs.length - 1) : songs.findIndex((s) => s.id === curId);
+      cur = songs.length ? Math.max(0, Math.min(cur, songs.length - 1)) : 0;
       store(); keepNear(); draw();
     }
   });

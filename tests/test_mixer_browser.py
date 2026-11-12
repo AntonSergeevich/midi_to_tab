@@ -266,3 +266,38 @@ def test_concert_songs_are_prepared_in_the_mixer_and_switch_instantly(live_mixer
             assert errors == []
         finally:
             browser.close()
+
+
+def test_concert_deleting_an_earlier_song_keeps_the_playing_one_current(live_mixer):
+    """Регресс: сет-лист A,B,C,D, выбрали C (3-я), ведущий на ходу убирает уже
+    отыгранную A (1-ю) из списка -- «сейчас играет» должно остаться C, а не
+    молча подмениться на D, которая встала на её старое место в массиве."""
+    app_module, user, job, port = live_mixer
+    base_url = f"http://127.0.0.1:{port}"
+    with sync_playwright() as pw:
+        executable = _chromium_executable(pw)
+        try:
+            browser = pw.chromium.launch(executable_path=executable, args=["--no-sandbox"])
+        except Exception as error:
+            pytest.skip(f"браузер playwright не поднялся: {error}")
+        try:
+            context = browser.new_context(viewport={"width": 390, "height": 800})
+            page = context.new_page()
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.on("dialog", lambda d: d.accept())
+            page.goto(f"{base_url}/", wait_until="networkidle")
+            songs = [{"id": letter, "title": letter, "job": "x", "file": "x.mp3", "seconds": 10}
+                     for letter in "ABCD"]
+            page.evaluate("(songs) => localStorage.setItem('naslux.concert', JSON.stringify(songs))", songs)
+            page.goto(f"{base_url}/concert", wait_until="networkidle")
+            page.locator(".cc-item").nth(3).wait_for(state="visible", timeout=5000)
+            page.locator('[data-pick="2"]').click()                      # выбрали C
+            page.wait_for_function("document.getElementById('ccNow').textContent === 'C'")
+            page.locator('[data-del="0"]').click()                       # убрали A
+            page.wait_for_function("document.querySelectorAll('.cc-item').length === 3")
+            assert page.locator("#ccNow").text_content() == "C"
+            assert page.locator("#ccPos").text_content() == "Песня 2 из 3"
+            assert errors == []
+        finally:
+            browser.close()
