@@ -1274,6 +1274,56 @@ def analyze_audio(path: str) -> dict:
             "chords": [[round(c.start, 2), round(c.end, 2), c.name] for c in found.chords]}
 
 
+def tempo_reference(result: dict, name: str) -> float:
+    """Темп, с которым сверяем версию: заданный при генерации, иначе темп
+    исходника, иначе -- первой разобранной версии (если это не она сама)."""
+    given = (result.get("settings") or {}).get("bpm")
+    if given:
+        return float(given)
+    analyses = result.get("analysis") or {}
+    for key, a in analyses.items():
+        if key.startswith("source.") and key != name and a.get("bpm") and not a.get("error"):
+            return float(a["bpm"])
+    # основная -- первая разобранная версия; сама она ни с кем не сверяется
+    for f in result.get("files") or []:
+        a = analyses.get(f.get("name")) or {}
+        if a.get("bpm") and not a.get("error"):
+            return float(a["bpm"]) if f.get("name") != name else 0.0
+    return 0.0
+
+
+def same_tempo_octave(analysis: dict, reference: float) -> dict:
+    """Автоопределение темпа ошибается ровно вдвое: восьмые слышит как
+    четверти (владелец, 12.11: две версии одной песни -- 70 и 136 BPM).
+    Версия вдвое быстрее или медленнее основной -- приводим к основной,
+    вместе с сеткой долей и тактов."""
+    bpm = analysis.get("bpm")
+    if not bpm or not reference or analysis.get("error") or analysis.get("fixed"):
+        return analysis
+    ratio = float(bpm) / reference
+    beats, downs = list(analysis.get("beats") or []), list(analysis.get("downbeats") or [])
+    if 1.85 <= ratio <= 2.15:            # вдвое быстрее: каждая вторая доля, каждый второй такт
+        first = downs[0] if downs else (beats[0] if beats else 0.0)
+        start = next((i for i, b in enumerate(beats) if abs(b - first) < 1e-3), 0) % 2
+        return {**analysis, "bpm": round(float(bpm) / 2), "autoBpm": bpm,
+                "beats": beats[start::2], "downbeats": downs[::2]}
+    if 0.465 <= ratio <= 0.54:           # вдвое медленнее: доли и такты -- с серединками
+        def doubled(xs):
+            out = []
+            for a, b in zip(xs, xs[1:]):
+                out += [a, round((a + b) / 2, 3)]
+            return out + xs[-1:]
+        return {**analysis, "bpm": round(float(bpm) * 2), "autoBpm": bpm,
+                "beats": doubled(beats), "downbeats": doubled(downs)}
+    return analysis
+
+
+def version_analysis(result: dict, name: str) -> dict:
+    """Разбор версии, как его показывать: темп в одной октаве с основным."""
+    found = (result.get("analysis") or {}).get(name) or {}
+    return same_tempo_octave(found, tempo_reference(result, name))
+
+
 def with_tempo(analysis: dict, fix: dict | None) -> dict:
     """Темп, который музыкант поправил сам: ровная сетка долей от его
     сильной доли, такт -- четыре доли. Автоопределение ошибается на

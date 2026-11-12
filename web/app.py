@@ -1926,7 +1926,7 @@ def _first_analysis(result: dict, field: str):
     (темп, поправленный музыкантом, важнее автоопределения)."""
     for name in [f["name"] for f in result.get("files") or []]:
         value = (((result.get("tempoFix") or {}) if field == "bpm" else {}).get(name)
-                 or (result.get("analysis") or {}).get(name) or {}).get(field)
+                 or studio.version_analysis(result, name)).get(field)
         if value:
             return value
     return None
@@ -1988,7 +1988,8 @@ def _studio_job_payload(job) -> dict:
         "charged": settings.get("charged", 0),
         "bpm": (result.get("settings") or {}).get("bpm") or _first_analysis(result, "bpm"),
         "key": (result.get("settings") or {}).get("key_scale") or _first_analysis(result, "key"),
-        "keys": {name: {"key": a.get("key"), "bpm": ((result.get("tempoFix") or {}).get(name) or a).get("bpm")}
+        "keys": {name: {"key": a.get("key"), "bpm": ((result.get("tempoFix") or {}).get(name)
+                                                      or studio.version_analysis(result, name)).get("bpm")}
                  for name, a in (result.get("analysis") or {}).items() if not a.get("error")},
         "sourceFile": settings.get("sourceFile", ""),
         "files": files,
@@ -2548,7 +2549,8 @@ def api_studio_analysis(job_id: str, request: Request, file: str = ""):
     cached = ((job.result or {}).get("analysis") or {}).get(file)
     if cached and cached.get("v") == studio.ANALYSIS_VERSION:
         owner, name = _tempo_owner(job, file)
-        return studio.with_tempo(cached, ((owner.result or {}).get("tempoFix") or {}).get(name))
+        shown = studio.version_analysis(job.result or {}, file)
+        return studio.with_tempo(shown, ((owner.result or {}).get("tempoFix") or {}).get(name))
     studio_runner.analyze_later(job_id, file)
     return {"pending": True}
 
@@ -4132,7 +4134,7 @@ def take_page(token: str, request: Request) -> HTMLResponse:
 def listen_page(token: str, request: Request) -> HTMLResponse:
     found, job, _ = _shared(token)
     title = Path(job.filename).stem[:120] or "Песня"
-    analysis = ((job.result or {}).get("analysis") or {}).get(found["file"]) or {}
+    analysis = studio.version_analysis(job.result or {}, found["file"])
     meta = (job.settings or {}).get("meta") or {}
     facts = [x for x in (meta.get("artist", ""), meta.get("album", ""), meta.get("year", ""),
                          f"Тональность {analysis['key']}" if analysis.get("key") else "",

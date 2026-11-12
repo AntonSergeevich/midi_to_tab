@@ -3801,3 +3801,25 @@ def test_own_voice_sample_phrase_then_song_with_persona(studio_app, monkeypatch,
     params = app_module.studio_runner._hit_params(job, "create", task_input, "")
     assert params["persona_id"] == "v-42" and params["persona_model"] == "voice_persona" and params["task"] == "generate"
     assert _time.time() - own.load(user.id)["updated"] < 60
+
+
+def test_versions_of_one_song_show_tempo_in_the_same_octave():
+    """12.11: две версии одной песни -- 70 и 136 BPM (вторую определитель
+    услышал вдвое быстрее). Версия приводится к темпу основной вместе с сеткой."""
+    from web import studio
+
+    beats = [round(i * 60 / 136, 3) for i in range(16)]
+    result = {"files": [{"name": "a.mp3"}, {"name": "b.mp3"}], "analysis": {
+        "a.mp3": {"bpm": 70, "beats": [0.0, 0.857], "downbeats": [0.0]},
+        "b.mp3": {"bpm": 136, "beats": beats, "downbeats": beats[::4]}}}
+    first, second = studio.version_analysis(result, "a.mp3"), studio.version_analysis(result, "b.mp3")
+    assert first["bpm"] == 70                                   # основная -- как есть
+    assert second["bpm"] == 68 and second["autoBpm"] == 136
+    assert second["beats"] == beats[::2] and second["downbeats"] == beats[::8]
+    slow = {**result, "analysis": {**result["analysis"], "b.mp3": {"bpm": 35, "beats": [0.0, 1.7, 3.4], "downbeats": [0.0, 6.8]}}}
+    doubled = studio.version_analysis(slow, "b.mp3")
+    assert doubled["bpm"] == 70 and doubled["beats"] == [0.0, 0.85, 1.7, 2.55, 3.4] and doubled["downbeats"] == [0.0, 3.4, 6.8]
+    other = {**result, "analysis": {**result["analysis"], "b.mp3": {"bpm": 96, "beats": [], "downbeats": []}}}
+    assert studio.version_analysis(other, "b.mp3")["bpm"] == 96   # не вдвое -- не трогаем
+    with_source = {**result, "analysis": {**result["analysis"], "source.mp3": {"bpm": 140}}}
+    assert studio.version_analysis(with_source, "a.mp3")["bpm"] == 140   # исходник главнее
