@@ -216,6 +216,123 @@ def cmd_tickets(db: Storage, args) -> None:
             print(f"  ответ: {row['answer'][:200]}")
 
 
+# --- перенос клиентов из выгрузки GetPlatinum ------------------------------
+# После сбоя Beget (02.11.2026) сайт переехал на новый сервер с пустой базой.
+# Клиенты есть в кабинете GetPlatinum: ФИО, почта, телефон, сумма покупок.
+# «перенос» заводит им учётные записи, кладёт оплаченное на баланс и пишет
+# письмо со ссылкой «задать пароль» (неделя). Без --apply только показывает
+# план. Повторный запуск безопасен: у кого запись уже есть -- пропускает,
+# дважды деньги не начисляет. Когда вернётся архив старой базы
+# (restore_data.sh), он заменит всё целиком -- с настоящими балансами.
+MIGRATE_MARK = "перенос:getplatinum"
+MIGRATE_LINK_TTL = 7 * 24 * 3600
+
+
+def read_clients(path: str) -> list[dict]:
+    """Строки выгрузки -> клиенты по почте (несколько покупок -- одна запись)."""
+    import csv
+    import re
+
+    raw = Path(path).read_text(encoding="utf-8-sig")
+    dialect = csv.Sniffer().sniff(raw.splitlines()[0], delimiters=";,\t")
+    rows = list(csv.reader(raw.splitlines(), dialect))
+    head = [h.strip().lower() for h in rows[0]]
+
+    def col(*names):
+        for i, h in enumerate(head):
+            if any(n in h for n in names):
+                return i
+        return None
+
+    i_mail, i_name = col("mail", "почт"), col("фио", "имя", "name")
+    i_phone, i_sum = col("телефон", "phone"), col("сумм", "amount", "sum")
+    if i_mail is None:
+        sys.exit("В таблице нет столбца с почтой (E-mail)")
+    clients: dict[str, dict] = {}
+    for row in rows[1:]:
+        if len(row) <= i_mail or "@" not in row[i_mail]:
+            continue
+        try:
+            email = normalise(row[i_mail].strip())
+        except auth.AuthError:
+            print(f"  пропуск: странная почта {row[i_mail]!r}")
+            continue
+        got = clients.setdefault(email, {"email": email, "name": "", "phone": "", "paid": 0.0})
+        name = row[i_name].strip() if i_name is not None and len(row) > i_name else ""
+        if len(name) > len(got["name"]) and "провер" not in name.lower():
+            got["name"] = name
+        if i_phone is not None and len(row) > i_phone and not got["phone"]:
+            got["phone"] = row[i_phone].strip()
+        if i_sum is not None and len(row) > i_sum:
+            amount = re.sub(r"[^0-9,.]", "", row[i_sum]).replace(",", ".")
+            got["paid"] += float(amount) if amount.replace(".", "", 1).isdigit() else 0.0
+    return list(clients.values())
+
+
+def welcome_letter(client: dict, link: str) -> str:
+    hello = f"Здравствуйте, {client['name'].split()[0]}!" if client["name"] else "Здравствуйте!"
+    money = (f"Оплаченные вами {client['paid']:.0f} ₽ уже на балансе.\n" if client["paid"] else "")
+    return (
+        f"{hello}\n\n"
+        "2 ноября у нашего хостинг-провайдера произошла крупная авария, и NASLUX "
+        "переехал на новый сервер. Ваша учётная запись перенесена.\n"
+        f"{money}\n"
+        "Чтобы войти, задайте пароль по ссылке (действует 7 дней):\n\n"
+        f"{link}\n\n"
+        "Если ссылка устарела -- откройте naslux.ru/account и нажмите «Забыли пароль?» "
+        "с этой почтой. Вход через Яндекс и VK тоже работает.\n\n"
+        "Прежние треки вернутся, как только провайдер отдаст резервную копию -- "
+        "мы напишем. Простите за неудобства!\n\n"
+        "Команда NASLUX\n"
+    )
+
+
+def cmd_migrate(db: Storage, args) -> None:
+    import secrets as pysecrets
+
+    clients = read_clients(args.file)
+    skip = {normalise(x) for x in args.skip}
+    site = os.environ.get("NASLUX_SITE_URL", "https://naslux.ru").rstrip("/")
+    if args.send:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from web import mailer
+
+        ok, why = mailer.available()
+        if not ok:
+            sys.exit(f"Почта не настроена: {why}")
+    print(f"{'ПЕРЕНОС' if args.apply else 'ПЛАН (ничего не меняю; запустите с --apply)'}: {len(clients)} клиентов")
+    for c in clients:
+        line = f"  {c['email']:<32} {c['name'] or '—':<28} {c['phone'] or '—':<14} {c['paid']:>8.2f} ₽"
+        if c["email"] in skip:
+            print(line + "  → пропуск (--skip)")
+            continue
+        if db.user_by_email(c["email"]):
+            print(line + "  → уже есть, не трогаю")
+            continue
+        credit = c["paid"] if args.balance else 0.0
+        mailable = not c["email"].endswith("@vk.id")
+        plan = f"  → завести{f', +{credit:.0f} ₽' if credit else ''}{', письмо' if args.send and mailable else ''}"
+        print(line + plan)
+        if not args.apply:
+            continue
+        user = db.ensure_user(None)
+        # пароль никто не знает: человек задаст свой по ссылке из письма
+        db.register(user.id, c["email"], auth.hash_password(pysecrets.token_urlsafe(24)))
+        note = " · ".join(x for x in (c["name"], c["phone"], f"оплачено {c['paid']:.0f} ₽", MIGRATE_MARK) if x)
+        db.set_flags(user.id, note=note)
+        if credit:
+            db.add_balance(user.id, credit)
+        if args.send and mailable:
+            token, token_hash = auth.make_reset_token()
+            db.create_reset(user.id, token_hash, auth.token_expiry(MIGRATE_LINK_TTL))
+            try:
+                mailer.send(c["email"], "NASLUX переехал -- ваш аккаунт сохранён",
+                            welcome_letter(c, f"{site}/account?reset={token}"))
+                print("      письмо отправлено")
+            except Exception as exc:  # noqa: BLE001
+                print(f"      письмо НЕ ушло: {exc}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Управление пользователями NASLUX",
@@ -263,6 +380,15 @@ def main() -> None:
     p_tick = sub.add_parser("обращения", help="показать обращения")
     p_tick.add_argument("--new", action="store_true", help="только неотвеченные")
     p_tick.set_defaults(func=cmd_tickets)
+
+    p_mig = sub.add_parser("перенос", help="завести клиентов из выгрузки GetPlatinum (CSV)")
+    p_mig.add_argument("file", help="CSV: ФИО, E-mail, Телефон, Сумма покупок")
+    p_mig.add_argument("--apply", action="store_true", help="выполнить (без него -- только план)")
+    p_mig.add_argument("--send", action="store_true", help="разослать письма «задать пароль»")
+    p_mig.add_argument("--no-balance", dest="balance", action="store_false",
+                       help="не класть оплаченное на баланс")
+    p_mig.add_argument("--skip", nargs="*", default=[], help="почты, которые не переносить (свои, тестовые)")
+    p_mig.set_defaults(func=cmd_migrate)
 
     args = parser.parse_args()
     args.func(store(), args)
