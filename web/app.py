@@ -3003,6 +3003,28 @@ async def _voice_save(user_id: str, file: UploadFile, name: str) -> float:
         os.remove(raw)
 
 
+# Шпаргалка для мастер-класса учителей (13.11.2026): статичная страница и PDF
+# как есть -- без шаблона сайта и отпечатков. QR напечатан на /prompts/.
+# Убрать: удалить эти три маршрута и папку web/prompts.
+PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+
+@app.api_route("/prompts", methods=["GET", "HEAD"], include_in_schema=False)
+def prompts_redirect() -> RedirectResponse:
+    return RedirectResponse("/prompts/", status_code=301)
+
+
+@app.api_route("/prompts/", methods=["GET", "HEAD"], include_in_schema=False)
+def prompts_page() -> FileResponse:
+    return FileResponse(PROMPTS_DIR / "index.html", media_type="text/html; charset=utf-8",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.api_route("/prompts/prompty-dlya-uchiteley.pdf", methods=["GET", "HEAD"], include_in_schema=False)
+def prompts_pdf() -> FileResponse:
+    return FileResponse(PROMPTS_DIR / "prompty-dlya-uchiteley.pdf", media_type="application/pdf")
+
+
 @app.get("/concert", response_class=HTMLResponse)
 def concert_page() -> HTMLResponse:
     """Концерт: песни, сведённые заранее в мультитреке («🎤 В концерт»), --

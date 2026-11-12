@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Промпты для учителей</title>
+<meta name="description" content="20 готовых промптов для учителя: планы, отчёты, проверка, оформление, песни для класса. Мастер-класс школы №149.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Golos+Text:wght@400;500;600&display=swap">
+<style>
+/* Layout: one narrow column of grouped prompt cards, sticky chip navigation, copy button on each card */
+:root{
+  --bg:#f5f7fb; --surface:#ffffff; --ink:#14203a; --muted:#56627a; --line:#dde3ee;
+  --accent:#1f4fd8; --accent-ink:#ffffff; --hl:#ffd23f; --code:#eef2fa;
+  --display:"Unbounded", "Arial Black", sans-serif;
+  --body:"Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1424; --surface:#161e33; --ink:#e8edf8; --muted:#9aa6bf; --line:#27324d;
+  --accent:#6f95ff; --accent-ink:#0e1424; --hl:#ffd23f; --code:#1d2740; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1424; --surface:#161e33; --ink:#e8edf8; --muted:#9aa6bf; --line:#27324d;
+  --accent:#6f95ff; --accent-ink:#0e1424; --hl:#ffd23f; --code:#1d2740; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.5}
+.wrap{max-width:720px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 48px}
+header h1{font-family:var(--display);font-weight:800;font-size:clamp(26px,7vw,40px);line-height:1.1;margin:0 0 12px;text-wrap:balance}
+header h1 mark{background:var(--hl);color:#14203a;padding:0 .15em;border-radius:4px}
+.lead{color:var(--muted);margin:0 0 16px;max-width:60ch}
+.formula{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-weight:600;margin:0 0 20px}
+.formula span{background:var(--surface);border:1px solid var(--line);padding:4px 10px;border-radius:999px}
+.formula i{color:var(--muted);font-style:normal}
+nav{position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);z-index:5;padding-block:10px;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+nav a{flex:none;text-decoration:none;color:var(--ink);background:var(--surface);border:1px solid var(--line);padding:6px 12px;border-radius:999px;font-size:14px;font-weight:500}
+nav a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+section{margin-top:28px}
+section h2{font-family:var(--display);font-weight:600;font-size:20px;margin:0 0 12px;scroll-margin-top:64px}
+.cards{display:grid;gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;gap:10px}
+.top{display:flex;gap:10px;align-items:center;justify-content:space-between}
+.top h3{margin:0;font-size:16px;font-weight:600;min-width:0}
+.num{font-variant-numeric:tabular-nums;color:var(--accent);font-weight:600;margin-right:6px}
+pre{margin:0;background:var(--code);border-radius:10px;padding:12px;white-space:pre-wrap;word-break:break-word;font-family:var(--body);font-size:15px;line-height:1.45}
+button.copy{flex:none;font:inherit;font-size:14px;font-weight:600;border:0;border-radius:999px;padding:7px 14px;background:var(--accent);color:var(--accent-ink);cursor:pointer}
+button.copy.done{background:var(--hl);color:#14203a}
+.tools{display:grid;gap:8px;margin-top:8px}
+.tools div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px}
+.tools b{display:block}
+.tools a{color:var(--accent)}
+.rules{background:var(--hl);color:#14203a;border-radius:14px;padding:16px;margin-top:28px}
+.rules h2{margin-top:0}
+.rules ol{margin:0;padding-left:20px;display:grid;gap:6px}
+footer{margin-top:28px;color:var(--muted);font-size:14px}
+@media (prefers-reduced-motion: reduce){*{scroll-behavior:auto!important}}
+*{box-sizing:border-box}
+html,body{margin:0}
+.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 8px}
+a.pdf{display:inline-block;text-decoration:none;font-size:15px;font-weight:600;border:2px solid var(--accent);border-radius:999px;padding:9px 18px;color:var(--accent)}
+a.pdf:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.hint{font-size:13px;color:var(--muted)}
+.cta{display:block;text-decoration:none;background:var(--ink);color:var(--bg);border-radius:14px;padding:16px;margin-top:12px}
+.cta b{display:block;font-family:var(--display);font-weight:600;font-size:18px;margin-bottom:4px}
+.cta span{color:var(--hl);font-weight:600}
+@media print{
+  :root{--bg:#fff;--surface:#fff;--ink:#14203a;--muted:#444;--line:#ccc;--code:#f2f4f8;--accent:#1f4fd8}
+  body{background:#fff;color:#14203a;font-size:12pt}
+  nav,button,.actions,body::before{display:none!important}
+  .wrap{max-width:none;padding:0}
+  .card,.rules,.tools div,.cta{break-inside:avoid;box-shadow:none}
+  section h2{break-after:avoid}
+  .cta{background:#fff;color:#14203a;border:2px solid #14203a}
+  .cta span{color:#1f4fd8}
+  a{color:#1f4fd8}
+  @page{margin:14mm}
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<header>
+  <h1>20 промптов, которые <mark>экономят вечера</mark></h1>
+  <p class="lead">Мастер-класс «Автоматизация рутины учителя с помощью ИИ», школа №149, 13 ноября 2026. Нажмите «Копировать», вставьте в DeepSeek или Qwen, замените текст в [скобках] на свой.</p>
+  <div class="actions"><a class="pdf" href="prompty-dlya-uchiteley.pdf" download>Скачать PDF</a><span class="hint">6 страниц, все 20 промптов</span></div>
+  <div class="formula" aria-label="Формула промпта"><span>Роль</span><i>→</i><span>Задача</span><i>→</i><span>Контекст</span><i>→</i><span>Формат</span></div>
+</header>
+
+<nav aria-label="Разделы">
+  <a href="#plan">Планирование</a><a href="#docs">Документы</a><a href="#check">Проверка</a><a href="#design">Оформление</a><a href="#class">Классному руководителю</a><a href="#where">Где работать</a>
+</nav>
+
+<section><h2 id="plan">Планирование</h2><div class="cards">
+<div class="card"><div class="top"><h3><span class="num">1</span>План урока</h3><button class="copy">Копировать</button></div><pre>Ты опытный методист. Составь план урока по предмету [предмет] на тему «[тема]» для [номер] класса, длительность [40] минут, по ФГОС. Укажи цели, этапы с хронометражем, деятельность учителя и учеников, формы контроля. Оформи таблицей.</pre></div>
+<div class="card"><div class="top"><h3><span class="num">2</span>Тематическое планирование</h3><button class="copy">Копировать</button></div><pre>Ты методист. Составь календарно-тематическое планирование по предмету [предмет] для [номер] класса на [четверть / полугодие], [количество] часов в неделю. Колонки: № урока, тема, количество часов, основные понятия, вид контроля. Оформи таблицей.</pre></div>
+<div class="card"><div class="top"><h3><span class="num">3</span>Активности на урок</h3><button class="copy">Копировать</button></div><pre>Предложи 5 интерактивных заданий для урока [предмет] по теме «[тема]» в [номер] классе: групповая работа, игра, мини-исследование. Для каждого: время, материалы, инструкция для учеников в 2-3 предложениях.</pre></div>
+<div class="card"><div class="top"><h3><span class="num">4</span>Упрощение текста</h3><button class="copy">Копировать</button></div><pre>Перескажи этот текст простым языком для ученика [номер] класса [с трудностями в чтении / с ОВЗ]: короткие предложения, без сложных терминов, сохрани все ключевые факты. В конце 3 вопроса на понимание.
+
+Текст: [вставьте текст]</pre></div>
+</div></section>
+
+<section><h2 id="docs">Документы</h2><div class="cards">
+<div class="card"><div class="top"><h3><span class="num">5</span>Справка из заметок</h3><button class="copy">Копировать</button></div><pre>Ты заместитель директора по учебной работе. Ниже мои черновые заметки. Составь из них аналитическую справку официальным стилем: цель, сроки, результаты, выводы, рекомендации. Ничего не выдумывай, используй только мои данные.
+
+Заметки: [вставьте заметки]</pre></div>
+<div class="card"><div class="top"><h3><span class="num">6</span>ИИ задаёт вопросы</h3><button class="copy">Копировать</button></div><pre>Мне нужно составить [отчёт о проведении недели предмета]. Задай мне по очереди 5-7 вопросов, чтобы собрать все данные. После моих ответов составь готовый документ.</pre></div>
+<div class="card"><div class="top"><h3><span class="num">7</span>Заполнение по шаблону</h3><button class="copy">Копировать</button></div><pre>Вот шаблон документа: [вставьте шаблон]. Вот мои данные: [вставьте данные]. Заполни шаблон, сохрани его структуру. Где данных не хватает, поставь пометку [УТОЧНИТЬ].</pre></div>
+<div class="card"><div class="top"><h3><span class="num">8</span>Протокол из записи собрания</h3><button class="copy">Копировать</button></div><pre>Ниже расшифровка записи [родительского собрания / педсовета]. Оформи протокол: дата, присутствовали (количество), повестка, слушали, выступили, решили. Только то, что есть в записи.
+
+Расшифровка: [вставьте текст]</pre></div>
+<div class="card"><div class="top"><h3><span class="num">9</span>Анализ оценок</h3><button class="copy">Копировать</button></div><pre>Вот таблица оценок класса без фамилий (ученик 1, ученик 2...): [вставьте таблицу]. Посчитай средний балл по ученикам и по работам, найди темы с самыми низкими результатами, предложи, что повторить. Дай формулы Excel для этих расчётов.</pre></div>
+</div></section>
+
+<section><h2 id="check">Проверка и контроль</h2><div class="cards">
+<div class="card"><div class="top"><h3><span class="num">10</span>Проверка работы по фото</h3><button class="copy">Копировать</button></div><pre>На фото работа ученика [номер] класса по [предмет], тема «[тема]». Найди все ошибки, для каждой укажи: где она, в чём ошибка, как правильно. Оценку не ставь.</pre></div>
+<div class="card"><div class="top"><h3><span class="num">11</span>Тест в нескольких вариантах</h3><button class="copy">Копировать</button></div><pre>Составь тест по [предмет] на тему «[тема]» для [номер] класса: 3 варианта по 10 вопросов, 4 варианта ответа в каждом. Отдельно дай ключ ответов и критерии оценки на «5», «4», «3».</pre></div>
+<div class="card"><div class="top"><h3><span class="num">12</span>Критерии оценивания</h3><button class="copy">Копировать</button></div><pre>Составь критерии оценивания [сочинения / проекта / лабораторной работы] для [номер] класса по 5 критериям, каждый от 0 до 2 баллов. Оформи таблицей и добавь перевод баллов в отметку.</pre></div>
+<div class="card"><div class="top"><h3><span class="num">13</span>Кроссворд или викторина</h3><button class="copy">Копировать</button></div><pre>Составь кроссворд из 10 слов по теме «[тема]» для [номер] класса: список слов с вопросами по горизонтали и вертикали и ответы отдельно. Или викторину из 10 вопросов с ответами.</pre></div>
+</div></section>
+
+<section><h2 id="design">Оформление</h2><div class="cards">
+<div class="card"><div class="top"><h3><span class="num">14</span>Презентация к уроку</h3><button class="copy">Копировать</button></div><pre>Сделай презентацию из 8 слайдов к уроку [предмет] на тему «[тема]» для [номер] класса: титульный слайд, цели, 5 слайдов по содержанию, итоговый вопрос. На слайде не больше 5 строк текста.</pre></div>
+<div class="card"><div class="top"><h3><span class="num">15</span>Иллюстрация, грамота, открытка</h3><button class="copy">Копировать</button></div><pre>Яркая иллюстрация для школьной [грамоты / открытки к празднику / урока по теме «тема»], в стиле [детская книжная иллюстрация / акварель], без текста.</pre></div>
+</div></section>
+
+<section><h2 id="class">Классному руководителю</h2><div class="cards">
+<div class="card"><div class="top"><h3><span class="num">16</span>Гимн класса</h3><button class="copy">Копировать</button></div><pre>Напиши текст гимна для [номер] класса школы №149, Красноярск. О нас: [чем гордится класс, увлечения, традиции]. Куплет - припев - куплет - припев, простые рифмы, легко петь детям. Отдельно предложи стиль музыки одной строкой.</pre></div>
+<div class="card"><div class="top"><h3><span class="num">17</span>Песня-запоминалка</h3><button class="copy">Копировать</button></div><pre>Напиши короткую песню для [номер] класса, чтобы запомнить [правило / формулы / даты]: [вставьте материал]. Все факты должны быть точными, весёлый ритм, припев повторяет главное.</pre></div>
+<div class="card"><div class="top"><h3><span class="num">18</span>Сценарий классного часа</h3><button class="copy">Копировать</button></div><pre>Составь сценарий [классного часа на тему «тема» / танцевальной сценки под песню класса] для [номер] класса на [20] минут: цель, ход, роли, реквизит, вопросы для обсуждения.</pre></div>
+<div class="card"><div class="top"><h3><span class="num">19</span>Сообщение родителям</h3><button class="copy">Копировать</button></div><pre>Напиши сообщение в родительский чат [номер] класса: [суть - собрание, экскурсия, сбор документов], дата [дата], время [время]. Вежливо, коротко, до 5 предложений.</pre></div>
+<div class="card"><div class="top"><h3><span class="num">20</span>Ответ на конфликтное сообщение</h3><button class="copy">Копировать</button></div><pre>Родитель написал: «[текст сообщения]». Помоги ответить спокойно и профессионально: признай его беспокойство, объясни мою позицию [позиция], предложи встречу. Без оправданий и без агрессии.</pre></div>
+</div>
+<a class="cta" href="https://naslux.ru/"><b>Текст гимна готов? Превратите его в песню</b>Naslux.ru - без VPN, оплата в рублях за одну песню. <span>2 песни бесплатно →</span></a></section>
+
+<section><h2 id="where">Где работать без VPN</h2>
+<div class="tools">
+  <div><b>Тексты, планы, отчёты</b><a href="https://chat.deepseek.com" target="_blank" rel="noopener">chat.deepseek.com</a> · <a href="https://chat.qwen.ai" target="_blank" rel="noopener">chat.qwen.ai</a></div>
+  <div><b>Картинки</b><a href="https://shedevrum.ai" target="_blank" rel="noopener">Шедеврум</a> · <a href="https://giga.chat" target="_blank" rel="noopener">ГигаЧат (Кандинский)</a></div>
+  <div><b>Песни</b><a href="https://naslux.ru/">naslux.ru</a> - сервис ведущего мастер-класса: 2 песни бесплатно, далее оплата за одну песню в рублях</div>
+</div>
+<p class="lead" style="margin-top:12px">Если ответ не нравится, не начинайте заново. Пишите: «сделай короче», «официальнее», «оформи таблицей», «задай уточняющие вопросы».</p>
+</section>
+
+<div class="rules"><h2>3 правила</h2><ol>
+<li>Никаких ФИО и персональных данных детей. Вместо имени «Ученик А» (152-ФЗ).</li>
+<li>Факты и цифры проверяем: нейросеть умеет уверенно ошибаться.</li>
+<li>ИИ делает черновик, решение и подпись - за учителем.</li>
+</ol></div>
+
+<footer>Ведущий: Глухов Антон Сергеевич, учитель информатики, школа №149.</footer>
+</div>
+
+<script>
+document.querySelectorAll('button.copy').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var text = btn.closest('.card').querySelector('pre').textContent;
+    var done = function(){ btn.textContent = 'Скопировано'; btn.classList.add('done');
+      setTimeout(function(){ btn.textContent = 'Копировать'; btn.classList.remove('done'); }, 1800); };
+    var fallback = function(){ var r = document.createRange(); r.selectNodeContents(btn.closest('.card').querySelector('pre'));
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = 'Выделено, скопируйте'; };
+    try { navigator.clipboard.writeText(text).then(done, fallback); } catch(e){ fallback(); }
+  });
+});
+</script>
+</body>
+</html>
