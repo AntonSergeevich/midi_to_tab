@@ -2130,6 +2130,14 @@ document.addEventListener('click', async (e) => {
 
 function openMenu(button) {
   const menu = $('menu');
+  if (button.dataset.plmenu) {               // ⋯ у плейлиста: всё, что с ним можно сделать
+    const id = esc(button.dataset.plmenu);
+    menu.innerHTML = `<button type="button" data-plrename="${id}">${ICON.pencil}<span>Переименовать</span></button>`
+      + `<button type="button" data-plsharelist="${id}">${ICON.share}<span>Поделиться плейлистом</span></button>`
+      + `<hr><button type="button" class="danger" data-plremove="${id}">${ICON.trash}<span>Удалить плейлист</span></button>`;
+    placeMenu(menu, button);
+    return;
+  }
   const job = button.dataset.menu;
   const f = button.dataset.file || '';
   const item = (what, icon, text, extra = '') =>
@@ -2164,6 +2172,9 @@ function openMenu(button) {
       + (button.dataset.stem ? '' : item('reference', ICON.tabs, 'Сверить аккорды с эталоном'))
       + '<hr>' + (button.dataset.stem ? '' : item('cover', ICON.again, 'Кавер на эту версию'))
       + item('again', ICON.again, 'Повторить с этими настройками');
+  placeMenu(menu, button);
+}
+function placeMenu(menu, button) {
   const box = button.getBoundingClientRect();
   menu.hidden = false;
   const left = Math.min(window.innerWidth - menu.offsetWidth - 12, box.right - menu.offsetWidth);
@@ -3520,7 +3531,7 @@ function renderPlaylists() {
         <div class="st-row-main"><b data-noi18n>${esc(name)}</b>
           <span class="muted">${items.length} ${plural(items.length, 'трек', 'трека', 'треков')}${minutes ? ` · ${minutes} мин` : ''}</span></div>
         <span class="st-pl-chev" aria-hidden="true">▾</span>
-        ${own ? `<button type="button" class="st-mode-btn" data-plsharelist="${id}" aria-label="Поделиться плейлистом">${ICON.share}</button>` : ''}
+        ${own ? `<button type="button" class="st-mode-btn" data-menu="pl" data-plmenu="${id}" aria-label="Ещё: переименовать, поделиться, удалить">${ICON.more}</button>` : ''}
         <button type="button" class="st-mode-btn${shuffleOn ? ' on' : ''}" data-plshuffle="${id}"
           aria-pressed="${shuffleOn}" aria-label="${shuffleOn ? 'Перемешать: вкл' : 'Перемешать: выкл'}">${ICON.shuffle}</button>
         <button type="button" class="play-btn" data-plplay="${id}" title="Слушать подряд">${ICON.play}</button>
@@ -3767,6 +3778,7 @@ document.addEventListener('click', async (e) => {
     await savePlaylists();
     return;
   }
+  if (e.target.closest('#menu [data-plrename], #menu [data-plsharelist], #menu [data-plremove]')) $('menu').hidden = true;
   if ((el = t('plsharelist'))) { sharePlaylist(el.dataset.plsharelist); return; }
   if ((el = t('plrename'))) {
     const pl = playlists.find((x) => x.id === el.dataset.plrename);
@@ -3783,6 +3795,9 @@ document.addEventListener('click', async (e) => {
     playlists = playlists.filter((x) => x !== pl);
     plOpen = '';
     await savePlaylists();
+    // ссылка на удалённый плейлист больше не должна открываться
+    fetch(`/api/me/playlists/${encodeURIComponent(pl.id)}/share`, { method: 'DELETE' }).catch(() => {});
+    toast(`Плейлист «${esc(pl.name)}» удалён`);
     renderPlaylists();
     return;
   }

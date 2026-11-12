@@ -185,3 +185,40 @@ def test_dragging_a_clip_edge_with_the_mouse_trims_the_track(live_mixer):
             assert errors == []
         finally:
             browser.close()
+
+
+def test_playlist_is_deleted_from_the_menu_in_its_header(live_mixer):
+    """12.11, владелец: случайно создал плейлист -- и не смог удалить.
+    Кнопка была только внизу раскрытого плейлиста; теперь -- ⋯ в шапке."""
+    import json as _json
+
+    app_module, user, job, port = live_mixer
+    base_url = f"http://127.0.0.1:{port}"
+    app_module.storage.set_prefs(user.id, {"playlists": [
+        {"id": "p1", "name": "Случайный", "items": [{"job": job.id, "file": "vocals.mp3"}]}]})
+    with sync_playwright() as pw:
+        executable = _chromium_executable(pw)
+        try:
+            browser = pw.chromium.launch(executable_path=executable, args=["--no-sandbox"])
+        except Exception as error:
+            pytest.skip(f"браузер playwright не поднялся: {error}")
+        try:
+            context = browser.new_context(viewport={"width": 390, "height": 800})
+            context.add_cookies([{"name": "uid", "value": app_module.signer.dumps(user.id), "url": base_url}])
+            page = context.new_page()
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.on("dialog", lambda d: d.accept())
+            page.goto(f"{base_url}/studio", wait_until="networkidle")
+            page.locator('[data-favtab="lists"]').first.click()
+            more = page.locator('[data-plmenu="p1"]')
+            more.wait_for(state="visible", timeout=8000)
+            more.click()
+            page.locator('#menu [data-plremove="p1"]').click()
+            page.wait_for_function("!document.querySelector('[data-pl=\"p1\"]')", timeout=5000)
+            assert page.locator("#menu").is_hidden()
+            saved = app_module.storage.prefs(user.id).get("playlists")
+            assert saved == [], _json.dumps(saved, ensure_ascii=False)
+            assert errors == []
+        finally:
+            browser.close()
