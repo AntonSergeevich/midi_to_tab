@@ -176,6 +176,35 @@ def download(url: str, path: str, timeout: int = 180) -> int:
     return size
 
 
+LYRICS_PROMPT_MAX = 200          # у задачи lyrics подсказка не длиннее 200 знаков
+
+
+def lyrics_prompt(prompt: str) -> str:
+    """Описание песни -- в 200 знаков, по границе слова."""
+    text = re.sub(r"\s+", " ", prompt or "").strip()
+    if len(text) <= LYRICS_PROMPT_MAX:
+        return text
+    cut = text[:LYRICS_PROMPT_MAX + 1].rsplit(" ", 1)[0]
+    return (cut if len(cut) > LYRICS_PROMPT_MAX // 2 else text[:LYRICS_PROMPT_MAX]).rstrip(" ,.;:-")
+
+
+def write_lyrics(prompt: str, timeout: int = 120) -> list[dict]:
+    """Текст песни по описанию той же нейросетью, что поёт (task=lyrics):
+    два варианта [{"title", "lyrics"}] с пометками [Verse]/[Chorus].
+    Проба 12.11: 17 ₽ за запрос, 16 с, русский -- если описание по-русски."""
+    rid = start(SUNO, {"model": os.environ.get("NASLUX_SUNO_MODEL", SUNO_MODEL), "task": "lyrics",
+                       "custom_mode": False, "translate_input": False, "prompt": lyrics_prompt(prompt)})
+    state = wait(rid, timeout=timeout, every=3)
+    found = []
+    for item in state.get("result") or state.get("full_response") or []:
+        if isinstance(item, dict) and str(item.get("text") or "").strip():
+            found.append({"title": str(item.get("title") or "").strip()[:80],
+                          "lyrics": str(item["text"]).strip()})
+    if not found:
+        raise RuntimeError("нейросеть не прислала текст")
+    return found
+
+
 def suno_params(task: str, *, title: str = "", style: str = "", lyrics: str = "", instrumental: bool = False,
                 gender: str = "", negative: str = "", style_weight: float | None = None,
                 weirdness: float | None = None, audio_weight: float | None = None,

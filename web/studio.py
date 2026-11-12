@@ -317,6 +317,7 @@ VOICES = {"": ("Любой", ""), "male": ("Мужской", "male vocals"),
           "female": ("Женский", "female vocals"),
           "duet": ("Дуэт", "duet, male and female vocals")}   # $0.045 за версию; auto может взять дорогую 9.5
 LYRICS_PER_DAY = 30              # бесплатное сочинение текста -- с ограничением
+GENAPI_LYRICS_PER_DAY = 6        # запасной текст через GenAPI -- 17 ₽ за раз, поэтому строже
 
 # Готовые стили -- подсказки для нейросети на английском: так её учили.
 PRESETS = {
@@ -463,8 +464,8 @@ def lyrics_open() -> bool:
     """Сочинение текста (Mureka lyrics/generate, доли цента) -- отдельно от
     выключателя песен: 12.10 песни Mureka выключены до пополнения, а тексты
     на остатке баланса (33 цента) сочиняются -- проверено живым запросом."""
-    from . import llm      # ИИ-шлюз Beget: тексты пишет Claude, Mureka -- запасной
-    return (llm.ready() or bool(mureka_key())) and os.environ.get("NASLUX_LYRICS", "1") == "1"
+    from . import genapi, llm   # ИИ-шлюз Beget пишет тексты; запасные -- GenAPI и Mureka
+    return (llm.ready() or genapi.ready() or bool(mureka_key())) and os.environ.get("NASLUX_LYRICS", "1") == "1"
 
 
 def create_open() -> bool:

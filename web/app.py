@@ -474,8 +474,9 @@ def api_health(request: Request):
                                  for j in storage.unfinished_studio_jobs() if (j.settings or {}).get("engine") == "suno"][:10],
                         **storage.suno_usage(time.time() - 30 * 86400)},
         "распознавание_слов": _lyrics_health(),
-        "тексты_песен": f"ИИ-шлюз Beget ({llm.model()})" if llm.ready() else (
-            "Mureka" if studio.mureka_key() else "выключено"),
+        "тексты_песен": (f"ИИ-шлюз Beget ({llm.model()})" if llm_up() else
+                         "GenAPI (шлюз недавно не ответил)" if llm.ready() and genapi.ready() else
+                         "GenAPI" if genapi.ready() else "Mureka" if studio.mureka_key() else "выключено"),
         "уведомлений_за_последние": len(recent),
         "из_них_отклонено": failed_recent,
         # Только время и причина, без тела: в теле бывают почта и номера
@@ -2053,7 +2054,7 @@ def api_studio(request: Request):
         # Мультитрек -- в «Студии» (и у безлимита)
         "mixOpen": user.studio_plan,
         "createOpen": studio.create_open(),
-        "styleAi": llm.ready(),                  # «С ИИ» у поля стиля
+        "styleAi": llm_up(),                  # «С ИИ» у поля стиля
         "presets": {k: v[0] for k, v in studio.PRESETS.items()},
         "tracks": studio.TRACKS,
         "voices": {k: v[0] for k, v in studio.VOICES.items()},
@@ -2958,11 +2959,55 @@ def api_studio_mp3_source(job_id: str, e: int, s: str):
 _lyrics_calls: dict[str, list[float]] = {}
 
 
+_llm_down_until = 0.0
+LLM_PAUSE = 600          # шлюз не ответил -- 10 минут не ждём его зря, сразу запасной путь
+_lyrics_spare: dict[str, tuple[str, dict]] = {}   # второй вариант текста от GenAPI -- на «ещё раз»
+_genapi_lyrics_calls: dict[str, list[float]] = {}
+
+
+def llm_up() -> bool:
+    """ИИ-шлюз есть и недавно не падал."""
+    return llm.ready() and time.time() >= _llm_down_until
+
+
+def llm_failed(where: str, error: Exception) -> None:
+    global _llm_down_until
+    print(f"ИИ-шлюз: {where} не вышло ({error})", flush=True)
+    llm.note_error(where, str(error))
+    _llm_down_until = time.time() + LLM_PAUSE
+
+
+def _genapi_lyrics(user, prompt: str) -> dict:
+    """Текст через GenAPI: два варианта за 17 ₽ -- первый сразу, второй
+    бережём на повторное нажатие с тем же описанием."""
+    wanted = " ".join(prompt.split()).lower()
+    spare = _lyrics_spare.pop(user.id, None)
+    if spare and spare[0] == wanted:
+        return spare[1]
+    now = time.time()
+    recent = [t for t in _genapi_lyrics_calls.get(user.id, []) if now - t < 86400]
+    if len(recent) >= studio.GENAPI_LYRICS_PER_DAY and not user.unlimited:
+        raise HTTPException(429, "На сегодня текстов достаточно — попробуйте завтра")
+    _genapi_lyrics_calls[user.id] = [*recent, now]
+    try:
+        variants = genapi.write_lyrics(prompt)
+    except genapi.GenApiNoMoney as error:
+        print(f"GenAPI: текст не сочинён -- {error}", flush=True)
+        raise HTTPException(503, "Сочинение текста временно недоступно") from error
+    except RuntimeError as error:
+        print(f"GenAPI: текст не сочинён -- {error}", flush=True)
+        raise HTTPException(502, "Не получилось сочинить текст — попробуйте ещё раз") from error
+    if len(variants) > 1:
+        _lyrics_spare[user.id] = (wanted, variants[1])
+    return variants[0]
+
+
 @app.post("/api/studio/lyrics")
 def api_studio_lyrics(request: Request, prompt: str = Form(...)):
-    """Сочинить текст песни по описанию (Claude через ИИ-шлюз Beget, запасной
-    -- Mureka lyrics/generate). Бесплатно:
-    стоит нам доли цента, -- но не больше LYRICS_PER_DAY раз в сутки."""
+    """Сочинить текст песни по описанию. Сначала Claude через ИИ-шлюз Beget
+    (лучше держит русский размер и рифму, доли рубля); шлюз лежит --
+    GenAPI (та же нейросеть, что поёт: 17 ₽ за два варианта), затем Mureka.
+    Бесплатно, но не больше LYRICS_PER_DAY раз в сутки."""
     user = current_user(request)
     if not studio.lyrics_open():
         raise HTTPException(503, "Сочинение текста временно недоступно")
@@ -2973,17 +3018,17 @@ def api_studio_lyrics(request: Request, prompt: str = Form(...)):
     if len(recent) >= studio.LYRICS_PER_DAY and not user.unlimited:
         raise HTTPException(429, "На сегодня текстов достаточно — попробуйте завтра")
     _lyrics_calls[user.id] = [*recent, now]
-    # Сначала -- Claude через ИИ-шлюз Beget (лучше держит русский размер и
-    # рифму, платится в рублях); не вышло и есть Mureka -- она
-    if llm.ready():
+    if llm_up():
         try:
             answer = llm.write_lyrics(prompt)
             return {"title": answer["title"], "lyrics": studio.english_tags(answer["lyrics"])}
         except RuntimeError as error:
-            print(f"ИИ-шлюз: текст не сочинён ({error})", flush=True)
-            if not studio.mureka_key():
-                raise HTTPException(503 if isinstance(error, llm.LlmNoMoney) else 502,
-                                    "Сочинение текста временно недоступно") from error
+            llm_failed("текст", error)
+    if genapi.ready():
+        answer = _genapi_lyrics(user, prompt)
+        return {"title": answer["title"], "lyrics": studio.english_tags(answer["lyrics"])}
+    if not studio.mureka_key():
+        raise HTTPException(503, "Сочинение текста временно недоступно")
     try:
         answer = studio.mureka_call("POST", "/v1/lyrics/generate", {"prompt": prompt.strip()[:500]})
     except studio.MurekaNoMoney as error:
@@ -2999,7 +3044,7 @@ def api_studio_style(request: Request, style: str = Form(...), lyrics: str = For
     в поле) и теги для YuE2 (запоминаются к этому описанию). Лимит -- общий с
     сочинением текста."""
     user = current_user(request)
-    if not llm.ready():
+    if not llm_up():
         raise HTTPException(503, "Помощник стиля временно недоступен")
     if not style.strip():
         raise HTTPException(400, "Сначала опишите стиль своими словами")
@@ -3011,8 +3056,7 @@ def api_studio_style(request: Request, style: str = Form(...), lyrics: str = For
     try:
         answer = llm.write_style(style, lyrics)
     except RuntimeError as error:
-        print(f"ИИ-шлюз: стиль не дописан ({error})", flush=True)
-        llm.note_error("стиль", error)
+        llm_failed("стиль", error)
         raise HTTPException(503 if isinstance(error, llm.LlmNoMoney) else 502,
                             "Не получилось дописать стиль — попробуйте ещё раз") from error
     studio.remember_style_tags(answer["style"], answer["tags"])
@@ -3030,14 +3074,15 @@ def api_studio_lyrics_extend(request: Request, lyrics: str = Form(...)):
     if len(recent) >= studio.LYRICS_PER_DAY and not user.unlimited:
         raise HTTPException(429, "На сегодня текстов достаточно — попробуйте завтра")
     _lyrics_calls[user.id] = [*recent, now]
-    if llm.ready():
+    if llm_up():
         try:
             return {"lyrics": studio.english_tags(llm.extend_lyrics(lyrics)["lyrics"])}
         except RuntimeError as error:
-            print(f"ИИ-шлюз: продолжение не сочинено ({error})", flush=True)
-            if not studio.mureka_key():
-                raise HTTPException(503 if isinstance(error, llm.LlmNoMoney) else 502,
-                                    "Сочинение текста временно недоступно") from error
+            llm_failed("продолжение", error)
+    if not studio.mureka_key():
+        # GenAPI пишет песню целиком, продолжать чужой текст не умеет
+        raise HTTPException(503, "Дописать текст сейчас не получится — допишите пару строк сами "
+                                 "или сочините текст заново")
     try:
         answer = studio.mureka_call("POST", "/v1/lyrics/extend", {"lyrics": lyrics.strip()[:3000]})
     except studio.MurekaNoMoney as error:

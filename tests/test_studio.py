@@ -3704,3 +3704,49 @@ def test_parts_zip_names_tracks_by_song_and_part(studio_app):
     assert "%D0%9C%D0%B8%D0%BD%D1%83%D1%81" in answer.headers["content-disposition"]   # «Минус и голос»
     kid = next(j for j in client.get("/api/studio").json()["jobs"] if j["id"] == child)
     assert kid["parts"] == "minus"
+
+
+def test_lyrics_fall_back_to_genapi_and_keep_the_second_variant(studio_app, monkeypatch):
+    """12.11: ИИ-шлюз Beget лежит -- текст пишет GenAPI (два варианта за 17 ₽):
+    первый сразу, второй -- на повторное нажатие бесплатно; шлюз 10 минут не ждём."""
+    app_module, client, user, submitted = studio_app
+    genapi, llm = app_module.genapi, app_module.llm
+    monkeypatch.setenv("BEGET_AI_API_KEY", "bk-test")
+    monkeypatch.setenv("GENAPI_API_KEY", "ga-test")
+    monkeypatch.delenv("MUREKA_API_KEY", raising=False)
+    gateway, paid = [], []
+
+    def down(messages, **kwargs):
+        gateway.append(1)
+        raise RuntimeError("шлюз не ответил: TimeoutError")
+
+    def suno(network, params):
+        paid.append(params)
+        return "r1"
+
+    monkeypatch.setattr(llm, "chat", down)
+    monkeypatch.setattr(genapi, "start", suno)
+    monkeypatch.setattr(genapi, "wait", lambda rid, **kw: {"status": "success", "result": [
+        {"title": "Пустой город", "text": "[Verse 1]\nНочь на стекле"},
+        {"title": "Пустой город", "text": "[Verse 1]\nРуки на руль"}]})
+    first = client.post("/api/studio/lyrics", data={"prompt": "про ночной город " * 30})
+    assert first.status_code == 200, first.text
+    assert first.json() == {"title": "Пустой город", "lyrics": "[Verse 1]\nНочь на стекле"}
+    assert paid[0]["task"] == "lyrics" and len(paid[0]["prompt"]) <= 200
+    again = client.post("/api/studio/lyrics", data={"prompt": "про ночной город " * 30})
+    assert again.json()["lyrics"] == "[Verse 1]\nРуки на руль" and len(paid) == 1   # второй вариант даром
+    client.post("/api/studio/lyrics", data={"prompt": "другая песня"})
+    assert len(gateway) == 1 and len(paid) == 2          # упавший шлюз не ждём повторно
+    assert client.get("/api/studio").json()["styleAi"] is False
+    assert client.post("/api/studio/style", data={"style": "рок"}).status_code == 503
+    for n in range(app_module.studio.GENAPI_LYRICS_PER_DAY - 2):
+        client.post("/api/studio/lyrics", data={"prompt": f"песня номер {n}"})
+    assert len(paid) == app_module.studio.GENAPI_LYRICS_PER_DAY
+    assert client.post("/api/studio/lyrics", data={"prompt": "сверх"}).status_code == 429
+
+
+def test_lyrics_prompt_is_cut_on_a_word():
+    from web import genapi
+    text = genapi.lyrics_prompt("слово " * 60)
+    assert len(text) <= 200 and text.endswith("слово")
+    assert genapi.lyrics_prompt("  коротко \n и ясно ") == "коротко и ясно"
