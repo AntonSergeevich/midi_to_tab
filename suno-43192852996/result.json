@@ -1,0 +1,39 @@
+{
+ "id": 57882907,
+ "organization_id": 756697,
+ "network": "suno",
+ "status": "success",
+ "response_type": "audio",
+ "cost": 0,
+ "progress": 100,
+ "runtime": 33.48,
+ "result": [
+  {
+   "task_id": "414f942cef372d841bfad17c19d67da7",
+   "validate_info": "Сердце поет в ритме тихой вечерней музыки",
+   "status": "wait_validating"
+  }
+ ],
+ "full_response": [
+  {
+   "task_id": "414f942cef372d841bfad17c19d67da7",
+   "validate_info": "Сердце поет в ритме тихой вечерней музыки",
+   "status": "wait_validating"
+  }
+ ],
+ "parameters": {
+  "mv": "chirp-hawk",
+  "task": "voice_validate",
+  "model": "v6",
+  "language": "ru",
+  "upload_url": "https://gen-api.storage.yandexcloud.net/input_files/1794476161_6af5888174cda.mp3",
+  "custom_mode": true,
+  "vocal_end_s": 46,
+  "audio_weight": 0.5,
+  "style_weight": 0.5,
+  "vocal_start_s": 26,
+  "translate_input": false,
+  "weirdness_constraint": 0.5
+ },
+ "timestamp": 1794476161
+}
