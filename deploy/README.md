@@ -141,6 +141,24 @@ bash /opt/nasluh/app/deploy/restore_data.sh /root/backup.tar.gz
 Скрипт сам найдёт в архиве папку с `app.db`, отложит текущие данные рядом
 (их можно вернуть) и перезапустит сайт. Ключи из архива не берутся.
 
+### Клиенты из выгрузки GetPlatinum
+
+Пока старой базы нет, оплатившие клиенты заводятся из таблицы GetPlatinum
+(CSV через `;`: ФИО, E-mail, Телефон, Сумма покупок). Каждый получает
+аккаунт с балансом = сумма оплат и письмо со ссылкой «задать пароль»
+(действует 7 дней). Повторный запуск никого не задвоит. Запуск через
+`systemd-run` -- чтобы почтовые ключи читались так же, как у сайта:
+
+```bash
+install -o nasluh -m 600 /root/clients.csv /opt/nasluh/clients.csv
+R="systemd-run -q --pipe --wait -p User=nasluh -p EnvironmentFile=/opt/nasluh/nasluh.env /opt/nasluh/venv/bin/python /opt/nasluh/app/deploy/admin.py"
+$R перенос /opt/nasluh/clients.csv --skip моя@почта.ru            # план
+$R перенос /opt/nasluh/clients.csv --skip моя@почта.ru --apply --send
+```
+
+Если позже вернётся бэкап (`restore_data.sh`), он заменит базу целиком --
+эти клиенты там и так есть со старых времён.
+
 ## Тяжёлые части
 
 Разделение на партии и распознавание текста тянут PyTorch (около 2 ГБ) и

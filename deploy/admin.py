@@ -288,6 +288,7 @@ def welcome_letter(client: dict, link: str) -> str:
 
 
 def cmd_migrate(db: Storage, args) -> None:
+    import re
     import secrets as pysecrets
 
     clients = read_clients(args.file)
@@ -310,7 +311,10 @@ def cmd_migrate(db: Storage, args) -> None:
             print(line + "  → уже есть, не трогаю")
             continue
         credit = c["paid"] if args.balance else 0.0
-        mailable = not c["email"].endswith("@vk.id")
+        # vk-123@vk.id / yandex-123@yandex.id -- не почта, а вход через соцсеть:
+        # такой аккаунт привязываем к профилю, иначе вход через ВК упрётся в «почта занята»
+        social = re.fullmatch(r"(vk|yandex)-(\w+)@(vk|yandex)\.id", c["email"])
+        mailable = social is None
         plan = f"  → завести{f', +{credit:.0f} ₽' if credit else ''}{', письмо' if args.send and mailable else ''}"
         print(line + plan)
         if not args.apply:
@@ -320,6 +324,8 @@ def cmd_migrate(db: Storage, args) -> None:
         db.register(user.id, c["email"], auth.hash_password(pysecrets.token_urlsafe(24)))
         note = " · ".join(x for x in (c["name"], c["phone"], f"оплачено {c['paid']:.0f} ₽", MIGRATE_MARK) if x)
         db.set_flags(user.id, note=note)
+        if social:
+            db.link_provider(user.id, social.group(1), social.group(2))
         if credit:
             db.add_balance(user.id, credit)
         if args.send and mailable:

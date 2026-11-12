@@ -6,7 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CSV = """ФИО;E-mail;Телефон;Дата создания;Сумма покупок
-;vk-1@vk.id;;2026-10-21 23:17;0 RUB
+;vk-5550001@vk.id;;2026-10-21 23:17;0 RUB
 Олег;oleg@example.com;+79110000001;2026-10-17 00:53;209.00 RUB
 Иванова Анна;anna@example.com;+79230000002;2026-10-10 18:34;99.00 RUB
 Владелец;owner@example.com;+79950000003;2026-09-22 18:29;69.00 RUB
@@ -37,7 +37,8 @@ def test_migrate_plans_then_applies_once(tmp_path):
     oleg = db.user_by_email("oleg@example.com")
     assert oleg and oleg.balance == 209 and "+79110000001" in oleg.note and "перенос:getplatinum" in oleg.note
     assert db.user_by_email("anna@example.com").balance == 99
-    assert db.user_by_email("vk-1@vk.id") is not None
+    vk = db.user_by_email("vk-5550001@vk.id")
+    assert vk is not None and db.user_by_provider("vk", "5550001").id == vk.id   # вход через ВК найдёт его
     assert db.user_by_email("owner@example.com") is None
 
     again = run(tmp_path, "перенос", str(table), "--apply", "--skip", "owner@example.com")
