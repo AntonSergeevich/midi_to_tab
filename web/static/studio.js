@@ -2527,21 +2527,17 @@ function celebrate(j) {
   if (big) setTimeout(() => confetti(card), 250);
   clearTimeout(celebrate.timer);
   celebrate.timer = setTimeout(() => card.classList.remove('on'), 10000);
-  // звуковой логотип, затем -- если ничего не играет -- сразу слушаем, с припева
-  const chimed = $('audio').paused && window.nasluxChime && window.nasluxChime();
-  if ($('audio').paused && !document.hidden) setTimeout(() => { if ($('audio').paused) bornPlay(j, true); }, chimed ? 750 : 0);
+  // звуковой логотип -- если ничего не играет; сама песня -- только по ▶ на
+  // карточке (владелец, 12.11: включаться сама не должна)
+  if ($('audio').paused && window.nasluxChime) window.nasluxChime();
 }
-function bornPlay(j, auto) {
+function bornPlay(j) {
   const f = j.files[0];
   const found = queueFor(f.url);
   if (!found) return;
   setQueue(found.items, found.index, null);
-  const at = auto && f.seconds > 40 ? Math.round(f.seconds * 0.3) : 0;
-  startTrack(true, at);
-  if (auto) {
-    // без нажатия iPhone может не дать играть -- тогда ждём ▶ на карточке
-    $('audio').play().then(() => { playback.wanted = true; syncButtons(); }).catch(() => {});
-  } else resume();
+  startTrack(true, 0);
+  resume();
 }
 document.addEventListener('click', (e) => {
   const playIt = e.target.closest('[data-bornplay]');
@@ -2551,7 +2547,7 @@ document.addEventListener('click', (e) => {
   if (!j) return;
   if (playIt) {
     const f = j.files[0];
-    if (playing === f.url) togglePlayback(true); else bornPlay(j, false);
+    if (playing === f.url) togglePlayback(true); else bornPlay(j);
     if (window.haptic) window.haptic('light');
   } else {
     $('born').classList.remove('on');
