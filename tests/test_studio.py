@@ -3839,3 +3839,20 @@ def test_create_from_scratch_works_on_genapi_alone(studio_app, monkeypatch):
                                                "lyrics": "[Verse]\nНаш класс самый дружный"})
     assert started.status_code == 200, started.text
     assert app_module.storage.job(started.json()["jobId"]).settings["engine"] == "suno"
+
+
+def test_restyle_of_own_recording_works_on_genapi_alone(studio_app, monkeypatch):
+    """13.11: без Mureka переделка была закрыта всем, кроме владельца, хотя
+    Suno переделывает свои записи. Свою -- можно, чужую -- понятный отказ."""
+    app_module, client, user, submitted = studio_app
+    monkeypatch.delenv("MUREKA_API_KEY", raising=False)
+    monkeypatch.setenv("NASLUX_YUE2", "0")
+    monkeypatch.setenv("GENAPI_API_KEY", "ga-test")
+    monkeypatch.setattr(app_module.studio, "RESTYLE_OPEN", False)      # как на сервере
+    app_module.storage.add_balance(user.id, 500)
+    assert client.get("/api/studio").json()["restyleOpen"] is True
+    own = _start(client, mode="restyle", prompt="джаз", rights="own")
+    assert own.status_code == 200, own.text
+    assert app_module.storage.job(own.json()["jobId"]).settings["engine"] == "suno"
+    cover = _start(client, mode="restyle", prompt="джаз", rights="cover")
+    assert cover.status_code == 409 and "Свою запись можно" in cover.json()["detail"]

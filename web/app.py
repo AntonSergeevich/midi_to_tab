@@ -2065,7 +2065,8 @@ def api_studio(request: Request):
         "voiceCloneOpen": studio.voice_clone_open(),
         "balance": user.balance, "unlimited": user.unlimited, "registered": user.registered,
         "studioCredits": user.studio_credits,
-        "restyleOpen": studio.restyle_open() or user.unlimited,
+        # свою запись переделывает Suno -- кнопка открыта, чужую сервер отклонит с объяснением
+        "restyleOpen": studio.restyle_open() or user.unlimited or studio.suno_public(),
         "restyleEngine": studio.restyle_engine(),
         "yue2Open": studio.yue2_open(user),
         "hitOpen": studio.suno_open(user),
@@ -2195,7 +2196,12 @@ async def api_studio_start(
     if engine == "yue2" and mode == "create" and not lyrics.strip():
         raise HTTPException(400, "Сейчас песни с нуля пишутся только со словами — добавьте текст "
                                  "(инструментал временно недоступен)")
-    if mode == "restyle" and not (studio.restyle_open() or user.unlimited):
+    # Свою запись переделывает Suno (GenAPI) -- всегда, когда он подключён
+    # (13.11: на новом сервере без Mureka переделка была закрыта всем, кроме владельца)
+    if mode == "restyle" and engine != "suno" and not (studio.restyle_open() or user.unlimited):
+        if rights == "cover":
+            raise HTTPException(409, "Переделка чужих песен скоро вернётся. Свою запись можно "
+                                     "переделать уже сейчас — отметьте «Моя музыка».")
         raise HTTPException(409, "Переделка в другой стиль переезжает на новый движок и скоро "
                                  "вернётся. Разделение на партии и дописывание партии работают.")
     if engine == "runpod" and not studio.api_key():

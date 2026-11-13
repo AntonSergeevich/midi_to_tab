@@ -23,7 +23,13 @@ jobs:
             echo "$path -> HTTP $code"
             [ "$code" = 200 ] || { echo "::error::$path ответил HTTP $code"; exit 1; }
           done
-          echo "::notice::Студия: $(jq -c '{ready, why, restyleEngine, createOpen, restyleOpen, yue2Public}' /tmp/page)"
+          echo "::notice::Студия: $(jq -c '{ready, why, restyleEngine, createOpen, restyleOpen, yue2Public, hitPublic}' /tmp/page)"
+          # 13.11: после переезда песни с нуля были выключены (нет ключа Mureka),
+          # а проверка лишь записывала это в журнал -- сломалось на мастер-классе.
+          # Главные кнопки Студии должны работать -- иначе проверка красная.
+          for flag in ready createOpen restyleOpen; do
+            [ "$(jq -r ".$flag" /tmp/page)" = true ] || { echo "::error title=Студия::$flag = $(jq -r ".$flag" /tmp/page) -- кнопка в Студии погашена"; exit 1; }
+          done
 
       # Тем же кодом, что и сайт (web/studio.py): запросы к RunPod уже
       # падали на Cloudflare из-за User-Agent, а снаружи это видно не было.
