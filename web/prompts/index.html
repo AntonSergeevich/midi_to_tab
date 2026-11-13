@@ -73,6 +73,21 @@ a.pdf:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
   a{color:#1f4fd8}
   @page{margin:14mm}
 }
+.tabs{display:flex;gap:8px;margin:4px 0 0}
+.tabs button{font:inherit;font-weight:600;font-size:15px;border:2px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:8px 18px;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.open{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;color:var(--muted)}
+.open a{text-decoration:none;font-weight:600;color:var(--accent);border:1px solid var(--line);border-radius:999px;padding:4px 10px;background:var(--bg)}
+.open a.done{background:var(--hl);color:#14203a;border-color:var(--hl)}
+.ai{display:grid;gap:10px}
+.ai .row{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;gap:12px;align-items:center}
+.ai .badge{flex:none;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#14203a}
+.ai .txt{flex:1;min-width:0}.ai .txt b{display:block}.ai .txt span{color:var(--muted);font-size:14px}
+.ai .go{flex:none;text-decoration:none;font-weight:600;font-size:14px;background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:7px 14px}
+.vpn{display:inline-block;font-size:12px;font-weight:600;border-radius:999px;padding:1px 8px;margin-left:6px}
+.vpn.y{background:#e3f5ea;color:#1d7a3e}.vpn.n{background:#fdeee5;color:#c2410c}
+.tip{background:var(--hl);color:#14203a;border-radius:14px;padding:14px 16px;margin:12px 0 0}
+@media print{.tabs,.open,.ai .go{display:none!important}#tab-ai{display:block!important}}
 </style>
 </head>
 <body>
@@ -81,9 +96,11 @@ a.pdf:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 <header>
   <h1>20 промптов, которые <mark>экономят вечера</mark></h1>
   <p class="lead">Мастер-класс «Автоматизация рутины учителя с помощью ИИ», школа №149, 13 ноября 2026. Нажмите «Копировать», вставьте в DeepSeek или Qwen, замените текст в [скобках] на свой.</p>
-  <div class="actions"><a class="pdf" href="prompty-dlya-uchiteley.pdf" download>Скачать PDF</a><span class="hint">6 страниц, все 20 промптов</span></div>
+  <div class="actions"><a class="pdf" href="prompty-dlya-uchiteley.pdf" download>Скачать PDF</a><span class="hint">Все 20 промптов и список нейросетей</span></div>
   <div class="formula" aria-label="Формула промпта"><span>Роль</span><i>→</i><span>Задача</span><i>→</i><span>Контекст</span><i>→</i><span>Формат</span></div>
 </header>
+<div class="tabs" role="tablist"><button type="button" role="tab" id="t-prompts" aria-selected="true">Промпты</button><button type="button" role="tab" id="t-ai" aria-selected="false">Нейросети</button></div>
+<div id="tab-prompts">
 
 <nav aria-label="Разделы">
   <a href="#plan">Планирование</a><a href="#docs">Документы</a><a href="#check">Проверка</a><a href="#design">Оформление</a><a href="#class">Классному руководителю</a><a href="#where">Где работать</a>
@@ -134,6 +151,7 @@ a.pdf:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 <section><h2 id="where">Где работать без VPN</h2>
 <div class="tools">
   <div><b>Тексты, планы, отчёты</b><a href="https://chat.deepseek.com" target="_blank" rel="noopener">chat.deepseek.com</a> · <a href="https://chat.qwen.ai" target="_blank" rel="noopener">chat.qwen.ai</a></div>
+  <div><b>Тесты по тексту параграфа</b><a href="https://education.yandex.ru/neurotools" target="_blank" rel="noopener">Нейроквизы (Яндекс Образование)</a> - бесплатно, вход через Яндекс ID</div>
   <div><b>Картинки</b><a href="https://shedevrum.ai" target="_blank" rel="noopener">Шедеврум</a> · <a href="https://giga.chat" target="_blank" rel="noopener">ГигаЧат (Кандинский)</a></div>
   <div><b>Песни</b><a href="https://naslux.ru/">naslux.ru</a> - сервис ведущего мастер-класса: 2 песни бесплатно, далее оплата за одну песню в рублях</div>
 </div>
@@ -146,6 +164,21 @@ a.pdf:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 <li>ИИ делает черновик, решение и подпись - за учителем.</li>
 </ol></div>
 
+</div>
+<div id="tab-ai" hidden>
+<section><h2 id="ai">Нейросети, о которых шла речь</h2>
+<p class="lead">Скопируйте промпт во вкладке «Промпты», нажмите «Открыть» и вставьте его в поле ввода.</p>
+<h3>Мой основной набор</h3><div class="ai">
+<div class="row"><div class="badge" style="background:#ffd23f">C</div><div class="txt"><b>Claude<span class="vpn n">нужен VPN</span></b><span>Любимчик ведущего: презентации к урокам, документы, анализ таблиц</span></div><a class="go" href="https://claude.ai" target="_blank" rel="noopener">Открыть</a></div><div class="row"><div class="badge" style="background:#8fb0ff">G</div><div class="txt"><b>Gemini<span class="vpn n">нужен VPN</span></b><span>Камера в реальном времени, презентации, тесты</span></div><a class="go" href="https://gemini.google.com" target="_blank" rel="noopener">Открыть</a></div><div class="row"><div class="badge" style="background:#7ee2a8">Co</div><div class="txt"><b>Copilot<span class="vpn n">нужен VPN</span></b><span>Камера и проверка по фото</span></div><a class="go" href="https://copilot.microsoft.com" target="_blank" rel="noopener">Открыть</a></div><div class="row"><div class="badge" style="background:#ff9f7a">Q</div><div class="txt"><b>Qwen<span class="vpn y">без VPN</span></b><span>Тексты, проверка по фото, презентации</span></div><a class="go" href="https://chat.qwen.ai" target="_blank" rel="noopener">Открыть</a></div><div class="row"><div class="badge" style="background:#b7c8ff">D</div><div class="txt"><b>DeepSeek<span class="vpn y">без VPN</span></b><span>Тексты, планы, отчёты, тесты</span></div><a class="go" href="https://chat.deepseek.com" target="_blank" rel="noopener">Открыть</a></div></div>
+<h3>Российские</h3><div class="ai">
+<div class="row"><div class="badge" style="background:#d5c6ff">А</div><div class="txt"><b>Алиса<span class="vpn y">без VPN</span></b><span>Простые вопросы и тексты</span></div><a class="go" href="https://alice.yandex.ru" target="_blank" rel="noopener">Открыть</a></div><div class="row"><div class="badge" style="background:#bdeccf">Г</div><div class="txt"><b>ГигаЧат<span class="vpn y">без VPN</span></b><span>Тексты и картинки (Кандинский внутри)</span></div><a class="go" href="https://giga.chat" target="_blank" rel="noopener">Открыть</a></div><div class="row"><div class="badge" style="background:#ffe08a">Ш</div><div class="txt"><b>Шедеврум<span class="vpn y">без VPN</span></b><span>Иллюстрации, открытки, оформление</span></div><a class="go" href="https://shedevrum.ai" target="_blank" rel="noopener">Открыть</a></div><div class="row"><div class="badge" style="background:#cfe0ff">Н</div><div class="txt"><b>Нейроквизы<span class="vpn y">без VPN</span></b><span>Тест по тексту параграфа, вход через Яндекс ID</span></div><a class="go" href="https://education.yandex.ru/neurotools" target="_blank" rel="noopener">Открыть</a></div></div>
+<h3>ИИ прямо в поиске</h3><div class="ai">
+<div class="row"><div class="badge" style="background:#dde3ee">Go</div><div class="txt"><b>Google<span class="vpn n">нужен VPN</span></b><span>ИИ-обзор сверху выдачи на многие запросы</span></div><a class="go" href="https://www.google.com" target="_blank" rel="noopener">Открыть</a></div><div class="row"><div class="badge" style="background:#ffc79c">Я</div><div class="txt"><b>Яндекс<span class="vpn y">без VPN</span></b><span>ИИ-ответ сверху выдачи</span></div><a class="go" href="https://ya.ru" target="_blank" rel="noopener">Открыть</a></div></div>
+<h3>Музыка</h3><div class="ai">
+<div class="row"><div class="badge" style="background:#ffd23f">N</div><div class="txt"><b>Naslux.ru<span class="vpn y">без VPN</span></b><span>Сервис ведущего мастер-класса: песни по тексту, 2 бесплатно, оплата в рублях</span></div><a class="go" href="https://naslux.ru/" target="_blank" rel="noopener">Открыть</a></div></div>
+<div class="tip"><b>Чем проще, тем лучше.</b> Выберите один сервис, который вас устраивает, и держите 1-2 в запасе, чтобы сверить ответ.</div>
+</section>
+</div>
 <footer>Ведущий: Глухов Антон Сергеевич, учитель информатики, школа №149.</footer>
 </div>
 
@@ -160,6 +193,35 @@ document.querySelectorAll('button.copy').forEach(function(btn){
     try { navigator.clipboard.writeText(text).then(done, fallback); } catch(e){ fallback(); }
   });
 });
+
+var OPEN = {
+  plan: ["DeepSeek","Qwen","Claude","Gemini","ГигаЧат","Алиса"], docs: ["DeepSeek","Qwen","Claude","Gemini","ГигаЧат","Алиса"],
+  check: ["DeepSeek","Qwen","Claude","Gemini","ГигаЧат","Алиса"], design: ["Qwen","Claude","Gemini","Шедеврум","ГигаЧат"],
+  "class": ["DeepSeek","Claude","Gemini","Naslux"] };
+var URL_ = {"DeepSeek":"https://chat.deepseek.com","Qwen":"https://chat.qwen.ai","Claude":"https://claude.ai","Gemini":"https://gemini.google.com",
+  "ГигаЧат":"https://giga.chat","Алиса":"https://alice.yandex.ru","Шедеврум":"https://shedevrum.ai","Naslux":"https://naslux.ru/"};
+document.querySelectorAll("section").forEach(function(sec){
+  var h = sec.querySelector("h2[id]"); if (!h || !OPEN[h.id]) return;
+  sec.querySelectorAll(".card").forEach(function(card){
+    var pre = card.querySelector("pre"), row = document.createElement("div"); row.className = "open";
+    row.appendChild(document.createTextNode("Скопировать и открыть:"));
+    OPEN[h.id].forEach(function(n){
+      var a = document.createElement("a"); a.href = URL_[n]; a.target = "_blank"; a.rel = "noopener"; a.textContent = n;
+      a.addEventListener("click", function(){ try { navigator.clipboard.writeText(pre.textContent); } catch(e){}
+        a.classList.add("done"); setTimeout(function(){ a.classList.remove("done"); }, 1500); });
+      row.appendChild(a);
+    });
+    card.appendChild(row);
+  });
+});
+function tab(name){
+  var ai = name === "ai";
+  document.getElementById("tab-ai").hidden = !ai; document.getElementById("tab-prompts").hidden = ai;
+  document.getElementById("t-ai").setAttribute("aria-selected", ai); document.getElementById("t-prompts").setAttribute("aria-selected", !ai);
+}
+document.getElementById("t-ai").onclick = function(){ tab("ai"); history.replaceState(null, "", "#ai"); };
+document.getElementById("t-prompts").onclick = function(){ tab("prompts"); history.replaceState(null, "", location.pathname); };
+if (location.hash === "#ai") tab("ai");
 </script>
 </body>
 </html>
