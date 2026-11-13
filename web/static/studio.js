@@ -211,7 +211,7 @@ function showMode() {
   $('voiceBox').hidden = !['create', 'restyle'].includes(mode) || keep;
   $('lyricsBox').hidden = !['create', 'restyle'].includes(mode) || keep;
   $('instrumentalBox').hidden = mode !== 'create' || yue2;      // YuE2 поёт только по словам
-  $('strengthBox').hidden = !(mode === 'restyle' && !mureka && !yue2);
+  $('strengthBox').hidden = !(mode === 'restyle' && !mureka && !yue2 && !hit);
   saveDraft();
   // «Инструментал» есть только у песни с нуля: в «Переделать» поле слов не гасим
   $('lyrics').disabled = mode === 'create' && $('instrumental').checked && !yue2;
