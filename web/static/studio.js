@@ -281,7 +281,7 @@ function updateStart() {
   const mureka = info.restyleEngine === 'mureka';
   let problem = '';
   if (!info.ready) problem = info.why;
-  else if (mode === 'create' && !info.createOpen && !yue2On()) problem = 'Песни с нуля скоро появятся.';
+  else if (mode === 'create' && !info.createOpen && !yue2On() && !hitOn()) problem = 'Песни с нуля скоро появятся.';
   else if (send.mode === 'restyle' && !info.restyleOpen) problem = 'Переделка скоро вернётся.';
   else if (mode !== 'create' && !file && !again) problem = 'Загрузите трек.';
   else if (mode === 'create' && useReference && !file) problem = 'Загрузите песню-образец (возьмём ~30 секунд).';

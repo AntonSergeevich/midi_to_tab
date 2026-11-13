@@ -491,7 +491,10 @@ def lyrics_open() -> bool:
 
 
 def create_open() -> bool:
-    return restyle_engine() == "mureka" or ace_create_open() or yue2_public()
+    """Песни с нуля доступны. Suno через GenAPI -- тоже (13.11: на новом
+    сервере нет ключа Mureka, и Студия писала «песни с нуля скоро появятся»,
+    хотя GenAPI работал)."""
+    return restyle_engine() == "mureka" or ace_create_open() or yue2_public() or suno_public()
 
 
 def restyle_engine() -> str:

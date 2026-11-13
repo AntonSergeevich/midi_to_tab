@@ -3823,3 +3823,19 @@ def test_versions_of_one_song_show_tempo_in_the_same_octave():
     assert studio.version_analysis(other, "b.mp3")["bpm"] == 96   # не вдвое -- не трогаем
     with_source = {**result, "analysis": {**result["analysis"], "source.mp3": {"bpm": 140}}}
     assert studio.version_analysis(with_source, "a.mp3")["bpm"] == 140   # исходник главнее
+
+
+def test_create_from_scratch_works_on_genapi_alone(studio_app, monkeypatch):
+    """13.11: на новом сервере нет ключа Mureka и YuE2 выключен -- Студия
+    писала «Песни с нуля скоро появятся», хотя GenAPI (Suno) работал."""
+    app_module, client, user, submitted = studio_app
+    monkeypatch.delenv("MUREKA_API_KEY", raising=False)
+    monkeypatch.setenv("NASLUX_YUE2", "0")
+    monkeypatch.setenv("GENAPI_API_KEY", "ga-test")
+    app_module.storage.set_flags(user.id, unlimited=True)
+    info = client.get("/api/studio").json()
+    assert info["createOpen"] is True and info["hitPublic"] is True
+    started = client.post("/api/studio", data={"mode": "create", "engine": "hit", "prompt": "поп-рок",
+                                               "lyrics": "[Verse]\nНаш класс самый дружный"})
+    assert started.status_code == 200, started.text
+    assert app_module.storage.job(started.json()["jobId"]).settings["engine"] == "suno"
