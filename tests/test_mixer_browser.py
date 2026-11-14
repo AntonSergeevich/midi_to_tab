@@ -334,3 +334,44 @@ def test_pricing_lets_you_choose_how_many_credits_to_buy(live_mixer):
             assert errors == []
         finally:
             browser.close()
+
+
+def test_a_remembered_source_that_no_longer_exists_is_cleared(live_mixer):
+    """14.11, владелец: «не даёт переделать свою песню -- трек стоял, но его
+    не было». Черновик помнил трек со старого сервера; теперь Студия снимает
+    его и просит загрузить заново."""
+    import json as _json
+
+    app_module, user, job, port = live_mixer
+    base_url = f"http://127.0.0.1:{port}"
+    with sync_playwright() as pw:
+        executable = _chromium_executable(pw)
+        try:
+            browser = pw.chromium.launch(executable_path=executable, args=["--no-sandbox"])
+        except Exception as error:
+            pytest.skip(f"браузер playwright не поднялся: {error}")
+        try:
+            context = browser.new_context(viewport={"width": 390, "height": 800}, locale="ru-RU")
+            context.add_cookies([{"name": "uid", "value": app_module.signer.dumps(user.id), "url": base_url}])
+            draft = {"mode": "restyle", "again": "0" * 32, "againName": "Старая песня.mp3", "prompt": "джаз"}
+            context.add_init_script(f"localStorage.setItem('naslux.studio.draft', {_json.dumps(_json.dumps(draft))})")
+            page = context.new_page()
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"{base_url}/studio", wait_until="networkidle")
+            page.wait_for_function("document.getElementById('dropTitle').textContent === 'Загрузите трек'", timeout=5000)
+            assert "больше недоступен" in page.locator("#toast").text_content()
+            assert page.input_value("#prompt") == "джаз"                  # остальной черновик цел
+            assert errors == []
+
+            # а существующий трек остаётся выбранным
+            other = browser.new_context(viewport={"width": 390, "height": 800}, locale="ru-RU")
+            other.add_cookies([{"name": "uid", "value": app_module.signer.dumps(user.id), "url": base_url}])
+            alive = {**draft, "again": job.id, "againName": "Есть"}
+            other.add_init_script(f"localStorage.setItem('naslux.studio.draft', {_json.dumps(_json.dumps(alive))})")
+            page = other.new_page()
+            page.goto(f"{base_url}/studio", wait_until="networkidle")
+            page.wait_for_timeout(500)
+            assert page.locator("#dropTitle").text_content() == "Есть"
+        finally:
+            browser.close()

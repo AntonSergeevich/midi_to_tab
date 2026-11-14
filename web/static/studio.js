@@ -1278,6 +1278,19 @@ async function loadOnce() {
     afterPayment(restored);
   }
   renderVoices();
+  // Выбранный трек живёт в черновике браузера. После переезда сайта (14.11)
+  // или удаления по сроку его на сервере нет, а форма показывала его
+  // выбранным -- «трек стоял, но его не было». Нет в «Моих треках» -- снимаем.
+  // (список -- последние 400 работ: длиннее -- не судим, ответит сервер)
+  if (again && info.jobs.length < 400) {
+    const src = info.jobs.find((j) => j.id === again);
+    if (!src || src.expired) {
+      const name = $('dropTitle').textContent;
+      clearSource();
+      toast(`Трек «${esc(name)}» больше недоступен${src ? ' — его файлы удалены по сроку хранения' : ''}. `
+        + 'Загрузите его заново — и можно переделывать.', 8000);
+    }
+  }
   if (!document.querySelector('.st-rename-input')) {    // пишут новое название -- не перерисовывать под рукой
     renderList(info.jobs);
     if (openJob) renderDetail(info.jobs);
