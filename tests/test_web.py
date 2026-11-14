@@ -1387,6 +1387,13 @@ def test_failed_payment_says_what_went_wrong(tmp_path, monkeypatch):
 
         assert response.status_code == 502
         detail = response.json()["detail"]
+        # 14.11: покупателю -- понятно и без адресов сервиса; подробности -- владельцу
+        assert "Оплата сейчас не проходит" in detail and "Деньги не списаны" in detail
+        assert "getplatinum" not in detail.lower() and "имя не найдено" not in detail
+        assert "имя не найдено" in app_module.storage.payment_init_broken()   # проверка сайта покраснеет
+        owner = app_module.storage.user_by_email("pokupatel@naslux.ru")
+        app_module.storage.set_flags(owner.id, is_admin=True)
+        detail = client.post("/api/subscribe", data={"plan": "single"}).json()["detail"]
         assert "getplatinum" in detail and "имя не найдено" in detail
 
         # И попытка сохранена -- владелец увидит её в админке
@@ -3138,3 +3145,16 @@ def test_yookassa_create_payment_accepts_the_same_arguments_as_getplatinum(monke
 
     assert result["id"] == "p1"
     assert captured["body"]["description"] == "«Музыкант» на месяц"
+
+
+def test_payment_alarm_clears_after_a_successful_payment(tmp_path):
+    """Проверка сайта красная, пока после упавшей попытки не пройдёт удачная."""
+    from web.storage import Storage
+
+    db = Storage(str(tmp_path / "app.db"))
+    user = db.ensure_user(None)
+    assert db.payment_init_broken() == ""
+    db.save_notice("getplatinum", {"попытка оплаты": {"код": 400}}, False, "Invalid API key")
+    assert db.payment_init_broken() == "Invalid API key"
+    db.create_payment(user.id, 199, "p-1")
+    assert db.payment_init_broken() == ""

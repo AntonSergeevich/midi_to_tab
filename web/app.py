@@ -484,6 +484,7 @@ def api_health(request: Request):
         # Только время и причина, без тела: в теле бывают почта и номера
         # платежей, а по причине и так видно, что чинить -- подпись,
         # ненайденный платёж или ошибку при создании.
+        "оплата_сбой": storage.payment_init_broken(),
         "отказы": [{"когда": n["created_at"], "причина": n["reason"]}
                    for n in recent if not n["accepted"]],
         # Что сообщил провайдер по каждому уведомлению -- тип и исход, без
@@ -4431,6 +4432,10 @@ def api_studio_delete(job_id: str, request: Request):
     return {"ok": True}
 
 
+PAYMENT_DOWN = ("Оплата сейчас не проходит — мы уже знаем и чиним. Деньги не списаны. "
+                "Попробуйте через полчаса или напишите нам: «Аккаунт» → «Написать нам».")
+
+
 @app.post("/api/studio/{job_id}/cancel")
 def api_studio_cancel(job_id: str, request: Request):
     """Остановить идущую задачу -- деньги или генерация возвращаются
@@ -4497,15 +4502,19 @@ def _start_payment(request: Request, user, amount: float, title: str, plan: str,
         storage.save_notice(
             gateway.name, {"попытка оплаты": error.details}, False, str(error)[:300]
         )
-        raise HTTPException(502, str(error)) from error
+        print(f"Оплата не создана: {error}", flush=True)
+        # Человеку -- по-человечески: адреса и ответы сервиса ему ни к чему
+        # (14.11 клиент увидел «Invalid API key» и адрес магазина). Подробности --
+        # владельцу, в журнале и в проверке сайта (/api/health, «оплата_сбой»).
+        raise HTTPException(502, f"{PAYMENT_DOWN}\n\nДля владельца: {error}" if user.is_admin
+                            else PAYMENT_DOWN) from error
     except Exception as error:                       # noqa: BLE001
         storage.save_notice(
             gateway.name, {"попытка оплаты": {"ошибка": repr(error)}}, False,
             "неожиданная ошибка",
         )
-        raise HTTPException(
-            502, f"Платёжный сервис не ответил как ожидалось: {error}"
-        ) from error
+        print(f"Оплата не создана: {error!r}", flush=True)
+        raise HTTPException(502, PAYMENT_DOWN) from error
 
     storage.create_payment(user.id, amount, created.get("id"), plan=plan)
     url = (created.get("confirmation") or {}).get("confirmation_url")

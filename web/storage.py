@@ -763,6 +763,19 @@ class Storage:
                 " (SELECT id FROM notices ORDER BY id DESC LIMIT 20)"
             )
 
+    def payment_init_broken(self) -> str:
+        """Причина, если последняя попытка создать платёж упала и после неё
+        удачных не было (14.11: ключ магазина не подошёл -- клиент не смог
+        заплатить, а проверка сайта молчала). Иначе пустая строка."""
+        with self._connect() as conn:
+            ok = conn.execute("SELECT MAX(created_at) FROM payments").fetchone()[0] or 0.0
+            fail = conn.execute(
+                "SELECT created_at, reason FROM notices WHERE accepted = 0"
+                " AND body LIKE '%попытка оплаты%' ORDER BY id DESC LIMIT 1").fetchone()
+        if fail and fail[0] > ok:
+            return fail[1] or "ошибка при создании платежа"
+        return ""
+
     def notices(self, limit: int = 20) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute(
