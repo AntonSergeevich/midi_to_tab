@@ -89,6 +89,44 @@ window.addEventListener('resize', () => {
 document.querySelectorAll('[data-pick]').forEach((el) => {
   el.addEventListener('click', () => pick(el.dataset.pick));
 });
+// ------------------------------------------------ сколько кредитов докупить
+// Владелец (14.11): «чтобы можно было выбрать кол-во кредитов». Цена -- та же
+// формула, что на сервере (billing.credit_pack): цена пакета за кредит,
+// округление до рубля. Сервер считает сам -- со страницы уходит только число.
+const pack = $('pack').dataset;
+const EN = window.NASLUX_LANG === 'en';
+const packPrice = (n) => Math.floor(n * Number(pack.price) / Number(pack.credits) + 0.5);
+function packClamp(n) {
+  const step = Number(pack.step);
+  const v = Math.round((Number(n) || 0) / step) * step;
+  return Math.max(Number(pack.min), Math.min(Number(pack.max), v));
+}
+function packSet(n, typing) {
+  const count = packClamp(n);
+  if (!typing) $('packCount').value = count;
+  const songs = Math.floor(count / Number(pack.song));
+  const plural = (k, one, few, many) => {
+    const a = k % 10, b = k % 100;
+    return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many;
+  };
+  $('packTitle').textContent = EN ? `Buy ${count} credits` : `Купить ${count} ${plural(count, 'кредит', 'кредита', 'кредитов')}`;
+  $('packPrice').textContent = EN ? `for ${packPrice(count)} ₽` : `за ${packPrice(count)} ₽`;
+  $('packWhat').textContent = EN ? `≈ ${songs} ${songs === 1 ? 'song' : 'songs'} from scratch`
+    : `≈ ${songs} ${plural(songs, 'песня', 'песни', 'песен')} с нуля`;
+  $('buyCredits').dataset.plan = `credits:${count}`;
+  document.querySelectorAll('[data-pack]').forEach((b) => b.classList.toggle('on', Number(b.dataset.pack) === count));
+}
+document.querySelectorAll('[data-pack]').forEach((b) => b.addEventListener('click', () => packSet(b.dataset.pack)));
+$('packMinus').addEventListener('click', () => packSet(Number($('packCount').value) - Number(pack.step)));
+$('packPlus').addEventListener('click', () => packSet(Number($('packCount').value) + Number(pack.step)));
+$('packCount').addEventListener('input', () => {
+  const raw = Number($('packCount').value);
+  if (raw >= Number(pack.min) && raw <= Number(pack.max)) packSet(raw, true);
+});
+$('packCount').addEventListener('change', () => packSet($('packCount').value));
+// Из Студии с нехваткой (?need=49 ₽) -- сразу столько, чтобы хватило
+packSet(need > 0 ? Math.ceil(need * Number(pack.credits) / Number(pack.price) / Number(pack.step)) * Number(pack.step) : 100);
+
 document.querySelectorAll('[data-plan]').forEach((el) => {
   el.addEventListener('click', () => buy(el.dataset.plan, el));
 });

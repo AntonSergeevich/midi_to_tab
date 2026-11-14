@@ -3158,3 +3158,44 @@ def test_payment_alarm_clears_after_a_successful_payment(tmp_path):
     assert db.payment_init_broken() == "Invalid API key"
     db.create_payment(user.id, 199, "p-1")
     assert db.payment_init_broken() == ""
+
+
+def test_any_number_of_credits_can_be_bought(tmp_path, monkeypatch):
+    """14.11, владелец: «чтобы можно было выбрать кол-во кредитов». Цена --
+    по цене пакета за кредит и считается сервером; начисляется ровно столько."""
+    import sys
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("PAYMENT_PROVIDER", "getplatinum")
+    monkeypatch.setenv("GETPLATINUM_SECRET_KEY", "f" * 64)
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    from fastapi.testclient import TestClient
+
+    import web.app as app_module
+    from web import billing
+
+    assert billing.credit_pack("credits:250")["price"] == 498          # 250 × 1,99
+    assert billing.credit_pack("credits:100")["price"] == billing.PLANS["studio10"]["price"]
+    assert billing.credit_pack("credits:50")["price"] == 100
+    for bad in ("credits:25", "credits:5010", "credits:105", "credits:abc", "credits:-100"):
+        assert billing.credit_pack(bad) is None
+    asked = []
+
+    def create(self, user_id, amount, return_url, **extra):
+        asked.append((amount, extra.get("title")))
+        return {"id": f"gp-{len(asked)}", "url": "https://pay.example/1"}
+
+    monkeypatch.setattr(billing.GetPlatinumProvider, "create_payment", create)
+    with TestClient(app_module.app) as client:
+        client.post("/api/auth/register", data={"email": "buyer@naslux.ru", "password": "длинный-пароль-9"})
+        ok = client.post("/api/subscribe", data={"plan": "credits:250"})
+        assert ok.status_code == 200, ok.text
+        assert asked[-1] == (498.0, "250 кредитов Студии")
+        bad = client.post("/api/subscribe", data={"plan": "credits:7"})
+        assert bad.status_code == 400 and "кратно 10" in bad.json()["detail"]
+        user = app_module.storage.user_by_email("buyer@naslux.ru")
+        before = app_module.storage.user(user.id).studio_credits
+        billing.apply_plan(app_module.storage, user.id, "credits:250", 498.0)
+        assert app_module.storage.user(user.id).studio_credits == before + 250
+        assert not app_module.storage.user(user.id).subscribed                # не подписка

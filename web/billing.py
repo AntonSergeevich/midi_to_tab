@@ -59,6 +59,33 @@ PLANS = {
 }
 WELCOME_CREDITS = 30      # за регистрацию: два кавера или три песни на пробу
 
+# Сколько кредитов докупить -- выбирает человек (владелец, 14.11): по цене
+# пакета «100 кредитов -- 199 ₽» за штуку, шагом в 10. Скидок за объём нет
+# сознательно: «Минус и голос» (10 кредитов) стоит нам 17 ₽ у GenAPI, и уже
+# −10% к цене кредита уводит его в минус после комиссии и налога.
+CREDIT_PACK_MIN, CREDIT_PACK_MAX, CREDIT_PACK_STEP = 30, 5000, 10
+
+
+def credit_pack(plan: str) -> dict | None:
+    """«credits:250» -> {"price", "title", "studio_credits"}; иначе None.
+    Цену считает сервер -- со страницы приходит только количество."""
+    if not plan.startswith("credits:"):
+        return None
+    try:
+        count = int(plan.split(":", 1)[1])
+    except ValueError:
+        return None
+    if not (CREDIT_PACK_MIN <= count <= CREDIT_PACK_MAX) or count % CREDIT_PACK_STEP:
+        return None
+    base = PLANS["studio10"]
+    price = float(int(count * base["price"] / base["studio_credits"] + 0.5))
+    return {"price": price, "title": f"{count} кредитов Студии", "credits": 0, "studio_credits": count}
+
+
+def plan_spec(plan: str) -> dict | None:
+    """Тариф по имени: из PLANS или пакет кредитов на выбор."""
+    return PLANS.get(plan) or credit_pack(plan)
+
 
 @dataclass
 class Access:
@@ -202,7 +229,7 @@ def apply_plan(storage: Storage, user_id: str, plan: str, amount: float | None =
     if plan == "topup":
         storage.add_balance(user_id, amount or 0.0)
         return
-    spec = PLANS.get(plan, PLANS["month"])
+    spec = plan_spec(plan) or PLANS["month"]
     if spec.get("subscription"):
         grant_subscription(storage, user_id, tier=spec.get("tier", plan))
     if spec.get("studio_credits"):

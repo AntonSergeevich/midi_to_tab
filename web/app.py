@@ -1270,6 +1270,11 @@ def pricing_values() -> dict:
         "creditRub": _rub_text(credit_rub),
         "createRub": _rub_text(credit_rub * studio.credit_cost("create")),
         "packCredits": str(plans["studio10"]["studio_credits"]),
+        # выбор количества кредитов: цена кредита и границы -- для расчёта на странице
+        "packRate": f"{credit_rub:.4f}",
+        "packMin": str(billing.CREDIT_PACK_MIN),
+        "packMax": str(billing.CREDIT_PACK_MAX),
+        "packStep": str(billing.CREDIT_PACK_STEP),
     }
 
 
@@ -4556,10 +4561,12 @@ def api_payments(request: Request):
 @app.post("/api/subscribe")
 def api_subscribe(request: Request, plan: str = Form("month"), next: str = Form("/")):  # noqa: A002
     """Создать платёж: подписка на месяц или один трек."""
-    if plan not in billing.PLANS:
-        raise HTTPException(400, "Неизвестный тариф")
+    spec = billing.plan_spec(plan)
+    if not spec:
+        raise HTTPException(400, f"Кредитов можно докупить от {billing.CREDIT_PACK_MIN} до "
+                                 f"{billing.CREDIT_PACK_MAX}, кратно {billing.CREDIT_PACK_STEP}"
+                            if plan.startswith("credits:") else "Неизвестный тариф")
     user = current_user(request)
-    spec = billing.PLANS[plan]
     return _start_payment(request, user, spec["price"], spec["title"], plan, next)
 
 

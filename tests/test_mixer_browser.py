@@ -301,3 +301,36 @@ def test_concert_deleting_an_earlier_song_keeps_the_playing_one_current(live_mix
             assert errors == []
         finally:
             browser.close()
+
+
+def test_pricing_lets_you_choose_how_many_credits_to_buy(live_mixer):
+    """14.11: количество кредитов -- на выбор; цена и «≈ N песен» считаются сразу."""
+    app_module, user, job, port = live_mixer
+    base_url = f"http://127.0.0.1:{port}"
+    with sync_playwright() as pw:
+        executable = _chromium_executable(pw)
+        try:
+            browser = pw.chromium.launch(executable_path=executable, args=["--no-sandbox"])
+        except Exception as error:
+            pytest.skip(f"браузер playwright не поднялся: {error}")
+        try:
+            context = browser.new_context(viewport={"width": 390, "height": 800}, locale="ru-RU")
+            page = context.new_page()
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"{base_url}/pricing", wait_until="networkidle")
+            title, price, buy = page.locator("#packTitle"), page.locator("#packPrice"), page.locator("#buyCredits")
+            assert title.text_content() == "Купить 100 кредитов" and price.text_content() == "за 199 ₽"
+            page.locator('[data-pack="500"]').click()
+            assert title.text_content() == "Купить 500 кредитов" and price.text_content() == "за 995 ₽"
+            assert "33 песни" in page.locator("#packWhat").text_content()
+            page.fill("#packCount", "250")
+            assert price.text_content() == "за 498 ₽" and buy.get_attribute("data-plan") == "credits:250"
+            page.locator("#packPlus").click()
+            assert title.text_content() == "Купить 260 кредитов"
+            page.fill("#packCount", "7")
+            page.locator("#packCount").dispatch_event("change")
+            assert page.input_value("#packCount") == "30"              # меньше нельзя -- до минимума
+            assert errors == []
+        finally:
+            browser.close()

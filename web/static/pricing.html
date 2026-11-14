@@ -91,8 +91,26 @@
   </div>
 
   <div class="pr-credits" id="credits">
-    <button class="pr-buy" type="button" data-plan="studio10" id="buyCredits">
-      Докупить кредиты<span>{{packCredits}} кредитов — {{studio10}} ₽</span>
+    <h3 class="pr-pack-h">Докупить кредиты</h3>
+    <!-- Сколько -- выбирает человек (14.11): быстрые варианты или своё число;
+         цена за кредит та же, что у пакета, сумму считает сервер -->
+    <div class="pr-pack" id="pack" data-price="{{studio10}}" data-credits="{{packCredits}}"
+         data-min="{{packMin}}" data-max="{{packMax}}" data-step="{{packStep}}" data-song="{{createCredits}}">
+      <div class="pr-pack-chips" role="group" aria-label="Сколько кредитов">
+        <button type="button" data-pack="50">50</button><button type="button" data-pack="100">100</button><button
+          type="button" data-pack="200">200</button><button type="button" data-pack="500">500</button><button
+          type="button" data-pack="1000">1000</button>
+      </div>
+      <div class="pr-pack-row">
+        <button type="button" class="pr-step" id="packMinus" aria-label="Меньше">−</button>
+        <input type="number" id="packCount" inputmode="numeric" value="100"
+               min="{{packMin}}" max="{{packMax}}" step="{{packStep}}" aria-label="Сколько кредитов">
+        <button type="button" class="pr-step" id="packPlus" aria-label="Больше">+</button>
+        <span class="pr-pack-what muted" id="packWhat" data-noi18n></span>
+      </div>
+    </div>
+    <button class="pr-buy" type="button" data-plan="credits:100" id="buyCredits">
+      <b id="packTitle" data-noi18n>Купить 100 кредитов</b><span id="packPrice" data-noi18n>за {{studio10}} ₽</span>
     </button>
     <p><b>1 кредит ≈ {{creditRub}} ₽.</b> Песня с нуля — {{createCredits}} кредитов (≈ {{createRub}} ₽),
       кавер — {{coverCredits}}. Кредиты не сгорают, а если генерация не удалась — вернутся сами.</p>

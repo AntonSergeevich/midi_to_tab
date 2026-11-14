@@ -2001,6 +2001,22 @@ button svg, button img, a svg, a img, label svg, [role="button"] svg { pointer-e
 .pr-buy span { font-size: 14px; font-weight: 600; opacity: .85; }
 @media (hover: hover) { .pr-buy:hover { filter: brightness(1.06); } }
 .pr-credits p { margin: 12px 0 0; color: var(--muted); line-height: 1.5; }
+/* Сколько кредитов докупить (14.11) */
+.pr-pack-h { margin: 0 0 10px; font-size: 20px; }
+.pr-pack { margin: 0 0 14px; }
+.pr-pack-chips { display: flex; gap: 6px; }
+.pr-pack-chips button { flex: 1 1 0; min-width: 0; padding: 0 4px; min-height: 44px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--panel-hi, rgba(255,255,255,.04)); color: var(--text);
+  font-size: 16px; font-weight: 700; }
+.pr-pack-chips button.on { border-color: var(--accent); background: rgba(217,154,78,.16); color: var(--accent); }
+.pr-pack-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.pr-step { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--border); cursor: pointer;
+  background: var(--panel-hi, rgba(255,255,255,.04)); color: var(--text); font-size: 22px; line-height: 1; }
+.pr-pack-row input { width: 96px; height: 44px; border-radius: 12px; text-align: center; font-size: 18px; font-weight: 700;
+  border: 1px solid var(--border); background: var(--bg, #0d0e12); color: var(--text); -moz-appearance: textfield; }
+.pr-pack-row input::-webkit-inner-spin-button, .pr-pack-row input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.pr-pack-what { font-size: 14px; }
+.pr-buy b { font-weight: 800; }
 .pr-credits p b { color: var(--text); }
 
 /* Плейлисты (30.10): свои подборки -- слушать подряд, по кругу, перемешанно */

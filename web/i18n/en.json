@@ -2071,7 +2071,6 @@
  "Вход в трек — как в iPhone": "Opening a track — iPhone-style",
  "Нажали на трек — обложка перелетает из списка и вырастает, страница трека въезжает справа; «назад» — обложка возвращается на своё место в списке. И лёгкий щелчок под пальцем.": "Tap a track — its cover flies out of the list and grows, the track page slides in from the right; “back” — the cover returns to its place in the list. Plus a light tap under your finger.",
  "Момент, когда песня готова": "The moment your song is ready",
- "Пока песня готовится, обложка переливается и по ней бежит эквалайзер. Готово — обложка вспыхивает и переворачивается, телефон отвечает щелчком, снизу — «Готово!», а если ничего не играет, песня сразу звучит с припева.": "While the song is being made, its cover shimmers with a running equalizer. When it's ready, the cover flashes and flips, your phone taps back, “Ready!” slides up — and if nothing is playing, the song starts right from the chorus.",
  "Готово!": "Ready!",
  "Открыть трек": "Open track",
  "Меньше лишнего": "Less clutter",
@@ -2130,5 +2129,9 @@
  "Вставьте его в чат": "Paste it into the chat",
  "— если трек не запускается, повторите это и пришлите журнал в поддержку.": "— if a track won't start, repeat it and send the log to support.",
  "iPhone: пауза на заблокированном экране": "iPhone: pausing on the lock screen",
- "Поставили на паузу при заблокированном экране — NASLUX держит вкладку живой до 10 минут: «играть» с экрана блокировки и AirPods продолжает трек с того же места, а экран блокировки не забирает другое приложение.": "Pause on a locked screen and NASLUX keeps the tab alive for up to 10 minutes: “play” from the lock screen or AirPods resumes the track from the same spot, and another app doesn't take over the lock screen."
+ "Сколько кредитов": "How many credits",
+ "Меньше": "Fewer",
+ "Больше": "More",
+ "Поставили на паузу при заблокированном экране — экран блокировки честно показывает паузу и кнопки «предыдущая / следующая», а «играть» продолжает трек с того же места.": "Pause on a locked screen and the lock screen honestly shows a pause with “previous / next” buttons, and “play” resumes the track from the same spot.",
+ "Пока песня готовится, обложка переливается и по ней бежит эквалайзер. Готово — обложка вспыхивает и переворачивается, телефон отвечает щелчком, снизу — «Готово!» и ▶: слушать — по нажатию.": "While the song is being made, its cover shimmers with a running equalizer. When it's ready, the cover flashes and flips, your phone taps back, and “Ready!” slides up with a ▶ — the song plays when you tap it."
 }
