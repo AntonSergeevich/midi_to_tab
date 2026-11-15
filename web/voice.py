@@ -51,6 +51,30 @@ def save(user_id: str, state: dict) -> dict:
     return state
 
 
+def claim(user_id: str, new_stage: str, *, ok: tuple[str, ...] = (), bad: tuple[str, ...] = (),
+          extra: dict | None = None) -> dict | None:
+    """Атомарно: стадия подходит (если задано `ok` -- входит в него, иначе
+    -- не входит в `bad`) -> сразу меняется на `new_stage` (+ `extra`),
+    возвращается состояние ДО смены (для отката). Не подходит -- `None`.
+
+    Нужен в app.py, чтобы занять место ДО медленного шага (запись файла,
+    ffmpeg), а не после: /api/voice/sample и /api/voice/phrase проверяли
+    "не идёт ли уже проверка/создание" заранее, но выставляли новую стадию
+    только после `await` на сохранение файла -- и два быстрых запроса
+    (вторая вкладка, телефон, повтор после обрыва сети) оба успевали
+    пройти проверку по одному и тому же устаревшему снимку, пока первый
+    ещё сохранял файл, и запускали фоновую задачу дважды. Тот же приём,
+    что у `_voice_lock`/`_studio_start_lock` в app.py: занять маркер под
+    локом синхронно, без `await` внутри `with`, и уже потом сохранять файл."""
+    with _lock:
+        state = load(user_id)
+        stage = state.get("stage")
+        if (ok and stage not in ok) or (not ok and stage in bad):
+            return None
+        save(user_id, {**state, "stage": new_stage, **(extra or {})})
+        return state
+
+
 def voice_id(user_id: str) -> str:
     """Готовый голос человека, если он есть."""
     state = load(user_id)

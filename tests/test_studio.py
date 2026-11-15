@@ -3803,6 +3803,66 @@ def test_own_voice_sample_phrase_then_song_with_persona(studio_app, monkeypatch,
     assert _time.time() - own.load(user.id)["updated"] < 60
 
 
+def test_own_voice_sample_survives_a_true_concurrent_race(studio_app, monkeypatch, tmp_path):
+    """/api/voice/sample проверяла "не идёт ли уже проверка" и выставляла
+    стадию "checking" только ПОСЛЕ await на сохранение/конвертацию файла
+    (own_voice.to_mp3 через ffmpeg -- не мгновенно): вторая вкладка/телефон
+    того же владельца, отправленные почти одновременно, проходили ту же
+    проверку по одному и тому же устаревшему снимку (оба видели старую
+    стадию, например "none") и обе запускали check_sample() в фоне --
+    два обращения к GenAPI за одну запись. own_voice.claim() (web/voice.py)
+    теперь занимает стадию атомарно, под локом, ДО await -- тот же приём,
+    что у _voice_lock/_studio_start_lock для соседних эндпоинтов."""
+    import subprocess
+    import threading
+
+    app_module, client, user, submitted = studio_app
+    own = app_module.own_voice
+    app_module.storage.register(user.id, "owner@example.com", app_module.auth.hash_password("пароль-владельца-1"))
+    app_module.storage.set_flags(user.id, unlimited=True)
+    monkeypatch.setenv("GENAPI_API_KEY", "ga-test")
+    monkeypatch.setattr(own, "run_later", lambda target, *args: None)   # фон не нужен для этой проверки
+
+    wav = tmp_path / "s.wav"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=12", str(wav)],
+                   check=True)
+    audio = wav.read_bytes()
+
+    real_to_mp3 = own.to_mp3
+    entered_first = threading.Event()
+    release_first = threading.Event()
+    calls: list[None] = []
+
+    def paced_to_mp3(source, target):
+        calls.append(None)
+        if len(calls) == 1:
+            entered_first.set()
+            release_first.wait(timeout=5)
+        return real_to_mp3(source, target)
+
+    monkeypatch.setattr(own, "to_mp3", paced_to_mp3)
+
+    results: dict[str, object] = {}
+
+    def attempt(name: str) -> None:
+        results[name] = client.post("/api/voice/sample", files={"file": (f"{name}.wav", audio)})
+
+    first = threading.Thread(target=attempt, args=("first",))
+    first.start()
+    assert entered_first.wait(timeout=5), "первый поток не дошёл до конвертации файла"
+
+    # Второй запрос приходит, пока первый ещё конвертирует файл -- стадия
+    # должна быть уже занята ("checking"), а не ждать до конца конвертации.
+    second = client.post("/api/voice/sample", files={"file": ("second.wav", audio)})
+    assert second.status_code == 409, second.text
+    assert len(calls) == 1, "второй запрос дошёл до конвертации -- claim() не остановил его заранее"
+
+    release_first.set()
+    first.join(timeout=5)
+    assert results["first"].status_code == 200, results["first"].text
+    assert own.load(user.id)["stage"] == "checking"
+
+
 def test_versions_of_one_song_show_tempo_in_the_same_octave():
     """12.11: две версии одной песни -- 70 и 136 BPM (вторую определитель
     услышал вдвое быстрее). Версия приводится к темпу основной вместе с сеткой."""

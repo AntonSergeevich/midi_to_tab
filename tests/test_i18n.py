@@ -135,3 +135,61 @@ def test_credit_pack_paragraph_is_fully_translated_in_english(monkeypatch, tmp_p
     finally:
         server.should_exit = True
         thread.join(timeout=5)
+
+
+def test_homepage_pricing_and_account_have_no_leftover_russian_in_english(monkeypatch, tmp_path):
+    """Регресс 15.11: три места с переменной внутри фразы (WELCOME_WHAT,
+    PACK_PRICE на главной; welcome/creditRub/действие на /pricing) переводились
+    только частями -- переводчик (web/static/i18n.js) ищет либо фразу
+    целиком, либо известные куски по границам слов, и часть кусков не была
+    в словаре (найдено живым обходом главной, /pricing и /account под
+    lang=en: «Subscription не продлевается сама», «Единая «валюта» Studio:
+    … How many credits costs действие, написано прямо на кнопке», четыре
+    темы обращения в кабинете -- «Предложение or пожелание» и т.п.). Часть
+    фраз не совпадала даже по словам из-за переноса строки в самой вёрстке
+    (…после\\n      регистрации… -- перевод ищет ровно "после регистрации"
+    одной строкой). Проверяем все три страницы живым браузером: ни одной
+    кириллической буквы в видимом тексте body."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "test-secret")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    uvicorn = pytest.importorskip("uvicorn")
+    import web.app as app_module
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    config = uvicorn.Config(app_module.app, host="127.0.0.1", port=port, log_level="warning")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    for _ in range(200):
+        if server.started:
+            break
+        time.sleep(0.05)
+    else:
+        server.should_exit = True
+        pytest.fail("сервер не поднялся за 10 секунд")
+    base_url = f"http://127.0.0.1:{port}"
+    try:
+        with sync_playwright() as pw:
+            executable = _chromium_executable(pw)
+            try:
+                browser = pw.chromium.launch(executable_path=executable, args=["--no-sandbox"])
+            except Exception as error:
+                pytest.skip(f"браузер playwright не поднялся: {error}")
+            try:
+                context = browser.new_context()
+                context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+                page = context.new_page()
+                for path in ("/", "/pricing", "/account"):
+                    page.goto(f"{base_url}{path}", wait_until="networkidle")
+                    text = page.inner_text("body")
+                    assert not CYR.search(text), f"остался русский текст на {path}: {text!r}"
+            finally:
+                browser.close()
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)

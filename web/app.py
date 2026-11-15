@@ -3060,12 +3060,19 @@ def api_voice(request: Request):
 async def api_voice_sample(request: Request, file: UploadFile = File(...)):
     """Шаг 1: образец пения -> фраза, которую надо прочитать вслух."""
     user = _voice_user(request)
-    if own_voice.load(user.id).get("stage") in ("checking", "creating"):
+    # own_voice.claim занимает стадию "checking" под локом ДО await ниже --
+    # тот же приём, что у _voice_lock (api_studio_voice): без него два
+    # быстрых запроса (вторая вкладка, телефон, повтор после обрыва сети)
+    # проходят проверку "не идёт ли уже проверка" по одному и тому же
+    # устаревшему снимку, пока первый ещё сохраняет/конвертирует файл, и
+    # запускают check_sample() дважды.
+    before = own_voice.claim(user.id, "checking", bad=("checking", "creating"))
+    if before is None:
         raise HTTPException(409, "Предыдущая запись ещё проверяется")
     seconds = await _voice_save(user.id, file, "sample.mp3")
     if seconds < own_voice.SAMPLE_MIN:
+        own_voice.save(user.id, before)   # запись слишком короткая -- это не попытка проверки, откатываем
         raise HTTPException(400, f"Запись {seconds:.0f} с — нужно хотя бы {own_voice.SAMPLE_MIN:.0f} с пения")
-    own_voice.save(user.id, {"stage": "checking"})
     own_voice.run_later(own_voice.check_sample, user.id, _voice_link(request, user.id, "sample.mp3"), seconds)
     return own_voice.public(own_voice.load(user.id))
 
@@ -3074,11 +3081,15 @@ async def api_voice_sample(request: Request, file: UploadFile = File(...)):
 async def api_voice_phrase(request: Request, file: UploadFile = File(...)):
     """Шаг 2: та же фраза голосом человека -> готовый голос."""
     user = _voice_user(request)
-    state = own_voice.load(user.id)
-    if not state.get("task_id") or state.get("stage") not in ("phrase", "error"):
+    # Тот же приём, что в /api/voice/sample выше: занимаем "creating" под
+    # локом ДО await, чтобы два быстрых запроса не прошли проверку по
+    # одному и тому же устаревшему снимку и не запустили create_voice() дважды.
+    before = own_voice.claim(user.id, "creating", ok=("phrase", "error"), extra={"error": ""})
+    if before is None or not before.get("task_id"):
+        if before is not None:
+            own_voice.save(user.id, before)   # нет task_id -- откатываем, это не попытка создания
         raise HTTPException(409, "Сначала запишите образец пения")
     await _voice_save(user.id, file, "phrase.mp3")
-    own_voice.save(user.id, {**state, "stage": "creating", "error": ""})
     own_voice.run_later(own_voice.create_voice, user.id, _voice_link(request, user.id, "phrase.mp3"))
     return own_voice.public(own_voice.load(user.id))
 
