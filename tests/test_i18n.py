@@ -193,3 +193,72 @@ def test_homepage_pricing_and_account_have_no_leftover_russian_in_english(monkey
     finally:
         server.should_exit = True
         thread.join(timeout=5)
+
+
+def test_voice_and_concert_pages_have_no_leftover_russian_in_english(monkeypatch, tmp_path):
+    """Регресс 16.11: /voice и /concert оставались наполовину русскими
+    по-английски -- тот же класс пропусков в словаре, что у 14.11/15.11
+    (заголовок, вступительный абзац, пустое состояние), плюс отдельная
+    причина на /concert: весь <main class="cc"> был помечен data-noi18n
+    (атрибут, которым переводчик защищает от перевода пользовательские
+    данные -- названия песен, см. web/static/i18n.js), а не только те
+    элементы, где реально лежат названия песен (#stage, #ccList) -- из-за
+    этого под защиту попали и статичные подписи интерфейса (заголовок,
+    подсказки), которые должны переводиться. Исправление сузило
+    data-noi18n до #stage и #ccList."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("MIDI2TAB_SECRET", "test-secret")
+    for name in [m for m in sys.modules if m.startswith("web.")]:
+        del sys.modules[name]
+    uvicorn = pytest.importorskip("uvicorn")
+    import web.app as app_module
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    config = uvicorn.Config(app_module.app, host="127.0.0.1", port=port, log_level="warning")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    for _ in range(200):
+        if server.started:
+            break
+        time.sleep(0.05)
+    else:
+        server.should_exit = True
+        pytest.fail("сервер не поднялся за 10 секунд")
+    base_url = f"http://127.0.0.1:{port}"
+    try:
+        with sync_playwright() as pw:
+            executable = _chromium_executable(pw)
+            try:
+                browser = pw.chromium.launch(executable_path=executable, args=["--no-sandbox"])
+            except Exception as error:
+                pytest.skip(f"браузер playwright не поднялся: {error}")
+            try:
+                context = browser.new_context()
+                context.add_cookies([{"name": "lang", "value": "en", "url": base_url}])
+                page = context.new_page()
+                for path in ("/voice", "/concert"):
+                    page.goto(f"{base_url}{path}", wait_until="networkidle")
+                    text = page.inner_text("body")
+                    assert not CYR.search(text), f"остался русский текст на {path}: {text!r}"
+            finally:
+                browser.close()
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+
+
+def test_concert_still_protects_song_titles_from_translation():
+    """Регресс-страховка к находке 16.11: data-noi18n сузили с <main> до
+    #stage и #ccList -- именно там JS подставляет названия песен (song.title),
+    которые переводить нельзя. Если кто-то уберёт атрибут при следующей
+    правке разметки, названия песен снова начнут ломаться переводчиком."""
+    html = (ROOT / "web/static/concert.html").read_text(encoding="utf-8")
+    assert re.search(r'<section class="cc-stage" id="stage"[^>]*\bdata-noi18n\b', html)
+    assert re.search(r'<ol class="cc-list" id="ccList"[^>]*\bdata-noi18n\b', html)
+    main_tag = re.search(r"<main[^>]*>", html).group(0)
+    assert "data-noi18n" not in main_tag, \
+        "весь <main> снова помечен data-noi18n -- статичный текст перестанет переводиться"
