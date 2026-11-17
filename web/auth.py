@@ -131,9 +131,26 @@ class AttemptLimiter:
     window: int = ATTEMPT_WINDOW
     _log: dict[str, list[float]] = field(default_factory=dict)
 
+    def _sweep(self, now: float) -> None:
+        """Убрать ключи без единой свежей попытки из словаря целиком.
+
+        Ключ -- почта из формы входа, а не существующий аккаунт: её можно
+        подставить какой угодно, хоть каждый раз новую. `_recent` ниже сама
+        чистит список внутри УЖЕ существующего ключа, но только когда к
+        этому самому ключу обратятся снова -- а бот, перебирающий заведомо
+        одноразовые адреса, к одному и тому же ключу дважды не обращается,
+        и без общей чистки такие ключи висели бы в памяти процесса вечно,
+        пока не упёрлись бы в MemoryMax службы (см. deploy/README.md)."""
+        for key in [k for k, times in self._log.items() if not any(now - t < self.window for t in times)]:
+            del self._log[key]
+
     def _recent(self, key: str, now: float) -> list[float]:
+        self._sweep(now)
         times = [t for t in self._log.get(key, []) if now - t < self.window]
-        self._log[key] = times
+        if times:
+            self._log[key] = times
+        else:
+            self._log.pop(key, None)
         return times
 
     def blocked(self, key: str) -> bool:
@@ -141,7 +158,9 @@ class AttemptLimiter:
 
     def note_failure(self, key: str) -> None:
         now = time.time()
-        self._recent(key, now).append(now)
+        times = self._recent(key, now)
+        times.append(now)
+        self._log[key] = times   # _recent не хранит пустой список -- записать явно, иначе попытка потеряется
 
     def reset(self, key: str) -> None:
         self._log.pop(key, None)
