@@ -378,6 +378,9 @@ def call(method: str, url: str, body: dict | None = None, timeout: int = 60) -> 
     except urllib.error.HTTPError as error:
         raise RuntimeError(f"RunPod ответил {error.code}: "
                            f"{short_error(error.read()[:2000].decode(errors='replace'))}") from error
+    except (urllib.error.URLError, TimeoutError) as error:
+        # человеку -- без «urlopen error [Errno -2]» (17.11)
+        raise RuntimeError("сервис обработки временно не отвечает — попробуйте через несколько минут") from error
     return json.loads(raw or b"{}")
 
 
@@ -927,19 +930,53 @@ def download(url: str, target: str) -> None:
 
 
 _endpoint_cache: dict[str, str] = {}
+# Последний известный ID эндпоинта: 17.11 служебный API RunPod (rest.runpod.io)
+# пропал из DNS, а сам эндпоинт (api.runpod.ai) работал -- но сайт после
+# каждого перезапуска спрашивал ID заново, и разделение падало
+# «Name or service not known». ID -- не секрет: без ключа им не воспользоваться.
+KNOWN_ENDPOINTS = {WORKER_NAME: "vc5ratec9zx6o5"}
+
+
+def _endpoints_file() -> str:
+    return os.path.join(os.environ.get("MIDI2TAB_DATA", "data"), "runpod_endpoints.json")
+
+
+def _saved_endpoints() -> dict:
+    try:
+        with open(_endpoints_file(), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
 
 def endpoint_id(name: str = WORKER_NAME) -> str:
-    """ID эндпоинта: из окружения или по имени через API RunPod (один раз)."""
+    """ID эндпоинта: из окружения, иначе по имени через служебный API RunPod
+    (найденный запоминается в папке данных), а если тот недоступен --
+    последний известный."""
     configured = os.environ.get("NASLUX_WORKER_ENDPOINT" if name == WORKER_NAME else "NASLUX_YUE2_ENDPOINT", "")
     if configured:
         return configured
     if name not in _endpoint_cache:
-        found = [e for e in call("GET", f"{RUNPOD_REST}/endpoints")
-                 if e.get("name", "").startswith(name)]
+        try:
+            found = [e for e in call("GET", f"{RUNPOD_REST}/endpoints", timeout=20)
+                     if e.get("name", "").startswith(name)]
+        except (RuntimeError, OSError, ValueError) as error:
+            known = _saved_endpoints().get(name) or KNOWN_ENDPOINTS.get(name)
+            if not known:
+                raise RuntimeError(f"RunPod недоступен, а ID эндпоинта {name} неизвестен ({error})") from error
+            print(f"RunPod: список эндпоинтов недоступен ({error}) -- беру известный {name}={known}", flush=True)
+            _endpoint_cache[name] = known
+            return known
         if not found:
             raise RuntimeError(f"На RunPod нет эндпоинта {name}")
         _endpoint_cache[name] = found[0]["id"]
+        try:
+            os.makedirs(os.path.dirname(_endpoints_file()) or ".", exist_ok=True)
+            with open(_endpoints_file(), "w", encoding="utf-8") as f:
+                json.dump({**_saved_endpoints(), name: found[0]["id"]}, f)
+        except OSError:
+            pass
     return _endpoint_cache[name]
 
 

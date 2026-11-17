@@ -3916,3 +3916,40 @@ def test_restyle_of_own_recording_works_on_genapi_alone(studio_app, monkeypatch)
     assert app_module.storage.job(own.json()["jobId"]).settings["engine"] == "suno"
     cover = _start(client, mode="restyle", prompt="джаз", rights="cover")
     assert cover.status_code == 409 and "Свою запись можно" in cover.json()["detail"]
+
+
+def test_worker_endpoint_survives_runpod_rest_outage(tmp_path, monkeypatch):
+    """17.11: rest.runpod.io пропал из DNS, а эндпоинт работал -- разделение
+    падало «Name or service not known». Найденный ID запоминается; служебный
+    API недоступен -- берётся запомненный, иначе известный."""
+    import urllib.error
+
+    monkeypatch.setenv("MIDI2TAB_DATA", str(tmp_path))
+    monkeypatch.delenv("NASLUX_WORKER_ENDPOINT", raising=False)
+    from web import studio
+
+    real_call = studio.call
+    monkeypatch.setattr(studio, "_endpoint_cache", {})
+    monkeypatch.setattr(studio, "call", lambda *a, **k: [{"name": "naslux-worker-v9", "id": "fresh123"}])
+    assert studio.endpoint_id() == "fresh123"                       # нашли и запомнили
+
+    def down(*a, **k):
+        raise RuntimeError("сервис обработки временно не отвечает")
+
+    monkeypatch.setattr(studio, "_endpoint_cache", {})
+    monkeypatch.setattr(studio, "call", down)
+    assert studio.endpoint_id() == "fresh123"                       # запомненный
+    (tmp_path / "runpod_endpoints.json").unlink()
+    monkeypatch.setattr(studio, "_endpoint_cache", {})
+    assert studio.endpoint_id() == studio.KNOWN_ENDPOINTS["naslux-worker"]   # известный
+
+    def dns(*a, **k):
+        raise urllib.error.URLError("[Errno -2] Name or service not known")
+
+    monkeypatch.setattr(studio.urllib.request, "urlopen", dns)
+    try:
+        real_call("GET", "https://api.runpod.ai/v2/x/health")
+    except RuntimeError as error:
+        assert "urlopen" not in str(error) and "не отвечает" in str(error)
+    else:
+        raise AssertionError("ошибка сети должна стать понятной")
