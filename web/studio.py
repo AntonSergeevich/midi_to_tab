@@ -1271,7 +1271,14 @@ def tagged_copy(folder: str, name: str, title: str, meta: dict, lyrics: str) -> 
             command += ["-metadata", f"{tag}={meta[key]}"]
     if lyrics:
         command += ["-metadata", f"lyrics={lyrics}"]
-    temp = f"{target}.part.mp3"
+    # Имя временного файла не должно начинаться с "{stem}-" (под этот
+    # префикx подчищает цикл выше) и быть уникальным для каждого вызова:
+    # иначе два одновременных скачивания одного трека (сам автор и гость
+    # по ссылке, или вкладка и плеер) пишут ffmpeg в один и тот же путь --
+    # один вызов видит файл второго удалённым его же циклом подчистки или
+    # перезаписанным раньше срока, принимает это за сбой ffmpeg и тихо
+    # отдаёт исходник без тегов и обложки вместо готовой копии.
+    temp = os.path.join(out_dir, f".tmp-{uuid.uuid4().hex}-{stem}.mp3")
     run = subprocess.run(command + [temp], capture_output=True, timeout=120)
     if run.returncode or not os.path.isfile(temp):
         print(f"[теги] {name}: {run.stderr.decode(errors='replace')[-300:]}", file=sys.stderr, flush=True)

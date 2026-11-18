@@ -3480,6 +3480,49 @@ def test_track_properties_cover_upload_and_tagged_download(studio_app, monkeypat
     assert len(plain.content) < len(tagged.content)
 
 
+def test_tagged_copy_survives_concurrent_calls_for_the_same_track(tmp_path):
+    """tagged_copy() -- общий путь у своего скачивания, плейлиста по ссылке
+    и «передать музыканту» (web/app.py): автор и гость по публичной ссылке
+    легко просят одну и ту же дорожку одновременно. Раньше все вызовы
+    писали ffmpeg во ОДИН временный файл "{target}.part.mp3", имя которого
+    к тому же подходило под префикс "{stem}-", что чистит цикл выше --
+    параллельный вызов удалял чужой ещё не готовый временный файл, и
+    первый вызов принимал это за сбой ffmpeg, тихо отдавая немаркированный
+    исходник вместо копии с тегами и обложкой. Без фикса это ловится почти
+    всегда на десяти одновременных вызовах."""
+    import shutil
+    import subprocess
+    import threading
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("нет ffmpeg")
+    from web import studio
+
+    folder = str(tmp_path)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                    f"{folder}/song.mp3"], check=True)
+
+    results: list[str] = []
+    errors: list[Exception] = []
+
+    def work() -> None:
+        try:
+            results.append(studio.tagged_copy(folder, "song.mp3", "Заголовок", {"artist": "Автор"}, ""))
+        except Exception as error:  # noqa: BLE001 -- любая ошибка -- провал теста
+            errors.append(error)
+
+    threads = [threading.Thread(target=work) for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors
+    assert len(results) == 10
+    assert all(os.path.dirname(r) == os.path.join(folder, "tagged") for r in results), (
+        "хотя бы один вызов тихо отдал немаркированный исходник вместо копии с тегами")
+
+
 def test_lyrics_read_from_recording(studio_app, monkeypatch):
     """«Распознать текст»: Whisper в фоне -> текст в «О треке» (пустая строка
     между частями) и слова с таймкодами в суфлёр этой версии."""
