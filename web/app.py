@@ -218,6 +218,13 @@ if not SECRET:
     print("ВНИМАНИЕ: MIDI2TAB_SECRET не задан, использован временный ключ.")
 signer = URLSafeSerializer(SECRET, salt="uid")
 login_limiter = auth.AttemptLimiter()
+# "Забыли пароль": не про перебор, а про то, что каждый вызов шлёт настоящее
+# письмо через свой SMTP и навсегда добавляет строку в resets (чистится
+# только при УДАВШЕЙСЯ смене пароля) -- без предела анонимный POST засыпал
+# бы письмами чужой ящик и грузил почтовый аккаунт сайта. Реже и дольше,
+# чем вход: 3 письма в час на одну почту хватает на реальное восстановление
+# с запасом на опечатку в коде.
+forgot_limiter = auth.AttemptLimiter(max_attempts=3, window=3600)
 
 
 # ------------------------------------------------------------- пользователь
@@ -984,6 +991,13 @@ def api_forgot(request: Request, email: str = Form(...)):
         address = auth.normalise_email(email)
     except auth.AuthError as exc:
         raise HTTPException(400, str(exc))
+
+    # Считаем попытку ДО проверки, есть ли такой аккаунт: иначе ответ
+    # (429 только для существующих почт) выдал бы само их существование --
+    # тот самый оракул, которого избегает одинаковый same_answer ниже.
+    if forgot_limiter.blocked(address):
+        raise HTTPException(429, "Слишком много запросов для этой почты. Попробуйте позже.")
+    forgot_limiter.note_failure(address)
 
     ready, why = mailer.available()
     if not ready:

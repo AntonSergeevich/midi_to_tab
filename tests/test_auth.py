@@ -146,6 +146,44 @@ def test_limiter_does_not_leak_memory_on_one_off_emails():
     assert len(limiter._log) == 0
 
 
+def test_forgot_password_is_rate_limited_per_email(client, monkeypatch):
+    """18.11: /api/auth/forgot не имело вообще никакого предела -- любой
+    анонимный POST с чужой почтой слал настоящее письмо через SMTP сайта и
+    навсегда добавлял строку в resets (чистится только при УДАВШЕЙСЯ смене
+    пароля). Без предела это бесплатный способ забросать письмами чужой
+    ящик и перегрузить почтовый аккаунт сайта -- тот же класс уязвимости,
+    что у лимитера входа (17.11), просто на соседней ручке. forgot_limiter
+    должен считать каждый вызов -- для существующей почты и для чужой
+    одинаково, иначе разница в ответе (блок только у существующих) сама
+    выдаёт, какие почты зарегистрированы."""
+    import web.app as app_module
+
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.ru")
+    monkeypatch.setenv("SMTP_USER", "bot@example.ru")
+    monkeypatch.setenv("SMTP_PASSWORD", "секрет")
+    sent = []
+    monkeypatch.setattr(app_module.mailer, "send_reset", lambda to, link: sent.append(to))
+
+    client.post("/api/auth/register", data={"email": "anna@mail.ru", "password": "пароль-12345"})
+
+    for _ in range(3):
+        response = client.post("/api/auth/forgot", data={"email": "anna@mail.ru"})
+        assert response.status_code == 200
+    assert len(sent) == 3
+
+    blocked = client.post("/api/auth/forgot", data={"email": "anna@mail.ru"})
+    assert blocked.status_code == 429
+    assert len(sent) == 3   # письмо за четвёртый запрос не ушло
+
+    # Та же почта, которой нет в базе, -- отвечает так же (200, без письма) и
+    # так же считается лимитером, не выдавая сам факт существования аккаунта
+    app_module.forgot_limiter.reset("anna@mail.ru")
+    for _ in range(3):
+        assert client.post("/api/auth/forgot", data={"email": "ghost@mail.ru"}).status_code == 200
+    assert client.post("/api/auth/forgot", data={"email": "ghost@mail.ru"}).status_code == 429
+    assert len(sent) == 3   # ни одного письма чужой почте, которой нет в базе
+
+
 # ------------------------------------------------------------ регистрация
 
 
