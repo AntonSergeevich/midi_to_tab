@@ -22,7 +22,15 @@ APP="${NASLUX_APP:-/opt/nasluh/app}"
 PY="${NASLUX_PY:-/opt/nasluh/venv/bin/python}"
 SVC="${NASLUX_SYSTEMCTL:-systemctl}"      # подменяются только в тестах
 OWN="${NASLUX_CHOWN:-chown}"
-[ -n "$ARCHIVE" ] && [ -f "$ARCHIVE" ] || { echo "Укажите архив: bash restore_data.sh /root/backup_naslux.tar [--apply]"; exit 1; }
+[ -n "$ARCHIVE" ] || { echo "Укажите архив: bash restore_data.sh /root/backup_naslux.tar [--apply]"; exit 1; }
+if [ ! -f "$ARCHIVE" ]; then
+    echo "Файла $ARCHIVE на сервере нет. Архивы, которые здесь есть:"
+    find /root /home /tmp -maxdepth 2 -type f \( -name '*.tar' -o -name '*.tar.gz' -o -name '*.tgz' -o -name '*.zip' \) \
+        -printf '  %p  (%s байт)\n' 2>/dev/null | head -10
+    echo "Если пусто -- отправьте архив с компьютера (PowerShell на компьютере, не здесь):"
+    echo "  scp D:\\Downloads\\backup_naslux.tar root@<IP сервера>:/root/"
+    exit 1
+fi
 
 echo "=== Ищем в архиве базу (app.db) ==="
 case "$ARCHIVE" in
