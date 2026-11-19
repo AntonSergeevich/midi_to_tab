@@ -118,9 +118,13 @@ def test_restyle_on_suno_hides_the_ace_step_strength_sliders(live_studio_suno_on
             # фактическую видимость на экране.
             page.wait_for_function(
                 "document.getElementById('hitOpts').hasAttribute('hidden') === false", timeout=5000)
-            assert page.locator("#strengthBox").get_attribute("hidden") is not None, (
-                "ползунки ACE-Step («сила исходника»/«удержание мелодии») не "
-                "скрыты при переделке на Suno, хотя backend их там полностью игнорирует")
+            # 19.11 уточнено: «удержание мелодии» -- только ACE-Step, его прячем;
+            # а влияние песни, стиля и странность Suno понимает (audio_weight,
+            # style_weight, weirdness в studio._hit_params) -- они видны
+            assert page.locator("#strengthBox").get_attribute("hidden") is None
+            assert page.locator("#melodyKnob").evaluate("e => e.closest('label').hidden") is True, (
+                "«удержание мелодии» (только ACE-Step) не скрыто при переделке на Suno")
+            assert page.locator("#audioKnob").evaluate("e => e.closest('label').hidden") is False
             assert errors == []
         finally:
             browser.close()
