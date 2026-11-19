@@ -211,7 +211,13 @@ function showMode() {
   $('voiceBox').hidden = !['create', 'restyle'].includes(mode) || keep;
   $('lyricsBox').hidden = !['create', 'restyle'].includes(mode) || keep;
   $('instrumentalBox').hidden = mode !== 'create' || yue2;      // YuE2 поёт только по словам
-  $('strengthBox').hidden = !(mode === 'restyle' && !mureka && !yue2 && !hit);
+  // Крутилки: у переделки на своей видеокарте -- все четыре; у Suno (GenAPI) --
+  // сила стиля и странность, у переделки ещё влияние песни (19.11: после
+  // переезда YuE2 выключен, и «крутилки при создании пропали»)
+  const hitKnobs = hit && ['create', 'restyle'].includes(mode);
+  $('strengthBox').hidden = !((mode === 'restyle' && !mureka && !yue2) || hitKnobs);
+  $('audioKnob').closest('label').hidden = mode !== 'restyle';
+  $('melodyKnob').closest('label').hidden = hit || mode !== 'restyle';
   saveDraft();
   // «Инструментал» есть только у песни с нуля: в «Переделать» поле слов не гасим
   $('lyrics').disabled = mode === 'create' && $('instrumental').checked && !yue2;

@@ -375,3 +375,33 @@ def test_a_remembered_source_that_no_longer_exists_is_cleared(live_mixer):
             assert page.locator("#dropTitle").text_content() == "Есть"
         finally:
             browser.close()
+
+
+def test_style_knobs_are_shown_for_the_genapi_engine(live_mixer, monkeypatch):
+    """19.11: после переезда YuE2 выключен, песни делает GenAPI -- и крутилки
+    стиля при создании пропали. Теперь: с нуля -- сила стиля и странность,
+    переделка -- ещё влияние песни; «удержание мелодии» (не для GenAPI) скрыто."""
+    app_module, user, job, port = live_mixer
+    monkeypatch.setenv("GENAPI_API_KEY", "ga-test")
+    monkeypatch.delenv("MUREKA_API_KEY", raising=False)
+    base_url = f"http://127.0.0.1:{port}"
+    with sync_playwright() as pw:
+        executable = _chromium_executable(pw)
+        try:
+            browser = pw.chromium.launch(executable_path=executable, args=["--no-sandbox"])
+        except Exception as error:
+            pytest.skip(f"браузер playwright не поднялся: {error}")
+        try:
+            context = browser.new_context(viewport={"width": 1200, "height": 900}, locale="ru-RU")
+            context.add_cookies([{"name": "uid", "value": app_module.signer.dumps(user.id), "url": base_url}])
+            page = context.new_page()
+            page.goto(f"{base_url}/studio", wait_until="networkidle")
+            page.locator('#modes [data-mode="create"]').click()
+            page.locator("#fineBtn").click()
+            visible = lambda i: page.locator(f"#{i}").is_visible()  # noqa: E731
+            assert visible("styleKnob") and visible("weirdKnob") and visible("negative")
+            assert not visible("audioKnob") and not visible("melodyKnob")
+            page.locator('#modes [data-mode="restyle"]').click()
+            assert visible("audioKnob") and visible("styleKnob") and not visible("melodyKnob")
+        finally:
+            browser.close()
