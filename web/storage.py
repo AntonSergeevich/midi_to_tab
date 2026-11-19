@@ -652,32 +652,41 @@ class Storage:
         раз все треки уже перенесены и счёт по ним пуст), либо остались
         бы висеть на записи, в которую больше нельзя войти -- тот же
         результат: человек платил, а кредиты/баланс/подписку не получил.
+
+        Перенос и обнуление донора -- в одном UPDATE с подзапросами к его
+        же строке, без отдельного чтения донора в Python перед записью
+        (раньше читали через self.user() в отдельном подключении, а писали
+        позже в другом): возврат денег на анонимную запись (сбой фонового
+        разбора ровно в момент входа в аккаунт) мог попасть между тем
+        чтением и обнулением донора и пропасть без следа, не доехав ни до
+        одной из двух записей -- тот же класс гонки, что чинит
+        grant_subscription_days через UPDATE ... RETURNING.
         """
         if from_user == to_user:
             return
-        donor = self.user(from_user)
-        if donor is None:
-            return
-        if not (donor.balance or donor.credits or donor.studio_credits or donor.paid_until):
-            return
-        paid_until = donor.paid_until
+        now = time.time()
         with self._connect() as conn:
-            if paid_until:
-                row = conn.execute(
-                    "SELECT paid_until FROM users WHERE id = ?", (to_user,)
-                ).fetchone()
-                current = row["paid_until"] if row else None
-                paid_until = max(paid_until, current) if current else paid_until
             conn.execute(
-                "UPDATE users SET balance = balance + ?, credits = credits + ?,"
-                " studio_credits = studio_credits + ?, paid_until = COALESCE(?, paid_until)"
-                " WHERE id = ?",
-                (donor.balance, donor.credits, donor.studio_credits, paid_until, to_user),
+                "UPDATE users SET"
+                " balance = balance + COALESCE((SELECT balance FROM users WHERE id = :from), 0),"
+                " credits = credits + COALESCE((SELECT credits FROM users WHERE id = :from), 0),"
+                " studio_credits = studio_credits +"
+                "   COALESCE((SELECT studio_credits FROM users WHERE id = :from), 0),"
+                " paid_until = CASE"
+                "   WHEN COALESCE((SELECT paid_until FROM users WHERE id = :from), 0) > 0"
+                "   THEN MAX((SELECT paid_until FROM users WHERE id = :from), COALESCE(paid_until, 0))"
+                "   ELSE paid_until END,"
+                " tier = CASE"
+                "   WHEN COALESCE((SELECT paid_until FROM users WHERE id = :from), 0) > :now"
+                "        AND (SELECT tier FROM users WHERE id = :from) = 'studio_month'"
+                "   THEN 'studio_month'"
+                "   WHEN COALESCE((SELECT paid_until FROM users WHERE id = :from), 0) > :now"
+                "        AND tier = ''"
+                "   THEN 'month'"
+                "   ELSE tier END"
+                " WHERE id = :to",
+                {"from": from_user, "to": to_user, "now": now},
             )
-            if donor.subscribed and donor.tier == "studio_month":
-                conn.execute("UPDATE users SET tier = 'studio_month' WHERE id = ?", (to_user,))
-            elif donor.subscribed:
-                conn.execute("UPDATE users SET tier = 'month' WHERE id = ? AND tier = ''", (to_user,))
             conn.execute(
                 "UPDATE users SET balance = 0, credits = 0, studio_credits = 0,"
                 " paid_until = NULL WHERE id = ?",

@@ -268,6 +268,52 @@ def test_merge_wallet_keeps_the_later_subscription(store):
     assert store.user(account.id).paid_until == account_until
 
 
+def test_merge_wallet_survives_a_refund_landing_during_the_merge(store):
+    """
+    Регрессия под настоящую гонку потоков (как test_reset_token_survives_a_
+    true_concurrent_race): merge_wallet читало донора через self.user()
+    отдельным подключением ДО своей транзакции, а писало (перенос + полное
+    обнуление донора) отдельно позже. Возврат денег на анонимную запись
+    (фоновый JobRunner гасит job, пока человек в тот же миг входит в уже
+    существующий аккаунт) мог прийти в окно между этим чтением и
+    обнулением -- и пропасть: ни в перенесённой сумме (снимок был снят до
+    возврата), ни на доноре (его обнулили поверх).
+
+    Сейчас перенос и обнуление -- один UPDATE с подзапросами к самой строке
+    донора, в одной транзакции: конкурентный add_balance на донора либо
+    целиком войдёт в неё до начала merge_wallet (переедет вместе с
+    остальным и донор обнулится как обычно), либо целиком после (останется
+    на доноре, уйдёт при следующем входе) -- суммарно деньги не теряются ни
+    при каком порядке. Проверяется именно сумма двух счетов, а не то, на
+    котором из них денежная прибавка окажется.
+    """
+    import threading
+
+    for _ in range(20):
+        account = store.ensure_user(None)
+        visitor = store.ensure_user(None)
+        store.add_balance(visitor.id, 100.0)
+
+        barrier = threading.Barrier(2)
+
+        def merge() -> None:
+            barrier.wait()
+            store.merge_wallet(visitor.id, account.id)
+
+        def refund() -> None:
+            barrier.wait()
+            store.add_balance(visitor.id, 37.0)
+
+        threads = [threading.Thread(target=merge), threading.Thread(target=refund)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        total = store.user(account.id).balance + (store.user(visitor.id).balance or 0.0)
+        assert total == 137.0
+
+
 def test_login_merges_the_anonymous_balance_into_the_existing_account(client):
     """Сквозной сценарий бага: анонимно пополнил баланс настоящей оплатой,
     потом вошёл в уже существующий аккаунт -- баланс должен доехать, а не
