@@ -388,6 +388,20 @@ def api_key() -> str:
     return os.environ.get("RUNPOD_API_KEY", "")
 
 
+def cpu_stems_ok() -> bool:
+    """Можно ли делить дорожки на процессоре сервера (Demucs установлен и
+    не выключено: NASLUX_CPU_STEMS=0)."""
+    if os.environ.get("NASLUX_CPU_STEMS", "1") == "0":
+        return False
+    from midi2tab import separate
+    return separate.available()[0]
+
+
+def cpu_stems_forced() -> bool:
+    """NASLUX_CPU_STEMS=always -- не ждать видеокарту вовсе (RunPod недоступен надолго)."""
+    return os.environ.get("NASLUX_CPU_STEMS", "1") == "always" and cpu_stems_ok()
+
+
 def runpod_key_check() -> str:
     """Подходит ли ключ RunPod с сервера для запуска задач, а не только для
     чтения: отмена несуществующей задачи -- запись, которая ничего не меняет.
@@ -1495,12 +1509,24 @@ class StudioRunner:
                 # списание с пользователя; вместо этого -- как любая другая
                 # ошибка, с возвратом денег, и попробовать заново по клику.
                 raise RuntimeError("прервано перед самой отправкой на видеокарту — попробуйте ещё раз")
+            if not remote and settings.get("mode") == "stems" and cpu_stems_forced():
+                self._stems_on_cpu(job_id, "разделение на сервере включено вручную")
+                return
             if not remote:
-                endpoint = endpoint_id(YUE2_NAME if settings.get("engine") == "yue2" else WORKER_NAME)
-                settings["remote"] = {"endpoint": endpoint}
-                self.storage.update_job(job_id, status="running", settings=settings,
-                                        stage="Отправляем на видеокарту", progress=3)
-                started = call("POST", f"{RUNPOD_API}/{endpoint}/run", {"input": settings["input"]})
+                try:
+                    endpoint = endpoint_id(YUE2_NAME if settings.get("engine") == "yue2" else WORKER_NAME)
+                    settings["remote"] = {"endpoint": endpoint}
+                    self.storage.update_job(job_id, status="running", settings=settings,
+                                            stage="Отправляем на видеокарту", progress=3)
+                    started = call("POST", f"{RUNPOD_API}/{endpoint}/run", {"input": settings["input"]})
+                except RuntimeError as error:
+                    # 19.11: Cloudflare у RunPod не пускал сервер -- дорожки делим сами
+                    if settings.get("mode") == "stems" and cpu_stems_ok():
+                        settings.pop("remote", None)
+                        self.storage.update_job(job_id, settings=settings)
+                        self._stems_on_cpu(job_id, f"видеокарта недоступна ({error})")
+                        return
+                    raise
                 remote = {"endpoint": endpoint, "id": started["id"]}
                 settings["remote"] = remote
                 self.storage.update_job(job_id, settings=settings)
@@ -1524,6 +1550,9 @@ class StudioRunner:
                                                 progress=min(8, 3 + (time.time() - queued_since) / 60))
                         if time.time() - queued_since > QUEUE_LIMIT:
                             call("POST", f"{RUNPOD_API}/{endpoint}/cancel/{remote_id}", {})
+                            if settings.get("mode") == "stems" and cpu_stems_ok():
+                                self._stems_on_cpu(job_id, "нет свободной видеокарты")
+                                return
                             raise RuntimeError("сейчас нет свободной видеокарты — попробуйте через 10–15 минут")
                         time.sleep(POLL_SECONDS)
                         continue
@@ -1543,6 +1572,64 @@ class StudioRunner:
             self._finish(job_id, output, status)
         except Exception as error:  # noqa: BLE001 -- любая ошибка -> деньги назад
             self._fail(job_id, str(error))
+
+    def _stems_on_cpu(self, job_id: str, why: str) -> None:
+        """Дорожки своим Demucs на процессоре сервера -- когда видеокарта
+        RunPod недоступна (19.11: Cloudflare не пускал сервер) или занята.
+        Те же файлы, что у воркера: минус -- vocals/instrumental, партии --
+        голос, барабаны, бас, гитара, клавиши, прочее. Медленнее (минуты),
+        зато без внешних сервисов. Делит один трек за раз (HEAVY)."""
+        from midi2tab import separate
+
+        print(f"Дорожки на процессоре ({job_id}): {why}", file=sys.stderr, flush=True)
+        job = self.storage.job(job_id)
+        settings = dict(job.settings or {})
+        minus = settings.get("parts") == "minus" or (settings.get("input") or {}).get("parts") == "minus"
+        folder = self.folder(job_id)
+        source = next((os.path.join(folder, f) for f in sorted(os.listdir(folder)) if f.startswith("source.")), None)
+        if not source:
+            raise RuntimeError("исходник не найден")
+        settings["cpuStems"] = True
+        self.storage.update_job(job_id, status="running", settings=settings, progress=5,
+                                stage="Видеокарта недоступна — делим на нашем сервере, это несколько минут")
+        work = os.path.join(folder, "cpu_stems")
+        started = time.time()
+        stop = threading.Event()
+
+        def tick():                      # полоска растёт, пока Demucs думает (до 90%)
+            while not stop.wait(5):
+                if self._cancelled(job_id):
+                    return
+                self.storage.update_job(job_id, status="running", progress=min(90, 5 + (time.time() - started) / 4))
+
+        threading.Thread(target=tick, daemon=True).start()
+        try:
+            with HEAVY:
+                found = separate.separate(source, work, model="htdemucs" if minus else "htdemucs_6s")
+        finally:
+            stop.set()
+        if self._cancelled(job_id):
+            shutil.rmtree(work, ignore_errors=True)
+            return
+        wavs = found.stems
+        if minus:
+            rest = [wavs[k] for k in ("drums", "bass", "other", "guitar", "piano") if k in wavs]
+            mixed = os.path.join(work, "instrumental.wav")
+            subprocess.run(["ffmpeg", "-v", "error", "-y", *sum((["-i", p] for p in rest), []),
+                            "-filter_complex", f"amix=inputs={len(rest)}:normalize=0", mixed],
+                           check=True, timeout=900)
+            parts = {"vocals": wavs["vocals"], "instrumental": mixed}
+        else:
+            parts = {k: wavs[k] for k in ("vocals", "drums", "bass", "guitar", "piano", "other") if k in wavs}
+        files = []
+        for name, path in sorted(parts.items()):
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", path, "-b:a", "256k",
+                            os.path.join(folder, f"{name}.mp3")], check=True, timeout=900)
+            files.append({"name": f"{name}.mp3"})
+        shutil.rmtree(work, ignore_errors=True)
+        self._finish(job_id, {"ok": True, "files": files,
+                              "info": {"settings": {"model": found.model, "device": "cpu"}}},
+                     {"executionTime": int((time.time() - started) * 1000)})
 
     def _run_local(self, job_id: str) -> None:
         """Работа на своём сервере без нейросетей: темп и тональность."""
