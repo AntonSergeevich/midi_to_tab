@@ -32,21 +32,25 @@ if [ ! -f "$ARCHIVE" ]; then
     exit 1
 fi
 
-echo "=== Ищем в архиве базу (app.db) ==="
-case "$ARCHIVE" in
-    *.zip) command -v unzip >/dev/null || apt-get install -y -qq unzip
-           LIST="$(unzip -Z1 "$ARCHIVE")" ;;
-    *)     LIST="$(tar -tf "$ARCHIVE")" ;;
-esac
-DBPATH="$(printf '%s\n' "$LIST" | grep -E '(^|/)nasluh/data/app\.db$' | head -1 || true)"
-[ -n "$DBPATH" ] || DBPATH="$(printf '%s\n' "$LIST" | grep -E '(^|/)app\.db$' | head -1 || true)"
-[ -n "$DBPATH" ] || { echo "В архиве нет app.db -- это точно архив сервера NASLUX? Первые строки архива:"; printf '%s\n' "$LIST" | head -20; exit 1; }
-PREFIX="$(dirname "$DBPATH")"
-echo "  Папка данных в архиве: $PREFIX"
+echo "=== Ищем в архиве папку данных (большой архив -- пара минут) ==="
+PROBE="$("$PY" -I "$APP/deploy/backup_probe.py" "$ARCHIVE")" || exit 1
+PREFIX="${PROBE% *}"
+SIZE_KB="${PROBE##* }"
+echo "  Папка данных в архиве: $PREFIX, $((SIZE_KB / 1024)) МБ без моделей"
+
+# Место: распакованная папка данных + запас 1 ГБ (треки нового сервера
+# подключаются жёсткими ссылками, модели -- тоже, лишнего места не берут)
+FREE_KB="$(df --output=avail -k "$(dirname "$DATA")" | tail -1)"
+NEED_KB="$(( SIZE_KB + 1048576 ))"
+if [ "$FREE_KB" -lt "$NEED_KB" ]; then
+    echo "Мало места: нужно ~$((NEED_KB / 1024)) МБ, свободно $((FREE_KB / 1024)) МБ."
+    echo "Сам архив занимает $(du -h "$ARCHIVE" | cut -f1) -- можно распаковывать прямо с компьютера, напишите Claude."
+    exit 1
+fi
 
 WORK="$(mktemp -d "${NASLUX_WORK:-/root}/restore.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
-echo "=== Распаковка только папки данных (без моделей) в $WORK ==="
+echo "=== Распаковка только папки данных (без моделей) ==="
 case "$ARCHIVE" in
     *.zip) unzip -q "$ARCHIVE" "$PREFIX/*" -x "$PREFIX/models/*" -d "$WORK" ;;
     *)     tar -xf "$ARCHIVE" -C "$WORK" --exclude="$PREFIX/models" "$PREFIX" ;;
@@ -55,13 +59,10 @@ SRC="$WORK/$PREFIX"
 [ -f "$SRC/app.db" ] || { echo "Не распаковалось: $SRC/app.db"; exit 1; }
 echo "  Из бэкапа: $(du -sh "$SRC" | cut -f1)"
 
-FREE_KB="$(df --output=avail -k "$(dirname "$DATA")" | tail -1)"
-NEED_KB="$(( $(du -sk "$SRC" | cut -f1) + $(du -sk "$DATA" 2>/dev/null | cut -f1 || echo 0) ))"
-[ "$FREE_KB" -gt "$NEED_KB" ] || { echo "Мало места: нужно $((NEED_KB/1024)) МБ, свободно $((FREE_KB/1024)) МБ"; exit 1; }
-
 if [ "$MODE" != "--apply" ] && [ "$MODE" != "--replace" ]; then
     echo "=== ПЛАН объединения (ничего не меняю) ==="
-    cp -a "$SRC" "$WORK/plan-into"
+    # для плана нужна только сама база -- не копируем треки
+    mkdir "$WORK/plan-into" && cp -a "$SRC"/app.db* "$WORK/plan-into/"
     MIDI2TAB_DATA="$WORK/plan-into" "$PY" "$APP/deploy/merge_data.py" --into "$WORK/plan-into" --from "$DATA" --dry
     echo
     echo "Всё верно? Запустите то же с --apply в конце."
@@ -74,9 +75,12 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 BEFORE="$DATA.before-restore-$STAMP"
 mv "$DATA" "$BEFORE"
 echo "  Текущие данные отложены в $BEFORE"
-cp -a "$SRC" "$DATA"
-# модели (Whisper и др.) -- с нового сервера, не скачивать заново
-[ -d "$BEFORE/models" ] && [ ! -e "$DATA/models" ] && cp -a "$BEFORE/models" "$DATA/models"
+# распакованное -- на место переносом (тот же диск: мгновенно и без места)
+mv "$SRC" "$DATA" 2>/dev/null || cp -a "$SRC" "$DATA"
+# модели (Whisper и др.) -- с нового сервера жёсткими ссылками: не качать заново и не занимать места
+if [ -d "$BEFORE/models" ] && [ ! -e "$DATA/models" ]; then
+    cp -al "$BEFORE/models" "$DATA/models" 2>/dev/null || cp -a "$BEFORE/models" "$DATA/models"
+fi
 if [ "$MODE" = "--apply" ]; then
     echo "=== Объединение: бэкап + новое с этого сервера ==="
     if ! MIDI2TAB_DATA="$DATA" "$PY" "$APP/deploy/merge_data.py" --into "$DATA" --from "$BEFORE"; then

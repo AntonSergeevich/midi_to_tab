@@ -103,6 +103,22 @@ def merge_prefs(old_raw, new_raw) -> str | None:
     return json.dumps(out, ensure_ascii=False)
 
 
+def _link_or_copy(src, dst) -> None:
+    try:
+        os.link(src, dst)              # тот же диск: файл не занимает места второй раз
+    except OSError:
+        shutil.copy2(src, dst)
+
+
+def place(item: Path, target: Path) -> None:
+    """Файл или папку трека -- в новую папку данных жёсткими ссылками
+    (на диске сервера мало места: 19.11 свободно ~8 ГБ при бэкапе в 19)."""
+    if item.is_dir():
+        shutil.copytree(item, target, copy_function=_link_or_copy)
+    else:
+        _link_or_copy(item, target)
+
+
 def plan_users(old, new) -> tuple[dict, list, list]:
     """(new_id -> old_id для совпавших, совпавшие [(new, old)], новые [new])."""
     by_email, by_yandex, by_vk = {}, {}, {}
@@ -215,7 +231,7 @@ def merge(into: str, frm: str, dry: bool = False, say=print) -> dict:
                 if target.exists():
                     continue
                 target.parent.mkdir(parents=True, exist_ok=True)
-                (shutil.copytree if item.is_dir() else shutil.copy2)(item, target)
+                place(item, target)
                 copied += 1
     # свой голос -- папка человека, под старым id
     voices = Path(frm, "voices")
@@ -224,7 +240,7 @@ def merge(into: str, frm: str, dry: bool = False, say=print) -> dict:
             target = Path(into, "voices", remap(item.name))
             if item.is_dir() and not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(item, target)
+                place(item, target)
     # ключи и служебное -- с нового сервера; старых ключей не оставляем
     for name in FRESH_FILES:
         src, dst = Path(frm, name), Path(into, name)

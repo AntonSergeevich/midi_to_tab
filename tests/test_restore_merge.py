@@ -130,3 +130,26 @@ def test_backup_is_merged_with_what_appeared_after_the_move(tmp_path):
     assert not (live / "models" / "big.bin").exists()                         # модели из бэкапа не тащим
     backups = [p for p in live.parent.iterdir() if p.name.startswith("data.before-restore-")]
     assert len(backups) == 1 and (backups[0] / "app.db").read_bytes() == before   # откат возможен
+
+
+def test_probe_finds_data_folder_and_size_without_unpacking(tmp_path):
+    """Бэкап -- снимок всего сервера (19 ГБ), диска меньше: папку данных и её
+    размер узнаём по заголовкам, модели в размер не входят."""
+    root = tmp_path / "snap"
+    data = root / "opt" / "nasluh" / "data"
+    (data / "models").mkdir(parents=True)
+    (data / "app.db").write_bytes(b"x" * 4096)
+    (data / "studio").mkdir()
+    (data / "studio" / "a.mp3").write_bytes(b"y" * 8192)
+    (data / "models" / "whisper.bin").write_bytes(b"z" * 500_000)
+    (root / "var" / "www").mkdir(parents=True)
+    (root / "var" / "www" / "app.db").write_bytes(b"other")          # чужая база -- не наша
+    archive = tmp_path / "snap.tar"
+    with tarfile.open(archive, "w") as tar:
+        tar.add(root, arcname=".")
+    out = subprocess.run([sys.executable, "-I", str(ROOT / "deploy/backup_probe.py"), str(archive)],
+                         capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    folder, kb = out.stdout.split()
+    assert folder == "opt/nasluh/data"
+    assert 12 <= int(kb) < 100                                          # без 500 КБ моделей
