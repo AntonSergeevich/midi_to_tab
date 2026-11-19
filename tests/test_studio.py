@@ -3996,3 +3996,24 @@ def test_worker_endpoint_survives_runpod_rest_outage(tmp_path, monkeypatch):
         assert "urlopen" not in str(error) and "не отвечает" in str(error)
     else:
         raise AssertionError("ошибка сети должна стать понятной")
+
+
+def test_runpod_key_check_does_not_blame_the_key_for_cloudflare(monkeypatch):
+    """19.11: Cloudflare у RunPod отвечал 403 «Attention Required» на проверку --
+    это не «ключ не подходит»."""
+    from web import studio
+
+    monkeypatch.setenv("RUNPOD_API_KEY", "rp-x")
+    monkeypatch.setattr(studio, "endpoint_id", lambda *a: "ep1")
+
+    def cf(*a, **k):
+        raise RuntimeError("RunPod ответил 403: страница «Attention Required! | Cloudflare»")
+
+    monkeypatch.setattr(studio, "call", cf)
+    assert studio.runpod_key_check().startswith("не проверен")
+
+    def bad(*a, **k):
+        raise RuntimeError("RunPod ответил 401: Unauthorized")
+
+    monkeypatch.setattr(studio, "call", bad)
+    assert studio.runpod_key_check().startswith("не подходит")

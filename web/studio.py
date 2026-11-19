@@ -399,6 +399,10 @@ def runpod_key_check() -> str:
         call("POST", f"{RUNPOD_API}/{endpoint_id()}/cancel/naslux-key-check", {}, timeout=20)
     except RuntimeError as error:
         text = str(error)
+        if "Cloudflare" in text or "Attention Required" in text:
+            # 19.11: защита Cloudflare у RunPod отклоняла сам проверочный запрос --
+            # о ключе это ничего не говорит
+            return "не проверен: защита Cloudflare у RunPod отклонила проверочный запрос"
         if "ответил 401" in text or "ответил 403" in text:
             return ("не подходит: " + text[:80] + " -- нужен ключ с правами Read/Write "
                     "(или All), без ограничения по эндпоинтам")
