@@ -1,0 +1,7 @@
+{
+ "params": {
+  "task": "vocal_removal",
+  "separation_type": "separate_vocal",
+  "upload_url": "https://raw.githubusercontent.com/AntonSergeevich/midi_to_tab/test-results/suno-40856365599/suno_1.mp3"
+ }
+}
