@@ -2087,6 +2087,7 @@ def api_studio(request: Request):
         "studioCredits": user.studio_credits,
         # свою запись переделывает Suno -- кнопка открыта, чужую сервер отклонит с объяснением
         "restyleOpen": studio.restyle_open() or user.unlimited or studio.suno_public(),
+        "gpuDown": studio.gpu_blocked(),           # «Дописать» и прочее на видеокарте -- временно нет
         "restyleEngine": studio.restyle_engine(),
         "yue2Open": studio.yue2_open(user),
         "hitOpen": studio.suno_open(user),
@@ -2226,6 +2227,11 @@ async def api_studio_start(
                                  "вернётся. Разделение на партии и дописывание партии работают.")
     if engine == "runpod" and not studio.api_key():
         raise HTTPException(503, "Эта услуга ещё не подключена: нет ключа RunPod на сервере")
+    # Видеокарта недоступна (RunPod не пускает сервер) -- не брать денег за то,
+    # что упадёт; «Партии» делятся и без неё, на процессоре сервера
+    if engine == "runpod" and mode != "stems" and studio.gpu_blocked():
+        raise HTTPException(503, "Сейчас это недоступно: видеокарта не отвечает. Партии, MIDI и новые песни "
+                                 "работают — а это попробуйте через полчаса.")
     keep_vocals = keep_vocals and mode == "restyle" and engine == "mureka"
     if mode == "restyle":
         # Цена зависит от keep_vocals, а он известен только теперь (решает

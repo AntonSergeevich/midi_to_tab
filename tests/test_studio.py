@@ -4072,3 +4072,51 @@ def test_stems_fall_back_to_server_cpu_when_runpod_is_blocked(studio_app, monkey
     assert job.status == "done", job.error
     assert sorted(f["name"] for f in job.result["files"]) == ["instrumental.mp3", "vocals.mp3"]
     assert used[-1] == "htdemucs"
+
+
+def test_cloudflare_block_hides_gpu_features_but_keeps_stems(studio_app, monkeypatch):
+    """20.11: Cloudflare у RunPod не пускает сервер. «Дописать» -- понятный
+    отказ ДО списания денег; «Партии» запускаются (делятся на процессоре)."""
+    import io
+    import urllib.error
+
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    app_module.storage.add_balance(user.id, 500)
+
+    def cloudflare(request, timeout=60):
+        raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", {},
+                                     io.BytesIO(b"<html><title>Attention Required! | Cloudflare</title></html>"))
+
+    monkeypatch.setattr(studio.urllib.request, "urlopen", cloudflare)
+    monkeypatch.setattr(studio, "_gpu_blocked_until", 0.0)
+    try:
+        studio.call("GET", f"{studio.RUNPOD_API}/ep1/health")
+    except RuntimeError as error:
+        assert str(error) == studio.GPU_BLOCKED and "Cloudflare" not in str(error)
+    assert studio.gpu_blocked()
+    assert client.get("/api/studio").json()["gpuDown"] is True
+    before = app_module.storage.user(user.id).balance
+    enrich = _start(client, mode="enrich", track="drums", prompt="рок")
+    assert enrich.status_code == 503 and "видеокарта не отвечает" in enrich.json()["detail"]
+    assert app_module.storage.user(user.id).balance == before                 # денег не взяли
+    assert _start(client, mode="stems").status_code == 200                    # партии -- можно
+    assert studio.runpod_key_check().startswith("не проверен")
+
+
+def test_runpod_address_can_go_through_a_proxy(monkeypatch):
+    """NASLUX_RUNPOD_API/NASLUX_RUNPOD_REST -- посредник (deploy/runpod-proxy.js)."""
+    import importlib
+    import sys as _sys
+
+    monkeypatch.setenv("NASLUX_RUNPOD_API", "https://proxy.example.workers.dev/api/v2/")
+    monkeypatch.setenv("NASLUX_RUNPOD_REST", "https://proxy.example.workers.dev/rest/v1")
+    import web.studio as studio_module
+    fresh = importlib.reload(studio_module)
+    try:
+        assert fresh.RUNPOD_API == "https://proxy.example.workers.dev/api/v2"
+        assert fresh.RUNPOD_REST == "https://proxy.example.workers.dev/rest/v1"
+    finally:
+        monkeypatch.delenv("NASLUX_RUNPOD_API")
+        monkeypatch.delenv("NASLUX_RUNPOD_REST")
+        importlib.reload(studio_module)

@@ -38,8 +38,12 @@ from pathlib import Path
 
 from .storage import Storage
 
-RUNPOD_API = "https://api.runpod.ai/v2"
-RUNPOD_REST = "https://rest.runpod.io/v1"
+# Через посредника (deploy/runpod-proxy.js), если RunPod не пускает сервер
+# напрямую (19.11: Cloudflare «Attention Required» на всё с адреса сервера)
+RUNPOD_API = os.environ.get("NASLUX_RUNPOD_API", "https://api.runpod.ai/v2").rstrip("/")
+RUNPOD_REST = os.environ.get("NASLUX_RUNPOD_REST", "https://rest.runpod.io/v1").rstrip("/")
+GPU_BLOCK_PAUSE = 1800                 # после отказа Cloudflare полчаса не обещаем видеокарту
+_gpu_blocked_until = 0.0
 USER_AGENT = "naslux-studio/1.0 (+https://naslux.ru)"
 WORKER_NAME = "naslux-worker"
 POLL_SECONDS = 10
@@ -372,16 +376,31 @@ def call(method: str, url: str, body: dict | None = None, timeout: int = 60) -> 
     request = urllib.request.Request(url, data=data, method=method, headers={
         "Authorization": f"Bearer {api_key()}", "Content-Type": "application/json",
         "User-Agent": USER_AGENT})
+    global _gpu_blocked_until
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read()
     except urllib.error.HTTPError as error:
-        raise RuntimeError(f"RunPod ответил {error.code}: "
-                           f"{short_error(error.read()[:2000].decode(errors='replace'))}") from error
+        detail = short_error(error.read()[:2000].decode(errors='replace'))
+        if error.code == 403 and ("Cloudflare" in detail or "Attention Required" in detail):
+            # 19.11: защита RunPod не пускает сервер -- человеку без «Cloudflare»,
+            # а Студия полчаса не предлагает того, что требует видеокарты
+            _gpu_blocked_until = time.time() + GPU_BLOCK_PAUSE
+            raise RuntimeError(GPU_BLOCKED) from error
+        raise RuntimeError(f"RunPod ответил {error.code}: {detail}") from error
     except (urllib.error.URLError, TimeoutError) as error:
         # человеку -- без «urlopen error [Errno -2]» (17.11)
         raise RuntimeError("сервис обработки временно не отвечает — попробуйте через несколько минут") from error
+    _gpu_blocked_until = 0.0
     return json.loads(raw or b"{}")
+
+
+GPU_BLOCKED = "видеокарта сейчас недоступна — сервис не пускает наш сервер, попробуйте позже"
+
+
+def gpu_blocked() -> bool:
+    """Недавно RunPod (его Cloudflare) отказал серверу -- видеокарту не обещаем."""
+    return time.time() < _gpu_blocked_until
 
 
 def api_key() -> str:
@@ -413,7 +432,7 @@ def runpod_key_check() -> str:
         call("POST", f"{RUNPOD_API}/{endpoint_id()}/cancel/naslux-key-check", {}, timeout=20)
     except RuntimeError as error:
         text = str(error)
-        if "Cloudflare" in text or "Attention Required" in text:
+        if "Cloudflare" in text or "Attention Required" in text or text == GPU_BLOCKED:
             # 19.11: защита Cloudflare у RunPod отклоняла сам проверочный запрос --
             # о ключе это ничего не говорит
             return "не проверен: защита Cloudflare у RunPod отклонила проверочный запрос"
@@ -1509,8 +1528,8 @@ class StudioRunner:
                 # списание с пользователя; вместо этого -- как любая другая
                 # ошибка, с возвратом денег, и попробовать заново по клику.
                 raise RuntimeError("прервано перед самой отправкой на видеокарту — попробуйте ещё раз")
-            if not remote and settings.get("mode") == "stems" and cpu_stems_forced():
-                self._stems_on_cpu(job_id, "разделение на сервере включено вручную")
+            if not remote and settings.get("mode") == "stems" and (cpu_stems_forced() or (gpu_blocked() and cpu_stems_ok())):
+                self._stems_on_cpu(job_id, "видеокарта недоступна" if gpu_blocked() else "разделение на сервере включено вручную")
                 return
             if not remote:
                 try:
