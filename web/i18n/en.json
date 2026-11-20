@@ -1280,6 +1280,8 @@
  "весь трек": "whole track",
  "видеокарта (быстро)": "GPU (fast)",
  "видеокарта не справилась за отведённое время": "the GPU didn't finish in the allotted time",
+ "Дописать партию сейчас нельзя: видеокарта не отвечает. Попробуйте через полчаса — партии, MIDI и новые песни работают.": "Can't finish writing the part right now: the GPU isn't responding. Try again in half an hour — stems, MIDI and new songs still work.",
+ "Сейчас это недоступно: видеокарта не отвечает. Партии, MIDI и новые песни работают — а это попробуйте через полчаса.": "This isn't available right now: the GPU isn't responding. Stems, MIDI and new songs still work — try this again in half an hour.",
  "вокал, гитара, бас, барабаны отдельно": "vocals, guitar, bass, drums separately",
  "вокальная дорожка": "vocal track",
  "всегда бесплатно": "always free",

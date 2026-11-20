@@ -65,6 +65,30 @@ def test_every_release_note_has_an_english_translation():
     assert not missing, f"нет перевода в web/i18n/en.json: {missing}"
 
 
+def test_gpu_blocked_messages_have_an_english_translation():
+    """20.11: «видеокарта недоступна» (RunPod/Cloudflare) добавила два новых
+    сообщения человеку -- отказ /api/studio/start (web/app.py) и текст кнопки
+    «Дописать» в Студии (web/static/studio.js) -- но словарь не обновили,
+    и по-английски оба остались бы русскими (переводчик, web/static/i18n.js,
+    ищет точное совпадение фразы и молчит, если его нет)."""
+    app_py = (ROOT / "web/app.py").read_text(encoding="utf-8")
+    api_message = re.search(
+        r'raise HTTPException\(503, "([^"]*видеокарта не отвечает[^"]*)"\s*\n\s*"([^"]*)"\)',
+        app_py,
+    )
+    assert api_message, "не нашёл сообщение об отказе из-за видеокарты в web/app.py"
+    api_text = api_message.group(1) + api_message.group(2)
+
+    studio_js = (ROOT / "web/static/studio.js").read_text(encoding="utf-8")
+    button_message = re.search(r"info\.gpuDown\) problem = '([^']*видеокарта не отвечает[^']*)'", studio_js)
+    assert button_message, "не нашёл сообщение «Дописать» о видеокарте в web/static/studio.js"
+    button_text = button_message.group(1)
+
+    en = json.loads((ROOT / "web/i18n/en.json").read_text(encoding="utf-8"))
+    missing = [text for text in (api_text, button_text) if text not in en]
+    assert not missing, f"нет перевода в web/i18n/en.json: {missing}"
+
+
 def _chromium_executable(pw):
     """Та же находка, что в test_mixer_browser.py: версия браузера,
     поставленная playwright.install(), может не совпасть с тем, что уже
