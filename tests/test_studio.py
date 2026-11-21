@@ -4074,6 +4074,69 @@ def test_stems_fall_back_to_server_cpu_when_runpod_is_blocked(studio_app, monkey
     assert used[-1] == "htdemucs"
 
 
+def test_cpu_stems_cancel_during_encoding_does_not_still_deliver(studio_app, monkeypatch):
+    """Регресс к 19.11 (_stems_on_cpu): после разделения Demucs на процессоре
+    отмена кнопкой проверяется только сразу после separate.separate() --
+    дальше идёт кодирование в mp3 (несколько ffmpeg-вызовов, может занять
+    минуты), и там отмену никто не перепроверяет. Если человек нажимает
+    "Остановить" именно в этом окне, cancel() уже вернул деньги (_fail ->
+    claim_studio_refund), но _stems_on_cpu всё равно безусловно вызывает
+    _finish(...) после того, как кодирование закончится -- job становится
+    "done" с готовыми файлами. Итог: результат отдаётся бесплатно после
+    того, как деньги за него уже вернули на баланс."""
+    import os
+    from types import SimpleNamespace
+
+    app_module, client, user, submitted = studio_app
+    studio = app_module.studio
+    app_module.storage.add_balance(user.id, 500)
+    before_charge = app_module.storage.user(user.id).balance
+    runner = studio.StudioRunner(app_module.storage, app_module.DATA_DIR)
+
+    def blocked(*a, **k):
+        raise RuntimeError("RunPod ответил 403: страница «Attention Required! | Cloudflare»")
+
+    monkeypatch.setattr(studio, "call", blocked)
+    monkeypatch.setattr(studio, "endpoint_id", lambda *a: "ep1")
+    monkeypatch.setattr(studio, "cpu_stems_ok", lambda: True)
+
+    def fake_separate(source, out_dir, model="", **kw):
+        os.makedirs(out_dir, exist_ok=True)
+        stems = {}
+        for n in ("vocals", "drums", "bass", "guitar", "piano", "other"):
+            path = os.path.join(out_dir, f"{n}.wav")
+            open(path, "wb").write(b"wav")
+            stems[n] = path
+        return SimpleNamespace(stems=stems, model=model)
+
+    import midi2tab.separate as separate_module
+    monkeypatch.setattr(separate_module, "separate", fake_separate)
+
+    full = _start(client, mode="stems").json()["jobId"]
+    app_module.storage.update_job(full, settings={**app_module.storage.job(full).settings, "input": submitted[-1][1]})
+    assert app_module.storage.user(user.id).balance < before_charge          # списали за "Партии"
+
+    cancelled_once = []
+
+    def ffmpeg_cancels_mid_encoding(cmd, **kw):
+        # Разделение уже прошло (единственная проверка отмены в _stems_on_cpu
+        # уже позади) -- человек жмёт "Остановить" именно во время кодирования.
+        if not cancelled_once:
+            cancelled_once.append(True)
+            runner.cancel(full)
+        open(cmd[-1], "wb").write(b"mp3")
+
+    monkeypatch.setattr(studio.subprocess, "run", ffmpeg_cancels_mid_encoding)
+
+    runner._run(full)
+
+    job = app_module.storage.job(full)
+    assert job.status != "done", "отменённая задача не должна дойти до готового результата"
+    assert not job.result, "файлы не должны быть доступны после отмены"
+    assert app_module.storage.user(user.id).balance == before_charge, \
+        "деньги должны остаться возвращёнными, а не списанными обратно по факту готового результата"
+
+
 def test_cloudflare_block_hides_gpu_features_but_keeps_stems(studio_app, monkeypatch):
     """20.11: Cloudflare у RunPod не пускает сервер. «Дописать» -- понятный
     отказ ДО списания денег; «Партии» запускаются (делятся на процессоре)."""

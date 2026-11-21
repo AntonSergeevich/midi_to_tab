@@ -1646,6 +1646,11 @@ class StudioRunner:
                             os.path.join(folder, f"{name}.mp3")], check=True, timeout=900)
             files.append({"name": f"{name}.mp3"})
         shutil.rmtree(work, ignore_errors=True)
+        if self._cancelled(job_id):
+            # Отмена во время кодирования (после единственной прежней проверки,
+            # сразу после separate.separate()) уже вернула деньги через cancel() ->
+            # _fail() -- не затирать это безусловным _finish() с готовыми файлами.
+            return
         self._finish(job_id, {"ok": True, "files": files,
                               "info": {"settings": {"model": found.model, "device": "cpu"}}},
                      {"executionTime": int((time.time() - started) * 1000)})
